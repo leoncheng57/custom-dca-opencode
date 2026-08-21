@@ -2,10 +2,8 @@
 <!--
   launchd unit for the OpenCode server this app depends on.
 
-  Install:
-    cp deploy/ai.opencode.serve.plist ~/Library/LaunchAgents/
-    # edit the paths + password below first
-    launchctl load ~/Library/LaunchAgents/ai.opencode.serve.plist
+  Optional OpenCode unit template. Read deploy/README.md before installing it.
+  Never copy over an existing ~/Library/LaunchAgents/ai.opencode.serve.plist.
 
   Why each env var is here (all learned during the migration audit):
     OPENCODE_SERVER_PASSWORD  - `serve` is UNSECURED by default and prints a
@@ -18,7 +16,9 @@
                                 parent session keeps working.
     HOME                      - so ~/.local/share/opencode resolves correctly.
 
-  --port is pinned deliberately: `opencode serve` defaults to port 0 (random).
+  scripts/start-opencode.mjs loads the repo-root .env and derives the hostname,
+  port, and credential from OPENCODE_URL / OPENCODE_SERVER_PASSWORD. This keeps
+  the BFF and OpenCode endpoint from drifting.
 -->
 <plist version="1.0">
 <dict>
@@ -27,13 +27,13 @@
 
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/bsjl/.opencode/bin/opencode</string>
-    <string>serve</string>
-    <string>--hostname</string>
-    <string>127.0.0.1</string>
-    <string>--port</string>
-    <string>4096</string>
+    <string>/usr/bin/env</string>
+    <string>node</string>
+    <string>REPO_ROOT/scripts/start-opencode.mjs</string>
   </array>
+
+  <key>WorkingDirectory</key>
+  <string>REPO_ROOT</string>
 
   <key>EnvironmentVariables</key>
   <dict>
@@ -43,13 +43,6 @@
     <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
     <key>NO_PROXY</key>
     <string>localhost,127.0.0.1</string>
-    <key>OPENCODE_DISABLE_AUTOUPDATE</key>
-    <string>1</string>
-    <key>OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS</key>
-    <string>true</string>
-    <!-- Set a real value before loading. Without it the server is unsecured. -->
-    <key>OPENCODE_SERVER_PASSWORD</key>
-    <string>CHANGE_ME</string>
   </dict>
 
   <key>RunAtLoad</key>
@@ -60,8 +53,8 @@
   <!-- The log is append-only with no built-in rotation; rotate it yourself
        (newsyslog/logrotate). It reached 117 MB on the author's machine. -->
   <key>StandardOutPath</key>
-  <string>/Users/bsjl/.local/share/opencode/log/launchd.out.log</string>
+  <string>REPO_ROOT/.state/logs/opencode.launchd.out.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/bsjl/.local/share/opencode/log/launchd.err.log</string>
+  <string>REPO_ROOT/.state/logs/opencode.launchd.err.log</string>
 </dict>
 </plist>

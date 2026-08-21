@@ -14,21 +14,21 @@ cd "$(dirname "$0")/.."
 OPENCODE_URL="${OPENCODE_URL:-http://127.0.0.1:4096}"
 PORT="${PORT:-3000}"
 
-auth=()
-if [ -n "${OPENCODE_SERVER_PASSWORD:-}" ]; then
-  auth=(--user "${OPENCODE_SERVER_USERNAME:-opencode}:${OPENCODE_SERVER_PASSWORD}")
-fi
-
 echo "→ checking opencode server at ${OPENCODE_URL}"
-if ! health=$(curl -fsS --max-time 5 "${auth[@]}" "${OPENCODE_URL}/global/health" 2>/dev/null); then
+if [ -n "${OPENCODE_SERVER_PASSWORD:-}" ]; then
+  health=$(curl -fsS --max-time 5 \
+    --user "${OPENCODE_SERVER_USERNAME:-opencode}:${OPENCODE_SERVER_PASSWORD}" \
+    "${OPENCODE_URL}/global/health" 2>/dev/null) || health=""
+else
+  health=$(curl -fsS --max-time 5 "${OPENCODE_URL}/global/health" 2>/dev/null) || health=""
+fi
+if [ -z "$health" ]; then
   cat >&2 <<EOF
 
 ✗ Cannot reach an opencode server at ${OPENCODE_URL}
 
   Start one:      opencode serve --hostname 127.0.0.1 --port 4096
-  Or install the launchd unit:
-                  cp deploy/ai.opencode.serve.plist ~/Library/LaunchAgents/
-                  launchctl load ~/Library/LaunchAgents/ai.opencode.serve.plist
+  If you intentionally manage OpenCode with launchd, see deploy/README.md.
 
   If it is running with a password, set OPENCODE_SERVER_PASSWORD in .env.
 EOF
@@ -43,6 +43,14 @@ actual=$(printf '%s' "$health" | grep -oE '"version":"[^"]+"' | cut -d'"' -f4 ||
 if [ -n "$expected" ] && [ -n "$actual" ] && [ "$expected" != "$actual" ]; then
   echo "  ! version skew: server ${actual}, client pinned to ${expected}" >&2
 fi
+
+# Used by the regression test to exercise the real preflight without starting
+# either long-running development process.
+if [ "${DEV_HEALTHCHECK_ONLY:-0}" = "1" ]; then
+  exit 0
+fi
+
+npx --no-install tsx scripts/dev-preflight.ts "$PORT"
 
 cleanup() { jobs -p | xargs -r kill 2>/dev/null || true; }
 trap cleanup EXIT INT TERM

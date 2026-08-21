@@ -37,7 +37,7 @@ against the production SPA and real BFF with only OpenCode and preview targets m
 ## Requirements
 
 - Node 22+
-- A running `opencode serve` (or `opencode web`) — v1.18.19
+- A running `opencode serve` (or `opencode web`) — v1.18.21
 - Optional: Tailscale, for phone access
 
 ## Quick start
@@ -47,6 +47,20 @@ npm install
 cp .env.example .env        # point OPENCODE_URL at your server
 npm run dev
 ```
+
+For a login-persistent production BFF, use the idempotent macOS LaunchAgent tooling:
+
+```bash
+chmod 600 .env
+npm run service:install             # dedicated port 3210
+npm run service:status
+```
+
+See [`deploy/README.md`](deploy/README.md) for logs, uninstall, Tailscale Serve,
+paths containing spaces, and the optional OpenCode unit. The BFF installer never
+starts a second OpenCode server; it uses `OPENCODE_URL` from `.env`.
+The OpenCode 1.18.21 compatibility check is recorded in
+[`docs/opencode-1.18.21-api-audit.md`](docs/opencode-1.18.21-api-audit.md).
 
 ### Open on a phone
 
