@@ -233,6 +233,39 @@ test.describe("interrupted runs", () => {
 });
 
 test.describe("composer", () => {
+  test("approves a permission and continues the conversation", async ({ page }) => {
+    const id = `perm_continue_${Date.now()}`;
+    await fetch(`${MOCK_URL}/test/permission?directory=${encodeURIComponent(DIR)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, sessionID: "ses_mock_running", permission: "external_directory", patterns: [`${DIR}/*`] }),
+    });
+    await page.goto(`/sessions/ses_mock_running?directory=${encodeURIComponent(DIR)}`);
+    const request = page.getByTestId("opencode-permission-request").filter({ hasText: "external_directory" });
+    await expect(request).toBeVisible();
+    await request.getByTestId("opencode-permission-once").click();
+    await expect(request).toHaveCount(0);
+    await expect(page.getByTestId("opencode-agent-message").filter({ hasText: "Permission approved; continuing" })).toBeVisible();
+    const replies = await (await fetch(`${MOCK_URL}/test/permission-replies`)).json() as Array<{ id: string; reply: string }>;
+    expect(replies).toContainEqual({ id, reply: "once" });
+  });
+
+  test("keeps a failed permission reply visible and retryable", async ({ page }) => {
+    const id = `perm_fail_${Date.now()}`;
+    await fetch(`${MOCK_URL}/test/permission?directory=${encodeURIComponent(DIR)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, sessionID: "ses_mock_running", permission: "bash", patterns: ["npm test"] }),
+    });
+    await page.goto(`/sessions/ses_mock_running?directory=${encodeURIComponent(DIR)}`);
+    const request = page.getByTestId("opencode-permission-request").filter({ hasText: "npm test" });
+    await expect(request).toBeVisible();
+    await request.getByTestId("opencode-permission-once").click();
+    await expect(page.getByTestId("opencode-permission-error")).toContainText("mock permission reply failed");
+    await expect(request).toBeVisible();
+    await expect(request.getByTestId("opencode-permission-once")).toBeEnabled();
+  });
+
   test("sends a follow-up", async ({ page }) => {
     await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
     await page.getByTestId("opencode-composer").fill("do the thing");

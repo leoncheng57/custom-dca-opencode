@@ -106,6 +106,7 @@ let mcpServers: Record<string, unknown> = {
 };
 const worktrees = [`${MOCK_DIRECTORY}.worktrees/fixture`];
 let pendingPermissions = [{ id: "perm_mock", sessionID: "ses_mock_done", permission: "bash", patterns: ["npm test"] }];
+const permissionReplies: Array<{ id: string; reply: unknown }> = [];
 const questionFixture = () => [
   {
     id: "que_mock",
@@ -255,6 +256,21 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
       : json(res, 200, toolIDs);
   }
   if (pathname === "/test/prompt-payloads") return json(res, 200, promptPayloads);
+  if (pathname === "/test/permission-replies") return json(res, 200, permissionReplies);
+  if (pathname === "/test/permission" && req.method === "POST") {
+    void body(req).then((input) => {
+      const permission = {
+        id: String(input.id),
+        sessionID: String(input.sessionID),
+        permission: String(input.permission),
+        patterns: Array.isArray(input.patterns) ? input.patterns.map(String) : [],
+      };
+      pendingPermissions.push(permission);
+      emit("permission.asked", permission, directory ?? MOCK_DIRECTORY);
+      json(res, 201, permission);
+    });
+    return;
+  }
   if (pathname === "/test/session-payloads") return json(res, 200, sessionPayloads);
   if (pathname === "/test/question-replies") {
     const id = url.searchParams.get("id");
@@ -288,8 +304,25 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
   if (pathname === "/permission") return json(res, 200, pendingPermissions);
   const permissionReply = /^\/permission\/([^/]+)\/reply$/.exec(pathname);
   if (permissionReply && req.method === "POST") {
-    pendingPermissions = pendingPermissions.filter((request) => request.id !== decodeURIComponent(permissionReply[1]));
-    return json(res, 200, true);
+    const id = decodeURIComponent(permissionReply[1]);
+    const permission = pendingPermissions.find((request) => request.id === id);
+    if (id.startsWith("perm_fail")) return json(res, 500, { error: "mock permission reply failed" });
+    void body(req).then((input) => {
+      permissionReplies.push({ id, reply: input.reply });
+      pendingPermissions = pendingPermissions.filter((request) => request.id !== id);
+      if (permission && id.startsWith("perm_continue_") && input.reply !== "reject") {
+        const now = Date.now();
+        const sessionMessages = messages.get(permission.sessionID) ?? [];
+        sessionMessages.push({
+          info: { id: `msg_permission_${now}`, role: "assistant", agent: "build", time: { created: now, completed: now } },
+          parts: [{ id: `prt_permission_${now}`, messageID: `msg_permission_${now}`, type: "text", text: "Permission approved; continuing the conversation." }],
+        });
+        messages.set(permission.sessionID, sessionMessages);
+      }
+      emit("permission.replied", { sessionID: permission?.sessionID, requestID: id, reply: input.reply }, directory ?? MOCK_DIRECTORY);
+      json(res, 200, true);
+    });
+    return;
   }
   if (pathname === "/question" && req.method === "GET") return json(res, 200, pendingQuestions);
   const questionAction = /^\/question\/([^/]+)\/(reply|reject)$/.exec(pathname);

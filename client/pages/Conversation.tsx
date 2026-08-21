@@ -53,6 +53,8 @@ export function ConversationPage() {
   const [mode, setMode] = useState<AgentMode>("build");
   const derivedModeMessage = useRef<string | undefined>(undefined);
   const modeSelectionDirty = useRef(false);
+  const [replyingPermission, setReplyingPermission] = useState<string | null>(null);
+  const [permissionError, setPermissionError] = useState<string | null>(null);
   const [modelCatalogue, setModelCatalogue] = useState<ModelCatalogue | null>(null);
   const [currentModel, setCurrentModel] = useState<ModelSelection | undefined>();
   const [selectedModel, setSelectedModel] = useState<ModelSelection | undefined>();
@@ -213,6 +215,18 @@ export function ConversationPage() {
     }
   };
 
+  const replyToPermission = async (requestId: string, reply: "once" | "always" | "reject") => {
+    setReplyingPermission(requestId);
+    setPermissionError(null);
+    try {
+      await stream.replyPermission(requestId, reply);
+    } catch (error) {
+      setPermissionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setReplyingPermission(null);
+    }
+  };
+
   const addAttachments = (files: Iterable<File>) => {
     const selection = selectImageFiles(files, attachments.length);
     setAttachmentError(selection.error);
@@ -316,13 +330,18 @@ export function ConversationPage() {
           <Alert variant="warning">
             <div className="flex flex-wrap items-center gap-2">
               <span className="min-w-0 flex-1 text-sm"><strong>{permission.permission}</strong> needs approval{permission.patterns.length ? `: ${permission.patterns.join(", ")}` : ""}</span>
-              <Button size="sm" onClick={() => void api.replyPermission(directory, permission.id, "once").then(stream.refresh)} data-testid="opencode-permission-once">Allow once</Button>
-              <Button size="sm" variant="secondary" onClick={() => void api.replyPermission(directory, permission.id, "always").then(stream.refresh)} data-testid="opencode-permission-always">Always</Button>
-              <Button size="sm" variant="danger" onClick={() => void api.replyPermission(directory, permission.id, "reject").then(stream.refresh)} data-testid="opencode-permission-reject">Reject</Button>
+              <Button size="sm" disabled={replyingPermission !== null} onClick={() => void replyToPermission(permission.id, "once")} data-testid="opencode-permission-once">{replyingPermission === permission.id ? "Approving..." : "Allow once"}</Button>
+              <Button size="sm" variant="secondary" disabled={replyingPermission !== null} onClick={() => void replyToPermission(permission.id, "always")} data-testid="opencode-permission-always">Always</Button>
+              <Button size="sm" variant="danger" disabled={replyingPermission !== null} onClick={() => void replyToPermission(permission.id, "reject")} data-testid="opencode-permission-reject">Reject</Button>
             </div>
           </Alert>
         </div>
       ))}
+      {permissionError && (
+        <div className="px-4 pt-3" data-testid="opencode-permission-error">
+          <Alert variant="danger">Could not answer the permission request: {permissionError}</Alert>
+        </div>
+      )}
 
       {stream.questions.map((request) => (
         <QuestionRequest key={request.id} directory={directory} sessionID={id} request={request} onResolved={stream.refresh} />
