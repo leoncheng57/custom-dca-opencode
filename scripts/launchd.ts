@@ -83,6 +83,16 @@ export function assertSupportedNodeVersion(version = process.versions.node): voi
   }
 }
 
+export function assertInstallablePlist(plist: string): void {
+  const unresolved = plist.match(/REPLACE_WITH_[A-Z_]+/g);
+  if (unresolved) throw new Error(`unresolved plist placeholder: ${unresolved[0]}`);
+
+  const executable = plist.match(/<key>ProgramArguments<\/key>\s*<array>\s*<string>([^<]+)<\/string>/)?.[1];
+  if (!executable || !path.isAbsolute(executable)) {
+    throw new Error("LaunchAgent executable must be an absolute path");
+  }
+}
+
 function runLaunchctl(args: string[], allowFailure = false): boolean {
   const result = spawnSync("launchctl", args, { stdio: allowFailure ? "ignore" : "inherit" });
   if (!allowFailure && result.status !== 0) {
@@ -159,6 +169,7 @@ function install(port: number): void {
     stdoutPath: servicePaths.stdout,
     stderrPath: servicePaths.stderr,
   });
+  assertInstallablePlist(plist);
 
   if (runLaunchctl(["print", serviceTarget()], true)) {
     runLaunchctl(["bootout", serviceTarget()]);

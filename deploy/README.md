@@ -49,22 +49,37 @@ the service so the rebuilt process reads it.
 
 `ai.opencode.serve.plist` remains a manual template for users who do not already
 supervise OpenCode. Do not install it when `OPENCODE_URL/global/health` is already
-reachable, and never overwrite an installed plist automatically. Before first use:
+reachable, and never overwrite an installed plist automatically.
 
-1. Replace every `REPO_ROOT` with the absolute repository path. Paths containing
-   spaces are valid plist strings and must not be shell-escaped.
-2. Create `.state/logs` and ensure dependencies are installed.
-3. Put the OpenCode URL and optional password in `.env`; the plist contains no secret.
-4. Validate and install under its distinct label:
+The template invokes the OpenCode binary directly. It never relies on `node`,
+`/usr/bin/env`, nvm, or shell-profile PATH setup. It also deliberately does not load
+`.env` and contains no password: use it only for an unsecured server bound to
+`127.0.0.1`. If OpenCode requires authentication, keep it under its existing
+supervisor and put only the matching URL and credentials in the BFF's mode-0600
+`.env`.
+
+Before first use, make a working copy and replace every `REPLACE_WITH_*` value:
+
+- `REPLACE_WITH_ABSOLUTE_OPENCODE_BINARY`: the absolute result of `command -v opencode`
+- `REPLACE_WITH_OPENCODE_PORT`: the port from `OPENCODE_URL` in `.env`
+- `REPLACE_WITH_HOME_DIRECTORY`: the absolute home directory
+- `REPLACE_WITH_LAUNCHD_PATH`: an explicit PATH containing tools agents may invoke
+- `REPLACE_WITH_LOG_DIRECTORY`: an existing absolute log directory
+
+Paths containing spaces are valid plist strings and must not be shell-escaped. Escape
+XML-sensitive characters if a path contains them. Validate that no placeholder remains
+before installing under the distinct label:
 
 ```bash
-plutil -lint deploy/ai.opencode.serve.plist
-cp deploy/ai.opencode.serve.plist ~/Library/LaunchAgents/ai.opencode.serve.plist
+cp deploy/ai.opencode.serve.plist /tmp/ai.opencode.serve.plist
+# Edit /tmp/ai.opencode.serve.plist, then:
+! grep -q 'REPLACE_WITH_' /tmp/ai.opencode.serve.plist
+plutil -lint /tmp/ai.opencode.serve.plist
+test ! -e ~/Library/LaunchAgents/ai.opencode.serve.plist
+cp /tmp/ai.opencode.serve.plist ~/Library/LaunchAgents/ai.opencode.serve.plist
 launchctl bootstrap "gui/$UID" ~/Library/LaunchAgents/ai.opencode.serve.plist
 launchctl print "gui/$UID/ai.opencode.serve"
 ```
 
-The wrapper `scripts/start-opencode.mjs` loads the same `.env`, derives the bind port
-from `OPENCODE_URL`, and passes the password through the child environment. The jobs
-and logs are intentionally unambiguous: `ai.opencode.serve` uses
+The jobs and logs are intentionally unambiguous: `ai.opencode.serve` uses
 `opencode.launchd.*.log`; `ai.custom-dca-opencode.bff` uses `bff.launchd.*.log`.
