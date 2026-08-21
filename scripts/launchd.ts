@@ -131,8 +131,14 @@ function paths(root: string) {
   };
 }
 
+function userDomain(): string {
+  const uid = process.getuid?.();
+  if (uid === undefined) throw new Error("launchd supervision requires a POSIX user id");
+  return `gui/${uid}`;
+}
+
 function serviceTarget(): string {
-  return `gui/${process.getuid()}/${BFF_LABEL}`;
+  return `${userDomain()}/${BFF_LABEL}`;
 }
 
 function install(port: number): void {
@@ -177,7 +183,7 @@ function install(port: number): void {
   assertPortAvailable(port);
   writeFileSync(servicePaths.plist, plist, { mode: 0o644 });
   chmodSync(servicePaths.plist, 0o644);
-  runLaunchctl(["bootstrap", `gui/${process.getuid()}`, servicePaths.plist]);
+  runLaunchctl(["bootstrap", userDomain(), servicePaths.plist]);
   runLaunchctl(["print", serviceTarget()]);
   console.log(`Installed ${BFF_LABEL} on http://127.0.0.1:${port}`);
   console.log(`Plist: ${servicePaths.plist}`);

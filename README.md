@@ -86,6 +86,48 @@ npm run build
 npm run test:e2e
 ```
 
+### PR screenshots
+
+Add a fenced block to a pull request description to capture mock-backed UI routes:
+
+````md
+```screenshots
+/?directory=/tmp/mock-project
+full:/sessions/ses_mock_done?directory=/tmp/mock-project
+```
+````
+
+CI publishes up to 10 validated images on the dedicated `gh-pages` branch, embeds public
+raw links in one sticky PR comment, and also keeps a 30-day Actions artifact. Blank and
+`#` comment lines are ignored. Routes cannot contain whitespace, hosts, schemes, controls,
+backslashes, or traversal. Removing the block removes that PR's published directory;
+closing the PR removes the directory and comment. Capture always uses the deterministic
+Playwright mocks, never a live OpenCode server or real conversations.
+
+Fork runs remain read-only and may need maintainer approval. Fork artifacts are linked in
+the sticky comment but are never copied to `gh-pages`: manifest validation cannot prove
+that untrusted code genuinely used Playwright to produce the PNG bytes. If inline capture
+is needed for a fork, attach locally reviewed images instead. Run the fixture request with:
+
+```bash
+npm run screenshots:local
+```
+
+Publication requires Actions to allow the workflow's declared `contents: write` and
+`pull-requests: write` permissions. The trusted publisher creates `gh-pages` on its first
+image publication; GitHub Pages itself does not need to be enabled because comments use
+public `raw.githubusercontent.com` URLs. The `workflow_run` publisher must exist on the
+default branch, so this bootstrap PR can prove capture via its artifact but will not
+self-publish until the workflows are merged.
+
+If capture fails, inspect the **PR screenshots** run for the rejected route or Playwright
+error and reproduce with `npm run screenshots:local`. If capture succeeds without a
+comment, inspect **Publish PR screenshots**, verify workflow write permissions, and check
+that the `gh-pages` branch is not protected against the bot. Stale images are cache-busted
+with the source SHA. GitLab MRs can reuse the parser, manifest, and validation model, but
+would need GitLab artifact/Pages publication and MR-note API wiring; that second CI system
+is intentionally not included.
+
 ## Architecture
 
 ```

@@ -26,8 +26,14 @@ several decisions below.
   than the 1.18.21 server and its event union is stale, so `server/opencode/client.ts`
   owns a small typed fetch seam instead of casting around the SDK.
 - Tests: `npm test` (vitest, `tests/*.test.ts`, node environment, import with `.js`
-  suffixes). `npm run typecheck` runs both tsconfigs. Playwright starts deterministic
-  mock OpenCode and preview servers, so `npm run test:e2e` needs no live stack or keys.
+  suffixes). `npm run typecheck` runs the client, server, and screenshot-tool tsconfigs.
+  Playwright starts deterministic mock OpenCode and preview servers, so
+  `npm run test:e2e` needs no live stack or keys.
+- PR screenshot requests are routes inside one fenced `screenshots` block in the PR
+  body; the exact schema and local command are in README. Capture is an
+  unprivileged fork-safe workflow. Only the default-branch publisher may validate
+  its artifact, write `gh-pages`, or update the marker-owned bot comment. Never run
+  artifact code or publish files not declared by its validated manifest.
 - `reminders/<id>/SKILL.md` is read at runtime, not emitted by `tsc`. Keep the root
   catalogue beside `dist/` in deployments. Per-message injection accepts an ID only;
   the BFF resolves the body and appends the `<reminder name="id">` sentinel.
@@ -121,3 +127,38 @@ several decisions below.
   must never touch raw OpenCode `Part` shapes — that mapping lives in exactly one place
   (`client/lib/events.ts`), which is what made this migration a ~363-line adapter
   rewrite instead of a full rebuild. **Keep that seam.**
+
+## Automated PR screenshots
+
+Request deterministic screenshots with one root-relative route per line in the PR body:
+
+````md
+```screenshots
+/?directory=/tmp/mock-project
+full:/sessions/ses_mock_done?directory=/tmp/mock-project
+```
+````
+
+Blank lines and lines beginning with `#` are ignored. `full:` captures the full page;
+ordinary routes use a 1280x800 viewport. Requests are limited to 10 known UI routes and
+reject whitespace, controls, schemes, hosts, backslashes, malformed encoding, and path
+traversal.
+
+The read-only `pull_request` workflow runs the production SPA and BFF against only the
+fixed Playwright OpenCode and forge mocks. A separate default-branch `workflow_run`
+publisher treats the artifact as untrusted, validates its manifest and PNGs, writes only
+`gh-pages:pr-screenshots/pr-<number>/`, and maintains one `<!-- pr-screenshots -->`
+comment with public raw links and an artifact fallback. The close workflow uses
+`pull_request_target` only for trusted GitHub API cleanup; it never checks out or runs PR
+code. The publisher also requires the PR head repository to equal this repository and
+binds the artifact to the workflow run SHA. Fork artifacts may be linked but their bytes
+are never published. Never combine write permissions with execution of a fork checkout.
+
+Fork capture is safe but may require a maintainer to approve the read-only Actions run.
+If Actions are unavailable, capture locally and attach images manually. Local capture:
+
+```bash
+npm run screenshots:local
+```
+
+Output is written to the ignored `screenshot-output/` directory.

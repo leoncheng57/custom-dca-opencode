@@ -1,0 +1,50 @@
+name: PR screenshots
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+concurrency:
+  group: pr-screenshots-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+# This workflow executes the PR checkout. It deliberately has no write permission
+# and receives no repository secrets, including for pull requests from forks.
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Read screenshot request from event
+        run: jq -r '.pull_request.body // ""' "$GITHUB_EVENT_PATH" > "$RUNNER_TEMP/pr-body.txt"
+
+      - name: Install Chromium
+        if: contains(github.event.pull_request.body || '', '```screenshots')
+        run: npx playwright install --with-deps chromium
+
+      - name: Capture and validate screenshots
+        run: >-
+          npm run screenshots --
+          --body-file "$RUNNER_TEMP/pr-body.txt"
+          --output-dir screenshot-output
+          --pr-number "${{ github.event.pull_request.number }}"
+          --sha "${{ github.event.pull_request.head.sha }}"
+
+      - name: Upload validated bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-screenshots-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+          path: screenshot-output/
+          if-no-files-found: error
+          retention-days: 30

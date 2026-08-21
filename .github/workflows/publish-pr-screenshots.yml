@@ -1,0 +1,207 @@
+name: Publish PR screenshots
+
+on:
+  workflow_run:
+    workflows: [PR screenshots]
+    types: [completed]
+
+# gh-pages is shared by every PR, so publications serialize even though captures
+# use per-PR concurrency. The trusted publisher never executes artifact code.
+concurrency:
+  group: pr-screenshot-publication
+  cancel-in-progress: false
+
+permissions:
+  actions: read
+  contents: write
+  pull-requests: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Resolve trusted run identity
+        id: run
+        env:
+          RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          pr_number=$(jq -r '.workflow_run.pull_requests[0].number // empty' "$GITHUB_EVENT_PATH")
+          if [ -z "$pr_number" ]; then
+            pr_number=$(gh api --paginate "repos/$REPOSITORY/commits/$RUN_HEAD_SHA/pulls" --jq '.[0].number // empty')
+          fi
+          case "$pr_number" in (*[!0-9]*|'') echo "Could not resolve a numeric PR number" >&2; exit 1;; esac
+          PR_JSON=$(gh api "repos/$REPOSITORY/pulls/$pr_number")
+          PR_HEAD_SHA=$(jq -r '.head.sha' <<< "$PR_JSON")
+          PR_HEAD_REPOSITORY=$(jq -r '.head.repo.full_name' <<< "$PR_JSON")
+          case "$RUN_HEAD_SHA" in (*[!0-9a-f]*|'') echo "Invalid workflow run head SHA" >&2; exit 1;; esac
+          test "${#RUN_HEAD_SHA}" -eq 40
+          test "$PR_HEAD_SHA" = "$RUN_HEAD_SHA" || { echo "Workflow run SHA no longer matches PR head; refusing publication" >&2; exit 1; }
+          echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$RUN_HEAD_SHA" >> "$GITHUB_OUTPUT"
+          echo "same_repository=$([ "$PR_HEAD_REPOSITORY" = "$REPOSITORY" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - name: Report failed capture
+        if: github.event.workflow_run.conclusion != 'success'
+        uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ steps.run.outputs.pr_number }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+        with:
+          script: |
+            const marker = '<!-- pr-screenshots -->';
+            const body = [
+              marker,
+              '## PR screenshots',
+              '',
+              `Screenshot capture failed. [Open the workflow run](${process.env.RUN_URL}) for the parser, security validation, or capture error.`,
+              '',
+              '_Unsafe routes are rejected before a browser is started._',
+            ].join('\n');
+            const issue_number = Number(process.env.PR_NUMBER);
+            const comments = await github.paginate(github.rest.issues.listComments, { ...context.repo, issue_number, per_page: 100 });
+            const existing = comments.find((comment) => comment.body?.includes(marker));
+            if (existing) await github.rest.issues.updateComment({ ...context.repo, comment_id: existing.id, body });
+            else await github.rest.issues.createComment({ ...context.repo, issue_number, body });
+
+      - name: Report fork artifact without publishing binaries
+        if: github.event.workflow_run.conclusion == 'success' && steps.run.outputs.same_repository != 'true'
+        uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ steps.run.outputs.pr_number }}
+          HEAD_SHA: ${{ steps.run.outputs.head_sha }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+        with:
+          script: |
+            const marker = '<!-- pr-screenshots -->';
+            const issue_number = Number(process.env.PR_NUMBER);
+            const artifactName = `pr-screenshots-${issue_number}-${process.env.HEAD_SHA}`;
+            const artifacts = await github.rest.actions.listWorkflowRunArtifacts({ ...context.repo, run_id: Number(process.env.RUN_ID), per_page: 100 });
+            const artifact = artifacts.data.artifacts.find((item) => item.name === artifactName);
+            const artifactUrl = artifact ? `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${process.env.RUN_ID}/artifacts/${artifact.id}` : process.env.RUN_URL;
+            const body = [
+              marker,
+              '## PR screenshots',
+              '',
+              'This fork ran the read-only mock capture, but inline publication is disabled because untrusted fork code can craft arbitrary artifact bytes.',
+              '',
+              `[Inspect the workflow run](${process.env.RUN_URL}) | [Download the untrusted artifact](${artifactUrl})`,
+            ].join('\n');
+            const comments = await github.paginate(github.rest.issues.listComments, { ...context.repo, issue_number, per_page: 100 });
+            const existing = comments.find((comment) => comment.body?.includes(marker));
+            if (existing) await github.rest.issues.updateComment({ ...context.repo, comment_id: existing.id, body });
+            else await github.rest.issues.createComment({ ...context.repo, issue_number, body });
+
+      - name: Check out trusted publisher
+        if: github.event.workflow_run.conclusion == 'success' && steps.run.outputs.same_repository == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: source
+
+      - name: Prepare gh-pages worktree
+        if: github.event.workflow_run.conclusion == 'success' && steps.run.outputs.same_repository == 'true'
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          git clone --no-checkout "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" site
+          cd site
+          if git show-ref --verify --quiet refs/remotes/origin/gh-pages; then
+            git switch --track origin/gh-pages
+          else
+            git switch --orphan gh-pages
+            git rm -rf . || true
+          fi
+
+      - name: Set up Node.js
+        if: github.event.workflow_run.conclusion == 'success' && steps.run.outputs.same_repository == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: source/package-lock.json
+
+      - name: Install trusted publisher dependencies
+        if: github.event.workflow_run.conclusion == 'success' && steps.run.outputs.same_repository == 'true'
+        working-directory: source
+        run: npm ci
+
+      - name: Download exact workflow artifact
+        if: github.event.workflow_run.conclusion == 'success' && steps.run.outputs.same_repository == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: pr-screenshots-${{ steps.run.outputs.pr_number }}-${{ steps.run.outputs.head_sha }}
+          path: bundle
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: Validate and stage publication
+        if: github.event.workflow_run.conclusion == 'success' && steps.run.outputs.same_repository == 'true'
+        id: bundle
+        env:
+          PR_NUMBER: ${{ steps.run.outputs.pr_number }}
+          HEAD_SHA: ${{ steps.run.outputs.head_sha }}
+        run: |
+          result=$(cd source && npx tsx scripts/publish-pr-screenshots.ts \
+            --bundle ../bundle \
+            --destination "../site/pr-screenshots/pr-$PR_NUMBER" \
+            --pr-number "$PR_NUMBER" \
+            --sha "$HEAD_SHA")
+          echo "count=$(jq -r '.count' <<< "$result")" >> "$GITHUB_OUTPUT"
+
+      - name: Publish only this PR directory
+        if: github.event.workflow_run.conclusion == 'success' && steps.run.outputs.same_repository == 'true'
+        working-directory: site
+        env:
+          PR_NUMBER: ${{ steps.run.outputs.pr_number }}
+          HEAD_SHA: ${{ steps.run.outputs.head_sha }}
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add --all
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Publish screenshots for PR #$PR_NUMBER at $HEAD_SHA"
+          git push origin gh-pages
+
+      - name: Update sticky screenshot comment
+        if: github.event.workflow_run.conclusion == 'success' && steps.run.outputs.same_repository == 'true'
+        uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ steps.run.outputs.pr_number }}
+          HEAD_SHA: ${{ steps.run.outputs.head_sha }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- pr-screenshots -->';
+            const issue_number = Number(process.env.PR_NUMBER);
+            const sha = process.env.HEAD_SHA;
+            const shortSha = sha.slice(0, 7);
+            const manifest = JSON.parse(fs.readFileSync('bundle/manifest.json', 'utf8'));
+            const base = `https://raw.githubusercontent.com/${context.repo.owner}/${context.repo.repo}/gh-pages/pr-screenshots/pr-${issue_number}`;
+            const artifacts = await github.rest.actions.listWorkflowRunArtifacts({ ...context.repo, run_id: Number(process.env.RUN_ID), per_page: 100 });
+            const artifact = artifacts.data.artifacts.find((item) => item.name === `pr-screenshots-${issue_number}-${sha}`);
+            const artifactUrl = artifact ? `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${process.env.RUN_ID}/artifacts/${artifact.id}` : context.payload.workflow_run.html_url;
+            const escapeHtml = (value) => value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
+            const lines = [marker, '## PR screenshots', ''];
+            if (manifest.screenshots.length === 0) {
+              lines.push('No screenshots requested. Add this to the PR description:', '', '```md', '```screenshots', '/?directory=/tmp/mock-project', 'full:/sessions/ses_mock_done?directory=/tmp/mock-project', '```', '```');
+            } else {
+              lines.push('| Route | Preview |', '| --- | --- |');
+              for (const shot of manifest.screenshots) {
+                const url = `${base}/${encodeURIComponent(shot.filename)}?sha=${shortSha}`;
+                const route = escapeHtml(shot.requestedRoute).replaceAll('|', '&#124;');
+                const alt = escapeHtml(shot.requestedRoute);
+                lines.push(`| <code>${route}</code>${shot.fullPage ? ' (full page)' : ''}<br>[Open full size](${url}) | [<img src="${url}" width="640" alt="${alt}">](${url}) |`);
+              }
+              lines.push('', `Source: \`${shortSha}\` | [Download artifact](${artifactUrl})`);
+            }
+            lines.push('', '_Captured from the production app against deterministic mock OpenCode fixtures only._');
+            const body = lines.join('\n');
+            const comments = await github.paginate(github.rest.issues.listComments, { ...context.repo, issue_number, per_page: 100 });
+            const existing = comments.find((comment) => comment.body?.includes(marker));
+            if (existing) await github.rest.issues.updateComment({ ...context.repo, comment_id: existing.id, body });
+            else await github.rest.issues.createComment({ ...context.repo, issue_number, body });
