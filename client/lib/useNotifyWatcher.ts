@@ -1,6 +1,7 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 import { api, type NotificationPreferences, type NotifyEvent } from "./api.js";
+import { ACTIVE_SET_EVENTS } from "./useNotificationCenter.js";
 
 function classify(type: string, properties: Record<string, unknown>): NotifyEvent | null {
   if (type === "session.idle") return "idle";
@@ -48,11 +49,26 @@ export function notifyBrowser(
   }
 }
 
-/** One app-level listener. SSE is a nudge; notification preferences stay server-backed. */
-export function useNotifyWatcher(): void {
+const ACTIVE_SET_DEBOUNCE_MS = 300;
+
+/**
+ * One app-level listener. SSE is a nudge; notification preferences stay
+ * server-backed.
+ *
+ * `onActiveSetChanged` fires (debounced) for events that can add or clear an
+ * outstanding permission/question, so the badge can refetch from the server
+ * without this hook's consumer opening a second EventSource.
+ */
+export function useNotifyWatcher(onActiveSetChanged?: () => void): void {
+  // Kept in a ref so the effect can stay mounted for the app's lifetime
+  // instead of tearing the stream down whenever the callback identity changes.
+  const notifyActiveSet = useRef(onActiveSetChanged);
+  notifyActiveSet.current = onActiveSetChanged;
+
   useEffect(() => {
     let preferences: NotificationPreferences | null = null;
     const seen = new Map<string, number>();
+    let activeSetTimer: ReturnType<typeof setTimeout> | undefined;
     const refreshPreferences = () => void api.notifications().then((result) => {
       preferences = result.preferences;
     }).catch(() => undefined);
@@ -66,7 +82,15 @@ export function useNotifyWatcher(): void {
       } catch {
         return;
       }
-      if (!event.type || !preferences) return;
+      if (!event.type) return;
+      // Ahead of the preferences guard on purpose: the badge must still track
+      // outstanding work during the first paint, before preferences load.
+      if (ACTIVE_SET_EVENTS.has(event.type)) {
+        if (activeSetTimer) clearTimeout(activeSetTimer);
+        // One agent turn can emit several of these; coalesce into one refetch.
+        activeSetTimer = setTimeout(() => notifyActiveSet.current?.(), ACTIVE_SET_DEBOUNCE_MS);
+      }
+      if (!preferences) return;
       const kind = classify(event.type, event.properties ?? {});
       if (!kind) return;
       const properties = event.properties ?? {};
@@ -82,6 +106,7 @@ export function useNotifyWatcher(): void {
       notifyBrowser(preferences, kind, undefined, event.click);
     };
     return () => {
+      if (activeSetTimer) clearTimeout(activeSetTimer);
       source.close();
       window.removeEventListener("opencode-notification-preferences", refreshPreferences);
     };

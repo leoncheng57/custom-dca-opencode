@@ -105,7 +105,19 @@ several decisions below.
    This preserves configured asks and pattern-specific denies without blanket allows.
    Activation must succeed before `prompt_async`, and exact suffix checks make repeated
    same-mode prompts idempotent.
-10. **Auto permissions is volatile and directory-scoped.** The BFF keeps it in memory,
+10. **Notification records are persisted; the badge counts outstanding work, not unread.**
+    `.state/notification-history.json` (500-record ring, `NOTIFICATION_HISTORY_FILE`) is
+    written by `NotificationService`, which previously discarded everything it sent. Only
+    `permission` and `question` records are `actionable` and can hold the red counter;
+    `idle`/`error`/`abort` are logged but never counted, and `parked` escalates its parent
+    permission rather than adding a second count. Suppressed and failed deliveries are
+    still recorded — the log's job is to explain a missing ping. `delivery.browser` is the
+    *preference*, never proof of render, because the BFF cannot see a tab. Since records
+    outlive the process, the active set is reconciled against `GET /permission` and
+    `GET /question` on stream reconnect and (throttled) on history reads; that is the
+    **only** dependable path for questions, whose reply events this repo has never
+    observed. Unreconcilable actives retire after 24h so a phantom badge cannot persist.
+11. **Auto permissions is volatile and directory-scoped.** The BFF keeps it in memory,
     defaults it off after every restart, and replies `once` to `permission.asked` for
     every session in an enabled directory. It never mutates policy, replies `always`,
     or answers questions; it can only approve requests that upstream emits as asked.

@@ -789,3 +789,63 @@ test.describe("permission remote control", () => {
     await fetch(`${MOCK_URL}/test/permissions/reset?directory=${encodeURIComponent(AUTO_DIR)}`, { method: "POST" });
   });
 });
+
+test.describe("notification history", () => {
+  // The active set is shared process state, so every assertion here is scoped
+  // to an id this test created rather than to a global count.
+  const record = (records: Array<Record<string, unknown>>, requestID: string) =>
+    records.find((item) => item.requestID === requestID);
+
+  async function history(request: APIRequestContext): Promise<{
+    records: Array<Record<string, unknown>>;
+    activeCount: number;
+  }> {
+    return await (await request.get("/api/notifications/history?limit=200")).json();
+  }
+
+  test("records an ask, clears it on reply and keeps the delivery outcome", async ({ request }) => {
+    const requestID = `perm_history_${Date.now()}`;
+    await fetch(`${MOCK_URL}/test/permission?directory=${encodeURIComponent(DIR)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: requestID, sessionID: "ses_mock_done", permission: "bash", patterns: ["npm test"] }),
+    });
+
+    await expect.poll(async () => record((await history(request)).records, requestID))
+      .toMatchObject({ kind: "permission", actionable: true, directory: DIR });
+    const asked = record((await history(request)).records, requestID)!;
+    // ntfy is disabled in e2e, and the BFF must never claim a browser rendered it.
+    expect(asked.delivery).toMatchObject({ ntfy: "off" });
+    expect(asked.resolvedAt).toBeUndefined();
+
+    await request.post(`/api/permission-requests/${requestID}/reply?directory=${DIR}`, { data: { reply: "once" } });
+    await expect.poll(async () => record((await history(request)).records, requestID)?.resolvedBy).toBe("replied");
+    expect(record((await history(request)).records, requestID)?.actionable).toBe(true);
+  });
+
+  test("dismisses an active record and clears only resolved ones", async ({ request }) => {
+    const requestID = `perm_dismiss_${Date.now()}`;
+    await fetch(`${MOCK_URL}/test/permission?directory=${encodeURIComponent(DIR)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: requestID, sessionID: "ses_mock_done", permission: "bash", patterns: ["npm run lint"] }),
+    });
+    await expect.poll(async () => Boolean(record((await history(request)).records, requestID))).toBe(true);
+
+    const before = await history(request);
+    const id = record(before.records, requestID)!.id as string;
+    const dismissed = await request.post(`/api/notifications/${id}/dismiss`);
+    expect(dismissed.status()).toBe(200);
+    expect((await dismissed.json()).activeCount).toBe(before.activeCount - 1);
+
+    expect((await request.post("/api/notifications/nope/dismiss")).status()).toBe(404);
+
+    await request.post("/api/notifications/history/clear");
+    const after = await history(request);
+    // Clearing drops resolved rows only; reconciliation can never recreate an
+    // active one, so removing those would be unrecoverable.
+    expect(record(after.records, requestID)).toBeUndefined();
+    expect(after.records.every((item) => item.resolvedAt === undefined)).toBe(true);
+    await fetch(`${MOCK_URL}/test/permissions/reset?directory=${encodeURIComponent(DIR)}`, { method: "POST" });
+  });
+});

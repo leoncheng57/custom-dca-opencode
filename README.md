@@ -128,6 +128,32 @@ with the source SHA. GitLab MRs can reuse the parser, manifest, and validation m
 would need GitLab artifact/Pages publication and MR-note API wiring; that second CI system
 is intentionally not included.
 
+## Notifications
+
+The **Notifications** page configures browser and ntfy delivery per event, and shows a
+history of every notification the BFF classified. A red counter appears on the nav link
+and the page header while work is outstanding.
+
+The counter is **not** an unread count. It counts permission and question requests that
+are still awaiting a reply, so it goes to zero by answering the agent, not by visiting the
+page. `idle`, `error` and `abort` are logged but never counted — nothing about them is
+actionable. A parked permission escalates the record it belongs to instead of adding a
+second count.
+
+The log records events even when delivery was suppressed, because "why was I never asked?"
+is the question it exists to answer. `ntfy` reports `sent`, `off` or `failed`; `browser`
+reports only whether preferences **allowed** the notification, since the BFF cannot observe
+whether a tab was open to render it. Auto-approved permissions appear marked
+`suppressed by auto permissions` and never hold the counter.
+
+Records live in `.state/notification-history.json` (override with
+`NOTIFICATION_HISTORY_FILE`), capped at the newest 500. Because they outlive the process,
+the BFF reconciles the outstanding set against `GET /permission` and `GET /question` on
+every event-stream reconnect and, throttled, whenever the page loads. That closes requests
+answered while the BFF was down; anything unreconcilable after 24 hours is retired
+automatically, and **Dismiss** clears a single stuck row by hand. **Clear resolved** drops
+resolved rows only — reconciliation can close a record but never recreate one.
+
 ## Architecture
 
 ```
