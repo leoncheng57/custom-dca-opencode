@@ -117,6 +117,22 @@ export interface ReviewStatus {
   pipeline: string | null;
   mergeable: boolean | null;
   headSha: string;
+  number: number;
+  project: string;
+}
+export interface ReviewComment { id: string; author: string; body: string; createdAt: string; resolved: boolean | null; discussionId: string | null; bodyTruncated: boolean }
+export interface ReviewSummary { id: string; author: string; state: string; body: string; submittedAt: string; bodyTruncated: boolean }
+export interface ReviewPipeline { id: string; status: string; webUrl: string; createdAt: string; completedAt: string; duration: number | null }
+export interface ReviewCheck { id: string; name: string; stage: string; status: string; webUrl: string; startedAt: string; completedAt: string; duration: number | null; source: "check" | "status" | "job" }
+export interface DetailSection<T> { value: T; error: "Authentication unavailable" | "Rate limited" | "Unavailable" | null; truncated: boolean }
+export interface ReviewDetails {
+  description: DetailSection<string>;
+  comments: DetailSection<ReviewComment[]>;
+  reviews: DetailSection<ReviewSummary[]>;
+  pipelines: DetailSection<ReviewPipeline[]>;
+  checks: DetailSection<ReviewCheck[]>;
+  partial: boolean;
+  auth: "available" | "unavailable" | "rate_limited";
 }
 export interface PermissionRequest {
   id: string;
@@ -330,6 +346,8 @@ export const api = {
     }).then((r) => json<void>(r)),
   review: (url: string) =>
     fetch(`/api/forge/review?${new URLSearchParams({ url })}`).then((r) => json<{ review: ReviewStatus }>(r)),
+  reviewDetails: (url: string) =>
+    fetch(`/api/forge/review/details?${new URLSearchParams({ url })}`).then((r) => json<{ details: ReviewDetails }>(r)),
   mergeReview: (url: string, expectedSha: string) =>
     fetch("/api/forge/review/merge", {
       method: "POST",

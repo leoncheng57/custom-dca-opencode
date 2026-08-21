@@ -11,6 +11,8 @@ export interface ReviewStatus {
   pipeline: string | null;
   mergeable: boolean | null;
   headSha: string;
+  number: number;
+  project: string;
 }
 
 function gitlabOrigin(): string {
@@ -43,17 +45,37 @@ async function forgeFetch<T>(url: URL, token: string | undefined, method = "GET"
   return (text ? JSON.parse(text) : {}) as T;
 }
 
+function githubApi(): URL {
+  return new URL(process.env.GITHUB_API_URL || "https://api.github.com");
+}
+
+function gitlabApi(ref: Extract<ReviewRef, { forge: "gitlab" }>): URL {
+  return new URL(`/api/v4/projects/${encodeURIComponent(ref.project)}/`, process.env.GITLAB_BASE_URL || "https://gitlab.com");
+}
+
+function githubPath(ref: Extract<ReviewRef, { forge: "github" }>): string {
+  return `/repos/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}`;
+}
+
+function aggregatePipelineStatus(status: unknown): string | null {
+  const value = String(status ?? "").toLowerCase();
+  if (!value) return null;
+  if (["success", "passed", "skipped", "neutral"].includes(value)) return "passed";
+  if (["running", "pending", "created", "waiting", "preparing", "scheduled", "manual"].includes(value)) return "running";
+  return "failed";
+}
+
 export async function getReviewStatus(ref: ReviewRef): Promise<ReviewStatus> {
   if (ref.forge === "github") {
-    const api = new URL(process.env.GITHUB_API_URL || "https://api.github.com");
+    const api = githubApi();
     const pr = await forgeFetch<Record<string, any>>(
-      new URL(`/repos/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}/pulls/${ref.number}`, api),
+      new URL(`${githubPath(ref)}/pulls/${ref.number}`, api),
       process.env.GITHUB_TOKEN,
     );
     let pipeline: string | null = null;
     if (typeof pr.head?.sha === "string") {
       const checks = await forgeFetch<{ check_runs?: Array<{ conclusion?: string; status?: string }> }>(
-        new URL(`/repos/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}/commits/${pr.head.sha}/check-runs`, api),
+        new URL(`${githubPath(ref)}/commits/${pr.head.sha}/check-runs`, api),
         process.env.GITHUB_TOKEN,
       ).catch(() => ({ check_runs: [] }));
       const states = (checks.check_runs ?? []).map((check) => check.conclusion ?? check.status ?? "unknown");
@@ -65,15 +87,17 @@ export async function getReviewStatus(ref: ReviewRef): Promise<ReviewStatus> {
       url: ref.url,
       forge: "github",
       title: String(pr.title ?? "Pull request"),
-      state: String(pr.state ?? "unknown"),
+      state: pr.merged_at ? "merged" : String(pr.state ?? "unknown"),
       author: String(pr.user?.login ?? "unknown"),
       pipeline,
       mergeable: typeof pr.mergeable === "boolean" ? pr.mergeable : null,
       headSha: String(pr.head?.sha ?? ""),
+      number: ref.number,
+      project: `${ref.owner}/${ref.repo}`,
     };
   }
 
-  const api = new URL(`/api/v4/projects/${encodeURIComponent(ref.project)}/`, process.env.GITLAB_BASE_URL || "https://gitlab.com");
+  const api = gitlabApi(ref);
   const token = process.env.GITLAB_TOKEN;
   const mr = await forgeFetch<Record<string, any>>(new URL(`merge_requests/${ref.number}`, api), token);
   const pipelines = await forgeFetch<Array<{ status?: string }>>(new URL(`merge_requests/${ref.number}/pipelines`, api), token).catch(() => []);
@@ -83,17 +107,18 @@ export async function getReviewStatus(ref: ReviewRef): Promise<ReviewStatus> {
     title: String(mr.title ?? "Merge request"),
     state: String(mr.state ?? "unknown"),
     author: String(mr.author?.username ?? "unknown"),
-    pipeline: pipelines[0]?.status ?? null,
+    pipeline: aggregatePipelineStatus(pipelines[0]?.status),
     mergeable: mr.merge_status === "can_be_merged" ? true : mr.merge_status ? false : null,
     headSha: String(mr.sha ?? ""),
+    number: ref.number,
+    project: ref.project,
   };
 }
 
 export async function mergeReview(ref: ReviewRef, expectedSha: string): Promise<void> {
   if (!/^[a-f0-9]{6,64}$/i.test(expectedSha)) throw new Error("a reviewed head SHA is required");
   if (ref.forge === "github") {
-    const api = new URL(process.env.GITHUB_API_URL || "https://api.github.com");
-    await forgeFetch(new URL(`/repos/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}/pulls/${ref.number}/merge`, api), process.env.GITHUB_TOKEN, "PUT", { sha: expectedSha });
+    await forgeFetch(new URL(`${githubPath(ref)}/pulls/${ref.number}/merge`, githubApi()), process.env.GITHUB_TOKEN, "PUT", { sha: expectedSha });
     return;
   }
   const api = new URL(`/api/v4/projects/${encodeURIComponent(ref.project)}/merge_requests/${ref.number}/merge`, process.env.GITLAB_BASE_URL || "https://gitlab.com");

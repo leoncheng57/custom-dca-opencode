@@ -9,7 +9,7 @@ import {
 } from "../lib/derive.js";
 import type { Todo } from "../lib/api.js";
 import type { TranscriptEvent } from "../lib/transcript.js";
-import { api, type ReviewStatus } from "../lib/api.js";
+import { ReviewCard } from "./review-card.js";
 
 type InspectorTab = "tasks" | "commands" | "links";
 
@@ -41,30 +41,6 @@ function jumpToEvent(id: string): void {
   const row = document.querySelector<HTMLElement>(`[data-event-id="${CSS.escape(id)}"]`);
   row?.scrollIntoView({ behavior: "smooth", block: "center" });
   row?.focus({ preventScroll: true });
-}
-
-function ReviewLink({ url }: { url: string }) {
-  const [review, setReview] = useState<ReviewStatus | null>(null);
-  const [error, setError] = useState("");
-  useEffect(() => {
-    void api.review(url).then((result) => setReview(result.review)).catch((reason: Error) => setError(reason.message));
-  }, [url]);
-  return (
-    <div className="rounded border border-[var(--color-border-default)] p-2" data-testid="opencode-merge-request-link">
-      <a href={url} target="_blank" rel="noreferrer" className="block break-all text-xs font-semibold underline">
-        {review?.title ?? url}
-      </a>
-      {review ? (
-        <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-[var(--color-text-muted)]">
-          <span>{review.forge}</span><span>{review.state}</span><span>{review.author}</span>
-          {review.pipeline && <span>pipeline {review.pipeline}</span>}
-          {review.mergeable && review.state === "open" && (
-            <Button size="sm" variant="secondary" disabled={!review.headSha} onClick={() => { if (window.confirm(`Merge ${review.title} at ${review.headSha.slice(0, 8)}?`)) void api.mergeReview(url, review.headSha).then(() => setReview({ ...review, state: "merged", mergeable: false })).catch((reason: Error) => setError(reason.message)); }} data-testid="opencode-merge-review">Merge</Button>
-          )}
-        </div>
-      ) : error ? <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">Live status unavailable</p> : <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">Loading status...</p>}
-    </div>
-  );
 }
 
 function InspectorContent({
@@ -188,7 +164,7 @@ function InspectorContent({
               <ul className="space-y-2">
                 {links.map((url) => (
                   <li key={url}>
-                    <ReviewLink url={url} />
+                    <ReviewCard url={url} />
                   </li>
                 ))}
               </ul>
