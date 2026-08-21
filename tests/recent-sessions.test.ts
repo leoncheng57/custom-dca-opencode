@@ -5,6 +5,7 @@ import {
   MAX_STORED_RECENT_SESSIONS,
   RECENT_SESSIONS_STORAGE_KEY,
   readRecentSessionOpens,
+  recentDirectories,
   recentlyActiveSessions,
   recentlyOpenedSessions,
   recordRecentSessionOpen,
@@ -79,6 +80,26 @@ describe("recent sessions storage", () => {
   });
 });
 
+describe("recent directories", () => {
+  it("lists distinct canonical projects newest first", () => {
+    expect(recentDirectories([
+      { id: "a", directory: "/repo/", openedAt: 4 },
+      { id: "b", directory: "/other", openedAt: 3 },
+      { id: "c", directory: "/repo", openedAt: 2 },
+      { id: "d", directory: "   ", openedAt: 1 },
+    ])).toEqual(["/repo", "/other"]);
+  });
+
+  it("bounds the list", () => {
+    const entries = Array.from({ length: 8 }, (_, index) => ({
+      id: `session-${index}`,
+      directory: `/repo-${index}`,
+      openedAt: index,
+    }));
+    expect(recentDirectories(entries, 3)).toEqual(["/repo-0", "/repo-1", "/repo-2"]);
+  });
+});
+
 describe("recent session views", () => {
   const sessions = [
     session("first", "/repo", "2026-01-01T12:00:00.000Z"),
@@ -86,34 +107,54 @@ describe("recent session views", () => {
     session("other", "/other", "2027-01-01T12:00:00.000Z"),
   ];
 
-  it("uses canonical directory scope and filters stale sessions", () => {
+  it("spans projects and orders active sessions newest first", () => {
+    expect(recentlyActiveSessions(sessions).map(({ id }) => id)).toEqual(["other", "first", "second"]);
+  });
+
+  it("keeps input order when active timestamps are equal", () => {
+    expect(recentlyActiveSessions(sessions.slice(0, 2)).map(({ id }) => id)).toEqual(["first", "second"]);
+  });
+
+  it("resolves opened entries across projects and drops stale ones", () => {
     const entries = [
       { id: "other", directory: "/other", openedAt: 4 },
       { id: "missing", directory: "/repo", openedAt: 3 },
       { id: "second", directory: "/repo/", openedAt: 2 },
       { id: "first", directory: "/repo", openedAt: 1 },
     ];
-    expect(recentlyOpenedSessions("/repo/", sessions, entries).map(({ id }) => id)).toEqual(["second", "first"]);
-    expect(recentlyActiveSessions("/repo/", sessions).map(({ id }) => id)).toEqual(["first", "second"]);
+    expect(recentlyOpenedSessions(sessions, entries).map(({ id }) => id)).toEqual([
+      "other",
+      "second",
+      "first",
+    ]);
   });
 
-  it("keeps input order when active timestamps are equal", () => {
-    expect(recentlyActiveSessions("/repo", sessions).map(({ id }) => id)).toEqual(["first", "second"]);
+  it("matches on project and id together, never id alone", () => {
+    // The same id in two projects must not cross-render: ids are unique per
+    // project, not globally.
+    const collision = [
+      session("shared", "/repo", "2026-01-01T12:00:00.000Z"),
+      session("shared", "/other", "2027-01-01T12:00:00.000Z"),
+    ];
+    expect(recentlyOpenedSessions(collision, [{ id: "shared", directory: "/other", openedAt: 1 }]))
+      .toEqual([collision[1]]);
+    expect(recentlyOpenedSessions(collision, [{ id: "shared", directory: "/absent", openedAt: 1 }]))
+      .toEqual([]);
   });
 
   it("honors maximum visible bounds", () => {
-    expect(recentlyOpenedSessions("/repo", sessions, [
+    expect(recentlyOpenedSessions(sessions, [
       { id: "first", directory: "/repo", openedAt: 2 },
       { id: "second", directory: "/repo", openedAt: 1 },
     ], 1).map(({ id }) => id)).toEqual(["first"]);
-    expect(recentlyActiveSessions("/repo", sessions, 1).map(({ id }) => id)).toEqual(["first"]);
-    expect(recentlyActiveSessions("/repo", sessions, -1)).toEqual([]);
+    expect(recentlyActiveSessions(sessions, 1).map(({ id }) => id)).toEqual(["other"]);
+    expect(recentlyActiveSessions(sessions, -1)).toEqual([]);
 
     const manySessions = Array.from({ length: 10 }, (_, index) => session(
       `session-${index}`,
       "/repo",
       new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString(),
     ));
-    expect(recentlyActiveSessions("/repo", manySessions, 100)).toHaveLength(5);
+    expect(recentlyActiveSessions(manySessions, 100)).toHaveLength(5);
   });
 });

@@ -1,0 +1,107 @@
+// server/routes/recents.ts — the cross-project "recently active" panel.
+//
+// Every other session route is deliberately single-project (see
+// routes/sessions.ts). This one is the exception: the Hub shows recent work
+// before a project has been chosen, so it takes a *set* of directories and
+// fans out.
+//
+// Two choices worth knowing about:
+//
+//   - Invalid directories are DROPPED, not rejected. The client's half of the
+//     list comes from browser localStorage, which outlives renames, deletions
+//     and moves between machines. Failing the whole request on one stale path
+//     would make the panel disappear entirely for the least interesting
+//     reason. Every path still goes through requireWorkspaceDirectory, so
+//     dropping is a containment decision, never a trust one.
+//   - The candidate set is pins plus client history, not every project on
+//     disk. Project discovery is capped at 500 directories; fanning out over
+//     all of them would cost 1000 upstream calls per poll for a five-row list.
+
+import { Router } from "express";
+
+import { requireWorkspaceDirectory } from "../paths.js";
+import { ProjectPinStore } from "../projects.js";
+import { listSessionsAcross } from "../opencode/sessions.js";
+import type { OpencodeConfig } from "../opencode/client.js";
+
+/** Upper bound on directories fanned out to, after dedupe. */
+export const RECENT_DIRECTORY_LIMIT = 40;
+export const RECENT_SESSION_LIMIT = 5;
+/** Upper bound on ids the client may ask to have resolved by name. */
+export const RECENT_LOOKUP_LIMIT = 50;
+
+function stringList(value: unknown, limit: number): string[] {
+  const raw = typeof value === "string"
+    ? [value]
+    : Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === "string")
+      : [];
+  return raw.filter((item) => item).slice(0, limit);
+}
+
+/**
+ * Client history first, then pins.
+ *
+ * localStorage arrives newest-first, so under RECENT_DIRECTORY_LIMIT the
+ * projects most likely to hold recent work survive the cap.
+ */
+export async function resolveRecentDirectories(
+  requested: string[],
+  pinned: string[],
+  limit = RECENT_DIRECTORY_LIMIT,
+): Promise<string[]> {
+  const resolved: string[] = [];
+  const seen = new Set<string>();
+  for (const candidate of [...requested, ...pinned]) {
+    if (resolved.length >= limit) break;
+    let canonical: string;
+    try {
+      canonical = await requireWorkspaceDirectory(candidate);
+    } catch {
+      continue; // Stale browser history must not break the panel.
+    }
+    if (seen.has(canonical)) continue;
+    seen.add(canonical);
+    resolved.push(canonical);
+  }
+  return resolved;
+}
+
+export function recentRoutes(config: OpencodeConfig, store = new ProjectPinStore()): Router {
+  const router = Router();
+
+  router.get("/recent-sessions", async (req, res) => {
+    const requested = stringList(req.query.directory, RECENT_DIRECTORY_LIMIT);
+    const lookupIDs = new Set(stringList(req.query.session, RECENT_LOOKUP_LIMIT));
+    const rawLimit = Number(req.query.limit ?? RECENT_SESSION_LIMIT);
+    const limit = Number.isFinite(rawLimit)
+      ? Math.min(RECENT_SESSION_LIMIT, Math.max(0, Math.floor(rawLimit)))
+      : RECENT_SESSION_LIMIT;
+
+    // A pin store failure degrades the candidate set; it must not 500 a panel
+    // the client can still populate from its own history.
+    const pinned = await store.read().catch(() => [] as string[]);
+    const directories = await resolveRecentDirectories(requested, pinned);
+    if (directories.length === 0) {
+      res.json({ sessions: [], directories: [] });
+      return;
+    }
+
+    try {
+      const pool = await listSessionsAcross(config, directories);
+      // Two panels, two selections, one fan-out. "Recently active" wants the
+      // newest few; "recently opened" wants specific sessions the browser
+      // remembers, which are usually NOT the newest. Sending only the newest
+      // would leave the opened panel permanently empty.
+      const selected = new Map(pool.slice(0, limit).map((session) => [session.id, session]));
+      for (const session of pool) {
+        if (lookupIDs.has(session.id)) selected.set(session.id, session);
+      }
+      res.json({ sessions: [...selected.values()], directories });
+    } catch (error) {
+      res.status(502).json({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  return router;
+}
