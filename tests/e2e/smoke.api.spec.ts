@@ -162,6 +162,50 @@ test.describe("sessions", () => {
   });
 });
 
+test.describe.serial("session sharing", () => {
+  test.beforeEach(async () => {
+    await fetch(`${MOCK_URL}/test/sharing/reset`, { method: "POST" });
+  });
+
+  test("creates, persists, and revokes a safe full-session share URL", async ({ request }) => {
+    const created = await request.post(`/api/sessions/ses_mock_share_api/share?directory=${encodeURIComponent(DIR)}`);
+    expect(created.status()).toBe(200);
+    const createdBody = await created.json();
+    expect(createdBody.session.shareUrl).toBe("https://share.e2e.example.test/s/ses_mock_share_api");
+    expect(JSON.stringify(createdBody)).not.toMatch(/must-not-reach-browser|"share"|permission/);
+
+    const detail = await (await request.get(`/api/sessions/ses_mock_share_api?directory=${encodeURIComponent(DIR)}`)).json();
+    expect(detail.session.shareUrl).toBe(createdBody.session.shareUrl);
+    const list = await (await request.get(`/api/sessions?directory=${encodeURIComponent(DIR)}`)).json();
+    expect(list.sessions.find((session: { id: string }) => session.id === "ses_mock_share_api").shareUrl).toBe(createdBody.session.shareUrl);
+
+    const revoked = await request.delete(`/api/sessions/ses_mock_share_api/share?directory=${encodeURIComponent(DIR)}`);
+    expect(revoked.status()).toBe(200);
+    expect((await revoked.json()).session).not.toHaveProperty("shareUrl");
+    const reloaded = await (await request.get(`/api/sessions/ses_mock_share_api?directory=${encodeURIComponent(DIR)}`)).json();
+    expect(reloaded.session).not.toHaveProperty("shareUrl");
+  });
+
+  test("validates directory scope and session ownership before mutation", async ({ request }) => {
+    expect((await request.post("/api/sessions/ses_mock_done/share")).status()).toBe(400);
+    expect((await request.post(`/api/sessions/ses_mock_other_directory/share?directory=${encodeURIComponent(DIR)}`)).status()).toBe(404);
+    expect((await request.post(`/api/sessions/ses_nope/share?directory=${encodeURIComponent(DIR)}`)).status()).toBe(404);
+    expect((await request.delete(`/api/sessions/ses_nope/share?directory=${encodeURIComponent(DIR)}`)).status()).toBe(404);
+  });
+
+  test("keeps operational and invalid-URL failures honest and retryable", async ({ request }) => {
+    const unavailable = await request.post(`/api/sessions/ses_mock_share_failure/share?directory=${encodeURIComponent(DIR)}`);
+    expect(unavailable.status()).toBe(502);
+    expect((await unavailable.json()).error).toContain("mock share service unavailable");
+
+    const unsafe = await request.post(`/api/sessions/ses_mock_bad_share_url/share?directory=${encodeURIComponent(DIR)}`);
+    expect(unsafe.status()).toBe(502);
+    expect(JSON.stringify(await unsafe.json())).not.toContain("must-not-reach-browser");
+    const detail = await (await request.get(`/api/sessions/ses_mock_bad_share_url?directory=${encodeURIComponent(DIR)}`)).json();
+    expect(detail.session).not.toHaveProperty("shareUrl");
+  });
+});
+
 test.describe("model catalogue", () => {
   test("exposes only safe, bounded model metadata", async ({ request }) => {
     const response = await request.get(`/api/models?directory=${DIR}`);

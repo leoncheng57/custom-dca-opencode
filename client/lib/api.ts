@@ -25,6 +25,7 @@ export interface SessionSummary {
   createdAt: string;
   updatedAt: string;
   archived: boolean;
+  shareUrl?: string;
   running: boolean;
 }
 
@@ -254,6 +255,15 @@ export const api = {
     fetch(scoped(`/sessions/${encodeURIComponent(id)}/model-limit`, directory)).then((r) =>
       json<{ context: number | null }>(r),
     ),
+
+  shareSession: (directory: string, id: string) =>
+    fetch(scoped(`/sessions/${encodeURIComponent(id)}/share`, directory), {
+      method: "POST",
+    }).then((r) => json<{ session: SessionSummary }>(r)),
+  unshareSession: (directory: string, id: string) =>
+    fetch(scoped(`/sessions/${encodeURIComponent(id)}/share`, directory), {
+      method: "DELETE",
+    }).then((r) => json<{ session: SessionSummary }>(r)),
 
   createSession: (input: {
     directory: string;
