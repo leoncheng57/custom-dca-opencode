@@ -1,15 +1,19 @@
 import { spawn } from "node:child_process";
+import { copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { once } from "node:events";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const servers: ReturnType<typeof createServer>[] = [];
+const tempRoots: string[] = [];
 
 afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => new Promise<void>((resolve) => server.close(() => resolve()))));
+  await Promise.all(tempRoots.splice(0).map((tempRoot) => rm(tempRoot, { force: true, recursive: true })));
 });
 
 async function availablePort(): Promise<number> {
@@ -22,9 +26,11 @@ async function availablePort(): Promise<number> {
   return address.port;
 }
 
-async function runPreflight(password?: string): Promise<{ authorization?: string; stdout: string; stderr: string }> {
+async function runPreflight(password?: string): Promise<{ authorization?: string; requests: number; stdout: string; stderr: string }> {
   let authorization: string | undefined;
+  let requests = 0;
   const server = createServer((req, res) => {
+    requests += 1;
     authorization = req.headers.authorization;
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ healthy: true, version: "1.18.21" }));
@@ -35,36 +41,47 @@ async function runPreflight(password?: string): Promise<{ authorization?: string
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("mock health server did not bind a TCP port");
 
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "custom-dca-dev-script-"));
+  tempRoots.push(tempRoot);
+  await mkdir(path.join(tempRoot, "scripts"));
+  await mkdir(path.join(tempRoot, "server", "opencode"), { recursive: true });
+  await copyFile(path.join(root, "scripts", "dev.sh"), path.join(tempRoot, "scripts", "dev.sh"));
+  await writeFile(path.join(tempRoot, "server", "opencode", "client.ts"), 'const EXPECTED_SERVER_VERSION = "1.18.21";\n');
+  await writeFile(path.join(tempRoot, ".env"), "OPENCODE_URL=http://127.0.0.1:1\nOPENCODE_SERVER_PASSWORD=conflicting\n");
+
   const env = { ...process.env };
   delete env.OPENCODE_SERVER_PASSWORD;
   delete env.OPENCODE_SERVER_USERNAME;
   Object.assign(env, {
     BASH_COMPAT: "32",
+    DCA_ENV_FILE: path.join(tempRoot, "missing.env"),
     DEV_HEALTHCHECK_ONLY: "1",
     OPENCODE_URL: `http://127.0.0.1:${address.port}`,
     PORT: String(await availablePort()),
     ...(password ? { OPENCODE_SERVER_PASSWORD: password, OPENCODE_SERVER_USERNAME: "tester" } : {}),
   });
 
-  const child = spawn("/bin/bash", ["scripts/dev.sh"], { cwd: root, env });
+  const child = spawn("/bin/bash", ["scripts/dev.sh"], { cwd: tempRoot, env });
   let stdout = "";
   let stderr = "";
   child.stdout.setEncoding("utf8").on("data", (chunk) => { stdout += chunk; });
   child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; });
   const [code] = await once(child, "close") as [number | null];
   expect({ code, stderr }).toEqual({ code: 0, stderr: "" });
-  return { authorization, stdout, stderr };
+  return { authorization, requests, stdout, stderr };
 }
 
 describe("scripts/dev.sh health preflight", () => {
   it("works without an auth argument under Bash 3.2 compatibility", async () => {
     const result = await runPreflight();
+    expect(result.requests).toBe(1);
     expect(result.authorization).toBeUndefined();
     expect(result.stdout).toContain('"version":"1.18.21"');
   });
 
   it("passes Basic auth when a password is configured", async () => {
     const result = await runPreflight("s3cret");
+    expect(result.requests).toBe(1);
     expect(result.authorization).toBe(`Basic ${Buffer.from("tester:s3cret").toString("base64")}`);
   });
 });
