@@ -26,9 +26,46 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const fixture = JSON.parse(
   readFileSync(path.resolve(here, "../fixtures/session-messages.json"), "utf8"),
 ) as unknown[];
-const messages = new Map<string, unknown[]>([["ses_mock_done", fixture]]);
+
+const hostileMarkdown = [
+  "Mobile width containment fixture.",
+  "",
+  `\`\`\`text\n${"code-token-".repeat(36)}\n\`\`\``,
+  "",
+  `| column | value |\n| --- | --- |\n| table | ${"wide-cell-".repeat(36)} |`,
+  "",
+  `https://example.test/${"long-url-token-".repeat(28)}`,
+].join("\n");
+
+function mobileMessages(): unknown[] {
+  const result: unknown[] = [];
+  for (let index = 0; index < 24; index += 1) {
+    const created = 1787100000000 + index * 2_000;
+    result.push(
+      {
+        info: { id: `msg_mobile_user_${index}`, role: "user", agent: "build", time: { created } },
+        parts: [{ id: `prt_mobile_user_${index}`, messageID: `msg_mobile_user_${index}`, type: "text", text: `History prompt ${index + 1}` }],
+      },
+      {
+        info: { id: `msg_mobile_agent_${index}`, role: "assistant", agent: "build", time: { created: created + 1_000, completed: created + 1_500 } },
+        parts: [{ id: `prt_mobile_agent_${index}`, messageID: `msg_mobile_agent_${index}`, type: "text", text: `History response ${index + 1}. ${"Readable transcript content. ".repeat(3)}` }],
+      },
+    );
+  }
+  result.push({
+    info: { id: "msg_mobile_live", role: "assistant", agent: "build", time: { created: 1787100100000 } },
+    parts: [{ id: "prt_mobile_live", messageID: "msg_mobile_live", type: "text", text: hostileMarkdown }],
+  });
+  return result;
+}
+
+const messages = new Map<string, unknown[]>([
+  ["ses_mock_done", fixture],
+  ["ses_mock_mobile", mobileMessages()],
+]);
 const promptPayloads: Array<Record<string, unknown> & { sessionID: string }> = [];
 let sessionListRequests = 0;
+let mobileRunning = true;
 const sessionPayloads: Array<Record<string, unknown>> = [];
 const toolIDs = [
   "invalid", "question", "bash", "read", "glob", "grep", "edit", "write", "task",
@@ -140,6 +177,18 @@ const SESSIONS: Array<Record<string, any>> = [
     cost: 0,
     tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
     time: { created: 1787000300000, updated: 1787000300000 },
+  },
+  {
+    id: "ses_mock_mobile",
+    title: "Mobile full session fixture",
+    directory: MOCK_DIRECTORY,
+    agent: "build",
+    model: { providerID: "anthropic", id: "claude-opus-5" },
+    cost: 0.2,
+    tokens: { input: 1000, output: 2000, reasoning: 0, cache: { read: 0, write: 0 } },
+    // Keep the purpose-built long fixture out of ordinary hub assertions while
+    // retaining direct route access for mobile transcript tests.
+    time: { created: 1787100000000, updated: 1787100100000, archived: 1787100200000 },
   },
 ];
 
@@ -328,6 +377,24 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     return;
   }
   if (pathname === "/test/session-payloads") return json(res, 200, sessionPayloads);
+  if (pathname === "/test/mobile/reset" && req.method === "POST") {
+    messages.set("ses_mock_mobile", mobileMessages());
+    mobileRunning = true;
+    return json(res, 200, true);
+  }
+  if (pathname === "/test/mobile/idle" && req.method === "POST") {
+    mobileRunning = false;
+    emit("session.idle", { sessionID: "ses_mock_mobile" });
+    return json(res, 200, true);
+  }
+  if (pathname === "/test/mobile/grow" && req.method === "POST") {
+    const sessionMessages = messages.get("ses_mock_mobile") as Array<{ info?: { id?: string }; parts?: Array<{ type?: string; text?: string }> }>;
+    const live = sessionMessages.find((message) => message.info?.id === "msg_mobile_live");
+    const text = live?.parts?.find((part) => part.type === "text");
+    if (text) text.text = `${hostileMarkdown}\n\nNew live activity from the running agent.`;
+    emit("message.part.updated", { sessionID: "ses_mock_mobile", partID: "prt_mobile_live" });
+    return json(res, 200, true);
+  }
   if (pathname === "/test/session-policy") {
     const session = SESSIONS.find((candidate) => candidate.id === url.searchParams.get("id"));
     return session ? json(res, 200, policyProbe(session)) : unknownError(res);
@@ -452,7 +519,10 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
   if (pathname === "/experimental/worktree/reset" && req.method === "POST") return json(res, 200, true);
 
   if (pathname === "/session/status") {
-    return json(res, 200, { ses_mock_running: { type: "busy" } });
+    return json(res, 200, {
+      ses_mock_running: { type: "busy" },
+      ...(mobileRunning ? { ses_mock_mobile: { type: "busy" } } : {}),
+    });
   }
 
   if (pathname === "/session" && req.method === "GET") {

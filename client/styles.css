@@ -28,6 +28,7 @@ body,
 
 body {
   margin: 0;
+  overscroll-behavior-y: none;
   background: var(--color-background-surface);
   color: var(--color-text-default);
   font-family:

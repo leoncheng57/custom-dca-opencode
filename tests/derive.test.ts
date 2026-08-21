@@ -71,6 +71,16 @@ describe("mergeEvents", () => {
     const merged = mergeEvents([agent("a", "old")], [agent("a", "much newer text")]);
     expect((merged[0] as { text: string }).text).toBe("much newer text");
   });
+
+  it("preserves unchanged row identity when a sibling changes", () => {
+    const unchanged = agent("a", "stable", at(1));
+    const previous = [unchanged, agent("b", "old", at(2))];
+    const merged = mergeEvents(previous, [agent("a", "stable", at(1)), agent("b", "new text", at(2))]);
+
+    expect(merged).not.toBe(previous);
+    expect(merged[0]).toBe(unchanged);
+    expect(merged[1]).not.toBe(previous[1]);
+  });
 });
 
 describe("collapseActionGroups", () => {

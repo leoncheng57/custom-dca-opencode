@@ -9,11 +9,12 @@
 // exactly its pre-SSE behaviour instead of showing a divergent view.
 //
 // Connection budget matters: browsers cap HTTP/1.1 at ~6 connections per
-// origin, so the stream opens only when the tab is visible AND the session is
-// running. On error we close the EventSource ourselves — the browser's
+// origin, so the stream opens only when the tab is visible. On error we close
+// the EventSource ourselves — the browser's
 // built-in infinite retry turned a server restart into a pool-exhausting
-// storm in the predecessor — then back off 2s/4s/8s and give up, leaving the
-// poll running.
+// storm in the predecessor — then reconnect with a capped 2s/4s/8s/16s/30s
+// backoff. The cap survives phone network handovers without reconnect storms;
+// the durable poll keeps serving updates between attempts.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -21,11 +22,10 @@ import { api, ApiError, type PermissionRequest, type QuestionRequest } from "./a
 
 const POLL_MS = 3_000;
 const RETRY_BASE_MS = 2_000;
-const MAX_RETRIES = 3;
+const RETRY_MAX_MS = 30_000;
 
-export function streamRetryDelay(retries: number): number | null {
-  if (retries >= MAX_RETRIES) return null;
-  return RETRY_BASE_MS * 2 ** retries;
+export function streamRetryDelay(retries: number): number {
+  return Math.min(RETRY_BASE_MS * 2 ** Math.min(retries, 4), RETRY_MAX_MS);
 }
 
 export interface SessionStreamState {
@@ -132,13 +132,14 @@ export function useSessionStream(directory: string, sessionId: string): SessionS
     const open = () => {
       if (disposed || source || document.visibilityState === "hidden") return;
       source = new EventSource(api.eventsUrl(directory));
-      source.onopen = () => {
-        retries = 0;
-      };
       source.onmessage = (message) => {
         try {
           const event = JSON.parse(message.data) as { type?: string; properties?: { sessionID?: string } };
-          if (!event.type || event.type === "server.heartbeat" || event.type === "connected") return;
+          if (!event.type) return;
+          // A valid application frame proves more than a TCP open. Reset here
+          // so open/error loops continue backing off instead of cycling at 2s.
+          retries = 0;
+          if (event.type === "server.heartbeat" || event.type === "connected") return;
           // Only react to events about this session; the bus is global.
           const target = event.properties?.sessionID;
           if (target && target !== sessionId) return;
@@ -150,7 +151,6 @@ export function useSessionStream(directory: string, sessionId: string): SessionS
       source.onerror = () => {
         close();
         const delay = streamRetryDelay(retries);
-        if (delay === null) return; // exhausted — the poll carries on alone
         retries += 1;
         retryTimer = setTimeout(open, delay);
       };
@@ -165,11 +165,20 @@ export function useSessionStream(directory: string, sessionId: string): SessionS
       }
     };
 
+    const onOnline = () => {
+      if (disposed || document.visibilityState === "hidden") return;
+      close();
+      retries = 0;
+      open();
+    };
+
     open();
     document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("online", onOnline);
     return () => {
       disposed = true;
       document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("online", onOnline);
       close();
     };
   }, [directory, sessionId, poll]);
