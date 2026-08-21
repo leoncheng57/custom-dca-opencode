@@ -71,34 +71,52 @@ export function recordRecentSessionOpen(
   }
 }
 
+/**
+ * Session ids are unique per project, not globally, so a cross-project view
+ * has to key on the pair. Matching on id alone would let a session from one
+ * project render under another project's label.
+ */
+function sessionKey(directory: string, id: string): string {
+  return `${normalizeRecentDirectory(directory)}\u0000${id}`;
+}
+
+/** Distinct projects present in browser history, newest first. */
+export function recentDirectories(
+  entries: RecentSessionOpen[],
+  limit = MAX_STORED_RECENT_SESSIONS,
+): string[] {
+  const directories: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    const directory = normalizeRecentDirectory(entry.directory);
+    if (!directory || seen.has(directory)) continue;
+    seen.add(directory);
+    directories.push(directory);
+    if (directories.length >= limit) break;
+  }
+  return directories;
+}
+
 export function recentlyOpenedSessions(
-  directory: string,
   sessions: SessionSummary[],
   entries: RecentSessionOpen[],
   limit = MAX_VISIBLE_RECENT_SESSIONS,
 ): SessionSummary[] {
-  const scope = normalizeRecentDirectory(directory);
-  const sessionsByID = new Map(
-    sessions
-      .filter((session) => normalizeRecentDirectory(session.directory) === scope)
-      .map((session) => [session.id, session]),
+  const sessionsByKey = new Map(
+    sessions.map((session) => [sessionKey(session.directory, session.id), session]),
   );
   return entries
-    .filter((entry) => normalizeRecentDirectory(entry.directory) === scope)
-    .map((entry) => sessionsByID.get(entry.id))
+    .map((entry) => sessionsByKey.get(sessionKey(entry.directory, entry.id)))
     .filter((session): session is SessionSummary => Boolean(session))
     .slice(0, visibleLimit(limit));
 }
 
 export function recentlyActiveSessions(
-  directory: string,
   sessions: SessionSummary[],
   limit = MAX_VISIBLE_RECENT_SESSIONS,
 ): SessionSummary[] {
-  const scope = normalizeRecentDirectory(directory);
   return sessions
     .map((session, index) => ({ session, index, updatedAt: Date.parse(session.updatedAt) }))
-    .filter(({ session }) => normalizeRecentDirectory(session.directory) === scope)
     .sort((left, right) => {
       const leftTime = Number.isFinite(left.updatedAt) ? left.updatedAt : 0;
       const rightTime = Number.isFinite(right.updatedAt) ? right.updatedAt : 0;

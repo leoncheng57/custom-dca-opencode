@@ -291,6 +291,63 @@ export async function listSessions(
     .map((s) => toSummary(s, running.has(s.id ?? "")));
 }
 
+/** Upstream calls in flight during a cross-project fan-out. */
+export const RECENT_FANOUT_CONCURRENCY = 6;
+
+/**
+ * Sessions from many projects at once, newest first.
+ *
+ * There is no cross-project session list upstream: `/session` is
+ * directory-scoped, so "recent across every project" can only be a fan-out.
+ * Two properties matter more than speed here:
+ *
+ *   - A directory that fails must not blank the list. One unreadable or
+ *     renamed project would otherwise take down a panel that is mostly about
+ *     other projects, so per-directory failures are swallowed.
+ *   - Concurrency is capped. The caller's directory list is user-controlled
+ *     (pins plus browser history), and an unbounded Promise.all would let a
+ *     large one open hundreds of upstream sockets at once.
+ *
+ * Each directory still costs two upstream calls (`/session` + `/session/status`)
+ * because status is directory-scoped in 1.18.21. If a later server exposes a
+ * process-global status map, hoist that single call out of the pool.
+ */
+export async function listSessionsAcross(
+  config: OpencodeConfig,
+  directories: string[],
+  options: { perDirectoryLimit?: number } = {},
+): Promise<SessionSummary[]> {
+  const targets = [...new Set(directories.filter((directory) => directory))];
+  const collected: SessionSummary[][] = targets.map(() => []);
+  let cursor = 0;
+
+  const worker = async (): Promise<void> => {
+    while (cursor < targets.length) {
+      const index = cursor;
+      cursor += 1;
+      collected[index] = await listSessions(config, targets[index], {
+        limit: options.perDirectoryLimit ?? 20,
+      }).catch(() => []);
+    }
+  };
+
+  await Promise.all(
+    Array.from({ length: Math.min(RECENT_FANOUT_CONCURRENCY, targets.length) }, worker),
+  );
+
+  // Ties keep fan-out order, which is the caller's directory order, so the
+  // result is stable across polls instead of shuffling on every refresh.
+  return collected
+    .flat()
+    .map((session, index) => ({ session, index, updatedAt: Date.parse(session.updatedAt) }))
+    .sort((left, right) => {
+      const leftTime = Number.isFinite(left.updatedAt) ? left.updatedAt : 0;
+      const rightTime = Number.isFinite(right.updatedAt) ? right.updatedAt : 0;
+      return rightTime - leftTime || left.index - right.index;
+    })
+    .map(({ session }) => session);
+}
+
 export async function getSession(
   config: OpencodeConfig,
   directory: string,

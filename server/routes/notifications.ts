@@ -23,8 +23,6 @@ function queryState(value: unknown): "all" | "active" | "resolved" {
 export function notificationRoutes(
   store: PreferenceStore,
   history: HistoryStore,
-  /** Injected so a history read can close records answered while we were down. */
-  reconcile: () => Promise<void> = async () => {},
 ): Router {
   const router = Router();
   router.get("/notifications", (_req, res) => {
@@ -49,8 +47,7 @@ export function notificationRoutes(
   });
 
   router.get("/notifications/history", (req, res) => {
-    // Throttled upstream, so polling this route cannot stampede OpenCode.
-    reconcile()
+    Promise.resolve()
       .then(async () => {
         const limitParam = Number(queryString(req.query.limit));
         const directory = queryString(req.query.directory);
@@ -72,6 +69,27 @@ export function notificationRoutes(
       );
   });
 
+  router.patch("/notifications/:id", (req, res) => {
+    if (typeof req.body?.resolved !== "boolean" || Object.keys(req.body).some((key) => key !== "resolved")) {
+      res.status(400).json({ error: "body must contain only a boolean 'resolved' field" });
+      return;
+    }
+    history
+      .setResolved(req.params.id, req.body.resolved)
+      .then(async (record) => {
+        if (!record) {
+          res.status(404).json({ error: "notification not found" });
+          return;
+        }
+        res.json({ record, activeCount: await history.activeCount() });
+      })
+      .catch((error: unknown) =>
+        res.status(500).json({ error: error instanceof Error ? error.message : String(error) }),
+      );
+  });
+
+  // Kept for the already-deployed v1 client; dismiss is a user action and maps
+  // to the same persisted checked state.
   router.post("/notifications/:id/dismiss", (req, res) => {
     const id = req.params.id;
     history
@@ -81,7 +99,7 @@ export function notificationRoutes(
           res.status(404).json({ error: "notification not found" });
           return;
         }
-        await history.resolve((candidate) => candidate.id === id, "dismissed");
+        await history.setResolved(id, true);
         res.json({ dismissed: true, activeCount: await history.activeCount() });
       })
       .catch((error: unknown) =>

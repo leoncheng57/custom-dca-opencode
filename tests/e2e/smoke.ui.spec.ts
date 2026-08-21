@@ -3,9 +3,35 @@ import { expect, test } from "@playwright/test";
 // Browser tier — the built SPA against the real BFF against the mock agent.
 
 const DIR = process.platform === "darwin" ? "/private/tmp/mock-project" : "/tmp/mock-project";
+const SECOND_DIR = process.platform === "darwin" ? "/private/tmp/mock-second-project" : "/tmp/mock-second-project";
 const hub = `/?directory=${encodeURIComponent(DIR)}`;
 const MOCK_URL = `http://127.0.0.1:${process.env.MOCK_OPENCODE_PORT || 4599}`;
 const FORGE_URL = `http://127.0.0.1:${process.env.MOCK_PREVIEW_PORT || 4600}`;
+
+/**
+ * Constrain the cross-project recents pool to named fixture sessions.
+ *
+ * The mock's session list is global mutable state: any test that starts an
+ * agent adds a session stamped with Date.now(), which sorts above every
+ * fixture. Ordering assertions have to pin the pool or they depend on which
+ * other tests happen to be running in parallel.
+ */
+async function pinRecentsTo(page: import("@playwright/test").Page, ids: string[]): Promise<void> {
+  await page.route("**/api/recent-sessions?*", async (route) => {
+    const url = new URL(route.request().url());
+    // Request the fixtures by id as well as by recency. Filtering the response
+    // alone is not enough: the BFF returns a newest-N window, and a session
+    // another test just created can push a fixture out of it before the filter
+    // ever runs.
+    for (const id of ids) url.searchParams.append("session", id);
+    const response = await route.fetch({ url: url.toString() });
+    const payload = await response.json() as { sessions: Array<{ id: string }> };
+    await route.fulfill({
+      response,
+      json: { ...payload, sessions: payload.sessions.filter(({ id }) => ids.includes(id)) },
+    });
+  });
+}
 
 async function promptPayload(text: string): Promise<Record<string, unknown> | undefined> {
   const payloads = await (await fetch(`${MOCK_URL}/test/prompt-payloads`)).json() as Array<Record<string, unknown>>;
@@ -118,17 +144,9 @@ test.describe("hub", () => {
   });
 
   test("orders recently opened independently from recently active and persists reloads", async ({ page }) => {
-    await page.route("**/api/sessions?*", async (route) => {
-      const response = await route.fetch();
-      const payload = await response.json() as { sessions: Array<{ id: string }> };
-      await route.fulfill({
-        response,
-        json: {
-          ...payload,
-          sessions: payload.sessions.filter(({ id }) => ["ses_mock_done", "ses_mock_running", "ses_mock_unknown_model"].includes(id)),
-        },
-      });
-    });
+    // Constrain the cross-project pool to this project so the ordering
+    // assertions stay about opened-vs-active, not about project merging.
+    await pinRecentsTo(page, ["ses_mock_done", "ses_mock_running", "ses_mock_unknown_model"]);
     await page.goto(hub);
     const sessions = page.getByTestId("opencode-session-list");
 
@@ -166,16 +184,88 @@ test.describe("hub", () => {
     ]);
   });
 
-  test("keeps recently opened empty when storage only contains another directory", async ({ page }) => {
+  test("shows recents from another project, labelled by project", async ({ page }) => {
+    // Previously this asserted the opposite — that an entry from another
+    // directory stayed hidden. Recents are cross-project now, so the row must
+    // appear, and it must be attributed to the project it came from.
     await page.addInitScript(({ directory }) => {
       localStorage.setItem("opencode.recentSessions.v1", JSON.stringify({
         version: 1,
-        entries: [{ id: "ses_mock_done", directory, openedAt: Date.now() }],
+        entries: [{ id: "ses_second_oldest", directory, openedAt: Date.now() }],
       }));
-    }, { directory: `${DIR}-other` });
+    }, { directory: SECOND_DIR });
+    await page.goto(hub);
+
+    const openedRows = page.getByTestId("opencode-recently-opened-row");
+    await expect(openedRows).toHaveCount(1);
+    await expect(openedRows.first()).toContainText("Second project oldest");
+    await expect(openedRows.first()).toContainText("mock-second-project");
+    await expect(openedRows.first()).toHaveAttribute(
+      "href",
+      new RegExp(`directory=${encodeURIComponent(SECOND_DIR)}`),
+    );
+  });
+
+  test("ignores recents entries pointing outside the projects root", async ({ page }) => {
+    // localStorage outlives renames and moves between machines; a stale path
+    // must be dropped rather than breaking the whole panel.
+    await page.addInitScript(() => {
+      localStorage.setItem("opencode.recentSessions.v1", JSON.stringify({
+        version: 1,
+        entries: [{ id: "ses_mock_done", directory: "/nonexistent/project", openedAt: Date.now() }],
+      }));
+    });
     await page.goto(hub);
     await expect(page.getByTestId("opencode-recently-opened-empty")).toBeVisible();
-    await expect(page.getByTestId("opencode-recently-opened-row")).toHaveCount(0);
+    await expect(page.getByTestId("opencode-recently-active-row").first()).toBeVisible();
+  });
+
+  test("merges recently active across projects newest first", async ({ page }) => {
+    await pinRecentsTo(page, [
+      "ses_second_newest",
+      "ses_mock_unknown_model",
+      "ses_mock_running",
+      "ses_mock_done",
+      "ses_second_oldest",
+    ]);
+    await page.addInitScript(({ directory }) => {
+      localStorage.setItem("opencode.recentSessions.v1", JSON.stringify({
+        version: 1,
+        entries: [{ id: "ses_second_oldest", directory, openedAt: Date.now() }],
+      }));
+    }, { directory: SECOND_DIR });
+    await page.goto(hub);
+
+    const activeRows = page.getByTestId("opencode-recently-active-row");
+    await expect(activeRows).toHaveCount(5);
+    // Interleaved by time, not grouped by project: that is the whole point.
+    expect(await activeRows.allTextContents()).toEqual([
+      expect.stringContaining("Second project newest"),
+      expect.stringContaining("Imported unknown model"),
+      expect.stringContaining("Refactor the parser"),
+      expect.stringContaining("Add a health endpoint"),
+      expect.stringContaining("Second project oldest"),
+    ]);
+    expect(await activeRows.first().textContent()).toContain("mock-second-project");
+  });
+
+  test("shows recents before any project is chosen", async ({ page }) => {
+    await pinRecentsTo(page, ["ses_second_newest", "ses_second_oldest"]);
+    await page.addInitScript(({ directory }) => {
+      localStorage.setItem("opencode.recentSessions.v1", JSON.stringify({
+        version: 1,
+        entries: [{ id: "ses_second_oldest", directory, openedAt: Date.now() }],
+      }));
+    }, { directory: SECOND_DIR });
+    // No ?directory= and no stored selection: the panel must still render.
+    await page.goto("/");
+
+    await expect(page.getByTestId("opencode-recent-sessions")).toBeVisible();
+    await expect(page.getByTestId("opencode-recently-active-row")).toHaveCount(2);
+    await expect(page.getByTestId("opencode-recently-active-row").first())
+      .toContainText("Second project newest");
+    // Still genuinely unscoped: the session list below has no project to show.
+    await expect(page.getByText("Pick a project directory to list its sessions.")).toBeVisible();
   });
 
   test("keeps recent rows usable without overflow at 390px", async ({ page }) => {
@@ -955,7 +1045,7 @@ test.describe("settings and tools UI", () => {
     expect(await ntfy.isChecked()).toBe(ntfyBefore);
   });
 
-  test("badges an outstanding permission and logs it in history", async ({ page }) => {
+  test("badges unresolved notifications until the user checks them off", async ({ page }) => {
     const requestID = `perm_badge_${Date.now()}`;
     await fetch(`${MOCK_URL}/test/permission?directory=${encodeURIComponent(DIR)}`, {
       method: "POST",
@@ -967,7 +1057,7 @@ test.describe("settings and tools UI", () => {
     const badge = page.getByTestId("opencode-nav-notifications-badge");
     await expect(badge).toBeVisible();
     // The count lives on the link label so it is announced, not just painted.
-    await expect(page.getByTestId("opencode-nav-notifications")).toHaveAttribute("aria-label", /awaiting reply/);
+    await expect(page.getByTestId("opencode-nav-notifications")).toHaveAttribute("aria-label", /unresolved/);
     await page.setViewportSize({ width: 390, height: 740 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth))
       .toBeLessThanOrEqual(1);
@@ -976,11 +1066,18 @@ test.describe("settings and tools UI", () => {
     await expect(row).toHaveAttribute("data-active", "true");
     await expect(row).toContainText("ntfy off");
 
-    // Dismissing is the escape hatch for a request the badge cannot reconcile.
+    const resolved = row.getByTestId("opencode-notification-resolved");
+    await expect(resolved).not.toBeChecked();
     const countBefore = Number(await badge.textContent());
-    await row.getByTestId("opencode-notification-dismiss").click();
+    await resolved.check();
     if (countBefore > 1) await expect(badge).toHaveText(String(countBefore - 1));
     else await expect(badge).toBeHidden();
+
+    await page.reload();
+    await expect(row.getByTestId("opencode-notification-resolved")).toBeChecked();
+    await row.getByTestId("opencode-notification-resolved").uncheck();
+    await expect(badge).toHaveText(String(countBefore));
+    await row.getByTestId("opencode-notification-resolved").check();
 
     await fetch(`${MOCK_URL}/test/permissions/reset?directory=${encodeURIComponent(DIR)}`, { method: "POST" });
   });
