@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenCode vs Custom OpenHands — Customization Findings</title>
+<style>
+  :root {
+    --bg: #14120f;
+    --panel: #1d1a16;
+    --panel2: #242019;
+    --border: #3a342a;
+    --text: #e8e2d5;
+    --dim: #a89f8c;
+    --accent: #e0a458;
+    --green: #7fb069;
+    --red: #d96c5f;
+    --blue: #6ca0dc;
+    --purple: #b58fc9;
+    --mono: "SF Mono", ui-monospace, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 15px/1.55 -apple-system, "Segoe UI", sans-serif;
+    margin: 0; padding: 0 0 4rem;
+  }
+  .wrap { max-width: 1020px; margin: 0 auto; padding: 0 28px; }
+  header {
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, #1e1a14, var(--bg));
+    padding: 2.2rem 0 1.6rem; margin-bottom: 1.6rem;
+  }
+  header h1 { margin: 0 0 .4rem; font-size: 1.7rem; letter-spacing: -.02em; }
+  header .sub { color: var(--dim); font-size: .95rem; }
+  header .meta { margin-top: .8rem; font-family: var(--mono); font-size: .75rem; color: var(--dim); }
+  h2 {
+    font-size: 1.25rem; margin: 2.8rem 0 .9rem; padding-top: 1.1rem;
+    border-top: 1px solid var(--border); color: var(--accent); letter-spacing: -.01em;
+  }
+  h2 .n { color: var(--dim); font-family: var(--mono); font-size: .85rem; margin-right: .55rem; }
+  h3 { font-size: 1.02rem; margin: 1.5rem 0 .5rem; color: var(--text); }
+  p { margin: .55rem 0; }
+  a { color: var(--blue); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code {
+    font-family: var(--mono); font-size: .82em;
+    background: var(--panel2); border: 1px solid var(--border);
+    border-radius: 4px; padding: .1em .35em; color: #e8cf9f;
+  }
+  pre {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    padding: .9rem 1rem; overflow-x: auto; font-family: var(--mono);
+    font-size: .78rem; line-height: 1.5; color: #d8d2c2;
+  }
+  pre code { background: none; border: none; padding: 0; }
+  table { border-collapse: collapse; width: 100%; margin: .9rem 0; font-size: .86rem; }
+  th, td { border: 1px solid var(--border); padding: .5rem .65rem; text-align: left; vertical-align: top; }
+  th { background: var(--panel2); color: var(--accent); font-weight: 600; white-space: nowrap; }
+  tr:nth-child(even) td { background: rgba(255,255,255,.015); }
+  .tag {
+    display: inline-block; font-family: var(--mono); font-size: .68rem; font-weight: 700;
+    padding: .1rem .45rem; border-radius: 99px; letter-spacing: .03em; white-space: nowrap;
+  }
+  .adopt  { background: rgba(127,176,105,.16); color: var(--green); border: 1px solid rgba(127,176,105,.4); }
+  .build  { background: rgba(224,164,88,.14); color: var(--accent); border: 1px solid rgba(224,164,88,.4); }
+  .borrow { background: rgba(108,160,220,.14); color: var(--blue); border: 1px solid rgba(108,160,220,.4); }
+  .skip   { background: rgba(217,108,95,.13); color: var(--red); border: 1px solid rgba(217,108,95,.4); }
+  .free   { background: rgba(181,143,201,.15); color: var(--purple); border: 1px solid rgba(181,143,201,.4); }
+  .callout {
+    border-left: 3px solid var(--accent); background: var(--panel);
+    border-radius: 0 8px 8px 0; padding: .8rem 1rem; margin: 1rem 0; font-size: .92rem;
+  }
+  .callout.warn { border-left-color: var(--red); }
+  .callout.good { border-left-color: var(--green); }
+  .callout b:first-child { color: var(--accent); }
+  .callout.warn b:first-child { color: var(--red); }
+  .callout.good b:first-child { color: var(--green); }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1rem 0; }
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 1rem 1.1rem;
+  }
+  .card h4 { margin: 0 0 .4rem; font-size: .95rem; color: var(--accent); }
+  .card p { font-size: .85rem; color: var(--dim); margin: .3rem 0; }
+  nav.toc {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 1rem 1.3rem; font-size: .88rem; columns: 2; column-gap: 2rem;
+  }
+  nav.toc a { display: block; padding: .15rem 0; color: var(--text); }
+  nav.toc a:hover { color: var(--accent); text-decoration: none; }
+  nav.toc .num { color: var(--dim); font-family: var(--mono); font-size: .75rem; margin-right: .5rem; }
+  .kbd-note { font-size: .78rem; color: var(--dim); font-style: italic; }
+  .small { font-size: .82rem; color: var(--dim); }
+  ul { padding-left: 1.3rem; }
+  li { margin: .25rem 0; }
+  .verdict-row td:last-child { white-space: nowrap; }
+
+  /* ============ visual components ============ */
+  .statstrip { display: grid; grid-template-columns: repeat(4, 1fr); gap: .8rem; margin: 1.4rem 0 0; }
+  .stat {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: .8rem 1rem; text-align: center;
+  }
+  .stat .v { font-size: 1.7rem; font-weight: 700; color: var(--accent); font-family: var(--mono); letter-spacing: -.03em; }
+  .stat .v.g { color: var(--green); } .stat .v.r { color: var(--red); } .stat .v.b { color: var(--blue); }
+  .stat .l { font-size: .72rem; color: var(--dim); margin-top: .15rem; line-height: 1.3; }
+
+  figure { margin: 1.2rem 0; }
+  figure figcaption {
+    font-size: .76rem; color: var(--dim); text-align: center; margin-top: .5rem;
+    font-family: var(--mono); letter-spacing: .02em;
+  }
+  .diagram {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 1rem; overflow-x: auto;
+  }
+  .diagram svg { display: block; margin: 0 auto; max-width: 100%; height: auto; }
+
+  /* svg text defaults handled inline */
+
+  /* bar charts */
+  .bars { margin: .8rem 0; }
+  .bar-row { display: grid; grid-template-columns: 150px 1fr 88px; gap: .7rem; align-items: center; margin: .45rem 0; font-size: .82rem; }
+  .bar-row .lbl { text-align: right; color: var(--dim); font-family: var(--mono); font-size: .75rem; }
+  .bar-track { background: var(--panel2); border: 1px solid var(--border); border-radius: 5px; height: 20px; overflow: hidden; position: relative; }
+  .bar-fill { height: 100%; border-radius: 4px 0 0 4px; }
+  .bar-val { font-family: var(--mono); font-size: .75rem; color: var(--text); white-space: nowrap; }
+
+  /* matrix */
+  .matrix { border-collapse: collapse; font-size: .78rem; margin: .9rem 0; width: 100%; }
+  .matrix th, .matrix td { border: 1px solid var(--border); padding: .38rem .5rem; text-align: center; }
+  .matrix th { background: var(--panel2); }
+  .matrix td.rowh { text-align: left; font-family: var(--mono); font-size: .72rem; color: var(--dim); white-space: nowrap; }
+  .m-yes  { background: rgba(127,176,105,.22); color: var(--green); font-weight: 700; }
+  .m-part { background: rgba(224,164,88,.18); color: var(--accent); font-weight: 700; }
+  .m-no   { background: rgba(217,108,95,.14); color: var(--red); font-weight: 700; }
+  .m-na   { color: #55503f; }
+
+  /* tier stack */
+  .tiers { display: flex; flex-direction: column; gap: .35rem; margin: 1rem 0; }
+  .tier { display: grid; grid-template-columns: 92px 1fr 130px; gap: 0; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
+  .tier .t-name { padding: .55rem .8rem; font-family: var(--mono); font-size: .74rem; font-weight: 700; display:flex; align-items:center; }
+  .tier .t-desc { padding: .55rem .9rem; background: var(--panel); font-size: .82rem; display:flex; align-items:center; }
+  .tier .t-risk { padding: .55rem .8rem; background: var(--panel2); font-family: var(--mono); font-size: .7rem; display:flex; align-items:center; justify-content:center; }
+  .tier .t-desc b { color: var(--text); }
+  .tier .t-desc span { color: var(--dim); }
+
+  /* dock wireframe */
+  .wireframe {
+    background: #0e0d0b; border: 1px solid var(--border); border-radius: 12px;
+    padding: .7rem; font-family: var(--mono); font-size: .68rem;
+  }
+  .wf-titlebar { display:flex; gap:.35rem; padding: .2rem .4rem .55rem; align-items:center; color:#6a6252;}
+  .wf-dot { width: 9px; height: 9px; border-radius: 50%; background: #3a342a; }
+  .wf-body { display: grid; grid-template-columns: 1.6fr 1fr .85fr; gap: .5rem; min-height: 300px; }
+  .wf-pane { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: .55rem .65rem; color: var(--dim); overflow: hidden; }
+  .wf-pane h5 { margin: 0 0 .4rem; color: var(--accent); font-size: .7rem; font-weight: 700; letter-spacing: .04em; }
+  .wf-pane.hl { border-color: var(--accent); box-shadow: 0 0 0 1px rgba(224,164,88,.35), 0 0 22px rgba(224,164,88,.08); }
+  .wf-dockcol { display: flex; flex-direction: column; gap: .5rem; }
+  .wf-dockcol .wf-pane { flex: 1; }
+  .wf-line { white-space: pre; color: #8d8571; line-height: 1.45; }
+  .wf-line .ok { color: var(--green); } .wf-line .bad { color: var(--red); } .wf-line .wn { color: var(--accent); }
+  .wf-label { text-align:center; margin-top:.5rem; color: var(--dim); font-size:.72rem; }
+
+  /* roadmap */
+  .roadmap { display: flex; flex-direction: column; gap: .55rem; margin: 1rem 0; }
+  .phase { display: grid; grid-template-columns: 120px 1fr; border: 1px solid var(--border); border-radius: 9px; overflow: hidden; }
+  .phase .p-head { padding: .6rem .8rem; display:flex; flex-direction:column; justify-content:center; gap:.15rem; }
+  .phase .p-head .p-t { font-weight: 700; font-size: .82rem; }
+  .phase .p-head .p-e { font-family: var(--mono); font-size: .68rem; opacity: .85; }
+  .phase .p-body { background: var(--panel); padding: .6rem .9rem; font-size: .83rem; color: var(--dim); display:flex; align-items:center; }
+  .phase .p-body b, .phase .p-body code { color: var(--text); }
+
+  /* flow rows (event → outcome) */
+  .flow { display:flex; flex-wrap:wrap; align-items:center; gap:.45rem; margin:.55rem 0; font-size:.8rem; }
+  .fnode { background: var(--panel2); border:1px solid var(--border); border-radius:7px; padding:.3rem .6rem; font-family:var(--mono); font-size:.72rem; }
+  .fnode.src { border-color: var(--blue); color: var(--blue); }
+  .fnode.good { border-color: var(--green); color: var(--green); }
+  .fnode.bad { border-color: var(--red); color: var(--red); }
+  .fnode.warn2 { border-color: var(--accent); color: var(--accent); }
+  .farrow { color: var(--dim); font-family: var(--mono); }
+
+  .legend { display:flex; gap:1rem; flex-wrap:wrap; font-size:.74rem; color:var(--dim); margin:.4rem 0 0; font-family: var(--mono); }
+  .legend .sw { display:inline-block; width:.85em; height:.85em; border-radius:3px; vertical-align:-.08em; margin-right:.3em; }
+
+  @media (max-width: 760px) {
+    .grid { grid-template-columns: 1fr; } nav.toc { columns: 1; }
+    .statstrip { grid-template-columns: repeat(2, 1fr); }
+    .wf-body { grid-template-columns: 1fr; min-height: 0; }
+    .bar-row { grid-template-columns: 96px 1fr 70px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <h1>OpenCode vs Custom OpenHands Build</h1>
+    <div class="sub">Feature-gap analysis, customization surfaces, and an adopt-vs-build plan &mdash; researched by 5 subagents</div>
+    <div class="meta">Aug 20, 2026 &middot; opencode 1.18.19 &middot; cmux 0.64.22 &middot; OpenCode.app 1.18.19 (Electron) &middot; custom-dca-ide-with-openhands @ main</div>
+    <div class="statstrip">
+      <div class="stat"><div class="v">~70%</div><div class="l">of OpenHands' notification story already built for OpenCode</div></div>
+      <div class="stat"><div class="v b">21</div><div class="l">MCP servers configured &mdash; zero health monitoring</div></div>
+      <div class="stat"><div class="v g">1,557</div><div class="l">ntfy pushes logged (67% permission / 30% idle / 2% question)</div></div>
+      <div class="stat"><div class="v r">0</div><div class="l">upstream merge conflicts ever &mdash; nothing lives in OpenCode's tree</div></div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<div class="callout warn" style="border-width:2px"><b>STATUS (Aug 21):</b> this research led to a decision that supersedes its recommendations — <b>build a custom UI on <code>opencode serve</code></b> (the plugin/dock/TUI paths in §5–§10 were investigated and set aside as supplements). Two later corrections: the TUI <em>does</em> have an undocumented full plugin API (panels/routes/dialogs — ruled out by preference), and the "MCP watchdog = novel build" claim was wrong (an <code>internal:sidebar-mcp</code> panel ships built-in, and <code>GET /mcp</code> exposes status over HTTP). Current plan: <code>opencode-build-plan.html</code> (v2).</div>
+
+<nav class="toc">
+  <a href="#s1"><span class="num">1</span>Executive summary</a>
+  <a href="#s2"><span class="num">2</span>What your OpenHands build has</a>
+  <a href="#s3"><span class="num">3</span>What you already built for OpenCode</a>
+  <a href="#s4"><span class="num">4</span>The real gaps, ranked</a>
+  <a href="#s5"><span class="num">5</span>Customizing OpenCode: 5 tiers</a>
+  <a href="#s6"><span class="num">6</span>Upgrade reconciliation risk</a>
+  <a href="#s7"><span class="num">7</span>Ecosystem: adopt vs build</a>
+  <a href="#s8"><span class="num">8</span>cmux: the untapped rail</a>
+  <a href="#s9"><span class="num">9</span>OpenCode desktop app</a>
+  <a href="#s10"><span class="num">10</span>Recommended plan</a>
+</nav>
+
+<!-- ============================================================ -->
+<h2 id="s1"><span class="n">1</span>Executive summary</h2>
+
+<p>Your custom OpenHands build's strengths are <b>fine-grained in-app control</b>: per-event notification toggles across 4 channels, MCP health probes with stall diagnosis, agent settings UI, and a panel rail (files / diff / preview / commands / MRs / manager runs). Three headline findings:</p>
+
+<ul>
+  <li><b>You've already built ~70% of the notification story for OpenCode</b> &mdash; and <b>bidirectional remote control is live</b>: <code>cmux-feed.js</code> auto-loads and round-trips permission approvals / question answers / plan decisions from the cmux Feed back into OpenCode. The gap is <em>granularity and coverage</em>, not capability.</li>
+  <li><b>Everything worth adding is reachable without forking OpenCode.</b> Config + plugins + custom tools + SDK cover all gaps except a native TUI status bar.</li>
+  <li><b>The single biggest untapped surface is the cmux Dock</b> (<code>dock.json</code> &mdash; doesn't exist on this machine): a right-hand panel rail that can host MCP health, feed, git, and MR watch panes today with zero code.</li>
+</ul>
+
+<figure>
+  <div class="diagram">
+  <svg viewBox="0 0 940 400" font-family="SF Mono, Menlo, monospace">
+    <defs>
+      <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#a89f8c"/>
+      </marker>
+      <marker id="arrg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#7fb069"/>
+      </marker>
+      <marker id="arrb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6ca0dc"/>
+      </marker>
+    </defs>
+
+    <!-- cmux container -->
+    <rect x="14" y="20" width="250" height="200" rx="10" fill="#1d1a16" stroke="#3a342a"/>
+    <text x="30" y="44" fill="#e0a458" font-size="13" font-weight="bold">cmux (macOS)</text>
+    <rect x="30" y="58" width="218" height="52" rx="6" fill="#242019" stroke="#3a342a"/>
+    <text x="40" y="80" fill="#e8e2d5" font-size="11.5">OpenCode TUI</text>
+    <text x="40" y="97" fill="#a89f8c" font-size="9.5">terminal surface, cmd+t action</text>
+    <rect x="30" y="120" width="218" height="42" rx="6" fill="#242019" stroke="#6ca0dc"/>
+    <text x="40" y="138" fill="#6ca0dc" font-size="11.5">cmux Feed</text>
+    <text x="40" y="153" fill="#a89f8c" font-size="9.5">approve / answer / plan decisions</text>
+    <rect x="30" y="170" width="218" height="36" rx="6" fill="#1a1713" stroke="#3a342a" stroke-dasharray="4 3"/>
+    <text x="40" y="192" fill="#6a6252" font-size="10">Dock rail — UNUSED (§8)</text>
+
+    <!-- opencode server -->
+    <rect x="330" y="20" width="280" height="288" rx="10" fill="#1d1a16" stroke="#e0a458"/>
+    <text x="346" y="44" fill="#e0a458" font-size="13" font-weight="bold">opencode server 1.18.19</text>
+    <text x="346" y="60" fill="#a89f8c" font-size="9.5">same engine: TUI / web / desktop sidecar</text>
+    <rect x="346" y="72" width="248" height="34" rx="6" fill="#242019" stroke="#3a342a"/>
+    <text x="356" y="93" fill="#e8e2d5" font-size="10.5">~/.config/opencode/opencode.json · 21 MCP</text>
+    <rect x="346" y="114" width="248" height="140" rx="6" fill="#242019" stroke="#3a342a"/>
+    <text x="356" y="133" fill="#e0a458" font-size="10.5" font-weight="bold">plugins/ (auto-loaded)</text>
+    <text x="356" y="152" fill="#7fb069" font-size="10">ntfy-notify.js         → phone push</text>
+    <text x="356" y="169" fill="#7fb069" font-size="10">cmux-question-notify   → toast</text>
+    <text x="356" y="186" fill="#6ca0dc" font-size="10">cmux-feed.js           ⇄ remote ctl</text>
+    <text x="356" y="203" fill="#a89f8c" font-size="10">cmux-session.js        → restore</text>
+    <text x="356" y="228" fill="#6a6252" font-size="9">vendor-owned, upgraded in place by cmux ↑</text>
+    <text x="356" y="243" fill="#6a6252" font-size="9">yours, symlinked from tested repo ↑ (top two)</text>
+    <rect x="346" y="262" width="248" height="34" rx="6" fill="#242019" stroke="#3a342a"/>
+    <text x="356" y="283" fill="#e8e2d5" font-size="10.5">opencode web · 100.78.52.59:4096</text>
+
+    <!-- right column -->
+    <rect x="690" y="20" width="236" height="88" rx="10" fill="#1d1a16" stroke="#7fb069"/>
+    <text x="706" y="44" fill="#7fb069" font-size="13" font-weight="bold">ntfy.sh</text>
+    <text x="706" y="62" fill="#a89f8c" font-size="10">topic: opencode-bsjl-…</text>
+    <text x="706" y="78" fill="#a89f8c" font-size="10">idle / permission / question</text>
+    <text x="706" y="94" fill="#d96c5f" font-size="10">✗ error · ✗ per-event toggles</text>
+
+    <rect x="690" y="140" width="236" height="112" rx="10" fill="#1d1a16" stroke="#6ca0dc"/>
+    <text x="706" y="164" fill="#6ca0dc" font-size="13" font-weight="bold">Phone</text>
+    <text x="706" y="183" fill="#e8e2d5" font-size="10">1. ntfy banner (tap →)</text>
+    <text x="706" y="200" fill="#e8e2d5" font-size="10">2. web UI over Tailscale</text>
+    <text x="706" y="217" fill="#e8e2d5" font-size="10">3. approve / answer / prompt</text>
+    <text x="706" y="238" fill="#d96c5f" font-size="10">✗ approve from lock screen</text>
+
+    <!-- arrows -->
+    <line x1="264" y1="84" x2="330" y2="84" stroke="#a89f8c" stroke-width="1.5" marker-end="url(#arr)"/>
+    <text x="270" y="76" fill="#a89f8c" font-size="9">runs</text>
+    <line x1="330" y1="150" x2="264" y2="141" stroke="#6ca0dc" stroke-width="1.5" marker-end="url(#arrb)" marker-start="url(#arrb)"/>
+    <text x="256" y="132" fill="#6ca0dc" font-size="9" text-anchor="start">feed.push ⇄ reply (120s)</text>
+    <line x1="610" y1="150" x2="690" y2="64" stroke="#7fb069" stroke-width="1.5" marker-end="url(#arrg)"/>
+    <text x="616" y="100" fill="#7fb069" font-size="9">POST</text>
+    <line x1="808" y1="108" x2="808" y2="140" stroke="#7fb069" stroke-width="1.5" marker-end="url(#arrg)"/>
+    <text x="816" y="128" fill="#7fb069" font-size="9">push</text>
+    <path d="M 690 210 C 640 300, 620 300, 600 296" stroke="#6ca0dc" stroke-width="1.5" fill="none" marker-end="url(#arrb)"/>
+    <text x="612" y="330" fill="#6ca0dc" font-size="9">Tailscale (tap-through control)</text>
+
+    <!-- footer strip -->
+    <rect x="14" y="340" width="912" height="44" rx="8" fill="#1a1713" stroke="#3a342a"/>
+    <text x="30" y="358" fill="#a89f8c" font-size="10">Also sharing this exact server + config + plugins:</text>
+    <text x="30" y="374" fill="#e8e2d5" font-size="10">OpenCode.app desktop (Electron sidecar, §9) · opencode attach &lt;url&gt; · GitHub/GitLab agents</text>
+  </svg>
+  </div>
+  <figcaption>Fig 1 — Your current OpenCode topology. Solid = working today. Dashed / red ✗ = the gaps this report addresses.</figcaption>
+</figure>
+
+<div class="callout warn"><b>Flagged during research:</b> <code>opencode.json</code> contains 4 plaintext tokens (2&times; <code>NOTION_TOKEN</code>, 2&times; <code>PLAYWRIGHT_MCP_EXTENSION_TOKEN</code>) with <code>.bak</code> copies alongside. Config supports <code>{env:VAR}</code> / <code>{file:path}</code> &mdash; you already use it for OpenAI and Figma. Also: logs show <code>deepctl-mcp</code> timing out repeatedly and silently for months &mdash; an unreachable MCP taxes <em>every</em> run during tool listing.</div>
+
+<!-- ============================================================ -->
+<h2 id="s2"><span class="n">2</span>What your OpenHands build has (feature inventory)</h2>
+
+<p class="small">From a very-thorough repo scan of <code>custom-dca-ide-with-openhands</code>. Express BFF (~3.1k-line <code>setup.ts</code>) + React SPA over a headless agent-canvas container.</p>
+
+<h3>Notification coverage: OpenHands vs your OpenCode setup</h3>
+
+<table class="matrix">
+  <tr>
+    <th style="text-align:left">Event &darr; / Channel &rarr;</th>
+    <th colspan="2">Phone push</th>
+    <th colspan="2">Desktop</th>
+    <th colspan="2">Sound</th>
+    <th colspan="2">Badge / pill</th>
+  </tr>
+  <tr>
+    <th style="text-align:left"></th>
+    <th>OpenHands</th><th>OpenCode</th>
+    <th>OpenHands</th><th>OpenCode</th>
+    <th>OpenHands</th><th>OpenCode</th>
+    <th>OpenHands</th><th>OpenCode</th>
+  </tr>
+  <tr><td class="rowh">finished / idle</td><td class="m-yes">&#10003;</td><td class="m-yes">&#10003;</td><td class="m-yes">&#10003;</td><td class="m-no">&#10007;</td><td class="m-yes">&#10003;</td><td class="m-no">off*</td><td class="m-yes">&#10003;</td><td class="m-part">cmux</td></tr>
+  <tr><td class="rowh">error</td><td class="m-yes">&#10003; high</td><td class="m-no">&#10007;</td><td class="m-yes">&#10003;</td><td class="m-no">&#10007;</td><td class="m-yes">&#10003;</td><td class="m-no">off*</td><td class="m-yes">&#10003;</td><td class="m-no">&#10007;</td></tr>
+  <tr><td class="rowh">stuck / stall</td><td class="m-yes">&#10003; high</td><td class="m-no">&#10007;</td><td class="m-yes">&#10003;</td><td class="m-no">&#10007;</td><td class="m-yes">&#10003;</td><td class="m-no">&#10007;</td><td class="m-yes">&#10003;</td><td class="m-no">&#10007;</td></tr>
+  <tr><td class="rowh">permission</td><td class="m-na">n/a</td><td class="m-yes">&#10003; high</td><td class="m-na">n/a</td><td class="m-no">&#10007;</td><td class="m-na">n/a</td><td class="m-no">off*</td><td class="m-na">n/a</td><td class="m-part">feed</td></tr>
+  <tr><td class="rowh">question / input</td><td class="m-yes">&#10003;</td><td class="m-yes">&#10003; high</td><td class="m-yes">&#10003;</td><td class="m-yes">&#10003;</td><td class="m-yes">&#10003;</td><td class="m-part">say hack</td><td class="m-yes">&#10003;</td><td class="m-part">feed</td></tr>
+  <tr><td class="rowh"><b>per-event on/off</b></td><td class="m-yes">&#10003;</td><td class="m-no">&#10007;</td><td class="m-yes">&#10003;</td><td class="m-no">&#10007;</td><td class="m-yes">&#10003; +vol</td><td class="m-no">&#10007;</td><td class="m-na">&mdash;</td><td class="m-na">&mdash;</td></tr>
+</table>
+<div class="legend">
+  <span><span class="sw" style="background:rgba(127,176,105,.5)"></span>covered</span>
+  <span><span class="sw" style="background:rgba(224,164,88,.5)"></span>partial</span>
+  <span><span class="sw" style="background:rgba(217,108,95,.5)"></span>missing</span>
+  <span>* TUI <code>attention</code> sounds exist upstream but <code>tui.json</code> doesn't exist on this machine &rarr; off</span>
+</div>
+
+<table>
+  <tr><th>Area</th><th>What OpenHands does</th><th>OpenCode equivalent today</th></tr>
+  <tr>
+    <td><b>Agent settings UI</b></td>
+    <td>Condenser thresholds, live-stream kill switch, model per message, Plan/Build toggle mid-run, worktree checkbox, workspace mode</td>
+    <td>Config file + <code>/models</code> + Tab (plan/build). No settings UI; desktop app has one (&sect;9)</td>
+  </tr>
+  <tr>
+    <td><b>MCP management</b></td>
+    <td>Read-only Tools page: per-server health probe (connect + tools/list + latency), masked-secret honesty, <b>stall hint naming the dead server after 12s silence</b></td>
+    <td><code>opencode mcp list</code> exists but nothing surfaces stalls; silent <code>deepctl-mcp</code> failures prove the gap</td>
+  </tr>
+  <tr>
+    <td><b>Panel rail</b></td>
+    <td>Resizable sidebar: run board, files, git changes, live preview proxy, command audit (+ export .sh), MR panel w/ pipeline badge + merge button</td>
+    <td>Nothing in TUI; <b>cmux Dock can replicate most of it</b> (&sect;8)</td>
+  </tr>
+  <tr>
+    <td><b>Manager runs</b></td>
+    <td>Postgres-backed waves of &le;8 workers, each with own conversation/branch/draft MR; plan approval, nudge, inspect w/ secret redaction</td>
+    <td>Your local <code>manager-children</code> skill (cmux + worktrees) is the closest thing anywhere &mdash; incl. the ecosystem (&sect;7)</td>
+  </tr>
+  <tr>
+    <td><b>Cost / context</b></td>
+    <td>Status bar under composer: context gauge w/ warn tones + session spend; disk usage bar</td>
+    <td><code>opencode stats --days N</code> CLI only; TUI status bar needs upstream</td>
+  </tr>
+  <tr>
+    <td><b>Ops resilience</b></td>
+    <td>Auto-resume after agent-server restart, deliberate-pause markers, collision warnings for shared folders</td>
+    <td>cmux <code>autoResumeAgentSessions</code> + <code>cmux-session.js</code> restore already covers most of this</td>
+  </tr>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="s3"><span class="n">3</span>What you already built for OpenCode</h2>
+
+<p>Audit of the 4 loaded plugins (verified via <code>opencode debug config</code> &mdash; all four resolve, incl. <code>cmux-feed.js</code>, which the config file doesn't list but the plugins dir auto-loads):</p>
+
+<h3>Where your 1,557 logged pushes actually went</h3>
+<div class="bars">
+  <div class="bar-row"><span class="lbl">permission</span><div class="bar-track"><div class="bar-fill" style="width:100%;background:linear-gradient(90deg,#8a5f3a,#e0a458)"></div></div><span class="bar-val">1,044 (67%)</span></div>
+  <div class="bar-row"><span class="lbl">idle / finished</span><div class="bar-track"><div class="bar-fill" style="width:45.5%;background:linear-gradient(90deg,#4d6b41,#7fb069)"></div></div><span class="bar-val">475 (30%)</span></div>
+  <div class="bar-row"><span class="lbl">question</span><div class="bar-track"><div class="bar-fill" style="width:3.6%;background:linear-gradient(90deg,#41566b,#6ca0dc)"></div></div><span class="bar-val">38 (2%)</span></div>
+  <div class="bar-row"><span class="lbl">error / abort</span><div class="bar-track"><div class="bar-fill" style="width:0%;"></div></div><span class="bar-val" style="color:var(--red)">0 — no hook</span></div>
+</div>
+<div class="bars">
+  <div class="bar-row"><span class="lbl">sent</span><div class="bar-track"><div class="bar-fill" style="width:49.7%;background:#7fb069"></div></div><span class="bar-val">773</span></div>
+  <div class="bar-row"><span class="lbl">muted</span><div class="bar-track"><div class="bar-fill" style="width:49.7%;background:#6a6252"></div></div><span class="bar-val">773</span></div>
+  <div class="bar-row"><span class="lbl">failed</span><div class="bar-track"><div class="bar-fill" style="width:0.7%;background:#d96c5f"></div></div><span class="bar-val">11</span></div>
+</div>
+<p class="small">Read: two-thirds of your pushes are permission requests, and half of everything got muted &mdash; the all-or-nothing mute is doing the work per-event toggles should. Errors are invisible.</p>
+
+<table>
+  <tr><th>Plugin</th><th>Source</th><th>Role</th><th>Key gap</th></tr>
+  <tr><td><code>ntfy-notify.js</code></td><td>your repo (symlink, 559-line test file)</td><td>Phone push: idle / permission / question w/ repo-prefixed titles, deep links, subagent suppression, instant mute, JSONL log</td><td>No per-event toggles; no <code>session.error</code>; no auth header (blocks self-hosted hardening); view-only buttons</td></tr>
+  <tr><td><code>cmux-question-notify.js</code></td><td>your repo (symlink)</td><td>Desktop toast on questions, surface-pinned</td><td>Ignores mute file; fixed body; covers 38 of 1,557 events &mdash; no permission/idle toasts</td></tr>
+  <tr><td><code>cmux-feed.js</code></td><td>cmux vendor (auto-updated)</td><td><b>Bidirectional control</b>: approve/reject permissions, answer questions, accept/reject/ultraplan plans from the Feed, 120s reply window</td><td>Swallows all SDK errors (<code>catch (_) {}</code>) &mdash; failed reply looks like success; timeouts drop silently</td></tr>
+  <tr><td><code>cmux-session.js</code></td><td>cmux vendor</td><td>Session restore store so cmux can relaunch OpenCode after restart</td><td>Sync <code>spawnSync</code> on the event bus (5s worst case)</td></tr>
+</table>
+
+<h3>The remote-control round trip today vs the missing one</h3>
+<div class="flow">
+  <span class="fnode src">agent needs approval</span><span class="farrow">&rarr;</span>
+  <span class="fnode good">ntfy push</span><span class="farrow">&rarr;</span>
+  <span class="fnode">tap banner</span><span class="farrow">&rarr;</span>
+  <span class="fnode">web UI @ Tailscale</span><span class="farrow">&rarr;</span>
+  <span class="fnode good">approve ✓</span>
+  <span class="farrow" style="margin-left:.5rem;color:var(--green)">works today (~4 taps)</span>
+</div>
+<div class="flow">
+  <span class="fnode src">agent needs approval</span><span class="farrow">&rarr;</span>
+  <span class="fnode good">ntfy push w/ http actions</span><span class="farrow">&rarr;</span>
+  <span class="fnode warn2">[Approve] on lock screen</span><span class="farrow">&rarr;</span>
+  <span class="fnode warn2">POST /session/:id/permissions/:pid</span><span class="farrow">&rarr;</span>
+  <span class="fnode good">approve ✓</span>
+  <span class="farrow" style="margin-left:.5rem;color:var(--accent)">the missing build (~1 tap, §10 phase 5)</span>
+</div>
+
+<div class="callout good"><b>Remote control verdict:</b> genuine reply-from-phone exists; what's missing is reply-from-<em>lock-screen</em>. Neither OpenHands nor any ecosystem plugin has it &mdash; it would be uniquely yours.</div>
+
+<!-- ============================================================ -->
+<h2 id="s4"><span class="n">4</span>The real gaps, ranked by value &divide; cost</h2>
+
+<figure>
+  <div class="diagram">
+  <svg viewBox="0 0 920 330" font-family="SF Mono, Menlo, monospace">
+    <!-- axes -->
+    <line x1="80" y1="20" x2="80" y2="280" stroke="#3a342a" stroke-width="1.5"/>
+    <line x1="80" y1="280" x2="890" y2="280" stroke="#3a342a" stroke-width="1.5"/>
+    <text x="78" y="16" fill="#a89f8c" font-size="10" text-anchor="end">value</text>
+    <text x="890" y="298" fill="#a89f8c" font-size="10" text-anchor="end">effort &rarr;</text>
+    <text x="80" y="298" fill="#a89f8c" font-size="10" text-anchor="middle">5 min</text>
+    <text x="300" y="298" fill="#a89f8c" font-size="10" text-anchor="middle">hours</text>
+    <text x="600" y="298" fill="#a89f8c" font-size="10" text-anchor="middle">half-day</text>
+    <text x="840" y="298" fill="#a89f8c" font-size="10" text-anchor="middle">days</text>
+    <!-- sweet spot -->
+    <rect x="82" y="22" width="360" height="150" fill="rgba(127,176,105,.05)" stroke="rgba(127,176,105,.25)" stroke-dasharray="5 4" rx="8"/>
+    <text x="98" y="42" fill="rgba(127,176,105,.7)" font-size="10">do these first</text>
+    <!-- points: cx by effort, cy by value (higher = lower y) -->
+    <g font-size="10.5">
+      <circle cx="110" cy="60"  r="9" fill="#b58fc9"/><text x="126" y="64" fill="#e8e2d5">1 · TUI attention (tui.json)</text>
+      <circle cx="255" cy="80"  r="9" fill="#7fb069"/><text x="271" y="84" fill="#e8e2d5">2 · per-event granularity</text>
+      <circle cx="215" cy="120" r="9" fill="#e0a458"/><text x="231" y="124" fill="#e8e2d5">3 · error/abort notify</text>
+      <circle cx="280" cy="152" r="9" fill="#e0a458"/><text x="296" y="156" fill="#e8e2d5">4 · unify desktop+phone</text>
+      <circle cx="420" cy="70"  r="11" fill="#d96c5f"/><text x="437" y="74" fill="#e8e2d5" font-weight="bold">5 · MCP health / stall watchdog</text>
+      <circle cx="600" cy="105" r="9" fill="#e0a458"/><text x="616" y="109" fill="#e8e2d5">6 · approve-from-lock-screen</text>
+      <circle cx="430" cy="185" r="9" fill="#6ca0dc"/><text x="446" y="189" fill="#e8e2d5">7 · MR/CI dock pane + pill</text>
+      <circle cx="160" cy="205" r="9" fill="#7fb069"/><text x="176" y="209" fill="#e8e2d5">8 · plannotator (install)</text>
+      <circle cx="700" cy="238" r="9" fill="#55503f"/><text x="716" y="242" fill="#a89f8c">9 · TUI status bar (upstream)</text>
+      <circle cx="840" cy="200" r="9" fill="#6ca0dc"/><text x="740" y="176" fill="#e8e2d5">10 · manager runs v2</text>
+    </g>
+  </svg>
+  </div>
+  <figcaption>Fig 2 — Gap portfolio: value vs effort. #5 (MCP watchdog) is high-value at moderate cost because nothing in the ecosystem does it.</figcaption>
+</figure>
+
+<table>
+  <tr><th>#</th><th>Gap</th><th>OpenHands has it</th><th>Path</th><th>Effort</th></tr>
+  <tr class="verdict-row"><td>1</td><td><b>TUI attention</b> &mdash; <code>tui.json</code> doesn't exist; desktop notify + per-event sounds + volume are OFF by default and free to enable</td><td>&#10003; 3 channels + volume slider</td><td><span class="tag free">CONFIG</span></td><td>5 min</td></tr>
+  <tr class="verdict-row"><td>2</td><td><b>Per-event notification granularity</b> &mdash; mute is binary; 67% of pushes are permissions</td><td>&#10003; per-event checkboxes</td><td><span class="tag adopt">ADOPT</span> mohak34/opencode-notifier or extend yours</td><td>~1h</td></tr>
+  <tr class="verdict-row"><td>3</td><td><b>Error/abort notifications</b> &mdash; nothing fires on <code>session.error</code> / cancel</td><td>&#10003; high-priority</td><td><span class="tag build">BUILD</span> (small)</td><td>~30m</td></tr>
+  <tr class="verdict-row"><td>4</td><td><b>Unify desktop + phone channels</b> &mdash; shared prefs + mute, question text in toast, permission/idle toasts</td><td>&#10003; single trigger table</td><td><span class="tag build">BUILD</span></td><td>~1h</td></tr>
+  <tr class="verdict-row"><td>5</td><td><b>MCP health / stall detection</b> &mdash; 21 servers, silent <code>deepctl-mcp</code> timeouts; OpenHands names the stalling server after 12s</td><td>&#10003; probe + stall hint</td><td><span class="tag build">BUILD</span> + <span class="tag borrow">DOCK</span> &mdash; <b>no ecosystem option exists</b></td><td>~2h</td></tr>
+  <tr class="verdict-row"><td>6</td><td><b>Approve-from-lock-screen</b> &mdash; ntfy <code>http</code> actions &rarr; POST to permission endpoint</td><td>&#10007; (OpenHands lacks it too)</td><td><span class="tag build">BUILD</span> on existing plugin</td><td>~half day</td></tr>
+  <tr class="verdict-row"><td>7</td><td><b>MR/CI panel</b> &mdash; pipeline state, comments, merge</td><td>&#10003; full panel</td><td><span class="tag borrow">DOCK</span> <code>glab</code> watch + status pill</td><td>~2h</td></tr>
+  <tr class="verdict-row"><td>8</td><td><b>Plan review surface</b></td><td>&#10003; task list panel</td><td><span class="tag adopt">ADOPT</span> plannotator</td><td>install</td></tr>
+  <tr class="verdict-row"><td>9</td><td><b>Status bar</b> (context gauge + spend in TUI)</td><td>&#10003;</td><td><span class="tag skip">UPSTREAM</span> &mdash; <code>opencode stats</code> in a dock pane approximates</td><td>&mdash;</td></tr>
+  <tr class="verdict-row"><td>10</td><td><b>Manager runs</b></td><td>&#10003; Postgres waves</td><td><span class="tag borrow">BORROW</span> Team-Mode tool design into your <code>manager-children</code> skill</td><td>days</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="s5"><span class="n">5</span>Customizing OpenCode: five tiers, no fork needed</h2>
+
+<div class="tiers">
+  <div class="tier">
+    <div class="t-name" style="background:rgba(127,176,105,.14);color:var(--green)">TIER 1</div>
+    <div class="t-desc"><span><b>Config</b> — opencode.json + tui.json · 8-level precedence, merged not replaced · models, MCP, permissions, attention/sounds, keybinds</span></div>
+    <div class="t-risk" style="color:var(--green)">RISK: NONE</div>
+  </div>
+  <div class="tier">
+    <div class="t-name" style="background:rgba(127,176,105,.14);color:var(--green)">TIER 2</div>
+    <div class="t-desc"><span><b>Prompt</b> — AGENTS.md, agents/*.md, commands/, skills/, permission rules, policies</span></div>
+    <div class="t-risk" style="color:var(--green)">RISK: NONE</div>
+  </div>
+  <div class="tier">
+    <div class="t-name" style="background:rgba(224,164,88,.16);color:var(--accent)">TIER 3</div>
+    <div class="t-desc"><span><b>Plugins</b> — ~30 hooks (session.*, permission.*, tool.execute.*, todo.updated, shell.env, compaction, TUI toasts) + full SDK client · <b style="color:var(--accent)">where you already live</b></span></div>
+    <div class="t-risk" style="color:var(--accent)">RISK: LOW†</div>
+  </div>
+  <div class="tier">
+    <div class="t-name" style="background:rgba(224,164,88,.16);color:var(--accent)">TIER 4</div>
+    <div class="t-desc"><span><b>Custom tools</b> — tools/*.ts, filename = tool name, any language behind it, can override built-ins</span></div>
+    <div class="t-risk" style="color:var(--accent)">RISK: LOW</div>
+  </div>
+  <div class="tier">
+    <div class="t-name" style="background:rgba(108,160,220,.15);color:var(--blue)">TIER 5</div>
+    <div class="t-desc"><span><b>SDK / server</b> — @opencode-ai/sdk vs opencode serve: session CRUD, prompts, permission replies, SSE events · an OpenHands-style external panel <b>without touching OpenCode</b></span></div>
+    <div class="t-risk" style="color:var(--blue)">RISK: LOW-MED</div>
+  </div>
+  <div class="tier" style="opacity:.55">
+    <div class="t-name" style="background:rgba(217,108,95,.14);color:var(--red)">TIER 6</div>
+    <div class="t-desc"><span><b>Fork the source</b> — only needed for: native TUI status bar, new TUI panels. <b style="color:var(--red)">You don't need this.</b></span></div>
+    <div class="t-risk" style="color:var(--red)">RISK: HIGH</div>
+  </div>
+</div>
+<p class="small">&dagger; Tier 3's real risk is silent event-shape drift, not merge conflicts &mdash; your plugin already handles permission v1 vs v2 payloads, which is evidence drift happens. Pin <code>@opencode-ai/plugin</code> (done), keep tests (done), log unknown shapes (todo).</p>
+
+<!-- ============================================================ -->
+<h2 id="s6"><span class="n">6</span>Reconciling with OpenCode updates</h2>
+
+<figure>
+  <div class="diagram">
+  <svg viewBox="0 0 920 200" font-family="SF Mono, Menlo, monospace">
+    <text x="20" y="28" fill="#a89f8c" font-size="11">Where breakage can actually come from:</text>
+    <!-- upstream opencode -->
+    <rect x="20" y="48" width="270" height="120" rx="10" fill="#1d1a16" stroke="#7fb069"/>
+    <text x="36" y="72" fill="#7fb069" font-size="12" font-weight="bold">opencode upstream</text>
+    <text x="36" y="94" fill="#e8e2d5" font-size="10">config: additive merge, auto-migrates</text>
+    <text x="36" y="111" fill="#e8e2d5" font-size="10">plugin API: typed + pinned</text>
+    <text x="36" y="128" fill="#a89f8c" font-size="10">history: 0 conflicts ever</text>
+    <text x="36" y="152" fill="#7fb069" font-size="11" font-weight="bold">→ LOW (drift, not conflicts)</text>
+    <!-- cmux vendor -->
+    <rect x="325" y="48" width="270" height="120" rx="10" fill="#1d1a16" stroke="#d96c5f"/>
+    <text x="341" y="72" fill="#d96c5f" font-size="12" font-weight="bold">cmux vendor plugins</text>
+    <text x="341" y="94" fill="#e8e2d5" font-size="10">cmux-feed.js / cmux-session.js</text>
+    <text x="341" y="111" fill="#e8e2d5" font-size="10">"DO NOT EDIT — upgraded in place"</text>
+    <text x="341" y="128" fill="#a89f8c" font-size="10">already churns (2 stale .baks)</text>
+    <text x="341" y="152" fill="#d96c5f" font-size="11" font-weight="bold">→ THE ACTUAL HAZARD</text>
+    <!-- your code -->
+    <rect x="630" y="48" width="270" height="120" rx="10" fill="#1d1a16" stroke="#6ca0dc"/>
+    <text x="646" y="72" fill="#6ca0dc" font-size="12" font-weight="bold">your plugins</text>
+    <text x="646" y="94" fill="#e8e2d5" font-size="10">separate repo, symlinked in</text>
+    <text x="646" y="111" fill="#e8e2d5" font-size="10">own tests (559-line suite)</text>
+    <text x="646" y="128" fill="#a89f8c" font-size="10">nothing in opencode's tree</text>
+    <text x="646" y="152" fill="#6ca0dc" font-size="11" font-weight="bold">→ CORRECT ARCHITECTURE, KEEP</text>
+  </svg>
+  </div>
+  <figcaption>Fig 3 — Reconciliation risk by source. The scary-sounding one (upstream) is the safe one.</figcaption>
+</figure>
+
+<ul>
+  <li><b>Tiers 1&ndash;2:</b> additive JSON merge; deprecations auto-migrate (legacy <code>theme</code>/<code>keybinds</code> keys were moved to <code>tui.json</code> automatically).</li>
+  <li><b>Tier 3:</b> mitigate silent drift: log-don't-swallow unknown shapes &mdash; <code>cmux-feed.js</code>'s bare <code>catch(_){}</code> is the anti-pattern (a failed permission reply is indistinguishable from success).</li>
+  <li><b>Set <code>"autoupdate": "notify"</code></b> so an OpenCode upgrade never lands mid-session before you've seen the changelog.</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="s7"><span class="n">7</span>Ecosystem research: adopt vs build</h2>
+
+<p class="small">10 projects reviewed. Needs: <b>A</b> notification granularity &middot; <b>B</b> plan review &middot; <b>C</b> worktree isolation &middot; <b>D</b> orchestration &middot; <b>E</b> MCP health &middot; <b>F</b> config profiles.</p>
+
+<h3>How much of each need the ecosystem already covers</h3>
+<div class="bars">
+  <div class="bar-row"><span class="lbl">F · profiles (ocx)</span><div class="bar-track"><div class="bar-fill" style="width:90%;background:#7fb069"></div></div><span class="bar-val">90%</span></div>
+  <div class="bar-row"><span class="lbl">C · worktrees (kdco)</span><div class="bar-track"><div class="bar-fill" style="width:85%;background:#7fb069"></div></div><span class="bar-val">85%</span></div>
+  <div class="bar-row"><span class="lbl">A · notifications (mohak34)</span><div class="bar-track"><div class="bar-fill" style="width:80%;background:#7fb069"></div></div><span class="bar-val">80%</span></div>
+  <div class="bar-row"><span class="lbl">B · plan review (plannotator)</span><div class="bar-track"><div class="bar-fill" style="width:70%;background:#e0a458"></div></div><span class="bar-val">70%</span></div>
+  <div class="bar-row"><span class="lbl">D · orchestration (OmO)</span><div class="bar-track"><div class="bar-fill" style="width:50%;background:#e0a458"></div></div><span class="bar-val">50%</span></div>
+  <div class="bar-row"><span class="lbl">E · MCP health</span><div class="bar-track"><div class="bar-fill" style="width:0%"></div></div><span class="bar-val" style="color:var(--red)">0% — build it</span></div>
+</div>
+
+<table>
+  <tr><th>Need</th><th>Best existing option</th><th>Verdict</th></tr>
+  <tr class="verdict-row"><td><b>A</b> Notifications</td><td><b>mohak34/opencode-notifier</b> &mdash; 10 events incl. <code>error</code> + <code>user_cancelled</code>, per-event {sound, notification, command, bell} toggles, quiet hours, focus suppression; <code>command</code> hook = phone bridge. npm, active, real troubleshooting docs</td><td><span class="tag adopt">ADOPT</span> + <span class="tag build">BUILD</span> 2-way bridge</td></tr>
+  <tr class="verdict-row"><td><b>B</b> Plan review</td><td><b>plannotator</b> &mdash; browser plan annotation (delete/replace/comment &rarr; structured feedback), plan diffs, MR review, Obsidian save; SLSA/SBOM supply chain. Caveat: phone-home update check</td><td><span class="tag adopt">ADOPT</span>; live todo panel = <span class="tag build">BUILD</span></td></tr>
+  <tr class="verdict-row"><td><b>C</b> Worktrees</td><td><b>kdco/opencode-worktree</b> &mdash; agent tools, sync + hooks, auto-commit cleanup, <b>native cmux workspace-per-worktree</b></td><td><span class="tag adopt">ADOPT</span> (or fork one file to drop OCX)</td></tr>
+  <tr class="verdict-row"><td><b>D</b> Orchestration</td><td>oh-my-opencode <b>Team Mode</b> (8 parallel members, task tools, tmux viz &mdash; but telemetry-on, SUL license, churn); kdco background-agents is read-only-only. <b>Nobody combines parallel workers with branch/MR isolation</b> &mdash; your <code>manager-children</code> skill is closest</td><td><span class="tag borrow">BORROW-IDEAS</span></td></tr>
+  <tr class="verdict-row"><td><b>E</b> MCP health</td><td><b>Nothing exists.</b> All notifiers are event-reactive; none detect stalls or ping servers</td><td><span class="tag build">BUILD</span> (~100 lines)</td></tr>
+  <tr class="verdict-row"><td><b>F</b> Profiles</td><td><b>ocx</b> &mdash; profiles w/ include/exclude, SHA-verified registries, <code>ocx oc -p</code>. Cost: launcher wrapper + Bun + single maintainer</td><td><span class="tag borrow">TRIAL</span>; dotfiles covers 70% free</td></tr>
+</table>
+
+<p class="small">Skipped: panta82/notificator (subset), DCP (context economy, maintenance mode), kdco-workspace (whole-harness opinions). The kdco set is one maintainer's ecosystem distributed via OCX facades &mdash; MIT and forkable, so cherry-pick is legitimate.</p>
+
+<div class="callout"><b>The three builds you'd uniquely own</b> (no ecosystem competition today): 1&#41; phone approve-action bridge, 2&#41; live task-list panel, 3&#41; MCP/stall watchdog. All three are small and plugin-API-shaped.</div>
+
+<!-- ============================================================ -->
+<h2 id="s8"><span class="n">8</span>cmux: the untapped rail</h2>
+
+<p>The right sidebar (Dock) is a full panel container on the same surface/split system as the main area. <b>No <code>dock.json</code> exists on this machine.</b> Seed order: <code>.cmux/dock.json</code> (project, trust-gated) &rarr; <code>~/.config/cmux/dock.json</code>. Runtime-scriptable too: <code>cmux new-surface --placement dock</code>; <code>send</code>/<code>read-screen</code> accept dock surface IDs.</p>
+
+<figure>
+  <div class="wireframe">
+    <div class="wf-titlebar"><span class="wf-dot"></span><span class="wf-dot"></span><span class="wf-dot"></span>&nbsp;&nbsp;cmux — OC | custom-dca-ide-with-openhands</div>
+    <div class="wf-body">
+      <div class="wf-pane">
+        <h5>OPENCODE TUI (pane:192)</h5>
+        <div class="wf-line">&gt; implement the skills toggle…</div>
+        <div class="wf-line"><span class="ok">✓</span> edit client/pages/Hub.tsx</div>
+        <div class="wf-line"><span class="ok">✓</span> bash npm test (388 passed)</div>
+        <div class="wf-line"><span class="wn">?</span> permission: git push --force…</div>
+        <div class="wf-line">█</div>
+      </div>
+      <div class="wf-pane">
+        <h5>BROWSER (pane:193)</h5>
+        <div class="wf-line">this report /</div>
+        <div class="wf-line">OpenHands UI /</div>
+        <div class="wf-line">GitLab MR !225</div>
+      </div>
+      <div class="wf-dockcol">
+        <div class="wf-pane hl">
+          <h5>MCP · dock.json</h5>
+          <div class="wf-line"><span class="ok">●</span> grafana-mcp     412ms</div>
+          <div class="wf-line"><span class="ok">●</span> gitlab-mcp      203ms</div>
+          <div class="wf-line"><span class="bad">●</span> deepctl-mcp   TIMEOUT</div>
+          <div class="wf-line"><span class="ok">●</span> backstage       188ms</div>
+          <div class="wf-line">…17 more</div>
+        </div>
+        <div class="wf-pane hl">
+          <h5>FEED</h5>
+          <div class="wf-line"><span class="wn">▸</span> PermissionRequest</div>
+          <div class="wf-line">  [approve] [always] [deny]</div>
+          <div class="wf-line"><span class="ok">▸</span> Stop · "cmdk" done</div>
+        </div>
+        <div class="wf-pane hl">
+          <h5>MRs · glab watch</h5>
+          <div class="wf-line">!225 Guide beta   <span class="ok">✓ CI</span></div>
+          <div class="wf-line">!90  Cmd+K        <span class="wn">● running</span></div>
+          <div class="wf-line">!89  skills       <span class="bad">✗ failed</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="wf-label">Fig 4 — Target layout: main work area unchanged, Dock rail (highlighted) = OpenHands' sidebar for free. Plus <code>set-status</code> pills: <span style="color:var(--red)">mcp 20/21</span> · <span style="color:var(--accent)">MR ● running</span></div>
+  </div>
+</figure>
+
+<p>Recommended project-local <code>.cmux/dock.json</code>:</p>
+<pre><code>{
+  "controls": [
+    { "id": "mcp-health", "title": "MCP",
+      "command": "while true; do clear; date '+%H:%M:%S'; opencode mcp list; sleep 30; done",
+      "cwd": ".", "height": 240 },
+    { "id": "feed", "title": "Feed", "command": "cmux feed tui --opentui", "height": 300 },
+    { "id": "git",  "title": "Git",  "command": "lazygit", "cwd": "." },
+    { "id": "mr-watch", "title": "MRs",
+      "command": "while true; do clear; glab mr list --assignee=@me; echo; glab ci status 2>/dev/null; sleep 60; done",
+      "cwd": ".", "height": 220 }
+  ]
+}</code></pre>
+
+<h3>cmux.json cleanups found</h3>
+<ul>
+  <li><b>Migrate <code>notifications.command</code> &rarr; <code>notifications.hooks</code></b>: the current hook string-matches banner <em>body text</em> (<code>*"needs approval"*</code>&hellip;) to run <code>say</code> &mdash; breaks on any phrasing change. Hooks get structured JSON (<code>agent.category</code> like <code>turn-complete</code>) instead.</li>
+  <li><code>"sound": "none"</code> makes the brittle <code>say</code> hack the only audio; per-category sounds via hooks are the fix.</li>
+  <li>Delete the byte-identical duplicate action <code>databricks-login-issue-&hellip;-2</code>; move one-off task workspaces out of the global palette.</li>
+  <li>Consider <code>suppressOnlyFocusedSurface: true</code> so non-focused agent banners survive when the workspace is merely visible.</li>
+  <li>Recipes 01 / 08 / 09 / 16 are ready-made templates for MCP-health notify, CI progress bars, MR status pills, and a GitLab-ified stale-MR flasher (recipe 19 is stale: calls nonexistent <code>cmux send-surface</code>).</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="s9"><span class="n">9</span>OpenCode desktop app (installed, 1.18.19)</h2>
+
+<div class="grid">
+  <div class="card">
+    <h4>What it is</h4>
+    <p>Electron (migrated off Tauri). The <b>full opencode server compiled in</b> as a sidecar utility process &mdash; same code the CLI runs, basic-auth on a per-launch password. Can also attach to an external <code>opencode serve</code>.</p>
+  </div>
+  <div class="card">
+    <h4>What it adds</h4>
+    <p>Tabs (persisted), project/session home, timelines w/ revert &amp; fork, <b>settings UI for providers / MCP state / agents</b>, embedded terminal, review/diff panel, native macOS notifications with 10 bundled alert sounds, <code>oc://</code> deep links.</p>
+  </div>
+  <div class="card">
+    <h4>Config compatibility</h4>
+    <p>Reads your <code>~/.config/opencode/opencode.json</code> unchanged (only <code>XDG_STATE_HOME</code> is redirected). All 21 MCP servers and <b>all 4 plugins load as-is</b>; login-shell PATH is honored.</p>
+  </div>
+  <div class="card">
+    <h4>Two caveats</h4>
+    <p><b>1) cmux plugins lose context</b> when launched from Finder (no <code>CMUX_SURFACE_ID</code>). <b>2) Notification double-delivery is real</b> &mdash; see Fig 5.</p>
+  </div>
+</div>
+
+<figure>
+  <div class="diagram">
+  <svg viewBox="0 0 920 240" font-family="SF Mono, Menlo, monospace">
+    <defs>
+      <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#a89f8c"/>
+      </marker>
+    </defs>
+    <rect x="20" y="88" width="180" height="64" rx="9" fill="#1d1a16" stroke="#e0a458"/>
+    <text x="110" y="115" fill="#e0a458" font-size="12" font-weight="bold" text-anchor="middle">agent finishes turn</text>
+    <text x="110" y="133" fill="#a89f8c" font-size="9.5" text-anchor="middle">one event in the sidecar</text>
+
+    <rect x="300" y="24" width="250" height="58" rx="9" fill="#1d1a16" stroke="#6ca0dc"/>
+    <text x="425" y="48" fill="#6ca0dc" font-size="11.5" font-weight="bold" text-anchor="middle">Desktop native notification</text>
+    <text x="425" y="66" fill="#a89f8c" font-size="9.5" text-anchor="middle">renderer Notification API + alert sound</text>
+
+    <rect x="300" y="156" width="250" height="58" rx="9" fill="#1d1a16" stroke="#7fb069"/>
+    <text x="425" y="180" fill="#7fb069" font-size="11.5" font-weight="bold" text-anchor="middle">ntfy-notify.js (runs in sidecar!)</text>
+    <text x="425" y="198" fill="#a89f8c" font-size="9.5" text-anchor="middle">pushes to phone regardless of focus</text>
+
+    <rect x="650" y="88" width="250" height="64" rx="9" fill="#1d1a16" stroke="#d96c5f"/>
+    <text x="775" y="112" fill="#d96c5f" font-size="12" font-weight="bold" text-anchor="middle">2× banners for 1 event</text>
+    <text x="775" y="130" fill="#a89f8c" font-size="9.5" text-anchor="middle">macOS banner + ntfy app banner</text>
+
+    <line x1="200" y1="105" x2="300" y2="58" stroke="#a89f8c" stroke-width="1.5" marker-end="url(#arr2)"/>
+    <line x1="200" y1="135" x2="300" y2="182" stroke="#a89f8c" stroke-width="1.5" marker-end="url(#arr2)"/>
+    <line x1="550" y1="58" x2="650" y2="105" stroke="#d96c5f" stroke-width="1.5" marker-end="url(#arr2)"/>
+    <line x1="550" y1="182" x2="650" y2="135" stroke="#d96c5f" stroke-width="1.5" marker-end="url(#arr2)"/>
+
+    <text x="20" y="230" fill="#a89f8c" font-size="10">Mitigations: ntfy-mute file · deny app in System Settings · teach plugin to skip when OPENCODE_CLIENT=desktop (env var it already sets)</text>
+  </svg>
+  </div>
+  <figcaption>Fig 5 — Double-delivery risk if you adopt the desktop app without gating one channel.</figcaption>
+</figure>
+
+<p class="small">Verdict: closest packaged thing to your OpenHands UI (tabs + session mgmt + MCP/provider settings UI + native notifications) at zero build cost &mdash; worth a 20-minute trial pointed at an external server started <em>inside</em> cmux so the cmux plugins keep their env.</p>
+
+<!-- ============================================================ -->
+<h2 id="s10"><span class="n">10</span>Recommended plan</h2>
+
+<div class="roadmap">
+  <div class="phase">
+    <div class="p-head" style="background:rgba(181,143,201,.15)"><span class="p-t" style="color:var(--purple)">Phase 1</span><span class="p-e" style="color:var(--purple)">~30 min · zero risk</span></div>
+    <div class="p-body">Create <code>tui.json</code> with <code>attention</code> (per-event sounds, volume) &middot; <code>"autoupdate": "notify"</code> &middot; move 4 plaintext tokens to <code>{env:}</code>/<code>{file:}</code> &middot; delete duplicate cmux action</div>
+  </div>
+  <div class="phase">
+    <div class="p-head" style="background:rgba(127,176,105,.14)"><span class="p-t" style="color:var(--green)">Phase 2</span><span class="p-e" style="color:var(--green)">~2–3 h</span></div>
+    <div class="p-body">Notification parity: trial mohak34/opencode-notifier; or extend yours &mdash; shared <code>ntfy-prefs.json</code> honored by both plugins, <code>session.error</code>/cancel &rarr; high-priority push, question text + permission/idle coverage in cmux toasts, <code>OPENCODE_CLIENT=desktop</code> guard</div>
+  </div>
+  <div class="phase">
+    <div class="p-head" style="background:rgba(224,164,88,.15)"><span class="p-t" style="color:var(--accent)">Phase 3</span><span class="p-e" style="color:var(--accent)">~half day</span></div>
+    <div class="p-body">The rail: <code>.cmux/dock.json</code> (MCP health / feed / lazygit / MR watch) &middot; migrate notifications.command &rarr; hooks &middot; <b>MCP stall watchdog plugin</b> (event-silence timer + probe &rarr; toast + <code>set-status mcp</code> pill) &mdash; the one thing OpenHands beats you at</div>
+  </div>
+  <div class="phase">
+    <div class="p-head" style="background:rgba(108,160,220,.14)"><span class="p-t" style="color:var(--blue)">Phase 4</span><span class="p-e" style="color:var(--blue)">~1–2 h reading</span></div>
+    <div class="p-body">Evaluate, don't build: 20-min desktop-app trial (attached to a cmux-started server) &middot; install plannotator &middot; read kdco/worktree + Team Mode source before touching <code>manager-children</code> &middot; ocx only if profile pain appears</div>
+  </div>
+  <div class="phase">
+    <div class="p-head" style="background:rgba(217,108,95,.13)"><span class="p-t" style="color:var(--red)">Phase 5</span><span class="p-e" style="color:var(--red)">~1–2 days</span></div>
+    <div class="p-body">Own the novel bits: ntfy <code>http</code> action buttons &rarr; POST to permission endpoint (<b>approve from lock screen</b>) &middot; live task-list dock pane fed by <code>todo.updated</code> events &mdash; no ecosystem competition for either</div>
+  </div>
+</div>
+
+<p class="kbd-note">Sources: 5 subagent reports &mdash; OpenHands repo inventory, plugin audit, ecosystem survey (10 projects), cmux CLI/docs/recipes verification, desktop app bundle inspection &mdash; plus opencode.ai docs (config / plugins / custom-tools / SDK / TUI / web / ecosystem) and live checks (<code>opencode debug config</code>, <code>opencode mcp --help</code>, config files on disk).</p>
+
+</div>
+</body>
+</html>

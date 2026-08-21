@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd unit for the OpenCode server this app depends on.
+
+  Install:
+    cp deploy/ai.opencode.serve.plist ~/Library/LaunchAgents/
+    # edit the paths + password below first
+    launchctl load ~/Library/LaunchAgents/ai.opencode.serve.plist
+
+  Why each env var is here (all learned during the migration audit):
+    OPENCODE_SERVER_PASSWORD  - `serve` is UNSECURED by default and prints a
+                                warning. Basic auth covers the SSE streams too.
+    OPENCODE_DISABLE_AUTOUPDATE - a background self-upgrade would swap the
+                                binary under a long-lived daemon mid-session.
+    NO_PROXY                  - required if any proxy is set, else localhost
+                                requests loop back through it.
+    OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS - detach blocking subagents so a
+                                parent session keeps working.
+    HOME                      - so ~/.local/share/opencode resolves correctly.
+
+  --port is pinned deliberately: `opencode serve` defaults to port 0 (random).
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>ai.opencode.serve</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/bsjl/.opencode/bin/opencode</string>
+    <string>serve</string>
+    <string>--hostname</string>
+    <string>127.0.0.1</string>
+    <string>--port</string>
+    <string>4096</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>/Users/bsjl</string>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>NO_PROXY</key>
+    <string>localhost,127.0.0.1</string>
+    <key>OPENCODE_DISABLE_AUTOUPDATE</key>
+    <string>1</string>
+    <key>OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS</key>
+    <string>true</string>
+    <!-- Set a real value before loading. Without it the server is unsecured. -->
+    <key>OPENCODE_SERVER_PASSWORD</key>
+    <string>CHANGE_ME</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+
+  <!-- The log is append-only with no built-in rotation; rotate it yourself
+       (newsyslog/logrotate). It reached 117 MB on the author's machine. -->
+  <key>StandardOutPath</key>
+  <string>/Users/bsjl/.local/share/opencode/log/launchd.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/bsjl/.local/share/opencode/log/launchd.err.log</string>
+</dict>
+</plist>

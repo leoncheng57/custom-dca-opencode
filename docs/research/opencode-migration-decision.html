@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Migrating off OpenHands — Decision Report</title>
+<style>
+  :root{
+    --bg:#14120f; --panel:#1d1a16; --panel2:#242019; --border:#3a342a;
+    --text:#e8e2d5; --dim:#a89f8c; --faint:#6a6252;
+    --accent:#e0a458; --green:#7fb069; --red:#d96c5f; --blue:#6ca0dc; --purple:#b58fc9;
+    --mono:"SF Mono",ui-monospace,Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--text);font:15px/1.55 -apple-system,"Segoe UI",sans-serif;margin:0;padding:0 0 4rem}
+  .wrap{max-width:1060px;margin:0 auto;padding:0 28px}
+  header{border-bottom:1px solid var(--border);background:linear-gradient(180deg,#1e1a14,var(--bg));padding:2.2rem 0 1.6rem;margin-bottom:1.4rem}
+  header h1{margin:0 0 .4rem;font-size:1.75rem;letter-spacing:-.02em}
+  header .sub{color:var(--dim);font-size:.95rem}
+  header .meta{margin-top:.8rem;font-family:var(--mono);font-size:.73rem;color:var(--faint)}
+  h2{font-size:1.25rem;margin:2.8rem 0 .9rem;padding-top:1.1rem;border-top:1px solid var(--border);color:var(--accent);letter-spacing:-.01em}
+  h2 .n{color:var(--faint);font-family:var(--mono);font-size:.85rem;margin-right:.55rem}
+  h3{font-size:1.02rem;margin:1.5rem 0 .5rem}
+  p{margin:.55rem 0}
+  a{color:var(--blue);text-decoration:none} a:hover{text-decoration:underline}
+  code{font-family:var(--mono);font-size:.82em;background:var(--panel2);border:1px solid var(--border);border-radius:4px;padding:.1em .35em;color:#e8cf9f}
+  pre{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:.9rem 1rem;overflow-x:auto;font-family:var(--mono);font-size:.76rem;line-height:1.5;color:#d8d2c2}
+  pre code{background:none;border:none;padding:0}
+  table{border-collapse:collapse;width:100%;margin:.9rem 0;font-size:.85rem}
+  th,td{border:1px solid var(--border);padding:.5rem .65rem;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:var(--accent);font-weight:600}
+  tr:nth-child(even) td{background:rgba(255,255,255,.015)}
+  ul{padding-left:1.3rem} li{margin:.25rem 0}
+  .small{font-size:.82rem;color:var(--dim)}
+  .tag{display:inline-block;font-family:var(--mono);font-size:.66rem;font-weight:700;padding:.1rem .45rem;border-radius:99px;letter-spacing:.03em;white-space:nowrap}
+  .adopt{background:rgba(127,176,105,.16);color:var(--green);border:1px solid rgba(127,176,105,.4)}
+  .build{background:rgba(224,164,88,.14);color:var(--accent);border:1px solid rgba(224,164,88,.4)}
+  .borrow{background:rgba(108,160,220,.14);color:var(--blue);border:1px solid rgba(108,160,220,.4)}
+  .skip{background:rgba(217,108,95,.13);color:var(--red);border:1px solid rgba(217,108,95,.4)}
+  .free{background:rgba(181,143,201,.15);color:var(--purple);border:1px solid rgba(181,143,201,.4)}
+  .sev-c{background:rgba(217,108,95,.22);color:#ff8f80;border:1px solid rgba(217,108,95,.55)}
+  .sev-h{background:rgba(224,164,88,.18);color:var(--accent);border:1px solid rgba(224,164,88,.5)}
+  .sev-m{background:rgba(224,200,88,.12);color:#d8c46a;border:1px solid rgba(216,196,106,.4)}
+  .sev-l{background:rgba(127,176,105,.13);color:var(--green);border:1px solid rgba(127,176,105,.35)}
+  .callout{border-left:3px solid var(--accent);background:var(--panel);border-radius:0 8px 8px 0;padding:.8rem 1rem;margin:1rem 0;font-size:.92rem}
+  .callout.warn{border-left-color:var(--red)} .callout.good{border-left-color:var(--green)} .callout.info{border-left-color:var(--blue)}
+  .callout b:first-child{color:var(--accent)}
+  .callout.warn b:first-child{color:var(--red)} .callout.good b:first-child{color:var(--green)} .callout.info b:first-child{color:var(--blue)}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin:1rem 0}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin:1rem 0}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:1rem 1.1rem}
+  .card h4{margin:0 0 .4rem;font-size:.95rem;color:var(--accent)}
+  .card p{font-size:.85rem;color:var(--dim);margin:.3rem 0}
+  .card.crit{border-color:rgba(217,108,95,.5)} .card.crit h4{color:var(--red)}
+  nav.toc{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:1rem 1.3rem;font-size:.88rem;columns:2;column-gap:2rem}
+  nav.toc a{display:block;padding:.15rem 0;color:var(--text)}
+  nav.toc a:hover{color:var(--accent);text-decoration:none}
+  nav.toc .num{color:var(--faint);font-family:var(--mono);font-size:.75rem;margin-right:.5rem}
+  figure{margin:1.2rem 0}
+  figcaption{font-size:.75rem;color:var(--dim);text-align:center;margin-top:.5rem;font-family:var(--mono)}
+  .diagram{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:1rem;overflow-x:auto}
+  .diagram svg{display:block;margin:0 auto;max-width:100%;height:auto}
+  .verdict{border:2px solid var(--green);border-radius:12px;background:linear-gradient(180deg,rgba(127,176,105,.07),transparent);padding:1.2rem 1.4rem;margin:1.4rem 0}
+  .verdict h3{margin:0 0 .5rem;color:var(--green);font-size:1.1rem}
+  .verdict ol{margin:.7rem 0 0;padding-left:1.2rem;font-size:.9rem}
+  .statstrip{display:grid;grid-template-columns:repeat(4,1fr);gap:.8rem;margin:1.4rem 0 0}
+  .stat{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:.8rem 1rem;text-align:center}
+  .stat .v{font-size:1.55rem;font-weight:700;color:var(--accent);font-family:var(--mono);letter-spacing:-.03em}
+  .stat .v.g{color:var(--green)} .stat .v.r{color:var(--red)} .stat .v.b{color:var(--blue)}
+  .stat .l{font-size:.7rem;color:var(--dim);margin-top:.15rem;line-height:1.3}
+  .matrix{border-collapse:collapse;font-size:.75rem;width:100%;margin:.9rem 0}
+  .matrix th,.matrix td{border:1px solid var(--border);padding:.34rem .4rem;text-align:center}
+  .matrix th{background:var(--panel2);font-size:.7rem}
+  .matrix td.rowh{text-align:left;font-family:var(--mono);font-size:.7rem;color:var(--dim);white-space:nowrap}
+  .m-yes{background:rgba(127,176,105,.25);color:#a8d492;font-weight:700}
+  .m-part{background:rgba(224,164,88,.18);color:var(--accent);font-weight:700}
+  .m-no{background:rgba(217,108,95,.13);color:var(--red)}
+  .legend{display:flex;gap:1rem;flex-wrap:wrap;font-size:.73rem;color:var(--dim);margin:.4rem 0 0;font-family:var(--mono)}
+  .legend .sw{display:inline-block;width:.85em;height:.85em;border-radius:3px;vertical-align:-.08em;margin-right:.3em}
+  .bar-row{display:grid;grid-template-columns:190px 1fr 100px;gap:.7rem;align-items:center;margin:.4rem 0;font-size:.8rem}
+  .bar-row .lbl{text-align:right;color:var(--dim);font-family:var(--mono);font-size:.73rem}
+  .bar-track{background:var(--panel2);border:1px solid var(--border);border-radius:5px;height:19px;overflow:hidden}
+  .bar-fill{height:100%}
+  .bar-val{font-family:var(--mono);font-size:.73rem;white-space:nowrap}
+  .paths{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin:1.2rem 0}
+  .path{border:1px solid var(--border);border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
+  .path.win{border-color:var(--green);box-shadow:0 0 0 1px rgba(127,176,105,.25)}
+  .path .ph{padding:.7rem .9rem;font-weight:700;font-size:.88rem;display:flex;justify-content:space-between;align-items:center;gap:.4rem}
+  .path .pb{padding:.8rem .9rem;background:var(--panel);flex:1;font-size:.82rem;color:var(--dim)}
+  .path .pb b{color:var(--text)}
+  .path .pf{padding:.55rem .9rem;background:var(--panel2);font-family:var(--mono);font-size:.71rem}
+  .path ul{padding-left:1.05rem;margin:.4rem 0}
+  .phase{display:grid;grid-template-columns:130px 1fr;border:1px solid var(--border);border-radius:9px;overflow:hidden;margin-bottom:.55rem}
+  .phase .p-head{padding:.6rem .8rem;display:flex;flex-direction:column;justify-content:center;gap:.15rem}
+  .phase .p-t{font-weight:700;font-size:.82rem}
+  .phase .p-e{font-family:var(--mono);font-size:.67rem;opacity:.85}
+  .phase .p-body{background:var(--panel);padding:.6rem .9rem;font-size:.83rem;color:var(--dim);display:flex;align-items:center}
+  .phase .p-body b,.phase .p-body code{color:var(--text)}
+  @media(max-width:780px){.grid,.grid3,.paths{grid-template-columns:1fr}nav.toc{columns:1}.statstrip{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <h1>Migrating off OpenHands</h1>
+    <div class="sub">Decision report &mdash; cmux&nbsp;+&nbsp;plugins vs. custom UI on <code>opencode serve</code> vs. adopting OpenChamber</div>
+    <div class="meta">Aug 21, 2026 &middot; 5 research spikes &middot; live OpenAPI + SQLite + binary inspection &middot; opencode 1.18.19 / server 1.18.18 &middot; cmux 0.64.22</div>
+    <div class="statstrip">
+      <div class="stat"><div class="v b">162</div><div class="l">paths / 188 ops in the live API — docs claim ~60</div></div>
+      <div class="stat"><div class="v g">32</div><div class="l">projects on ONE server, verified live — topology preserved</div></div>
+      <div class="stat"><div class="v">8/12</div><div class="l">surfaces already shipped by OpenChamber, 0 missing</div></div>
+      <div class="stat"><div class="v r">3</div><div class="l">critical migration risks with no OpenCode equivalent</div></div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<div class="callout warn" style="border-width:2px"><b>SUPERSEDED (Aug 21):</b> the OpenChamber recommendation below was <b>declined</b> — the chosen path is <b>Path B: custom UI on <code>opencode serve</code></b>, fresh public repo, no Docker, executed via parallel Opus 5 subagents. The API findings, ecosystem scoreboard, and risk register in this document remain valid reference material, with one amendment: <b>R2 is now an accepted risk with detection-only UX</b> (no recovery sweep). The living plan is <code>opencode-build-plan.html</code> (v2) — where documents conflict, it wins.</div>
+
+<nav class="toc">
+  <a href="#s1"><span class="num">1</span>Verdict</a>
+  <a href="#s2"><span class="num">2</span>The three paths</a>
+  <a href="#s3"><span class="num">3</span>What the live API proved</a>
+  <a href="#s4"><span class="num">4</span>Hard API gaps</a>
+  <a href="#s5"><span class="num">5</span>How much of your code survives</a>
+  <a href="#s6"><span class="num">6</span>Ecosystem scoreboard</a>
+  <a href="#s7"><span class="num">7</span>OpenChamber in detail</a>
+  <a href="#s8"><span class="num">8</span>Where cmux + plugins still win</a>
+  <a href="#s9"><span class="num">9</span>The four things you must build</a>
+  <a href="#s10"><span class="num">10</span>Migration risk register</a>
+  <a href="#s11"><span class="num">11</span>Traps &amp; gotchas</a>
+  <a href="#s12"><span class="num">12</span>Recommended sequence</a>
+</nav>
+
+<!-- ================================================= -->
+<h2 id="s1"><span class="n">1</span>Verdict</h2>
+
+<div class="verdict">
+  <h3>Adopt OpenChamber upstream, pointed at your existing <code>opencode serve</code>. Do not fork it, and do not build a UI from scratch. But solve isolation and run-recovery first — those are the real migration blockers, not the UI.</h3>
+  <ol>
+    <li><b>OpenChamber</b> (<code>openchamber/openchamber</code>, 9.0k&nbsp;★, 161 contributors, MIT, weekly releases) is React&nbsp;+&nbsp;Vite&nbsp;+&nbsp;Tailwind&nbsp;+&nbsp;Zustand over a plain Express BFF talking to <code>@opencode-ai/sdk</code> — <b>structurally the same app you already maintain</b>. It ships 8 of your 12 surfaces with none missing outright, and attaches to an external server via <code>OPENCODE_HOST</code>.</li>
+    <li>The migration is <b>viable</b>: one server hosts all 32 of your projects (verified live), work continues when every client disconnects, and the API is richer than agent-canvas in most places.</li>
+    <li>But two OpenHands properties have <b>no equivalent and are load-bearing</b>: <span class="tag sev-c">R1</span> the agent no longer runs in a container — it runs as your user, and <span class="tag sev-c">R2</span> there is no auto-resume, so a reboot mid-turn silently kills the run forever. Both need deliberate answers before this becomes your daily driver.</li>
+    <li>Your OpenHands UI's real value was never the commodity panels — it was ntfy notifications, GitLab MR/pipelines, the command audit trail, and MCP/LSP latency probes. <b>Nobody in the ecosystem has those four.</b> They are yours to keep, in any path.</li>
+  </ol>
+</div>
+
+<figure>
+  <div class="diagram">
+  <svg viewBox="0 0 960 412" font-family="SF Mono, Menlo, monospace">
+    <defs>
+      <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#a89f8c"/></marker>
+      <marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7fb069"/></marker>
+    </defs>
+    <rect x="330" y="12" width="300" height="46" rx="9" fill="#242019" stroke="#e0a458"/>
+    <text x="480" y="33" fill="#e0a458" font-size="13" font-weight="bold" text-anchor="middle">Migrate off OpenHands</text>
+    <text x="480" y="49" fill="#a89f8c" font-size="10" text-anchor="middle">all four pains real · convergence is the goal</text>
+    <line x1="480" y1="58" x2="480" y2="80" stroke="#a89f8c" stroke-width="1.5"/>
+    <line x1="160" y1="80" x2="800" y2="80" stroke="#a89f8c" stroke-width="1.5"/>
+    <line x1="160" y1="80" x2="160" y2="102" stroke="#a89f8c" stroke-width="1.5" marker-end="url(#a)"/>
+    <line x1="480" y1="80" x2="480" y2="102" stroke="#a89f8c" stroke-width="1.5" marker-end="url(#a)"/>
+    <line x1="800" y1="80" x2="800" y2="102" stroke="#7fb069" stroke-width="1.5" marker-end="url(#ag)"/>
+
+    <rect x="26" y="104" width="268" height="140" rx="10" fill="#1d1a16" stroke="#3a342a"/>
+    <text x="42" y="126" fill="#a89f8c" font-size="12" font-weight="bold">PATH A · plugins + cmux</text>
+    <text x="42" y="147" fill="#e8e2d5" font-size="10">server plugins + dock.json + sidebar</text>
+    <text x="42" y="165" fill="#7fb069" font-size="10">+ hours, no new app, dock is free</text>
+    <text x="42" y="182" fill="#d96c5f" font-size="10">− sidebar has NO input controls</text>
+    <text x="42" y="199" fill="#d96c5f" font-size="10">− state across 5 files, 2 registries</text>
+    <text x="42" y="228" fill="#a89f8c" font-size="10.5" font-weight="bold">verdict: keep as supplement</text>
+
+    <rect x="346" y="104" width="268" height="140" rx="10" fill="#1d1a16" stroke="#3a342a"/>
+    <text x="362" y="126" fill="#a89f8c" font-size="12" font-weight="bold">PATH B · greenfield</text>
+    <text x="362" y="147" fill="#e8e2d5" font-size="10">re-point your BFF at opencode serve</text>
+    <text x="362" y="165" fill="#7fb069" font-size="10">+ ~74% of transcript stack reused</text>
+    <text x="362" y="182" fill="#7fb069" font-size="10">+ your conventions and tests survive</text>
+    <text x="362" y="199" fill="#d96c5f" font-size="10">− rebuild 8 commodity surfaces solo</text>
+    <text x="362" y="228" fill="#a89f8c" font-size="10.5" font-weight="bold">verdict: strong runner-up</text>
+
+    <rect x="666" y="104" width="268" height="140" rx="10" fill="#1d1a16" stroke="#7fb069" stroke-width="2"/>
+    <text x="682" y="126" fill="#7fb069" font-size="12" font-weight="bold">PATH C · OpenChamber</text>
+    <text x="682" y="147" fill="#e8e2d5" font-size="10">upstream + thin local patch set</text>
+    <text x="682" y="165" fill="#7fb069" font-size="10">+ 8/12 surfaces on day one</text>
+    <text x="682" y="182" fill="#7fb069" font-size="10">+ same stack, 161 contributors</text>
+    <text x="682" y="199" fill="#d96c5f" font-size="10">− no UI plugin API → rebase surface</text>
+    <text x="682" y="228" fill="#7fb069" font-size="10.5" font-weight="bold">verdict: RECOMMENDED</text>
+
+    <rect x="130" y="266" width="700" height="42" rx="9" fill="#1a1713" stroke="#d96c5f" stroke-width="2"/>
+    <text x="480" y="283" fill="#d96c5f" font-size="11.5" font-weight="bold" text-anchor="middle">GATE — must be answered in EVERY path before daily-driver</text>
+    <text x="480" y="299" fill="#a89f8c" font-size="9.5" text-anchor="middle">R1 no container isolation (agent runs as your UID) · R2 no auto-resume after restart · R3 one shared password</text>
+
+    <rect x="180" y="320" width="600" height="40" rx="9" fill="#242019" stroke="#b58fc9"/>
+    <text x="480" y="336" fill="#b58fc9" font-size="11" font-weight="bold" text-anchor="middle">SHARED BASE — required in every path</text>
+    <text x="480" y="352" fill="#a89f8c" font-size="9.5" text-anchor="middle">server plugins for headless notifications · ntfy-prefs.json contract · tui.json attention · secrets to {env:}</text>
+
+    <rect x="180" y="368" width="600" height="38" rx="9" fill="#1a1713" stroke="#e0a458"/>
+    <text x="480" y="384" fill="#e0a458" font-size="11" font-weight="bold" text-anchor="middle">YOURS TO BUILD — no ecosystem competition, any path</text>
+    <text x="480" y="399" fill="#a89f8c" font-size="9.5" text-anchor="middle">ntfy channel · GitLab MR + pipelines · command audit trail · MCP/LSP latency probes</text>
+  </svg>
+  </div>
+  <figcaption>Fig 1 — The UI choice is the easy part. The gate above it is what actually decides whether the migration is safe.</figcaption>
+</figure>
+
+<!-- ================================================= -->
+<h2 id="s2"><span class="n">2</span>The three paths</h2>
+
+<div class="paths">
+  <div class="path">
+    <div class="ph" style="background:rgba(168,159,140,.12);color:var(--dim)">PATH A <span class="tag skip">SUPPLEMENT</span></div>
+    <div class="pb">
+      <b>plugins + cmux config</b>
+      <ul>
+        <li><b>Wins:</b> hours not weeks; dock panes are zero code</li>
+        <li><b>Blocker:</b> cmux custom sidebars have <b>no input controls</b> (no <code>@State</code>/Toggle/TextField/Slider) and see only <code>workspaces</code>/<code>tabs</code>/<code>clock</code>. A settings page is impossible there</li>
+        <li><b>Blocker:</b> TUI plugins <em>could</em> do it, but you've ruled out TUI code and the API is undocumented</li>
+      </ul>
+    </div>
+    <div class="pf" style="color:var(--dim)">Keeps: notifications, monitoring panes</div>
+  </div>
+  <div class="path">
+    <div class="ph" style="background:rgba(108,160,220,.12);color:var(--blue)">PATH B <span class="tag borrow">RUNNER-UP</span></div>
+    <div class="pb">
+      <b>greenfield on <code>opencode serve</code></b>
+      <ul>
+        <li><b>Wins:</b> ~74% of the transcript stack reused; total control; your design system and vitest suite survive</li>
+        <li><b>Cost:</b> you rebuild 8 commodity surfaces that already exist, and stay sole maintainer</li>
+        <li><b>Real:</b> the API maps almost 1:1 — genuinely achievable, just not the best use of the time</li>
+      </ul>
+    </div>
+    <div class="pf" style="color:var(--blue)">Choose if OpenChamber's conventions repel you</div>
+  </div>
+  <div class="path win">
+    <div class="ph" style="background:rgba(127,176,105,.14);color:var(--green)">PATH C <span class="tag adopt">RECOMMENDED</span></div>
+    <div class="pb">
+      <b>adopt OpenChamber</b>
+      <ul>
+        <li><b>Wins:</b> 8/12 day one; same stack; 161 contributors carry the commodity surface</li>
+        <li><b>Bonus:</b> Multi-run + Fusion, Session Goals, Changes Walkthrough, PWA + iOS/Android, E2EE relay, ~25 quota adapters</li>
+        <li><b>Cost:</b> no UI plugin API — custom pages touch <code>SettingsView</code> + i18n on every upgrade</li>
+      </ul>
+    </div>
+    <div class="pf" style="color:var(--green)">Patch set: 4 features, 2 upstreamable</div>
+  </div>
+</div>
+
+<!-- ================================================= -->
+<h2 id="s3"><span class="n">3</span>What the live API proved</h2>
+
+<p>Your <code>opencode web</code> on <code>100.78.52.59:4096</code> served its full OpenAPI 3.1 spec at <code>/doc</code>: <b>162 paths, 188 operations, 472 schemas</b> — versus ~60 in the published docs. The BFF audit independently identified <b>five capabilities every surface hinges on</b>. All five resolve.</p>
+
+<table>
+  <tr><th style="width:26%">Hinge capability</th><th>OpenCode equivalent</th><th style="width:14%">Verdict</th></tr>
+  <tr><td><b>1.</b> Paginated, id-stable event log with action⇄observation correlation</td><td><code>GET /session/{id}/message</code> → <code>{info, parts}</code>. <code>ToolPart.state</code> is a union of <code>pending/running/completed/error</code> carrying <b>input and output together</b> — no <code>action_id</code> pairing needed. Plus 86 SSE event types incl. token-level <code>*.delta</code></td><td><span class="tag adopt">SIMPLER</span></td></tr>
+  <tr><td><b>2.</b> Exec-in-sandbox primitive</td><td><code>POST /session/{id}/shell</code> + a 15-op <code>/pty</code> family with WebSocket attach — real interactive terminals. Your OpenHands terminal is read-only audit by design</td><td><span class="tag adopt">BETTER</span></td></tr>
+  <tr><td><b>3.</b> Per-conversation <code>working_dir</code></td><td><code>Session.directory</code> is <code>NOT NULL</code>, immutable after create; <code>?directory=</code> on 60+ routes; <code>project_directory</code> table tracks worktrees with <code>strategy: git_worktree</code></td><td><span class="tag adopt">YES</span></td></tr>
+  <tr><td><b>4.</b> Per-LLM token/cost <b>with context window</b></td><td>Cost + tokens at <b>three granularities</b> (session, message, per-step <code>StepFinishPart</code>). The window denominator comes from <code>Model.limit.context</code> via <code>/config/providers</code>. <b>Correction to earlier draft: the gauge is fully computable</b>, just not served pre-computed</td><td><span class="tag adopt">YES</span></td></tr>
+  <tr><td><b>5.</b> Server-enforced write gate</td><td>Permission system with <b>per-tool AND per-input-pattern</b> rules (<code>bash: {"git *": "allow", "rm *": "deny"}</code>), per-agent and per-session scoping, durable saved rules. <b>Richer and deterministic</b> vs. OpenHands' model-judged <code>security_risk</code>. But: no per-action risk label, so Plan mode becomes agent-switch + rules</td><td><span class="tag build">REDESIGN</span></td></tr>
+</table>
+
+<div class="callout good"><b>Verified answers to the two load-bearing operational questions:</b><br>
+<b>One server, all projects — YES.</b> Live: 32 projects, 2,483 sessions in one SQLite store, <code>?directory=</code> correctly scoping (68 sessions for this repo, all one <code>projectID</code>). Your OpenHands topology is preserved exactly.<br>
+<b>Work continues when every client disconnects — YES</b>, via <code>POST /session/{id}/prompt_async</code> (returns <code>204</code>, agent loop runs server-side). Note <code>POST /session/{id}/message</code> <b>blocks for the entire turn</b> — use <code>prompt_async</code> for anything long-running.</div>
+
+<h3>Live MCP health right now</h3>
+<div>
+  <div class="bar-row"><span class="lbl">connected</span><div class="bar-track"><div class="bar-fill" style="width:52.4%;background:linear-gradient(90deg,#4d6b41,#7fb069)"></div></div><span class="bar-val" style="color:var(--green)">11 / 21</span></div>
+  <div class="bar-row"><span class="lbl">needs_auth</span><div class="bar-track"><div class="bar-fill" style="width:19%;background:linear-gradient(90deg,#8a5f3a,#e0a458)"></div></div><span class="bar-val" style="color:var(--accent)">4</span></div>
+  <div class="bar-row"><span class="lbl">failed</span><div class="bar-track"><div class="bar-fill" style="width:14.3%;background:linear-gradient(90deg,#7a3f38,#d96c5f)"></div></div><span class="bar-val" style="color:var(--red)">3</span></div>
+  <div class="bar-row"><span class="lbl">disabled</span><div class="bar-track"><div class="bar-fill" style="width:14.3%;background:#4a4638"></div></div><span class="bar-val" style="color:var(--faint)">3</span></div>
+</div>
+<p class="small">Failing: <code>excalidraw</code>, <code>mermaid</code> (connection closed), <code>pagerduty-mcp</code> (no dynamic client registration). Needing auth: <code>atlassian-mcp</code>, <code>deeplatform-mcp</code>, <code>gitlab-mcp</code>, <code>sentry-mcp</code>. Silently true for months — exactly what your Tools page existed to surface. And unlike OpenHands, OpenCode lets a UI <em>fix</em> it: <code>POST /mcp/{name}/connect|disconnect|auth</code>.</p>
+
+<!-- ================================================= -->
+<h2 id="s4"><span class="n">4</span>Hard API gaps</h2>
+
+<p>Six things the API genuinely does not provide. Three are stubs that return empty arrays unconditionally — they will look like bugs in your code, not theirs.</p>
+
+<table>
+  <tr><th>Gap</th><th>Evidence</th><th>Workaround</th></tr>
+  <tr><td><b>Git commit history / log / blame / branch list</b></td><td>No route in 162 paths contains <code>log</code>, <code>commit</code>, <code>blame</code>, or <code>branches</code>. Only branch <em>name</em> (<code>/vcs</code>) and diffs</td><td><b>Your BFF must run git itself.</b> This is why OpenChamber's <code>GitView</code> has its own <code>lib/git/</code>. Affects your Changes page, which lists commits</td></tr>
+  <tr><td><code>GET /find/symbol</code> returns <code>[]</code></td><td>Binary: <code>fn("FileHttpApi.findSymbol")(function*(){return[]})</code></td><td>Use LSP directly, or drop the feature</td></tr>
+  <tr><td><code>GET /file/status</code> returns <code>[]</code></td><td>Binary: <code>fn("FileHttpApi.status")(function*(){return[]})</code></td><td><b>Use <code>/vcs/status</code> instead</b> — the legacy route is a trap</td></tr>
+  <tr><td>LSP diagnostics</td><td>Not in the 1.18.x event union or any route. <code>lsp.updated</code> carries an untyped payload</td><td>Re-fetch <code>GET /lsp</code> on that event; status only, no diagnostics</td></tr>
+  <tr><td>File <b>write</b> endpoint</td><td>FS API is read-only</td><td>Mutate via the agent, <code>POST /vcs/apply</code> (patch), or <code>POST /session/{id}/shell</code></td></tr>
+  <tr><td><code>GET /find</code> caps at 10 results</td><td>Binary hardcodes <code>i.grep({cwd, pattern, limit:10})</code></td><td>Narrower queries, or shell out via <code>/session/{id}/shell</code></td></tr>
+</table>
+
+<!-- ================================================= -->
+<h2 id="s5"><span class="n">5</span>How much of your code survives</h2>
+
+<div>
+  <div class="bar-row"><span class="lbl">generic / ports as-is</span><div class="bar-track"><div class="bar-fill" style="width:32%;background:#7fb069"></div></div><span class="bar-val">~32%</span></div>
+  <div class="bar-row"><span class="lbl">field-named but neutral</span><div class="bar-track"><div class="bar-fill" style="width:11%;background:#6ca0dc"></div></div><span class="bar-val">~11%</span></div>
+  <div class="bar-row"><span class="lbl">OpenHands-specific</span><div class="bar-track"><div class="bar-fill" style="width:51%;background:#d96c5f"></div></div><span class="bar-val" style="color:var(--red)">~51%</span></div>
+</div>
+<p class="small">Breakdown of <code>client/lib/events.ts</code> (713 lines). Across the whole transcript surface (~1,400 lines incl. row components and <code>CommandSidebar</code>), <b>only ~26% is agent-server-specific</b> — all inside <code>normalizeEvent()</code> and friends (<code>events.ts:42-457</code>, ~363 lines). Every React row component consumes the neutral <code>TranscriptEvent</code> type and touches zero raw fields. <b>The port is "write one adapter", not "refactor the renderer".</b></p>
+
+<table>
+  <tr><th style="width:20%">Rating</th><th>Surfaces</th></tr>
+  <tr><td><span class="tag adopt">PORTS AS-IS</span></td><td>Shell / nav / command palette · all transcript row components · transcript derivations (<code>events.ts:459-713</code>) · Commands panel · <b>MR/PR panel + GitLab/GitHub clients (~2,100 lines)</b> · notification UI + ntfy sender · design system · diff renderer · image validation</td></tr>
+  <tr><td><span class="tag build">NEEDS ADAPTER</span></td><td>Hub / create form · Files · Changes (<b>plus local git for commits</b>) · Terminal · Preview · Disk bar · status bar · task list · SSE streaming · workspace-mode badge · manager runs (5-method agent seam)</td></tr>
+  <tr><td><span class="tag borrow">NEEDS REWRITE</span></td><td><code>normalizeEvent</code> / reasoning / summary / tool-detail (~363 lines) · the <code>/tools</code> probe aggregator · SSE frame mapper · <code>manager/transcript.ts</code></td></tr>
+  <tr><td><span class="tag skip">NO EQUIVALENT</span></td><td>Skills toggles · condenser settings · auto-resume watcher · <code>misc_settings</code>-as-a-KV-store — all four are OpenHands-server internals. <b>Let them go</b> (but see <span class="tag sev-c">R2</span> — auto-resume needs replacing, not dropping)</td></tr>
+</table>
+
+<div class="callout info"><b>Two dead-code findings in your repo:</b> <code>GET /conversations/:id/files</code> (<code>setup.ts:2621</code>) has no client caller — drop it. And <code>statusBar.ts:4-7</code> records that upstream leaves <code>metrics</code> null, so the <code>metrics.accumulated_cost</code> fallback is already dead today.</div>
+
+<!-- ================================================= -->
+<h2 id="s6"><span class="n">6</span>Ecosystem scoreboard</h2>
+
+<table class="matrix">
+  <tr><th style="text-align:left">Surface</th><th>Open&shy;Chamber</th><th>Code&shy;Nomad</th><th>Portal</th><th>Open&shy;Work</th><th>octto</th><th>kimaki</th><th>Obsidian</th></tr>
+  <tr><td class="rowh">conversation list + transcript</td><td class="m-yes">HAS</td><td class="m-yes">HAS</td><td class="m-yes">HAS</td><td class="m-yes">HAS</td><td class="m-no">·</td><td class="m-part">~</td><td class="m-part">~</td></tr>
+  <tr><td class="rowh">task-list panel</td><td class="m-yes">HAS</td><td class="m-yes">HAS</td><td class="m-no">·</td><td class="m-part">~</td><td class="m-no">·</td><td class="m-part">~</td><td class="m-no">·</td></tr>
+  <tr><td class="rowh">notification settings (per-event)</td><td class="m-part">~</td><td class="m-part">~</td><td class="m-no">·</td><td class="m-part">~</td><td class="m-no">·</td><td class="m-part">~</td><td class="m-no">·</td></tr>
+  <tr><td class="rowh">tools &amp; health (MCP/LSP + latency)</td><td class="m-part">~</td><td class="m-part">~<b>*</b></td><td class="m-no">·</td><td class="m-part">~</td><td class="m-no">·</td><td class="m-part">~</td><td class="m-no">·</td></tr>
+  <tr><td class="rowh">agent settings</td><td class="m-yes">HAS</td><td class="m-part">~</td><td class="m-part">~</td><td class="m-part">~</td><td class="m-no">·</td><td class="m-part">~</td><td class="m-part">~</td></tr>
+  <tr><td class="rowh">file browser</td><td class="m-yes">HAS</td><td class="m-yes">HAS</td><td class="m-part">~</td><td class="m-no">·</td><td class="m-no">·</td><td class="m-no">·</td><td class="m-no">·</td></tr>
+  <tr><td class="rowh">git diff viewer</td><td class="m-yes">HAS</td><td class="m-yes">HAS</td><td class="m-yes">HAS</td><td class="m-no">·</td><td class="m-no">·</td><td class="m-part">~</td><td class="m-no">·</td></tr>
+  <tr><td class="rowh">live preview proxy</td><td class="m-yes">HAS</td><td class="m-yes">HAS</td><td class="m-no">·</td><td class="m-no">·</td><td class="m-no">·</td><td class="m-part">~</td><td class="m-no">·</td></tr>
+  <tr><td class="rowh">command audit trail</td><td class="m-part">~</td><td class="m-part">~</td><td class="m-no">·</td><td class="m-no">·</td><td class="m-no">·</td><td class="m-part">~</td><td class="m-no">·</td></tr>
+  <tr><td class="rowh">GitLab MR + pipeline + merge</td><td class="m-part">~<b>†</b></td><td class="m-no">·</td><td class="m-no">·</td><td class="m-no">·</td><td class="m-no">·</td><td class="m-no">·</td><td class="m-no">·</td></tr>
+  <tr><td class="rowh">cost / context status bar</td><td class="m-yes">HAS</td><td class="m-yes">HAS</td><td class="m-no">·</td><td class="m-no">·</td><td class="m-no">·</td><td class="m-part">~</td><td class="m-no">·</td></tr>
+  <tr><td class="rowh">multi-agent "manager runs"</td><td class="m-yes">HAS</td><td class="m-part">~</td><td class="m-no">·</td><td class="m-part">~</td><td class="m-part">~</td><td class="m-part">~</td><td class="m-no">·</td></tr>
+  <tr><td class="rowh"><b>SCORE has/part/missing</b></td><td class="m-yes">8/4/0</td><td class="m-part">5/5/2</td><td class="m-no">2/2/8</td><td class="m-no">1/4/7</td><td class="m-no">0/1/11</td><td class="m-no">0/8/4</td><td class="m-no">0/2/10</td></tr>
+</table>
+<div class="legend">
+  <span><span class="sw" style="background:rgba(127,176,105,.5)"></span>HAS</span>
+  <span><span class="sw" style="background:rgba(224,164,88,.5)"></span>partial</span>
+  <span><span class="sw" style="background:rgba(217,108,95,.4)"></span>missing</span>
+  <span><b>*</b> CodeNomad's MCP+LSP+plugins panel is the best tools/health view in existence</span>
+  <span><b>†</b> GitLab live in upstream PR #2990 (199 files, +44k lines)</span>
+</div>
+<p class="small"><b>Ruled out:</b> OpenWork (22.8k★ but wrong category — knowledge-work agent, no git/diff/PR, and <code>/ee</code> is FSL-licensed) · Portal (3 months stale, 2/12) · octto (single-purpose question-form plugin) · Obsidian plugin (iframes OpenCode's own web UI — though it usefully proves <code>--cors</code> embedding works).</p>
+
+<!-- ================================================= -->
+<h2 id="s7"><span class="n">7</span>OpenChamber in detail</h2>
+
+<div class="grid">
+  <div class="card">
+    <h4>Why it fits you specifically</h4>
+    <p>React + Vite + Tailwind + Zustand in <code>packages/ui</code>; plain Express BFF in <code>packages/web/server/lib/*</code>, one folder per feature, colocated <code>*.test.js</code>, per-module <code>DOCUMENTATION.md</code>. Same shape as your <code>server/openhands/*.ts</code> + <code>client/ds</code> + vitest layout.</p>
+  </div>
+  <div class="card">
+    <h4>It attaches to your server</h4>
+    <p><code>OPENCODE_HOST=http://100.78.52.59:4096</code> → <code>probeExternalOpenCode()</code> → "skip-start mode". External servers are treated as not-owned. Matches your one-stack-per-machine constraint: one OpenCode server, multiple BFFs.</p>
+  </div>
+  <div class="card">
+    <h4>Settings UI to copy wholesale</h4>
+    <p>~20 sections on a shared <code>SettingsPageLayout</code>/<code>SettingsSection</code> primitive set: agents (+ real permissions editor), providers + OAuth, <b>MCP full CRUD</b> with OAuth authorize and paste-to-import, skills catalog, plugins, commands, git identities, notifications with per-event templates, tunnels, passkeys. Includes <code>.agents/skills/settings-ui-patterns/SKILL.md</code>.</p>
+  </div>
+  <div class="card">
+    <h4>The honest friction</h4>
+    <p><b>No UI plugin API.</b> A new page means touching <code>SettingsView</code>/<code>SettingsSidebarLayout</code>, a <code>sections/&lt;name&gt;/</code> folder, and i18n keys (10 locales). 3,868 files, 912 open issues, release every 3–7 days — <b>do not hard-fork.</b></p>
+  </div>
+</div>
+
+<table>
+  <tr><th>Your gap vs OpenChamber</th><th>Where the work goes</th><th>Size</th></tr>
+  <tr><td><b>ntfy + sound channels</b></td><td>New transport beside <code>lib/notifications/{push,apns}-runtime.js</code>; two rows in <code>NotificationSettings.tsx</code>. The per-event toggle + template model <b>already exists</b></td><td><span class="tag adopt">SMALL</span> — FR&nbsp;#261 open &amp; unclaimed</td></tr>
+  <tr><td><b>GitLab MR + pipelines + merge</b></td><td><b>Already in flight:</b> PR #2990, non-draft, 199 files, +44,340 lines, "GitLab + Gitea/Forgejo integration, forge facade", updated today. Review / co-author it</td><td><span class="tag adopt">POSSIBLY ZERO</span></td></tr>
+  <tr><td><b>LSP + latency in tools/health</b></td><td><code>GET /lsp</code>, <code>GET /formatter</code> exist; clone <code>WorkStatusMcpSection.tsx</code>. Latency needs a BFF-side timed probe</td><td><span class="tag build">SMALL–MED</span></td></tr>
+  <tr><td><b>Command audit trail</b></td><td>New <code>lib/command-audit/</code> off the event stream + <code>terminal/history.js</code></td><td><span class="tag build">MEDIUM</span></td></tr>
+</table>
+
+<div class="callout info"><b>Steal from CodeNomad without adopting it.</b> (1) <code>components/instance-service-status.tsx</code> renders <b>MCP + LSP + plugins</b> as siblings with error strings and connect/disconnect — the closest thing to your Tools page, ~260 lines of SolidJS that ports to React in an afternoon. (2) Its <b>right-panel plugin-manifest pattern</b> (<code>RightPanelManifest</code> + <code>RightPanelHostContext</code> + error-isolated loader, with an empty <code>plugins.ts</code> as the seam). Retrofitting that into OpenChamber converts every future custom page from a merge conflict into an array append.</div>
+
+<!-- ================================================= -->
+<h2 id="s8"><span class="n">8</span>Where cmux + plugins still win</h2>
+
+<div class="grid3">
+  <div class="card">
+    <h4>Server plugins <span class="tag adopt">REQUIRED</span></h4>
+    <p>Notifications when <b>no UI is open</b> can only come from a server-side plugin. <code>ntfy-notify.js</code> works unchanged against <code>opencode serve</code>. Non-negotiable in every path — and doubly so given a parked permission prompt can stall a run forever (<span class="tag sev-m">R8</span>).</p>
+  </div>
+  <div class="card">
+    <h4>cmux Dock <span class="tag borrow">CHEAP</span></h4>
+    <p><code>.cmux/dock.json</code> hosting <code>opencode mcp list</code>, <code>glab</code>, <code>lazygit</code>, <code>cmux feed tui</code> is <b>zero code</b> for read-only monitoring — the cheapest MR/CI and MCP-health panes while the UI question settles.</p>
+  </div>
+  <div class="card">
+    <h4>cmux sidebar <span class="tag skip">LIMITED</span></h4>
+    <p>Ambient status only. It <b>can</b> natively see PRs, branch/dirty, unread, progress. It <b>cannot</b> do settings: no <code>@State</code>, no Toggle/TextField/Slider, no custom data source.</p>
+  </div>
+</div>
+
+<!-- ================================================= -->
+<h2 id="s9"><span class="n">9</span>The four things you must build</h2>
+
+<table>
+  <tr><th>#</th><th>Feature</th><th>Why nobody has it</th></tr>
+  <tr><td>1</td><td><b>ntfy channel</b> + per-event granularity + sound</td><td>Everyone ships desktop/web-push/APNS. Nobody ships ntfy. OpenChamber's FR #261 is open and unclaimed</td></tr>
+  <tr><td>2</td><td><b>GitLab MR + pipeline + merge</b></td><td>The ecosystem is GitHub-first. You already own ~2,100 lines of working GitLab/GitHub client code</td></tr>
+  <tr><td>3</td><td><b>Command audit trail</b> (+ export .sh)</td><td>Everyone shows tool calls inline; nobody builds a filterable, exportable command log</td></tr>
+  <tr><td>4</td><td><b>MCP/LSP latency probes</b> + stall attribution</td><td><code>/mcp</code> and <code>/lsp</code> return status, not timings. Not one of the eight projects measures latency</td></tr>
+</table>
+
+<!-- ================================================= -->
+<h2 id="s10"><span class="n">10</span>Migration risk register</h2>
+
+<div class="grid">
+  <div class="card crit">
+    <h4><span class="tag sev-c">R1 CRITICAL</span> &nbsp;No container isolation</h4>
+    <p>OpenHands ran the agent inside <code>agent-canvas</code>. <b>OpenCode runs tools in-process as your UID.</b> Binary string counts: <code>seatbelt</code>/<code>sandbox-exec</code> = <b>0</b>, <code>bwrap</code> = <b>0</b>, <code>landlock</code> = <b>0</b>; every <code>docker</code>/<code>container</code> hit is syntax-highlighting grammar or MCP transport config, never an exec path. <b>"Sandbox" in OpenCode means git worktree</b> — <code>Project.sandboxes</code> is a list of directory strings.</p>
+    <p><b>Blast radius:</b> a prompt injection can now read <code>~/.ssh</code>, or exfiltrate <code>~/.local/share/opencode/auth.json</code> (all provider keys) and <code>mcp-auth.json</code> (7.9 KB of live OAuth tokens). One server touching 32 project directories means one compromise reaches all 32.</p>
+    <p><b>Mitigation:</b> run <code>opencode serve</code> inside <em>your own</em> container/VM, or as a dedicated low-privilege user with a restricted <code>$HOME</code>. Then layer permissions. Accept that permissions are advisory (in-process), not a boundary.</p>
+  </div>
+  <div class="card crit">
+    <h4><span class="tag sev-c">R2 CRITICAL</span> &nbsp;No auto-resume after restart</h4>
+    <p>"Running" is <b>process-local, never persisted</b>. The <code>session</code> table has no status column; <code>SessionStatus</code> is an in-memory union; <code>/api/session/active</code> is documented as <em>"owned by this OpenCode process."</em> A durable input queue exists (<code>session_input</code>) but is empty on this install, gated behind <code>OPENCODE_EXPERIMENTAL_EVENT_SYSTEM</code>, and has <b>no boot-time recovery sweep</b>.</p>
+    <p><b>Impact:</b> reboot mid-turn → the partial assistant message is in SQLite, the run is dead, nothing restarts it, and nothing tells you. Your <code>autoResume.ts</code> has no counterpart.</p>
+    <p><b>Resolution (Aug 21): ACCEPTED, detection-only.</b> No recovery sweep — auto-re-prompting risks replaying destructive work. Instead, on session open the UI flags any session that is absent from <code>GET /session/status</code> whose last message is an assistant turn without <code>time.completed</code>, and offers a manual Resume that prefills the composer. See build plan Phase 2.</p>
+  </div>
+</div>
+
+<table>
+  <tr><th style="width:4%">#</th><th style="width:22%">OpenHands property</th><th>OpenCode status</th><th style="width:9%">Sev</th><th style="width:26%">Mitigation</th></tr>
+  <tr><td>R3</td><td>Per-session API key (<code>X-Session-API-Key</code>)</td><td><b>No equivalent.</b> One global <code>OPENCODE_SERVER_PASSWORD</code>, no tokens/scopes/identity/expiry/revocation. Basic auth <em>does</em> cover SSE (with a <code>?auth_token=</code> query escape hatch); one bypass exists — the PTY WebSocket ticket</td><td><span class="tag sev-c">CRIT</span> if networked</td><td>Reverse proxy with TLS + real authn; keep OpenCode on loopback or a tailnet</td></tr>
+  <tr><td>R4</td><td>Supervised service (compose/daemon)</td><td><b>Partial.</b> <code>serve</code> is a clean foreground process but there is <b>no</b> launchd/systemd guidance, unit file, or <code>service</code> subcommand. <code>--port</code> defaults to random <code>0</code></td><td><span class="tag sev-h">HIGH</span></td><td>Write your own unit. Pin <code>--port</code>; set <code>OPENCODE_SERVER_PASSWORD</code>, <code>HOME</code>, <code>NO_PROXY=localhost,127.0.0.1</code>, <code>OPENCODE_DISABLE_AUTOUPDATE</code></td></tr>
+  <tr><td>R5</td><td>Log rotation</td><td><b>Partial.</b> Structured logfmt at <code>~/.local/share/opencode/log/opencode.log</code>, append-only, <b>no rotation</b> — 117 MB already</td><td><span class="tag sev-h">HIGH</span></td><td><code>newsyslog</code>/<code>logrotate</code>, or <code>--print-logs</code> → journald. <code>experimental.openTelemetry</code> + OTLP for real observability</td></tr>
+  <tr><td>R6</td><td>Bounded transcript storage</td><td><b>Partial.</b> SQLite/WAL survives restarts, but the <code>event</code> table is <b>23.7 GB of a 30.4 GB DB</b> (841k rows). <code>OPENCODE_DISABLE_PRUNE</code> implies pruning exists; it clearly isn't sufficient</td><td><span class="tag sev-h">HIGH</span></td><td>Monitor <code>opencode db path</code>; schedule archival via <code>session.time_archived</code>, then <code>DELETE</code>+<code>VACUUM</code></td></tr>
+  <tr><td>R7</td><td>Read server logs over HTTP</td><td><b>No equivalent.</b> <code>POST /log</code> is write-only; no <code>GET</code> log route in 162 paths</td><td><span class="tag sev-m">MED</span></td><td>Ship the file (OTLP / Loki / Vector) or mirror via a plugin</td></tr>
+  <tr><td>R8</td><td>Unattended runs can't deadlock on approval</td><td><b>Behavior change.</b> A permission <code>ask</code> with no client attached <b>parks the run forever</b></td><td><span class="tag sev-m">MED</span></td><td>Per-session <code>permission</code> ruleset at create; poll <code>GET /permission</code> and push a notification. <code>--auto</code> only if R1 is solved</td></tr>
+  <tr><td>R9</td><td>One SSE stream for all projects</td><td><b>Gotcha.</b> <code>GET /event</code> is <b>directory-scoped</b>; only <code>GET /global/event</code> is cross-project. Undocumented</td><td><span class="tag sev-m">MED</span></td><td>Subscribe to <code>/global/event</code>, demux on <code>payload.directory</code></td></tr>
+  <tr><td>R10</td><td>Readiness distinct from liveness</td><td><b>No equivalent.</b> <code>/global/health</code> returns <code>healthy:true</code> as soon as HTTP binds — LSP/MCP for a directory may still be cold</td><td><span class="tag sev-m">MED</span></td><td>Probe <code>GET /mcp?directory=…</code> for per-instance readiness</td></tr>
+  <tr><td>R11</td><td>Accurate API contract</td><td><code>/docs/server/</code> lags badly (60 vs 162 paths). Bundled SDK is 1.18.18 vs binary 1.18.19 and already drifts</td><td><span class="tag sev-m">MED</span></td><td>Generate your client from the <b>live <code>GET /doc</code></b>; pin the binary; re-diff on upgrade</td></tr>
+  <tr><td>R12</td><td>Invalid directory rejected</td><td>Unknown/non-git dirs silently resolve to the <code>global</code> pseudo-project with HTTP 200 — no error</td><td><span class="tag sev-l">LOW</span></td><td>Validate paths in your BFF before creating sessions</td></tr>
+  <tr><td>R13</td><td>Stable feature surface</td><td>Workspaces, background subagents, durable events, PTY, worktrees and all of <code>/api/*</code> are <code>experimental</code>/env-gated</td><td><span class="tag sev-l">LOW</span></td><td>Build load-bearing things on v1 (<code>/session</code> + <code>?directory=</code>); treat v2 as opt-in</td></tr>
+</table>
+
+<h3>Maps cleanly — no work needed</h3>
+<p class="small">✅ One server, all projects · ✅ restart-durable sessions and transcripts · ✅ abort / resume-with-more-input / fork-at-message / children / revert + unrevert (plus a staged three-phase revert in v2) · ✅ concurrent multi-session execution · ✅ work survives client disconnect via <code>prompt_async</code> · ✅ multiple simultaneous clients (TUI <code>attach</code>, web, custom UI) sharing live state, <b>any of which can answer a permission prompt</b> — exactly what "approve from phone while the laptop is closed" needs · ✅ gap-free reconnect for flaky mobile (<code>/api/session/{id}/event?after=&lt;seq&gt;</code>) · ✅ health + version, OpenAPI at <code>/doc</code>, CORS allow-list, mDNS.</p>
+
+<!-- ================================================= -->
+<h2 id="s11"><span class="n">11</span>Traps &amp; gotchas</h2>
+
+<table>
+  <tr><th>Trap</th><th>Detail</th></tr>
+  <tr><td><b>Generate from the right types</b></td><td>Use <code>dist/v2/gen/</code> from the installed SDK — <b>not</b> <code>dist/gen/</code>, and <b>not</b> <code>anomalyco/opencode@dev</code> on GitHub. The stale sources are wrong on three things that fail silently: event <code>permission.updated</code> → actually <b><code>permission.asked</code></b>; <code>Todo.id</code> <b>removed</b> in 1.18.19; and they omit <code>/permission</code>, <code>/question</code>, <code>/vcs/*</code>, <code>/skill</code>, <code>/experimental/*</code>, <code>/global/*</code> and all of <code>/api/**</code></td></tr>
+  <tr><td><b><code>message</code> blocks, <code>prompt_async</code> doesn't</b></td><td><code>POST /session/{id}/message</code> holds the HTTP response for the entire turn. Use <code>POST /session/{id}/prompt_async</code> (204) + SSE for any live UI</td></tr>
+  <tr><td><b>Permission precedence is LAST-match-wins</b></td><td>Opposite of most ACL systems. Put <code>"*"</code> first, specifics after. Defaults are permissive — <b><code>bash</code> is <code>allow</code> out of the box</b>; only <code>doom_loop</code> and <code>external_directory</code> default to <code>ask</code></td></tr>
+  <tr><td><b>Tolerate unknown SSE types</b></td><td><code>server.heartbeat</code> fires every 10s and is <b>absent from the generated event union</b>. Your reducer must not throw on unknown <code>type</code></td></tr>
+  <tr><td><b><code>/find</code> and the stub routes</b></td><td><code>/find</code> silently caps at 10 results. <code>/file/status</code> and <code>/find/symbol</code> return <code>[]</code> unconditionally — use <code>/vcs/status</code>, and don't build a symbol search</td></tr>
+  <tr><td><b>Classic <code>/event</code> has no replay cursor</b></td><td>Refetch <code>/session</code>, <code>/session/{id}/message</code>, <code>/todo</code>, <code>/permission</code>, <code>/question</code> on reconnect — or adopt v2's sequenced <code>/api/session/{id}/event?after=</code></td></tr>
+  <tr><td><b>Housekeeping before you commit</b></td><td>30.4 GB <code>opencode.db</code> · 117 MB unrotated log · running server 1.18.18 vs binary 1.18.19 · four plaintext tokens still in <code>opencode.json</code></td></tr>
+</table>
+
+<!-- ================================================= -->
+<h2 id="s12"><span class="n">12</span>Recommended sequence</h2>
+
+<div class="phase">
+  <div class="p-head" style="background:rgba(217,108,95,.14)"><span class="p-t" style="color:var(--red)">Phase 0</span><span class="p-e" style="color:var(--red)">GATE · half day</span></div>
+  <div class="p-body">Answer <b>R1 and R3 before anything else</b>: decide where <code>opencode serve</code> runs (own container / low-priv user / loopback-only) and write the <code>permission</code> block — remember <code>bash</code> defaults to <code>allow</code> and last-match-wins. Then hygiene: secrets to <code>{env:}</code>, <code>autoupdate: notify</code>, <code>tui.json</code> attention, and deal with the 30 GB db + 117 MB log</div>
+</div>
+<div class="phase">
+  <div class="p-head" style="background:rgba(127,176,105,.14)"><span class="p-t" style="color:var(--green)">Phase 1</span><span class="p-e" style="color:var(--green)">~1 hour</span></div>
+  <div class="p-body"><b>Try OpenChamber before building anything.</b> <code>OPENCODE_HOST=http://100.78.52.59:4096</code>. Judge the 8 commodity surfaces against your own. This single hour decides Path B vs Path C</div>
+</div>
+<div class="phase">
+  <div class="p-head" style="background:rgba(127,176,105,.14)"><span class="p-t" style="color:var(--green)">Phase 2</span><span class="p-e" style="color:var(--green)">~3–4 h</span></div>
+  <div class="p-body">Fix the pains that need no UI, in server-plugin land where it's safe: <code>ntfy-prefs.json</code> contract · <code>session.error</code>/cancel → high-priority push · unify mute · <b>a parked-permission watcher</b> (R8) · <code>.cmux/dock.json</code> for MCP + MR panes. <b>Useful in every path</b></div>
+</div>
+<div class="phase">
+  <div class="p-head" style="background:rgba(224,164,88,.15)"><span class="p-t" style="color:var(--accent)">Phase 3</span><span class="p-e" style="color:var(--accent)">~1 week</span></div>
+  <div class="p-body">Stand up OpenChamber as daily driver. Build the <b>R2 run-recovery sweep</b> in your BFF (the one thing you can't skip). Port the <b>MR panel</b> and the <b>MCP/LSP latency probe</b>. Retire the OpenHands port bindings</div>
+</div>
+<div class="phase">
+  <div class="p-head" style="background:rgba(108,160,220,.14)"><span class="p-t" style="color:var(--blue)">Phase 4</span><span class="p-e" style="color:var(--blue)">ongoing</span></div>
+  <div class="p-body">Upstream what's generic (ntfy transport → FR #261, LSP section), keep local what's yours (command audit, latency probes). Archive the OpenHands repo with a README pointing at the replacement</div>
+</div>
+
+<p class="small" style="margin-top:1.5rem;font-style:italic">Sources: five research spikes — live OpenAPI probe of <code>100.78.52.59:4096</code> (<code>/doc</code>, 188 operations, real payloads) · full SDK type inventory answering 16 data-availability questions · OpenHands BFF route inventory with per-page reuse ratings · eight-project ecosystem survey with GitHub API metadata (2026-08-21) · operational-model audit via SQLite schema, <code>dbstat</code>, binary string analysis, and live endpoint verification.</p>
+
+</div>
+</body>
+</html>

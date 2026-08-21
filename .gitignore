@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+test-results/
+.state/
+.projects/
+playwright-report/
+*.log
+.DS_Store
+mcp-servers.json
+screenshots-out/

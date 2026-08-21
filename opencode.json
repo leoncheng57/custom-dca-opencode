@@ -1,0 +1,51 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "anthropic/claude-opus-5",
+  "autoupdate": "notify",
+  "permission": {
+    "bash": {
+      "*": "ask",
+      "git *": "allow",
+      "gh *": "allow",
+      "glab *": "allow",
+      "npm *": "allow",
+      "npx *": "allow",
+      "node *": "allow",
+      "ls *": "allow",
+      "cat *": "allow",
+      "grep *": "allow",
+      "rg *": "allow",
+      "find *": "allow",
+      "curl http://127.0.0.1:*": "allow",
+      "curl http://localhost:*": "allow",
+      "rm -rf *": "deny",
+      "sudo *": "deny",
+      "* > ~/.ssh/*": "deny",
+      "chmod 777 *": "deny"
+    },
+    "read": {
+      "*": "allow",
+      "**/.env": "deny",
+      "**/.env.*": "deny",
+      "**/.env.example": "allow",
+      "~/.ssh/**": "deny",
+      "~/.aws/**": "deny",
+      "~/.gnupg/**": "deny",
+      "~/.local/share/opencode/auth.json": "deny",
+      "~/.local/share/opencode/mcp-auth.json": "deny"
+    },
+    "edit": {
+      "*": "allow",
+      "**/.env": "deny",
+      "~/.ssh/**": "deny",
+      "~/.aws/**": "deny"
+    },
+    "external_directory": {
+      "*": "ask",
+      "~/Documents/Projects/**": "allow",
+      "~/.local/share/opencode/worktree/**": "allow"
+    },
+    "webfetch": "allow",
+    "doom_loop": "ask"
+  }
+}

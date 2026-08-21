@@ -1,0 +1,63 @@
+/* client/styles.css — global stylesheet.
+ *
+ * Order matters: Tailwind first, then our token layer, then app-level polish.
+ * Design tokens live in theme/tokens.css and are the only place raw colour
+ * values are allowed. Components must reference semantic tokens.
+ */
+
+@import "tailwindcss";
+@import "./theme/tokens.css";
+
+/* Class-based dark mode driven by next-themes (adds .dark on <html>). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Expose the semantic tokens to Tailwind v4 utilities (bg-surface, text-muted…). */
+@theme inline {
+  --color-surface: var(--color-background-surface);
+  --color-surface-muted: var(--color-background-surface-neutral-muted);
+  --color-default: var(--color-text-default);
+  --color-muted: var(--color-text-muted);
+  --color-line: var(--color-border-default);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-background-surface);
+  color: var(--color-text-default);
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Visible, consistent focus for keyboard users. */
+:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 2px;
+}
+
+/* Mobile is a first-class surface (docs/mobile.md): comfortable hit targets on
+ * touch devices without inflating the desktop layout. */
+@media (pointer: coarse) {
+  button,
+  a[role="button"],
+  [data-testid^="opencode-"] button {
+    min-height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

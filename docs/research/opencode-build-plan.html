@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Build Plan v2 — porting custom OpenHands onto opencode serve</title>
+<style>
+  :root{
+    --bg:#14120f; --panel:#1d1a16; --panel2:#242019; --border:#3a342a;
+    --text:#e8e2d5; --dim:#a89f8c; --faint:#6a6252;
+    --accent:#e0a458; --green:#7fb069; --red:#d96c5f; --blue:#6ca0dc; --purple:#b58fc9;
+    --mono:"SF Mono",ui-monospace,Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--text);font:15px/1.55 -apple-system,"Segoe UI",sans-serif;margin:0;padding:0 0 4rem}
+  .wrap{max-width:1060px;margin:0 auto;padding:0 28px}
+  header{border-bottom:1px solid var(--border);background:linear-gradient(180deg,#1e1a14,var(--bg));padding:2.2rem 0 1.6rem;margin-bottom:1.4rem}
+  header h1{margin:0 0 .4rem;font-size:1.75rem;letter-spacing:-.02em}
+  header .sub{color:var(--dim);font-size:.95rem}
+  header .meta{margin-top:.8rem;font-family:var(--mono);font-size:.73rem;color:var(--faint)}
+  h2{font-size:1.25rem;margin:2.6rem 0 .9rem;padding-top:1.1rem;border-top:1px solid var(--border);color:var(--accent);letter-spacing:-.01em}
+  h2 .n{color:var(--faint);font-family:var(--mono);font-size:.85rem;margin-right:.55rem}
+  h3{font-size:1.02rem;margin:1.4rem 0 .5rem}
+  h4{font-size:.9rem;margin:1rem 0 .4rem;color:var(--dim);text-transform:uppercase;letter-spacing:.06em;font-family:var(--mono)}
+  p{margin:.55rem 0}
+  a{color:var(--blue);text-decoration:none} a:hover{text-decoration:underline}
+  code{font-family:var(--mono);font-size:.82em;background:var(--panel2);border:1px solid var(--border);border-radius:4px;padding:.1em .35em;color:#e8cf9f}
+  pre{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:.9rem 1rem;overflow-x:auto;font-family:var(--mono);font-size:.75rem;line-height:1.55;color:#d8d2c2}
+  pre code{background:none;border:none;padding:0}
+  pre .c{color:#6a6252} pre .k{color:#b58fc9} pre .s{color:#7fb069} pre .f{color:#6ca0dc}
+  table{border-collapse:collapse;width:100%;margin:.9rem 0;font-size:.84rem}
+  th,td{border:1px solid var(--border);padding:.5rem .65rem;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:var(--accent);font-weight:600}
+  tr:nth-child(even) td{background:rgba(255,255,255,.015)}
+  ul{padding-left:1.3rem} li{margin:.25rem 0}
+  .small{font-size:.82rem;color:var(--dim)}
+  .tag{display:inline-block;font-family:var(--mono);font-size:.66rem;font-weight:700;padding:.1rem .45rem;border-radius:99px;letter-spacing:.03em;white-space:nowrap}
+  .keep{background:rgba(127,176,105,.16);color:var(--green);border:1px solid rgba(127,176,105,.4)}
+  .adapt{background:rgba(224,164,88,.14);color:var(--accent);border:1px solid rgba(224,164,88,.4)}
+  .rewrite{background:rgba(108,160,220,.14);color:var(--blue);border:1px solid rgba(108,160,220,.4)}
+  .del{background:rgba(217,108,95,.13);color:var(--red);border:1px solid rgba(217,108,95,.4)}
+  .new{background:rgba(181,143,201,.15);color:var(--purple);border:1px solid rgba(181,143,201,.4)}
+  .callout{border-left:3px solid var(--accent);background:var(--panel);border-radius:0 8px 8px 0;padding:.8rem 1rem;margin:1rem 0;font-size:.92rem}
+  .callout.warn{border-left-color:var(--red)} .callout.good{border-left-color:var(--green)} .callout.info{border-left-color:var(--blue)}
+  .callout b:first-child{color:var(--accent)}
+  .callout.warn b:first-child{color:var(--red)} .callout.good b:first-child{color:var(--green)} .callout.info b:first-child{color:var(--blue)}
+  nav.toc{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:1rem 1.3rem;font-size:.88rem;columns:2;column-gap:2rem}
+  nav.toc a{display:block;padding:.15rem 0;color:var(--text)}
+  nav.toc a:hover{color:var(--accent);text-decoration:none}
+  nav.toc .num{color:var(--faint);font-family:var(--mono);font-size:.75rem;margin-right:.5rem}
+  figure{margin:1.2rem 0}
+  figcaption{font-size:.75rem;color:var(--dim);text-align:center;margin-top:.5rem;font-family:var(--mono)}
+  .diagram{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:1rem;overflow-x:auto}
+  .diagram svg{display:block;margin:0 auto;max-width:100%;height:auto}
+  .statstrip{display:grid;grid-template-columns:repeat(4,1fr);gap:.8rem;margin:1.4rem 0 0}
+  .stat{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:.8rem 1rem;text-align:center}
+  .stat .v{font-size:1.55rem;font-weight:700;color:var(--accent);font-family:var(--mono);letter-spacing:-.03em}
+  .stat .v.g{color:var(--green)} .stat .v.r{color:var(--red)} .stat .v.b{color:var(--blue)} .stat .v.p{color:var(--purple)}
+  .stat .l{font-size:.7rem;color:var(--dim);margin-top:.15rem;line-height:1.3}
+  .phase{border:1px solid var(--border);border-radius:12px;margin:1.4rem 0;overflow:hidden}
+  .phase.gate{border-color:rgba(217,108,95,.55)}
+  .phase.mvp{border-color:rgba(127,176,105,.5)}
+  .phase > .ph{display:flex;justify-content:space-between;align-items:center;gap:1rem;padding:.75rem 1.1rem;background:var(--panel2);flex-wrap:wrap}
+  .phase > .ph .t{font-weight:700;font-size:1rem}
+  .phase > .ph .t .idx{font-family:var(--mono);color:var(--accent);margin-right:.5rem}
+  .phase.gate > .ph{background:rgba(217,108,95,.1)} .phase.gate > .ph .t .idx{color:var(--red)}
+  .phase.mvp > .ph{background:rgba(127,176,105,.08)} .phase.mvp > .ph .t .idx{color:var(--green)}
+  .phase > .ph .est{font-family:var(--mono);font-size:.72rem;color:var(--dim)}
+  .phase > .pb{padding:1rem 1.1rem;background:var(--panel)}
+  .goal{font-size:.93rem;margin:0 0 .8rem}
+  .goal b{color:var(--accent)}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:1rem 1.6rem}
+  .cols h4{margin-top:0}
+  .cols ul{margin:.2rem 0;padding-left:1.1rem;font-size:.83rem;color:var(--dim)}
+  .cols ul code{font-size:.78em}
+  .accept{margin-top:.9rem;padding:.6rem .8rem;background:rgba(127,176,105,.07);border:1px solid rgba(127,176,105,.28);border-radius:7px;font-size:.85rem}
+  .accept b{color:var(--green)}
+  .risknote{margin-top:.55rem;padding:.6rem .8rem;background:rgba(217,108,95,.07);border:1px solid rgba(217,108,95,.28);border-radius:7px;font-size:.85rem}
+  .risknote b{color:var(--red)}
+  .banner{border:1px solid rgba(181,143,201,.5);background:rgba(181,143,201,.08);border-radius:10px;padding:.8rem 1.1rem;margin:1.2rem 0;font-size:.88rem}
+  .banner b{color:var(--purple)}
+  @media(max-width:780px){.cols{grid-template-columns:1fr}nav.toc{columns:1}.statstrip{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <h1>Build Plan <span style="color:var(--purple);font-size:1.1rem;font-family:var(--mono)">v2</span></h1>
+    <div class="sub">Porting the custom OpenHands IDE onto a custom UI over <code>opencode serve</code> &mdash; descoped &amp; Docker-free</div>
+    <div class="meta">Aug 21, 2026 &middot; supersedes v1 &middot; target: opencode 1.18.19 &middot; source: custom-dca-ide-with-openhands @ main &middot; 10 phases</div>
+    <div class="statstrip">
+      <div class="stat"><div class="v g">0</div><div class="l">Docker containers — Postgres was the last, dropped with manager runs</div></div>
+      <div class="stat"><div class="v r">22/58</div><div class="l">BFF routes deleted rather than ported (~4,000 lines archived)</div></div>
+      <div class="stat"><div class="v">~2.5wk</div><div class="l">to full parity+ (was 4–5 wk before descoping)</div></div>
+      <div class="stat"><div class="v b">1</div><div class="l">service to supervise: <code>opencode serve</code></div></div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<div class="banner"><b>v2 changes (Aug 21):</b> dropped preview proxy, Terminal page, web PTY, manager runs (+ Postgres), latency probes, permissions <em>editor</em> (now read-only display), providers page, disk bar &mdash; most existed only to work around the agent-canvas container boundary. R2 auto-resume is <b>accepted, with detection-only</b> UX added to Phase 2. <b>All decisions resolved:</b> git identity = local tools as-is (no bot plugin) &middot; Resume = prefill composer &middot; <b>fresh new public repo</b>. New: <a href="#oneshot">one-shot execution strategy</a> using background opencode subagents on <code>anthropic/claude-opus-5</code>.</div>
+
+<nav class="toc">
+  <a href="#overview"><span class="num">—</span>Overview &amp; what was dropped</a>
+  <a href="#p0"><span class="num">0</span>Foundation</a>
+  <a href="#p1"><span class="num">1</span>The seam — event adapter</a>
+  <a href="#p2"><span class="num">2</span>Session lifecycle + interrupted detection</a>
+  <a href="#p3"><span class="num">3</span>Free ports</a>
+  <a href="#p4"><span class="num">4</span>Workspace panels</a>
+  <a href="#p5"><span class="num">5</span>Derived surfaces</a>
+  <a href="#p6"><span class="num">6</span>Settings</a>
+  <a href="#p7"><span class="num">7</span>Resilience</a>
+  <a href="#p8"><span class="num">8</span>Worktrees</a>
+  <a href="#p9"><span class="num">9</span>Cutover</a>
+  <a href="#oneshot"><span class="num">—</span>One-shot execution (subagents + Opus 5)</a>
+  <a href="#cheat"><span class="num">—</span>Endpoint cheat sheet</a>
+  <a href="#open"><span class="num">—</span>Resolved decisions</a>
+</nav>
+
+<!-- ============================================ -->
+<h2 id="overview"><span class="n">—</span>Overview</h2>
+
+<p>The port is not a rewrite. Every transcript row component consumes a neutral <code>TranscriptEvent</code> and touches zero raw agent-server fields, so the OpenHands coupling is concentrated in <b>one function in one file</b> (~363 lines of <code>client/lib/events.ts</code>). Everything else is a thin proxy swap, untouched code, or — after descoping — deliberately archived.</p>
+
+<h3>Dropped, and why</h3>
+<table>
+  <tr><th>Dropped</th><th>Was</th><th>Reason</th></tr>
+  <tr><td><b>Live preview proxy</b></td><td>7 BFF routes + 524-line panel</td><td>Existed because the dev server ran <em>inside</em> agent-canvas. It runs on your host now — open <code>localhost:&lt;port&gt;</code> in a cmux browser pane</td></tr>
+  <tr><td><b>Terminal page</b></td><td>read-only bash-event history</td><td>No <code>bash_events</code> store in OpenCode (rebuild, not port) — and the Commands panel already answers "what did the agent run", with <code>.sh</code> export</td></tr>
+  <tr><td><b>Web PTY</b></td><td>Phase 8 "new capability"</td><td>You live in cmux with Ghostty terminals. A terminal in a browser tab in a terminal multiplexer is not a feature</td></tr>
+  <tr><td><b>Manager runs</b></td><td>~2,200 server lines + UI + Postgres</td><td>The <code>manager-children</code> cmux skill covers waves-of-workers-in-worktrees. Dropping this <b>removes the last Docker container</b></td></tr>
+  <tr><td><b>MCP/LSP latency probes</b></td><td>timed BFF probes</td><td>The real problem was "which server is stalling my runs" — <code>GET /mcp</code> answers that free with <code>failed{error}</code>/<code>needs_auth</code>. Milliseconds were decoration for an API that had no status endpoint; this one does</td></tr>
+  <tr><td><b>Permissions editor</b></td><td>settings form</td><td>Downgraded to <b>read-only display</b> of effective rules. Author rules in <code>opencode.jsonc</code>, which already has <code>$schema</code> autocomplete + validation</td></tr>
+  <tr><td><b>Providers/models page</b></td><td>—</td><td>Never had it; not parity. Config file + <code>/models</code></td></tr>
+  <tr><td><b>Disk usage bar</b></td><td><code>df</code> via sandbox bash</td><td>Existed to watch a container volume. It's your host disk now</td></tr>
+  <tr><td><b>R2 run-recovery sweep</b></td><td>Phase 7 gate</td><td><b>Accepted risk</b> — auto-re-prompting an interrupted turn can replay destructive work. Replaced by detection-only UX in Phase 2 (flag + manual Resume)</td></tr>
+</table>
+
+<figure>
+  <div class="diagram">
+  <svg viewBox="0 0 960 330" font-family="SF Mono, Menlo, monospace">
+    <defs>
+      <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#a89f8c"/></marker>
+      <marker id="arg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7fb069"/></marker>
+    </defs>
+    <rect x="20" y="14" width="920" height="42" rx="9" fill="#1a1713" stroke="#d96c5f" stroke-width="2"/>
+    <text x="36" y="32" fill="#d96c5f" font-size="12" font-weight="bold">PHASE 0 — FOUNDATION (only gate)</text>
+    <text x="36" y="48" fill="#a89f8c" font-size="10">permission policy · bot-identity shell.env plugin · launchd unit · client from live /doc · hygiene</text>
+
+    <rect x="20" y="72" width="440" height="66" rx="9" fill="#1d1a16" stroke="#7fb069" stroke-width="2"/>
+    <text x="36" y="92" fill="#7fb069" font-size="12" font-weight="bold">PHASE 1 — THE SEAM</text>
+    <text x="36" y="109" fill="#e8e2d5" font-size="10">sdk wrapper + normalizeEvent() adapter</text>
+    <text x="36" y="126" fill="#6a6252" font-size="9">~363 lines rewritten, ~1,040 untouched · riskiest first</text>
+
+    <rect x="480" y="72" width="460" height="66" rx="9" fill="#1d1a16" stroke="#7fb069" stroke-width="2"/>
+    <text x="496" y="92" fill="#7fb069" font-size="12" font-weight="bold">PHASE 2 — SESSION LIFECYCLE</text>
+    <text x="496" y="109" fill="#e8e2d5" font-size="10">list · create(directory) · prompt_async · abort · /global/event</text>
+    <text x="496" y="126" fill="#b58fc9" font-size="9.5">+ interrupted-run detection (R2, detect-only)</text>
+
+    <line x1="240" y1="138" x2="240" y2="158" stroke="#7fb069" stroke-width="1.5" marker-end="url(#arg)"/>
+    <line x1="710" y1="138" x2="710" y2="158" stroke="#7fb069" stroke-width="1.5" marker-end="url(#arg)"/>
+
+    <rect x="20" y="162" width="298" height="70" rx="9" fill="#1d1a16" stroke="#3a342a"/>
+    <text x="36" y="182" fill="#a89f8c" font-size="11.5" font-weight="bold">PHASE 3 — FREE PORTS</text>
+    <text x="36" y="199" fill="#e8e2d5" font-size="9.5">MR panel · commands · notify UI</text>
+    <text x="36" y="216" fill="#7fb069" font-size="9.5">zero agent coupling — copy across</text>
+
+    <rect x="331" y="162" width="298" height="70" rx="9" fill="#1d1a16" stroke="#3a342a"/>
+    <text x="347" y="182" fill="#a89f8c" font-size="11.5" font-weight="bold">PHASE 4 — WORKSPACE</text>
+    <text x="347" y="199" fill="#e8e2d5" font-size="9.5">files · changes (+ local git log)</text>
+    <text x="347" y="216" fill="#e0a458" font-size="9.5">thin proxy swaps</text>
+
+    <rect x="642" y="162" width="298" height="70" rx="9" fill="#1d1a16" stroke="#3a342a"/>
+    <text x="658" y="182" fill="#a89f8c" font-size="11.5" font-weight="bold">PHASE 5 — DERIVED</text>
+    <text x="658" y="199" fill="#e8e2d5" font-size="9.5">task list · status bar · MCP/LSP status</text>
+    <text x="658" y="216" fill="#7fb069" font-size="9.5">← minimum viable ends here</text>
+
+    <line x1="480" y1="232" x2="480" y2="252" stroke="#a89f8c" stroke-width="1.5" marker-end="url(#ar)"/>
+
+    <rect x="20" y="256" width="298" height="58" rx="9" fill="#1d1a16" stroke="#b58fc9"/>
+    <text x="36" y="276" fill="#b58fc9" font-size="11.5" font-weight="bold">PHASE 6 — SETTINGS</text>
+    <text x="36" y="293" fill="#e8e2d5" font-size="9.5">notifications · compaction · MCP CRUD</text>
+    <text x="36" y="308" fill="#a89f8c" font-size="9">permissions read-only display</text>
+
+    <rect x="331" y="256" width="298" height="58" rx="9" fill="#1d1a16" stroke="#d96c5f"/>
+    <text x="347" y="276" fill="#d96c5f" font-size="11.5" font-weight="bold">PHASE 7 — RESILIENCE</text>
+    <text x="347" y="293" fill="#e8e2d5" font-size="9.5">parked-permission watcher (R8)</text>
+    <text x="347" y="308" fill="#a89f8c" font-size="9">ntfy re-point + error/abort coverage</text>
+
+    <rect x="642" y="256" width="298" height="58" rx="9" fill="#1a1713" stroke="#3a342a" stroke-dasharray="4 3"/>
+    <text x="658" y="276" fill="#a89f8c" font-size="11" font-weight="bold">PHASES 8–9</text>
+    <text x="658" y="293" fill="#6a6252" font-size="9.5">worktrees via API · cutover + archive</text>
+  </svg>
+  </div>
+  <figcaption>Fig 1 — v2 dependency order. Phases 3/4/5 parallelize. No optional tail phases remain — everything listed ships.</figcaption>
+</figure>
+
+<div class="callout good"><b>Minimum viable port</b> = Phases <b>0 → 1 → 2 → 5</b> (~1.5 weeks): transcript, session management, live streaming, interrupted-run detection, task list, cost bar, MCP health. Full parity+ = all 10 phases, <b>~2.5 weeks</b>.</div>
+
+<h3>Disposition of your existing code</h3>
+<table>
+  <tr><th style="width:16%">Disposition</th><th>What</th></tr>
+  <tr><td><span class="tag keep">KEEP AS-IS</span></td><td>Design system (<code>client/ds/*</code>) · all transcript row components (<code>Conversation.tsx:64-554</code>) · transcript derivations (<code>events.ts:459-713</code>) · <code>CommandSidebar.tsx</code> · <code>MrPanel.tsx</code> + <code>server/gitlab.ts</code> + <code>server/github.ts</code> + <code>server/openhands/mr.ts</code> (~2,100 lines) · <code>lib/diff.ts</code> · <code>lib/images.ts</code> + server twin · notification UI (<code>notify.ts</code>, <code>sound.ts</code>, <code>tabMeta.ts</code>) · command palette</td></tr>
+  <tr><td><span class="tag adapt">ADAPT</span></td><td><code>Hub.tsx</code> create form · <code>Files.tsx</code> · <code>Changes.tsx</code> · <code>StatusBar.tsx</code> + <code>lib/statusBar.ts</code> · task-list panel · <code>lib/workspace.ts</code> (gets <em>simpler</em> — real host paths, no <code>/home/openhands/…</code> prefixes)</td></tr>
+  <tr><td><span class="tag rewrite">REWRITE</span></td><td><code>events.ts:42-457</code> (<code>normalizeEvent</code>, reasoning, summary, tool-detail, risk) · <code>server/openhands/upstream.ts</code> · the <code>/tools</code> aggregator · <code>server/openhands/stream.ts</code></td></tr>
+  <tr><td><span class="tag del">ARCHIVE</span></td><td>Preview proxy (7 routes + <code>PreviewPanel.tsx</code>) · <code>Terminal.tsx</code> + 2 routes · <code>DiskUsageBar</code> + <code>/disk</code> · all of <code>manager/</code> (~2,200 lines + <code>RunPanel</code>/<code>ManagerRunBoard</code>/<code>ActiveRunsStrip</code>/<code>RunBanner</code>/<code>ManagerSkin</code>) · <code>skills.ts</code> ×2 + skills card · <code>agentSettings.ts</code> condenser model · <code>autoResume.ts</code> · <code>planMode.ts</code> ×2 (deferred) · <code>cleanSummary()</code> · encrypted-reasoning guards · action⇄observation pairing · <code>docker-compose.yml</code> + <code>Dockerfile</code> + <code>.dockerignore</code></td></tr>
+  <tr><td><span class="tag new">NEW</span></td><td>Interrupted-run detection (detect-only) · parked-permission watcher · local-git commit history · bot-identity <code>shell.env</code> plugin · BFF-local prefs store · permissions read-only display</td></tr>
+</table>
+<p class="small">The ARCHIVE row (~4,000 lines) stays intact in the frozen <code>custom-dca-ide-with-openhands</code> repo — which also serves the "make it a shareable artifact" goal.</p>
+
+<!-- ============================================ -->
+<h2 id="p0"><span class="n">0</span>Foundation</h2>
+
+<div class="phase gate">
+  <div class="ph"><div class="t"><span class="idx">P0</span>Foundation — the only gate</div><div class="est">~half day</div></div>
+  <div class="pb">
+    <p class="goal"><b>Goal:</b> replace the container's two real jobs (execution guardrails, credential separation) with explicit host-side equivalents, and lock the API contract.</p>
+    <div class="cols">
+      <div>
+        <h4>Replace the container boundary</h4>
+        <ul>
+          <li><b>Permission policy</b> — the guardrail. <code>bash</code> defaults to <code>allow</code>; precedence is <b>last-match-wins</b>. Honest framing: 13 opencode TUI processes (some <code>--auto</code>) already ran host-side during research — this makes an existing posture deliberate, it does not add risk</li>
+          <li><b>Git identity: resolved</b> — agents use your local git tools/credentials as-is. The bot-identity <code>shell.env</code> plugin is dropped; the <code>OPENHANDS_GITHUB_TOKEN</code>/<code>OPENHANDS_GIT_TOKEN</code> pair retires with the container</li>
+        </ul>
+        <pre style="margin-top:.5rem"><code>"permission": {
+  "bash": { "*": "ask", "git *": "allow",
+            "npm *": "allow", "rm -rf *": "deny" },
+  "read": { "*": "allow", "~/.ssh/**": "deny",
+            "~/.aws/**": "deny" },
+  "external_directory":
+          { "*": "ask",
+            "~/Documents/Projects/**": "allow" }
+}</code></pre>
+      </div>
+      <div>
+        <h4>Contract + ops</h4>
+        <ul>
+          <li>Pin the server binary; generate the client from the <b>live</b> <code>GET /doc</code> (162 paths) — not the docs site, not GitHub <code>@dev</code>, not <code>dist/gen/</code> (use <code>dist/v2/gen/</code> types)</li>
+          <li>launchd unit: pin <code>--port</code> (defaults to random <code>0</code>), set <code>HOME</code>, <code>NO_PROXY=localhost,127.0.0.1</code>, <code>OPENCODE_DISABLE_AUTOUPDATE</code>, <code>OPENCODE_SERVER_PASSWORD</code></li>
+          <li>Hygiene: 30.4 GB <code>opencode.db</code> (23.7 GB = <code>event</code> table) · 117 MB unrotated log · 4 plaintext tokens → <code>{env:}</code></li>
+        </ul>
+        <h4>Docker teardown</h4>
+        <ul>
+          <li>No compose, no images, no volumes. Fixed-port constraint from <code>AGENTS.md</code> (8010/3210, one worktree runs the stack) <b>evaporates</b> — every worktree can run its own BFF against the shared daemon</li>
+        </ul>
+      </div>
+    </div>
+    <div class="accept"><b>Done when:</b> a supervised <code>opencode serve</code> survives reboot on a pinned port with a written permission policy, the fresh public repo is scaffolded (ds/, vitest, CI, <code>@shots</code> copied over), and typecheck passes against a client generated from that server's <code>/doc</code>.</div>
+  </div>
+</div>
+
+<!-- ============================================ -->
+<h2 id="p1"><span class="n">1</span>The seam — event adapter</h2>
+
+<div class="phase mvp">
+  <div class="ph"><div class="t"><span class="idx">P1</span>The seam</div><div class="est">~1–2 days · riskiest unknown, done first</div></div>
+  <div class="pb">
+    <p class="goal"><b>Goal:</b> render one real OpenCode session in your existing transcript UI, unchanged. If this works, the rest is mechanical.</p>
+    <div class="cols">
+      <div>
+        <h4>Build</h4>
+        <ul>
+          <li>Replace <code>server/openhands/upstream.ts</code> with an SDK wrapper threading <code>?directory=</code> + Basic auth</li>
+          <li>Rewrite <code>events.ts:42-457</code>: new <code>RawEvent</code> type + <code>normalizeEvent()</code> mapping Parts → <code>TranscriptEvent</code></li>
+          <li>Keep <code>events.ts:459-713</code> verbatim — merge, group, collapse, activity, <code>extractCommands</code>, <code>extractMrUrls</code></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Delete</h4>
+        <ul>
+          <li><code>cleanSummary()</code> — chips use <code>ToolPart.state.title</code></li>
+          <li><code>extractReasoning()</code>'s 3 provider shapes + opaque guards — <code>ReasoningPart.text</code> is plaintext</li>
+          <li>action⇄observation pairing by <code>action_id</code>/<code>tool_call_id</code></li>
+          <li><code>riskOf()</code> — no per-action <code>security_risk</code> exists</li>
+        </ul>
+      </div>
+    </div>
+
+    <h4>Part → TranscriptEvent mapping</h4>
+    <table>
+      <tr><th>OpenCode</th><th>Your type</th><th>Note</th></tr>
+      <tr><td><code>UserMessage</code> + <code>TextPart</code></td><td>user bubble</td><td>images via <code>FilePart</code></td></tr>
+      <tr><td><code>AssistantMessage</code> + <code>TextPart</code></td><td>agent prose</td><td></td></tr>
+      <tr><td><code>ReasoningPart{text,time}</code></td><td>Thought row</td><td><b>plaintext</b> — big simplification</td></tr>
+      <tr><td><code>ToolPart{state:completed}</code></td><td>action <b>+</b> observation</td><td>one object: <code>input</code>, <code>output</code>, <code>title</code>, <code>metadata</code>, <code>time{start,end}</code>, <code>attachments</code></td></tr>
+      <tr><td><code>ToolPart{state:running}</code></td><td>running indicator</td><td><code>title</code> names the tool</td></tr>
+      <tr><td><code>ToolPart{state:error}</code></td><td>error output</td><td></td></tr>
+      <tr><td><code>StepFinishPart</code></td><td>(internal)</td><td><code>cost</code>/<code>tokens</code> feed the status bar</td></tr>
+      <tr><td><code>PatchPart</code> / <code>SnapshotPart</code></td><td>diff / revert anchor</td><td></td></tr>
+      <tr><td><code>CompactionPart</code> / <code>RetryPart</code></td><td>status separators</td><td><code>{auto, overflow?}</code></td></tr>
+      <tr><td><code>SubtaskPart</code> / <code>AgentPart</code></td><td>subagent row</td><td></td></tr>
+    </table>
+    <div class="accept"><b>Done when:</b> an existing OpenCode session renders with correct bubbles, thought rows, tool chips with paired output, durations, and "N actions completed" grouping — row components untouched.</div>
+  </div>
+</div>
+
+<!-- ============================================ -->
+<h2 id="p2"><span class="n">2</span>Session lifecycle + interrupted detection</h2>
+
+<div class="phase mvp">
+  <div class="ph"><div class="t"><span class="idx">P2</span>Session lifecycle</div><div class="est">~2–3.5 days</div></div>
+  <div class="pb">
+    <p class="goal"><b>Goal:</b> create, run, stream, steer, stop — plus surface interrupted runs so R2 (accepted) is at least <em>visible</em>. End of this phase = usable agent IDE.</p>
+    <div class="cols">
+      <div>
+        <h4>Endpoints</h4>
+        <ul>
+          <li><code>GET /session?directory=&amp;roots=true&amp;limit=</code></li>
+          <li><code>POST /session?directory=</code> with <code>{agent, model, permission}</code></li>
+          <li><code>POST /session/{id}/prompt_async</code> — <b>204, non-blocking</b></li>
+          <li><code>POST /session/{id}/abort</code> · <code>DELETE /session/{id}</code></li>
+          <li><code>GET /session/status</code> · <code>GET /global/event</code> SSE</li>
+        </ul>
+        <h4>Watch out</h4>
+        <ul>
+          <li><code>POST /session/{id}/message</code> <b>blocks the whole turn</b> — never from the UI path</li>
+          <li><code>GET /event</code> is directory-scoped; use <code>/global/event</code>, demux on <code>payload.directory</code></li>
+          <li>No replay cursor on classic SSE — refetch on reconnect</li>
+          <li>Tolerate unknown event types (<code>server.heartbeat</code> every 10s is absent from the typed union)</li>
+        </ul>
+      </div>
+      <div>
+        <h4>Interrupted-run detection <span class="tag new">R2 · detect-only</span></h4>
+        <ul>
+          <li><b>On session open</b> (not list-load — the messages are already fetched there; list-level would cost N requests):</li>
+        </ul>
+        <pre style="margin:.4rem 0"><code>interrupted =
+    id NOT in GET /session/status   <span class="c">// not live anywhere</span>
+ &amp;&amp; last msg is AssistantMessage
+ &amp;&amp; last msg .time.completed == null</code></pre>
+        <ul>
+          <li>Two states: last msg assistant+incomplete → <em>"Run did not finish"</em>; last msg user with no reply → <em>"Never answered"</em></li>
+          <li>Neutral wording — a user <code>abort</code> has the identical signature; describe, don't diagnose</li>
+          <li><b>Resume button prefills the composer</b> (decided) — no auto-send, so a run that already wrote files can't be replayed by a misclick</li>
+          <li><b>No background sweep, no auto-recovery, no state store</b> — by explicit decision</li>
+        </ul>
+      </div>
+    </div>
+    <div class="accept"><b>Done when:</b> create → stream → steer mid-run → abort → resume works across two synced tabs; killing the server mid-turn and reopening the session shows the <em>interrupted</em> banner with a working Resume.</div>
+  </div>
+</div>
+
+<!-- ============================================ -->
+<h2 id="p3"><span class="n">3</span>Free ports</h2>
+
+<div class="phase">
+  <div class="ph"><div class="t"><span class="idx">P3</span>Free ports — zero agent coupling</div><div class="est">~1 day · mostly copy</div></div>
+  <div class="pb">
+    <p class="goal"><b>Goal:</b> bring across the ~13 routes and UIs that never touched the agent server.</p>
+    <ul>
+      <li><b>MR/PR panel</b> — <code>MrPanel.tsx</code>, <code>gitlab.ts</code>, <code>github.ts</code>, <code>mr.ts</code> (~2,100 lines, unchanged). Input is URLs scraped by <code>extractMrUrls</code>, which already works on the neutral type. Still a genuine differentiator — no OpenCode UI in the ecosystem has GitLab</li>
+      <li><b>Commands panel</b> — pure function of <code>TranscriptItem[]</code>, no endpoint. Keep the <code>data-event-id</code> click-to-jump contract stable in the new adapter. <b>This is now the only command-audit surface</b> (Terminal page dropped)</li>
+      <li><b>Repos / suggested issues</b> — GitLab only, unchanged</li>
+      <li><b>Notification browser channels</b> — <code>notify.ts</code>, <code>sound.ts</code>, <code>tabMeta.ts</code>, unchanged</li>
+      <li><b>Image attachments</b> — validation stays; wire format becomes <code>FilePartInput</code></li>
+    </ul>
+    <div class="accept"><b>Done when:</b> the MR panel shows live pipeline state and merges a real MR against an OpenCode session, and the commands panel exports a replayable <code>.sh</code>.</div>
+  </div>
+</div>
+
+<!-- ============================================ -->
+<h2 id="p4"><span class="n">4</span>Workspace panels</h2>
+
+<div class="phase">
+  <div class="ph"><div class="t"><span class="idx">P4</span>Files · Changes</div><div class="est">~1.5 days</div></div>
+  <div class="pb">
+    <p class="goal"><b>Goal:</b> the two surviving workspace panels (preview, terminal, disk bar dropped).</p>
+    <table>
+      <tr><th>Panel</th><th>Backing</th><th>Work</th></tr>
+      <tr><td><b>Files</b></td><td><code>GET /file?path=</code> → <code>FileNode[]</code>; <code>GET /file/content?path=</code> (text or base64+mimeType)</td><td>Shim to the client's <code>{path,dirs,files,nextPageId}</code> shape; one level per call, recurse in the BFF</td></tr>
+      <tr><td><b>Changes</b></td><td><code>GET /vcs/status</code> · <code>GET /vcs/diff?mode=git|branch</code> · <code>/vcs/diff/raw</code></td><td><b>Commit history has no endpoint</b> — run <code>git log</code> locally in the BFF (it's your host now, no sandbox indirection). <code>lib/diff.ts</code> renderer unchanged</td></tr>
+    </table>
+    <div class="callout warn"><b>Traps:</b> <code>GET /file/status</code> returns <code>[]</code> unconditionally (binary stub — use <code>/vcs/status</code>) · <code>GET /find/symbol</code> also returns <code>[]</code> · <code>GET /find</code> caps at 10 results.</div>
+    <div class="accept"><b>Done when:</b> browse the tree, open a file, see working-tree diffs and commit history for any session's directory.</div>
+  </div>
+</div>
+
+<!-- ============================================ -->
+<h2 id="p5"><span class="n">5</span>Derived surfaces</h2>
+
+<div class="phase mvp">
+  <div class="ph"><div class="t"><span class="idx">P5</span>Task list · Status bar · Tools &amp; health</div><div class="est">~1.5 days</div></div>
+  <div class="pb">
+    <div class="cols">
+      <div>
+        <h4>Task list <span class="tag keep">SIMPLER</span></h4>
+        <ul>
+          <li><code>GET /session/{id}/todo</code> + SSE <code>todo.updated</code> — first-class endpoint, no more scraping <code>TaskTrackerAction</code></li>
+          <li>⚠️ <code>Todo</code> has <b>no <code>id</code></b> in 1.18.19 — key on index/content</li>
+        </ul>
+        <h4>Status bar <span class="tag adapt">ADAPT</span></h4>
+        <ul>
+          <li>Cost + tokens at three granularities (<code>Session</code>, <code>AssistantMessage</code>, <code>StepFinishPart</code>)</li>
+          <li>Gauge: used = last assistant msg <code>input+output+reasoning+cache.read+cache.write</code>; denominator = <code>Model.limit.context</code> from <code>/config/providers</code></li>
+          <li>Formatters + warn/danger tones port unchanged</li>
+        </ul>
+      </div>
+      <div>
+        <h4>Tools &amp; health <span class="tag rewrite">REWRITE — status only</span></h4>
+        <ul>
+          <li><code>GET /mcp</code> → 5-way union: <code>connected</code> / <code>disabled</code> / <code>failed{error}</code> / <code>needs_auth</code> / <code>needs_client_registration{error}</code></li>
+          <li><code>GET /lsp</code> · <code>GET /formatter</code> · <code>GET /experimental/tool/ids</code></li>
+          <li><b>No latency probes</b> (dropped) — the status union answers "which server is broken" directly; agent-canvas needed timed probes only because it had no status endpoint</li>
+          <li>Keep integration rows (gh/glab/acli/ntn) as local execs</li>
+          <li><b>Now actionable:</b> <code>POST /mcp/{name}/connect|disconnect</code> + OAuth quartet</li>
+        </ul>
+      </div>
+    </div>
+    <div class="accept"><b>Done when:</b> Tools page shows the real 21 servers (today: 11 connected / 4 needs_auth / 3 failed / 3 disabled), reconnecting <code>excalidraw</code> works from the UI, and the status bar shows live context % and session spend. <b>← minimum viable port ends here.</b></div>
+  </div>
+</div>
+
+<!-- ============================================ -->
+<h2 id="p6"><span class="n">6</span>Settings</h2>
+
+<div class="phase">
+  <div class="ph"><div class="t"><span class="idx">P6</span>Settings</div><div class="est">~1.5 days</div></div>
+  <div class="pb">
+    <p class="goal"><b>Goal:</b> the in-app control that started this investigation — descoped to what earns a UI.</p>
+    <table>
+      <tr><th>Page</th><th>Backing</th><th>Note</th></tr>
+      <tr><td><b>Notifications</b></td><td>BFF-local JSON (<code>.state/ntfy-prefs.json</code>)</td><td>Per-event toggles × channels, volume, test buttons. <code>misc_settings</code> KV replaced by owning the store</td></tr>
+      <tr><td><b>Agent settings</b></td><td><code>PATCH /global/config</code> → <code>compaction{auto,prune,reserved}</code>, <code>model</code>, <code>small_model</code>, <code>default_agent</code>, <code>subagent_depth</code></td><td>Condenser page survives, re-pointed and broader</td></tr>
+      <tr><td><b>MCP manager</b> <span class="tag new">NEW</span></td><td><code>POST /mcp</code> (add) · connect/disconnect/auth · <code>Config.mcp</code> durable enable/disable</td><td>OpenHands was read-only + a sync script; full CRUD now</td></tr>
+      <tr><td><b>Permissions</b> <span class="tag del">READ-ONLY</span></td><td><code>GET /config</code> effective rules + <code>GET /api/permission/saved</code></td><td>Display what's active; <b>author in <code>opencode.jsonc</code></b> ($schema autocomplete beats a form)</td></tr>
+      <tr><td><s>Providers page</s> · <s>skills toggles</s></td><td>—</td><td>Dropped / no equivalent</td></tr>
+    </table>
+    <div class="callout info"><b>Plan/Build: deferred, not designed.</b> No per-action <code>security_risk</code> exists; if it returns it's agent-switch (<code>POST /api/session/{id}/agent</code>) + permission rulesets. Wait to see whether the Phase 0 policy alone suffices.</div>
+    <div class="accept"><b>Done when:</b> per-event notification toggles work, compaction threshold is editable, and <code>gitlab-mcp</code> can be re-authed — all without touching a config file.</div>
+  </div>
+</div>
+
+<!-- ============================================ -->
+<h2 id="p7"><span class="n">7</span>Resilience</h2>
+
+<div class="phase">
+  <div class="ph"><div class="t"><span class="idx">P7</span>Resilience</div><div class="est">~1 day</div></div>
+  <div class="pb">
+    <p class="goal"><b>Goal:</b> the notification guarantees. (The run-recovery sweep was cut — R2 is accepted, covered by Phase 2's detection.)</p>
+    <div class="cols">
+      <div>
+        <h4>Parked-permission watcher <span class="tag new">R8</span></h4>
+        <ul>
+          <li>A permission <code>ask</code> with no client attached <b>parks the run forever</b></li>
+          <li>Poll <code>GET /permission</code>; high-priority ntfy for anything pending &gt; N seconds</li>
+          <li>Any connected client can answer — this is what makes approve-from-phone work with the laptop closed</li>
+        </ul>
+      </div>
+      <div>
+        <h4>Notifications</h4>
+        <ul>
+          <li>Re-point <code>ntfy-notify.js</code>: <code>session.error</code>, <code>session.idle</code>, <code>permission.asked</code>, <code>question.asked</code></li>
+          <li>Adds the error/abort coverage OpenHands had and your plugin never did</li>
+          <li>Honor the shared prefs file from Phase 6</li>
+        </ul>
+      </div>
+    </div>
+    <div class="accept"><b>Done when:</b> a permission prompt raised with no browser open reaches your phone within a minute, and <code>session.error</code> pushes high-priority.</div>
+  </div>
+</div>
+
+<!-- ============================================ -->
+<h2 id="p8"><span class="n">8</span>Worktrees</h2>
+
+<div class="phase">
+  <div class="ph"><div class="t"><span class="idx">P8</span>Worktrees</div><div class="est">~0.5 day</div></div>
+  <div class="pb">
+    <p class="goal"><b>Goal:</b> the one "new capability" that survived descoping (PTY, fork, staged revert, structured output all cut or deferred).</p>
+    <ul>
+      <li><code>GET|POST|DELETE /experimental/worktree</code> + <code>/reset</code> replaces your bespoke <code>git worktree add --detach</code> shelling (<code>setup.ts:456-462</code>)</li>
+      <li>Create form's "isolated workspace" checkbox → <code>POST /experimental/worktree</code>, then <code>POST /session?directory=&lt;worktree.directory&gt;</code></li>
+      <li>Worktrees roll up to one <code>projectID</code> via the <code>project_directory</code> table — the Hub's collision warning gets this for free</li>
+    </ul>
+    <div class="accept"><b>Done when:</b> the isolated-workspace checkbox works end to end on the new stack.</div>
+  </div>
+</div>
+
+<!-- ============================================ -->
+<h2 id="p9"><span class="n">9</span>Cutover</h2>
+
+<div class="phase">
+  <div class="ph"><div class="t"><span class="idx">P9</span>Cutover</div><div class="est">~1 day</div></div>
+  <div class="pb">
+    <div class="cols">
+      <div>
+        <h4>Steps</h4>
+        <ul>
+          <li>Run both stacks side by side (trivial now — no fixed-port Docker constraint)</li>
+          <li>Daily-drive the new stack for a week before retiring anything</li>
+          <li><code>docker compose down -v</code> · delete images · uninstall nothing else — there is nothing else</li>
+          <li>Freeze <code>custom-dca-ide-with-openhands</code> with a README pointing at the replacement (serves the make-it-public goal)</li>
+        </ul>
+      </div>
+      <div>
+        <h4>Carry forward</h4>
+        <ul>
+          <li>Five-tier test strategy · <code>@shots</code> screenshot workflow · the <code>AGENTS.md</code> decision-log habit (entry #1: the permission policy)</li>
+        </ul>
+      </div>
+    </div>
+    <div class="accept"><b>Done when:</b> the OpenHands stack has been off for a week and nothing is missed.</div>
+  </div>
+</div>
+
+<!-- ============================================ -->
+<h2 id="oneshot"><span class="n">—</span>One-shot execution — background subagents on Opus 5</h2>
+
+<p>The plan above is estimated at human pace (~2.5 weeks). The same work, executed by parallel opencode sessions on <code>anthropic/claude-opus-5</code> with you reviewing at the acceptance gates, compresses to <b>~2–4 days of wall clock</b>. This document is written to be the execution harness: every phase card is a self-contained worker prompt with its own goal, endpoints, deletions, traps, and a testable "done when".</p>
+
+<h3>Setup (once, part of Phase 0)</h3>
+<table>
+  <tr><th>Step</th><th>How</th><th>Note</th></tr>
+  <tr><td>Pin the model</td><td><code>"model": "anthropic/claude-opus-5"</code> in the new repo's <code>opencode.json</code></td><td>Already proven on this machine — the research subagent sessions ran on it (visible in live <code>GET /session</code> payloads)</td></tr>
+  <tr><td>Enable background subagents</td><td><code>OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=1</code> in the launchd unit's env</td><td><b>Currently off</b>: <code>GET /experimental/capabilities</code> → <code>{"backgroundSubagents": false}</code>. Verify it flips to <code>true</code> after restart</td></tr>
+  <tr><td>Raise nesting if needed</td><td><code>"subagent_depth": 2</code></td><td>Lets a coordinating session's subagents spawn their own explore helpers</td></tr>
+</table>
+
+<h3>Two parallelization primitives — use both</h3>
+<table>
+  <tr><th></th><th>In-session <code>task</code> subagents</th><th>Parallel worker sessions in worktrees</th></tr>
+  <tr><td><b>What</b></td><td>One coordinating session fans out subagents; <code>POST /experimental/session/{id}/background</code> detaches blocking ones so the parent keeps working</td><td>Independent sessions, each created with <code>?directory=&lt;worktree&gt;</code>, each on its own branch — the <code>manager-children</code> cmux skill pattern</td></tr>
+  <tr><td><b>Good for</b></td><td>Research, scaffolding, single-file codegen, review passes — anything that reports back as text</td><td><b>Real parallel writes.</b> Phase-sized chunks that each produce a PR</td></tr>
+  <tr><td><b>Limit</b></td><td>All share the parent's repo checkout — parallel <em>writes</em> collide</td><td>Merge order matters; shared files must be frozen first</td></tr>
+  <tr><td><b>Proof</b></td><td>This plan itself: 5 research subagents ran in parallel to produce it</td><td>Your manager-runs feature was this pattern; the skill survives it</td></tr>
+</table>
+
+<h3>Wave plan</h3>
+<pre><code>WAVE 0  <span class="c">(serial · HUMAN + one session · ~2h)</span>
+  P0 foundation — <span class="k">permission policy is human-reviewed before any agent runs</span>
+  scaffold fresh public repo (agent does the copying: ds/, vitest, CI, @shots)
+
+WAVE 1  <span class="c">(serial · ONE focused session · ~half day)</span>
+  P1 the seam — single critical path; <span class="k">adapter output types are FROZEN at merge</span>
+  every later worker imports these types read-only
+
+WAVE 2  <span class="c">(parallel · 4 worker sessions in 4 worktrees)</span>
+  worker A: P2 lifecycle + interrupted detection
+  worker B: P3 free ports (MR panel, commands, notify UI)
+  worker C: P4 files + changes (+ local git log)
+  worker D: P5 task list + status bar + tools&amp;health
+  <span class="c">B/C/D depend only on frozen P1 types; A also owns the SSE store</span>
+
+WAVE 3  <span class="c">(parallel · 3 worker sessions)</span>
+  worker E: P6 settings    worker F: P7 resilience    worker G: P8 worktrees
+
+WAVE 4  <span class="c">(serial · one session + human)</span>
+  integration pass: merge in order A→D→C→B→E→F→G, run e2e, fix seams
+  P9 cutover checklist</span></code></pre>
+
+<h3>Worker prompt recipe</h3>
+<ul>
+  <li>Each worker gets: <b>its phase card from this document verbatim</b> (goal, endpoints, deletions, traps, done-when) + the Part→TranscriptEvent table + the stub-routes list + the frozen adapter type file</li>
+  <li>Contract per worker: <b>"done" = <code>npm run typecheck &amp;&amp; npm test</code> pass and your phase's done-when is demonstrated</b> — the acceptance criteria in this doc are the review gates, verbatim</li>
+  <li>Workers open draft PRs; you review at wave boundaries, not mid-flight</li>
+  <li>Rule: no worker touches another phase's files; shared types change only via a wave-1 amendment PR that everyone rebases on</li>
+</ul>
+
+<div class="callout warn"><b>Honest limits of "one shot".</b> A single unattended prompt for all 10 phases will compound errors at the seam — if P1's mapping is subtly wrong, four parallel workers build on the mistake. The realistic fast path is <b>one wave per sitting</b> with a 15-minute review between waves (~5 sittings total). Also budget for it: research subagent sessions on Opus 5 ran $0.7–1.3 each; build waves with 4 concurrent workers will run substantially more — expect tens of dollars per wave. Watch spend via each session's <code>cost</code> field, which your own Phase 5 status bar will display.</div>
+
+<div class="callout good"><b>Why this plan is unusually automatable:</b> the riskiest unknown (P1) is deliberately first and small; every phase has a machine-checkable exit; the traps that would burn an agent (blocking <code>/message</code>, directory-scoped <code>/event</code>, stub routes, last-match-wins permissions, missing <code>Todo.id</code>) are enumerated; and workers can't collide because phase boundaries were drawn along file boundaries.</b></div>
+
+<!-- ============================================ -->
+<h2 id="cheat"><span class="n">—</span>Endpoint cheat sheet</h2>
+
+<p class="small">Verified live against <code>100.78.52.59:4096</code> (162 paths / 188 operations at <code>GET /doc</code>). Append <code>?directory=&lt;abs&gt;</code> to instance-scoped routes.</p>
+
+<table>
+  <tr><th style="width:22%">Surface</th><th>Endpoints</th></tr>
+  <tr><td>Sessions</td><td><code>GET /session</code> · <code>POST /session</code> · <code>GET|PATCH|DELETE /session/{id}</code> · <code>GET /session/{id}/children</code> · <code>GET /session/status</code></td></tr>
+  <tr><td>Transcript</td><td><code>GET /session/{id}/message</code> · <code>GET /session/{id}/message/{mid}</code></td></tr>
+  <tr><td>Prompting</td><td><code>POST /session/{id}/prompt_async</code> <b>(use this)</b> · <code>POST /session/{id}/message</code> (blocks — avoid)</td></tr>
+  <tr><td>Control</td><td><code>POST /session/{id}/abort|summarize</code> · <code>PATCH /session/{id}</code> (rename/archive)</td></tr>
+  <tr><td>Streaming</td><td><code>GET /global/event</code> <b>(cross-project)</b> · <code>GET /event</code> (directory-scoped)</td></tr>
+  <tr><td>Approvals</td><td><code>GET /permission</code> · <code>POST /permission/{rid}/reply {reply:once|always|reject}</code> · <code>GET /question</code> · <code>POST /question/{rid}/reply|reject</code></td></tr>
+  <tr><td>Todos</td><td><code>GET /session/{id}/todo</code> + SSE <code>todo.updated</code></td></tr>
+  <tr><td>Health</td><td><code>GET /mcp</code> · <code>GET /lsp</code> · <code>GET /formatter</code> · <code>GET /global/health</code></td></tr>
+  <tr><td>MCP control</td><td><code>POST /mcp</code> · <code>POST /mcp/{n}/connect|disconnect</code> · <code>POST /mcp/{n}/auth[/authenticate|/callback]</code></td></tr>
+  <tr><td>Files</td><td><code>GET /file?path=</code> · <code>GET /file/content?path=</code> · <code>GET /find</code> (cap 10) · <code>GET /find/file</code></td></tr>
+  <tr><td>VCS</td><td><code>GET /vcs</code> · <code>GET /vcs/status</code> · <code>GET /vcs/diff?mode=git|branch</code> · <code>GET /session/{id}/diff</code> · <b>commits: local git</b></td></tr>
+  <tr><td>Config</td><td><code>GET|PATCH /global/config</code> <b>(durable)</b> · <code>GET /config/providers</code></td></tr>
+  <tr><td>Catalog</td><td><code>GET /agent</code> · <code>GET /command</code> · <code>GET /skill</code> · <code>GET /api/model</code></td></tr>
+  <tr><td>Workspace</td><td><code>GET /path</code> · <code>GET /project[/current]</code> · <code>GET /project/{id}/directories</code> · <code>GET|POST|DELETE /experimental/worktree</code></td></tr>
+</table>
+
+<h3>Stub routes — do not build on these</h3>
+<p class="small"><code>GET /file/status</code> → <code>[]</code> unconditionally (use <code>/vcs/status</code>) · <code>GET /find/symbol</code> → <code>[]</code> unconditionally · no git commit/log/blame route (run git locally) · no LSP diagnostics · no file-write endpoint.</p>
+
+<h3>Effort summary (v2)</h3>
+<table>
+  <tr><th>Phase</th><th>Estimate</th><th>Cumulative capability</th></tr>
+  <tr><td>0 · Foundation</td><td>0.5d</td><td>safe, Docker-free, contract locked</td></tr>
+  <tr><td>1 · Seam</td><td>1–2d</td><td>transcript renders</td></tr>
+  <tr><td>2 · Lifecycle + detection</td><td>2–3.5d</td><td><b>usable agent IDE</b></td></tr>
+  <tr><td>5 · Derived</td><td>1.5d</td><td><b>← minimum viable (~1.5 wk)</b></td></tr>
+  <tr><td>3 · Free ports</td><td>1d</td><td>MR panel, commands</td></tr>
+  <tr><td>4 · Workspace</td><td>1.5d</td><td>files, diffs, commit history</td></tr>
+  <tr><td>6 · Settings</td><td>1.5d</td><td>in-app control</td></tr>
+  <tr><td>7 · Resilience</td><td>1d</td><td>approve-from-phone, error pushes</td></tr>
+  <tr><td>8 · Worktrees</td><td>0.5d</td><td>isolated workspaces</td></tr>
+  <tr><td>9 · Cutover</td><td>1d</td><td><b>OpenHands retired (~2.5 wk total)</b></td></tr>
+</table>
+
+<!-- ============================================ -->
+<h2 id="open"><span class="n">—</span>Resolved decisions</h2>
+<table>
+  <tr><th>#</th><th>Decision</th><th>Resolution (Aug 21)</th></tr>
+  <tr><td>1</td><td>Agent git identity</td><td><b>Local git tools as-is</b> — no bot-identity plugin; <code>OPENHANDS_*</code> token pair retires with the container. Agent commits/MRs use whatever identity the host has</td></tr>
+  <tr><td>2</td><td>Resume button behavior</td><td><b>Prefill the composer</b> (best-guess accepted) — one extra keystroke, but an interrupted run that already wrote files can't be replayed by a misclick</td></tr>
+  <tr><td>3</td><td>Repo strategy</td><td><b>Fresh new public repo.</b> Wave 0 scaffolds it by copying <code>client/ds/</code>, vitest config, CI workflow, and the <code>@shots</code> screenshot setup from the frozen repo — no OpenHands history or archived code carried over. Public from day one, which also satisfies the "shareable artifact" goal for the old repo (it freezes intact)</td></tr>
+  <tr><td>4</td><td>Execution model</td><td><b>Background subagents + parallel worktree workers on <code>anthropic/claude-opus-5</code></b>, one wave per sitting — see <a href="#oneshot">one-shot execution</a></td></tr>
+</table>
+
+<p class="small" style="margin-top:1.5rem;font-style:italic">Companion documents: <code>opencode-vs-openhands-report.html</code> (research: feature gaps, customization surfaces) and <code>opencode-migration-decision.html</code> (research: three-path comparison, risk register R1–R13). Both predate this v2 descoping — where they conflict, this document wins.</p>
+
+</div>
+</body>
+</html>

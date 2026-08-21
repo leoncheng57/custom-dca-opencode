@@ -1,0 +1,136 @@
+/* client/theme/tokens.css
+ *
+ * Neutral design tokens for this repo.
+ *
+ * The predecessor (custom-dca-ide-with-openhands, private) vendored an
+ * internal corporate theme. This repo is public, so that is deliberately not
+ * carried over. These tokens keep the *same variable names* so every
+ * client/ds/ primitive works unchanged — only the values are original.
+ *
+ * Rules for anyone editing:
+ *   - Components reference semantic tokens (--color-text-danger), never raw
+ *     hex and never palette scales directly.
+ *   - Every token defined for :root must have a .dark counterpart below.
+ */
+
+:root {
+  /* ── Palette (referenced only by the semantic layer + two badge variants) */
+  --color-blue-100: #dbeafe;
+  --color-blue-700: #1d4ed8;
+  --color-purple-100: #ede9fe;
+  --color-purple-700: #6d28d9;
+
+  /* ── Surfaces */
+  --color-background-surface: #ffffff;
+  --color-background-surface-neutral-muted: #f3f4f6;
+  --color-background-surface-info-muted: #eff6ff;
+  --color-background-surface-success-muted: #ecfdf5;
+  --color-background-surface-warning-muted: #fffbeb;
+  --color-background-surface-danger-muted: #fef2f2;
+
+  /* ── Actions */
+  --color-background-action-primary: #16a34a;
+  --color-background-action-primary-hover: #15803d;
+  --color-background-action-ghost-hover: #f3f4f6;
+  --color-text-action-ghost: #374151;
+
+  /* ── Text */
+  --color-text-default: #111827;
+  --color-text-muted: #6b7280;
+  --color-text-info: #1d4ed8;
+  --color-text-success: #15803d;
+  --color-text-warning: #b45309;
+  --color-text-danger: #b91c1c;
+
+  /* ── Lines */
+  --color-border-default: #e5e7eb;
+  --color-border-focus: #16a34a;
+
+  /* ── Radii */
+  --border-radius-8: 0.5rem;
+  --border-radius-12: 0.75rem;
+
+  /* ── App-local aliases (historically "hh-" in the predecessor) */
+  --hh-border: var(--color-border-default);
+  --hh-row-hover: #f9fafb;
+}
+
+.dark {
+  --color-blue-100: #1e3a8a;
+  --color-blue-700: #bfdbfe;
+  --color-purple-100: #4c1d95;
+  --color-purple-700: #ddd6fe;
+
+  --color-background-surface: #16181d;
+  --color-background-surface-neutral-muted: #22252c;
+  --color-background-surface-info-muted: #172554;
+  --color-background-surface-success-muted: #052e1d;
+  --color-background-surface-warning-muted: #3b2a06;
+  --color-background-surface-danger-muted: #3f1414;
+
+  --color-background-action-primary: #22c55e;
+  --color-background-action-primary-hover: #16a34a;
+  --color-background-action-ghost-hover: #22252c;
+  --color-text-action-ghost: #d1d5db;
+
+  --color-text-default: #e8eaed;
+  --color-text-muted: #9aa0a6;
+  --color-text-info: #93c5fd;
+  --color-text-success: #6ee7a8;
+  --color-text-warning: #fcd34d;
+  --color-text-danger: #fca5a5;
+
+  --color-border-default: #2c3038;
+  --color-border-focus: #22c55e;
+
+  --hh-border: var(--color-border-default);
+  --hh-row-hover: #1c1f25;
+}
+
+/* Utility referenced by ds/card.tsx. */
+.has-shadow-default {
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.04),
+    0 1px 3px rgb(0 0 0 / 0.06);
+}
+.dark .has-shadow-default {
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.4),
+    0 1px 3px rgb(0 0 0 / 0.3);
+}
+
+/* Typography scope used by ds/markdown.tsx. Intentionally small: the renderer
+ * supports headings, bold/italic, inline code, links, lists, paragraphs, rules. */
+.prose-markdown {
+  color: var(--color-text-default);
+  line-height: 1.6;
+}
+.prose-markdown :where(h1, h2, h3, h4) {
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 1.2em 0 0.5em;
+}
+.prose-markdown :where(h1) { font-size: 1.35rem; }
+.prose-markdown :where(h2) { font-size: 1.15rem; }
+.prose-markdown :where(h3) { font-size: 1rem; }
+.prose-markdown :where(p, ul, ol) { margin: 0.6em 0; }
+.prose-markdown :where(ul) { list-style: disc; padding-left: 1.3em; }
+.prose-markdown :where(ol) { list-style: decimal; padding-left: 1.3em; }
+.prose-markdown :where(a) {
+  color: var(--color-text-info);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.prose-markdown :where(code) {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.875em;
+  background: var(--color-background-surface-neutral-muted);
+  border: 1px solid var(--color-border-default);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+}
+.prose-markdown :where(hr) {
+  border: 0;
+  border-top: 1px solid var(--color-border-default);
+  margin: 1.2em 0;
+}
