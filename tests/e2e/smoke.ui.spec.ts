@@ -415,6 +415,35 @@ test.describe("composer", () => {
     await expect(page.getByTestId("opencode-composer")).toHaveValue("");
   });
 
+  test("submits on Enter and keeps Shift+Enter as a newline", async ({ page }) => {
+    await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
+    const composer = page.getByTestId("opencode-composer");
+
+    await composer.click();
+    await composer.type("first line");
+    await composer.press("Shift+Enter");
+    await composer.type("second line");
+    await expect(composer).toHaveValue("first line\nsecond line");
+
+    await composer.press("Enter");
+    await expect(composer).toHaveValue("");
+  });
+
+  test("does not submit an empty or whitespace-only draft on Enter", async ({ page }) => {
+    await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
+    const composer = page.getByTestId("opencode-composer");
+    const before = await page.getByTestId("opencode-transcript").innerText();
+
+    await composer.click();
+    await composer.press("Enter");
+    await composer.type("   ");
+    await composer.press("Enter");
+
+    // Enter is swallowed rather than inserting a newline, and no turn is posted.
+    await expect(composer).toHaveValue("   ");
+    await expect(page.getByTestId("opencode-transcript")).toHaveText(before);
+  });
+
   test("accepts an image attachment", async ({ page }) => {
     await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
     await page.getByTestId("opencode-attach").setInputFiles({ name: "pixel.png", mimeType: "image/png", buffer: Buffer.from("89504e470d0a1a0a", "hex") });
@@ -601,6 +630,19 @@ test.describe("mobile", () => {
     expect(sendBox?.height).toBeGreaterThanOrEqual(44);
     await expect(composer).toHaveAttribute("enterkeyhint", "enter");
     await expect(composer).toHaveAttribute("autocapitalize", "none");
+  });
+
+  // The Enter-vs-newline decision itself is covered in tests/composer-keys.test.ts:
+  // Playwright launches Chromium with a browser-level primaryPointerType of
+  // "fine", so `hasTouch` does not move `(pointer: coarse)` and this suite
+  // cannot faithfully emulate the soft-keyboard branch.
+  test("submits with Cmd/Ctrl+Enter regardless of pointer type", async ({ page }) => {
+    await page.goto(`/sessions/ses_mock_mobile?directory=${encodeURIComponent(DIR)}`);
+    const composer = page.getByTestId("opencode-composer");
+    await composer.click();
+    await composer.type("send from a phone");
+    await composer.press("ControlOrMeta+Enter");
+    await expect(composer).toHaveValue("");
   });
 
   test("contains hostile markdown width inside local code and table scrollers", async ({ page }) => {
