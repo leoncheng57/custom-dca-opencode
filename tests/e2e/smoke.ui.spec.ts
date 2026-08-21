@@ -334,6 +334,8 @@ test.describe("transcript", () => {
   });
 
   test("hides seeded permission and question state on a session transition", async ({ page }) => {
+    await fetch(`${MOCK_URL}/test/permissions/reset?directory=${encodeURIComponent(DIR)}`, { method: "POST" });
+    await fetch(`${MOCK_URL}/test/questions/reset?scope=ui`, { method: "POST" });
     await page.goto(conversation);
     await expect(page.getByTestId("opencode-permission-request")).toBeVisible();
     await expect(page.getByTestId("opencode-question-request")).toBeVisible();
