@@ -61,6 +61,8 @@ paths containing spaces, and the optional OpenCode unit. The BFF installer never
 starts a second OpenCode server; it uses `OPENCODE_URL` from `.env`.
 The OpenCode 1.18.21 compatibility check is recorded in
 [`docs/opencode-1.18.21-api-audit.md`](docs/opencode-1.18.21-api-audit.md).
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the development and pull request workflow.
+The same contributor material has a themed [visual reading index](docs/contributing/index.html).
 
 ### Open on a phone
 

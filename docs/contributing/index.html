@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="Visual reading index for contributors to custom-dca-opencode.">
+  <title>Contributor Control Plane | custom-dca-opencode</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --paper: #f0ede4;
+      --raised: #faf7ef;
+      --sunken: #e4dfd2;
+      --ink: #18201f;
+      --muted: #58615e;
+      --line: #b9b3a5;
+      --line-strong: #77776f;
+      --signal: #b52f25;
+      --signal-bg: #f5d9d1;
+      --green: #176b55;
+      --blue: #245d83;
+      --grid: rgba(24, 32, 31, .055);
+      --shadow: 12px 12px 0 var(--signal-bg);
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      --serif: Iowan Old Style, Palatino Linotype, Book Antiqua, Palatino, Georgia, serif;
+      --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --paper: #111716;
+        --raised: #19201e;
+        --sunken: #0d1211;
+        --ink: #e9e8df;
+        --muted: #adb6b0;
+        --line: #3c4743;
+        --line-strong: #79827d;
+        --signal: #ff786a;
+        --signal-bg: #45231f;
+        --green: #70d5b2;
+        --blue: #80c3ed;
+        --grid: rgba(233, 232, 223, .045);
+      }
+    }
+    :root[data-theme="light"] {
+      color-scheme: light;
+      --paper: #f0ede4;
+      --raised: #faf7ef;
+      --sunken: #e4dfd2;
+      --ink: #18201f;
+      --muted: #58615e;
+      --line: #b9b3a5;
+      --line-strong: #77776f;
+      --signal: #b52f25;
+      --signal-bg: #f5d9d1;
+      --green: #176b55;
+      --blue: #245d83;
+      --grid: rgba(24, 32, 31, .055);
+    }
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+      --paper: #111716;
+      --raised: #19201e;
+      --sunken: #0d1211;
+      --ink: #e9e8df;
+      --muted: #adb6b0;
+      --line: #3c4743;
+      --line-strong: #79827d;
+      --signal: #ff786a;
+      --signal-bg: #45231f;
+      --green: #70d5b2;
+      --blue: #80c3ed;
+      --grid: rgba(233, 232, 223, .045);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; scroll-padding-top: 1rem; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background-color: var(--paper);
+      background-image:
+        linear-gradient(var(--grid) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+      background-size: 26px 26px;
+      font-family: var(--sans);
+      line-height: 1.58;
+    }
+    a { color: var(--blue); text-underline-offset: .17em; }
+    a:hover { text-decoration-thickness: 2px; }
+    :focus-visible { outline: 3px solid var(--blue); outline-offset: 3px; }
+    .skip-link {
+      position: fixed;
+      top: .5rem;
+      left: .5rem;
+      z-index: 10;
+      transform: translateY(-180%);
+      background: var(--ink);
+      color: var(--paper);
+      padding: .55rem .8rem;
+      font: 700 .75rem var(--mono);
+    }
+    .skip-link:focus { transform: none; }
+    .page { width: min(1380px, calc(100% - 2rem)); margin-inline: auto; }
+    .topline {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      min-height: 58px;
+      border-bottom: 1px solid var(--line-strong);
+      font: 750 .7rem var(--mono);
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+    .stamp, .eyebrow, .section-no { color: var(--signal); }
+    .topline nav { margin-left: auto; display: flex; gap: 1rem; }
+    .topline a { color: var(--muted); text-decoration: none; }
+    .theme-controls { display: flex; gap: 1px; border: 1px solid var(--line-strong); }
+    .theme-controls button {
+      min-height: 30px;
+      border: 0;
+      border-left: 1px solid var(--line);
+      background: var(--raised);
+      color: var(--ink);
+      cursor: pointer;
+      padding: .3rem .55rem;
+      font: 700 .64rem var(--mono);
+      text-transform: uppercase;
+    }
+    .theme-controls button:first-child { border-left: 0; }
+    .theme-controls button[aria-pressed="true"] { background: var(--ink); color: var(--raised); }
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.4fr) minmax(280px, .6fr);
+      gap: clamp(2rem, 6vw, 6rem);
+      align-items: end;
+      padding: clamp(4rem, 9vw, 8rem) 0 4rem;
+    }
+    .eyebrow, .section-no, .card-label {
+      font: 800 .7rem var(--mono);
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+    h1, h2, h3, p { margin-top: 0; }
+    h1, h2 { font-family: var(--serif); font-weight: 600; letter-spacing: -.045em; }
+    h1 { margin: .7rem 0 1.2rem; font-size: clamp(3.4rem, 8.5vw, 8.2rem); line-height: .88; }
+    h1 span { color: var(--signal); }
+    h2 { margin-bottom: .7rem; font-size: clamp(2.2rem, 5vw, 4.6rem); line-height: .98; }
+    h3 { margin: .8rem 0 .55rem; font: 600 1.35rem/1.15 var(--serif); }
+    .lede { max-width: 780px; color: var(--muted); font: 1.13rem/1.65 var(--serif); }
+    .directive {
+      position: relative;
+      border: 2px solid var(--signal);
+      background: var(--raised);
+      padding: 1.45rem;
+      box-shadow: var(--shadow);
+    }
+    .directive::before {
+      content: "SOURCE OF TRUTH";
+      position: absolute;
+      top: -1em;
+      left: 1rem;
+      background: var(--signal);
+      color: #fff;
+      padding: .25rem .55rem;
+      font: 800 .64rem var(--mono);
+      letter-spacing: .12em;
+    }
+    .directive strong { display: block; margin: .4rem 0 .65rem; font: 600 1.55rem/1.2 var(--serif); }
+    .directive p { margin-bottom: 0; color: var(--muted); }
+    .signal-strip {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1px;
+      margin-bottom: 5rem;
+      border: 1px solid var(--line-strong);
+      background: var(--line-strong);
+    }
+    .signal-strip div { min-height: 138px; background: var(--raised); padding: 1.15rem; }
+    .signal-strip b { display: block; margin: .6rem 0 .3rem; }
+    .metric { display: block; color: var(--signal); font: 600 2.25rem/1 var(--serif); }
+    .signal-strip small { color: var(--muted); }
+    .layout { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: clamp(2rem, 5vw, 5rem); }
+    .rail { position: sticky; top: 1rem; align-self: start; }
+    .rail a { display: block; border-bottom: 1px solid var(--line); padding: .55rem 0; color: var(--muted); font: .7rem/1.35 var(--mono); text-decoration: none; }
+    .rail a:hover { color: var(--signal); }
+    .section { padding: 4.5rem 0; border-top: 1px solid var(--line-strong); }
+    .section-head { max-width: 850px; margin-bottom: 2rem; }
+    .section-no { display: block; margin-bottom: .55rem; }
+    .section-head p, .path-card p, .doc-card p { color: var(--muted); }
+    .path-grid, .doc-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; border: 1px solid var(--line-strong); background: var(--line); }
+    .path-card, .doc-card { min-width: 0; background: var(--raised); padding: 1.35rem; }
+    .path-card { min-height: 230px; border-top: 4px solid var(--line-strong); }
+    .path-card.primary { border-top-color: var(--signal); }
+    .path-card.safe { border-top-color: var(--green); }
+    .card-label { color: var(--signal); }
+    .path-card p, .doc-card p { font-size: .9rem; }
+    .path-card a, .doc-card a { font-weight: 750; }
+    .evidence { display: flex; flex-wrap: wrap; gap: .45rem; margin-top: 1rem; }
+    .evidence span { border-left: 3px solid var(--signal); background: var(--sunken); padding: .35rem .55rem; font: .68rem var(--mono); }
+    .command-panel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(250px, .42fr); gap: 1px; border: 1px solid var(--line-strong); background: var(--line); }
+    pre { margin: 0; overflow-x: auto; background: var(--sunken); padding: 1.2rem; color: var(--ink); font: .82rem/1.65 var(--mono); }
+    .gate { background: var(--raised); padding: 1.2rem; }
+    .gate ol { margin: .6rem 0 0; padding-left: 1.2rem; }
+    .gate li { margin-bottom: .45rem; color: var(--muted); }
+    .doc-card { min-height: 178px; }
+    .doc-path { overflow-wrap: anywhere; color: var(--signal); font: 700 .68rem var(--mono); }
+    .doc-card h3 a { color: var(--ink); }
+    .notice { border-left: 5px solid var(--signal); background: var(--signal-bg); padding: 1rem 1.2rem; }
+    .notice p:last-child { margin-bottom: 0; }
+    footer { border-top: 1px solid var(--line-strong); padding: 2rem 0 4rem; color: var(--muted); font-size: .78rem; }
+    @media (max-width: 980px) {
+      .layout { grid-template-columns: 1fr; }
+      .rail { display: none; }
+      .signal-strip { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 720px) {
+      .page { width: min(100% - 1rem, 1380px); }
+      .topline nav { display: none; }
+      .topline { flex-wrap: wrap; padding: .55rem 0; }
+      .theme-controls { margin-left: auto; }
+      .hero { grid-template-columns: 1fr; padding-top: 4rem; }
+      h1 { font-size: clamp(3.5rem, 17vw, 6rem); }
+      .signal-strip, .path-grid, .doc-grid, .command-panel { grid-template-columns: 1fr; }
+      .section { padding: 3.2rem 0; }
+    }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+    @media print {
+      :root {
+        color-scheme: light;
+        --paper: #fff;
+        --raised: #fff;
+        --sunken: #f3f3f0;
+        --ink: #000;
+        --muted: #333;
+        --line: #bbb;
+        --line-strong: #555;
+        --signal: #8d1812;
+        --signal-bg: #f4e1df;
+        --green: #155b45;
+        --blue: #174f75;
+        --grid: transparent;
+        --shadow: none;
+      }
+      body { background: #fff; font-size: 9.5pt; }
+      .page { width: 100%; }
+      .topline { min-height: 32px; }
+      .topline nav, .theme-controls, .rail { display: none; }
+      .hero { grid-template-columns: 1.3fr .7fr; padding: 2rem 0; }
+      h1 { font-size: 42pt; }
+      .signal-strip { margin-bottom: 1.5rem; }
+      .layout { display: block; }
+      .section { padding: 1.4rem 0; }
+      .path-card, .doc-card, .command-panel, .directive { break-inside: avoid; }
+      a { color: inherit; text-decoration: none; }
+      a[href]::after { content: " [" attr(href) "]"; color: var(--muted); font: .75em var(--mono); }
+      pre { white-space: pre-wrap; }
+      footer { padding-bottom: 0; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to contributor pathways</a>
+  <header class="page topline">
+    <span class="stamp">Contributor control plane</span>
+    <span>custom-dca-opencode</span>
+    <nav aria-label="Quick links">
+      <a href="../../CONTRIBUTING.md">Canonical guide</a>
+      <a href="../../README.md">Project README</a>
+    </nav>
+    <div class="theme-controls" role="group" aria-label="Color theme">
+      <button type="button" data-theme="system" aria-pressed="true">System</button>
+      <button type="button" data-theme="light" aria-pressed="false">Light</button>
+      <button type="button" data-theme="dark" aria-pressed="false">Dark</button>
+    </div>
+  </header>
+
+  <main class="page" id="content">
+    <section class="hero" aria-labelledby="page-title">
+      <div>
+        <div class="eyebrow">Engineering entry point / host-native agent IDE</div>
+        <h1 id="page-title">Find the seam.<br><span>Prove the change.</span></h1>
+        <p class="lede">A visual routing layer for contributors. Choose the path that
+          matches your change, follow evidence into the repository, and use the canonical
+          Markdown guides for complete instructions.</p>
+      </div>
+      <aside class="directive" aria-label="Documentation source of truth">
+        <strong>Markdown remains canonical.</strong>
+        <p>This page summarizes routes through the codebase. It does not replace
+          <a href="../../CONTRIBUTING.md">CONTRIBUTING.md</a> or the linked technical
+          records.</p>
+      </aside>
+    </section>
+
+    <section class="signal-strip" aria-label="Contributor baseline">
+      <div><span class="metric">22+</span><b>Node runtime</b><small>The same major version used by CI.</small></div>
+      <div><span class="metric">3</span><b>Runtime layers</b><small>React SPA, Express BFF, OpenCode server.</small></div>
+      <div><span class="metric">4</span><b>Core checks</b><small>Types, unit tests, production build, E2E.</small></div>
+      <div><span class="metric">0</span><b>Live keys for E2E</b><small>Deterministic mocks replace external services.</small></div>
+    </section>
+
+    <div class="layout">
+      <nav class="rail" aria-label="Page sections">
+        <a href="#pathways">01 / Pathways</a>
+        <a href="#verification">02 / Verification</a>
+        <a href="#library">03 / Reading index</a>
+        <a href="#safety">04 / Safety boundary</a>
+      </nav>
+
+      <div>
+        <section class="section" id="pathways">
+          <header class="section-head">
+            <span class="section-no">01 / Contributor pathways</span>
+            <h2>Start where ownership lives</h2>
+            <p>Changes are safest when they preserve the existing boundary between raw
+              OpenCode data, the BFF, and backend-neutral client models.</p>
+          </header>
+          <div class="path-grid">
+            <article class="path-card primary">
+              <span class="card-label">Orientation</span>
+              <h3>First contribution</h3>
+              <p>Set up Node and the environment, learn the request path, then run the
+                complete local gate before proposing a pull request.</p>
+              <a href="../../CONTRIBUTING.md">Open the canonical workflow</a>
+              <div class="evidence"><span>package.json</span><span>.env.example</span><span>.github/workflows/ci.yml</span></div>
+            </article>
+            <article class="path-card">
+              <span class="card-label">Interface</span>
+              <h3>Client and transcript work</h3>
+              <p>Keep raw OpenCode parts behind the event adapter. Reuse design-system
+                primitives, semantic color tokens, and deterministic test IDs.</p>
+              <a href="../../AGENTS.md">Read client conventions</a>
+              <div class="evidence"><span>client/lib/events.ts</span><span>client/ds/</span><span>client/theme/</span></div>
+            </article>
+            <article class="path-card safe">
+              <span class="card-label">Control plane</span>
+              <h3>BFF and OpenCode API work</h3>
+              <p>Preserve directory scoping, credential isolation, asynchronous prompts,
+                tolerant event handling, and the typed fetch seam.</p>
+              <a href="../opencode-1.18.21-api-audit.md">Review the API compatibility audit</a>
+              <div class="evidence"><span>server/opencode/client.ts</span><span>server/paths.ts</span><span>server/routes/</span></div>
+            </article>
+            <article class="path-card">
+              <span class="card-label">Operations</span>
+              <h3>Host and deployment work</h3>
+              <p>The BFF and OpenCode are host processes, not containers. Follow the
+                LaunchAgent, Tailscale, logging, and port guidance before changing service behavior.</p>
+              <a href="../../deploy/README.md">Open the deployment guide</a>
+              <div class="evidence"><span>scripts/launchd.ts</span><span>deploy/</span><span>.env.example</span></div>
+            </article>
+          </div>
+        </section>
+
+        <section class="section" id="verification">
+          <header class="section-head">
+            <span class="section-no">02 / Verification gate</span>
+            <h2>Evidence before confidence</h2>
+            <p>The Playwright suite runs the built application and real BFF against local
+              mocks. It does not require a running OpenCode stack, model access, or API keys.</p>
+          </header>
+          <div class="command-panel">
+            <pre aria-label="Local verification commands"><code>npm run typecheck
+npm test
+npm run build
+npm run test:e2e</code></pre>
+            <div class="gate">
+              <span class="card-label">Before review</span>
+              <ol>
+                <li>Inspect the complete diff.</li>
+                <li>Check repository-relative links and paths.</li>
+                <li>Confirm no secrets or generated output are staged.</li>
+                <li>Describe behavior and verification in the PR.</li>
+              </ol>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="library">
+          <header class="section-head">
+            <span class="section-no">03 / Canonical reading index</span>
+            <h2>Follow the evidence trail</h2>
+            <p>These Markdown files own the detailed instructions and technical records.
+              All links are relative so this index works directly from a local checkout.</p>
+          </header>
+          <div class="doc-grid">
+            <article class="doc-card"><span class="doc-path">CONTRIBUTING.md</span><h3><a href="../../CONTRIBUTING.md">Contribution workflow</a></h3><p>Setup, architecture boundaries, conventions, tests, pull requests, screenshots, and security-sensitive changes.</p></article>
+            <article class="doc-card"><span class="doc-path">README.md</span><h3><a href="../../README.md">Project orientation</a></h3><p>Purpose, requirements, quick start, feature behavior, architecture, safety model, and PR screenshot contract.</p></article>
+            <article class="doc-card"><span class="doc-path">AGENTS.md</span><h3><a href="../../AGENTS.md">Implementation memory</a></h3><p>Verified OpenCode API traps, accepted design decisions, client conventions, and automation constraints.</p></article>
+            <article class="doc-card"><span class="doc-path">deploy/README.md</span><h3><a href="../../deploy/README.md">Deployment operations</a></h3><p>LaunchAgent installation, logs, upgrades, Tailscale Serve, paths with spaces, and OpenCode process management.</p></article>
+            <article class="doc-card"><span class="doc-path">docs/opencode-1.18.21-api-audit.md</span><h3><a href="../opencode-1.18.21-api-audit.md">API compatibility audit</a></h3><p>Measured compatibility evidence for the pinned OpenCode server surface.</p></article>
+            <article class="doc-card"><span class="doc-path">docs/research/README.md</span><h3><a href="../research/README.md">Architecture research</a></h3><p>Decision records and source material behind the migration to the host-native OpenCode architecture.</p></article>
+            <article class="doc-card"><span class="doc-path">reminders/README.md</span><h3><a href="../../reminders/README.md">Reminder catalogue</a></h3><p>Runtime reminder format, validation rules, IDs, and links to each canonical reminder skill guide.</p></article>
+          </div>
+        </section>
+
+        <section class="section" id="safety">
+          <header class="section-head">
+            <span class="section-no">04 / Safety boundary</span>
+            <h2>The host is the runtime</h2>
+          </header>
+          <div class="notice">
+            <p><strong>OpenCode tools execute as the current host user.</strong></p>
+            <p>Permission, path, preview, credential, sharing, and workflow changes need
+              explicit boundary tests. Permission rules are last-match-wins: broad rules
+              come first and specific overrides follow.</p>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <footer class="page">
+    Visual index only. Canonical documentation remains in the linked Markdown files.
+  </footer>
+
+  <script>
+    (() => {
+      const root = document.documentElement;
+      const buttons = [...document.querySelectorAll("[data-theme]")];
+      const applyTheme = (theme) => {
+        if (theme === "system") root.removeAttribute("data-theme");
+        else root.dataset.theme = theme;
+        buttons.forEach((button) => {
+          button.setAttribute("aria-pressed", String(button.dataset.theme === theme));
+        });
+      };
+      buttons.forEach((button) => {
+        button.addEventListener("click", () => applyTheme(button.dataset.theme));
+      });
+    })();
+  </script>
+</body>
+</html>
