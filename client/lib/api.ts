@@ -123,6 +123,29 @@ export interface ReminderSummary {
   triggers: string[];
 }
 
+export interface PromptAttachment { filename: string; mime: string; url: string }
+export interface PendingPromptItem {
+  id: string;
+  directory: string;
+  sessionID: string;
+  sequence: number;
+  text: string;
+  mode: AgentMode;
+  model?: { providerID: string; modelID: string };
+  attachments: Array<{ filename: string; mime: string }>;
+  reminder?: string;
+  status: "queued" | "sending" | "uncertain";
+  createdAt: string;
+  updatedAt: string;
+  lastError?: string;
+}
+export interface PendingPromptState {
+  items: PendingPromptItem[];
+  paused: boolean;
+  pauseReason?: "manual" | "stopped" | "interrupted" | "uncertain";
+  phase: "ready" | "awaiting-busy" | "awaiting-idle";
+}
+
 /**
  * Unwrap a response, surfacing the BFF's `{ error }` body when present.
  *
@@ -223,6 +246,63 @@ export const api = {
         ...(reminder ? { reminder } : {}),
       }),
     }).then((r) => json<{ accepted: boolean }>(r)),
+
+  steer: (
+    directory: string,
+    id: string,
+    text: string,
+    mode: AgentMode,
+    model?: { providerID: string; modelID: string },
+    attachments?: PromptAttachment[],
+    reminder?: string,
+  ) =>
+    fetch(scoped(`/sessions/${encodeURIComponent(id)}/steer`, directory), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, mode, model, attachments, reminder }),
+    }).then((r) => json<{ accepted: boolean }>(r)),
+
+  pendingPrompts: (directory: string, id: string) =>
+    fetch(scoped(`/sessions/${encodeURIComponent(id)}/pending-prompts`, directory)).then((r) =>
+      json<PendingPromptState>(r),
+    ),
+  addPendingPrompt: (
+    directory: string,
+    id: string,
+    input: { idempotencyKey: string; text: string; mode: AgentMode; model?: { providerID: string; modelID: string }; attachments?: PromptAttachment[]; reminder?: string },
+  ) =>
+    fetch(scoped(`/sessions/${encodeURIComponent(id)}/pending-prompts`, directory), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }).then((r) => json<{ item: PendingPromptItem }>(r)),
+  editPendingPrompt: (
+    directory: string,
+    id: string,
+    itemID: string,
+    text: string,
+  ) =>
+    fetch(scoped(`/sessions/${encodeURIComponent(id)}/pending-prompts/${encodeURIComponent(itemID)}`, directory), {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    }).then((r) => json<{ item: PendingPromptItem }>(r)),
+  removePendingPrompt: (directory: string, id: string, itemID: string) =>
+    fetch(scoped(`/sessions/${encodeURIComponent(id)}/pending-prompts/${encodeURIComponent(itemID)}`, directory), {
+      method: "DELETE",
+    }).then((r) => json<void>(r)),
+  steerPendingPrompt: (directory: string, id: string, itemID: string) =>
+    fetch(scoped(`/sessions/${encodeURIComponent(id)}/pending-prompts/${encodeURIComponent(itemID)}/steer`, directory), {
+      method: "POST",
+    }).then((r) => json<{ accepted: boolean }>(r)),
+  pausePendingPrompts: (directory: string, id: string) =>
+    fetch(scoped(`/sessions/${encodeURIComponent(id)}/pending-prompts/pause`, directory), { method: "POST" }).then((r) =>
+      json<{ paused: boolean }>(r),
+    ),
+  resumePendingPrompts: (directory: string, id: string) =>
+    fetch(scoped(`/sessions/${encodeURIComponent(id)}/pending-prompts/resume`, directory), { method: "POST" }).then((r) =>
+      json<{ paused: boolean }>(r),
+    ),
 
   abort: (directory: string, id: string) =>
     fetch(scoped(`/sessions/${encodeURIComponent(id)}/abort`, directory), { method: "POST" }).then(

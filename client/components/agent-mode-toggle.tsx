@@ -4,10 +4,12 @@ export function AgentModeToggle({
   mode,
   onChange,
   testId,
+  disabled = false,
 }: {
   mode: AgentMode;
   onChange: (mode: AgentMode) => void;
   testId: string;
+  disabled?: boolean;
 }) {
   return (
     <div
@@ -22,6 +24,7 @@ export function AgentModeToggle({
           type="button"
           aria-pressed={mode === value}
           title={value === "plan" ? "Plan is read-only" : "Build can modify files"}
+          disabled={disabled}
           onClick={() => onChange(value)}
           className={`rounded px-2.5 py-1 text-xs font-semibold capitalize ${
             mode === value

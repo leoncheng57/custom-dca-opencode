@@ -19,9 +19,16 @@ import {
   listSessions,
   listTodos,
   prompt,
+  runningSessions,
   PlanToolDiscoveryError,
   type AgentMode,
 } from "../opencode/sessions.js";
+import type { PendingPromptDispatcher } from "../pending-prompts/dispatcher.js";
+import {
+  PendingPromptGuardError,
+  PendingPromptLimitError,
+  type PendingPromptItem,
+} from "../pending-prompts/store.js";
 import { createWorktree } from "../opencode/worktrees.js";
 import { getModelContextLimit } from "../opencode/config.js";
 import { reminderCatalogue } from "../reminders/loader.js";
@@ -84,6 +91,47 @@ function promptMode(value: unknown): AgentMode {
   return value;
 }
 
+function promptModel(value: unknown): { providerID: string; modelID: string } | undefined {
+  if (value === undefined) return undefined;
+  const source = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const providerID = typeof source.providerID === "string" ? source.providerID.trim() : "";
+  const modelID = typeof source.modelID === "string" ? source.modelID.trim() : "";
+  if (!providerID || !modelID || providerID.length > 200 || modelID.length > 200) {
+    throw new HttpError(400, "model must contain providerID and modelID");
+  }
+  return { providerID, modelID };
+}
+
+function promptInput(body: Record<string, unknown> | undefined) {
+  const { text, model, attachments, reminder } = body ?? {};
+  if (typeof text !== "string" || !text.trim()) throw new HttpError(400, "'text' is required");
+  return {
+    text,
+    mode: promptMode(body?.mode),
+    model: promptModel(model),
+    attachments: promptAttachments(attachments),
+    reminder: promptReminder(reminder),
+  };
+}
+
+function publicPendingItem(item: PendingPromptItem) {
+  return {
+    id: item.id,
+    directory: item.directory,
+    sessionID: item.sessionID,
+    sequence: item.sequence,
+    text: item.text,
+    mode: item.mode,
+    model: item.model,
+    attachments: (item.attachments ?? []).map(({ filename, mime }) => ({ filename, mime })),
+    reminder: item.reminder?.id,
+    status: item.status,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+    lastError: item.lastError,
+  };
+}
+
 /**
  * Map thrown errors onto responses without leaking stack traces.
  *
@@ -95,6 +143,14 @@ function promptMode(value: unknown): AgentMode {
 function fail(res: Response, error: unknown, options: { notFoundOn5xx?: boolean } = {}): void {
   if (error instanceof HttpError || error instanceof PathError) {
     res.status(error.status).json({ error: error.message });
+    return;
+  }
+  if (error instanceof PendingPromptLimitError) {
+    res.status(413).json({ error: error.message });
+    return;
+  }
+  if (error instanceof PendingPromptGuardError) {
+    res.status(409).json({ error: error.message });
     return;
   }
   if (error instanceof PlanToolDiscoveryError) {
@@ -130,7 +186,7 @@ const asyncRoute =
 const sessionRoute = (handler: (req: Request, res: Response) => Promise<void>) =>
   asyncRoute(handler, { notFoundOn5xx: true });
 
-export function sessionRoutes(config: OpencodeConfig, bus: EventBus): Router {
+export function sessionRoutes(config: OpencodeConfig, bus: EventBus, pending: PendingPromptDispatcher): Router {
   const router = Router();
 
   router.get(
@@ -227,19 +283,101 @@ export function sessionRoutes(config: OpencodeConfig, bus: EventBus): Router {
     "/sessions/:id/prompt",
     sessionRoute(async (req, res) => {
       const directory = await directoryOf(req);
-      const { text, model, attachments, reminder } = req.body ?? {};
-      if (typeof text !== "string" || !text.trim()) {
-        throw new HttpError(400, "'text' is required");
-      }
-      await prompt(config, directory, paramOf(req, "id"), {
-        text,
-        mode: promptMode(req.body?.mode),
-        model,
-        attachments: promptAttachments(attachments),
-        reminder: promptReminder(reminder),
-      });
+      await prompt(config, directory, paramOf(req, "id"), promptInput(req.body));
       // 202: accepted, running server-side. Progress arrives over SSE.
       res.status(202).json({ accepted: true });
+    }),
+  );
+
+  router.post(
+    "/sessions/:id/steer",
+    sessionRoute(async (req, res) => {
+      const directory = await directoryOf(req);
+      const sessionID = paramOf(req, "id");
+      const running = await runningSessions(config, directory);
+      if (!running.has(sessionID)) {
+        throw new HttpError(409, "session is idle; send this as a normal prompt");
+      }
+      // The active turn can finish after this preflight and before prompt_async.
+      // That unavoidable race may make this the next normal turn; it never aborts.
+      await prompt(config, directory, sessionID, promptInput(req.body));
+      res.status(202).json({ accepted: true });
+    }),
+  );
+
+  router.get(
+    "/sessions/:id/pending-prompts",
+    sessionRoute(async (req, res) => {
+      const directory = await directoryOf(req);
+      const state = await pending.store.get(directory, paramOf(req, "id"));
+      res.json({
+        items: state.items.map(publicPendingItem),
+        paused: state.paused,
+        pauseReason: state.pauseReason,
+        phase: state.phase,
+      });
+    }),
+  );
+
+  router.post(
+    "/sessions/:id/pending-prompts",
+    sessionRoute(async (req, res) => {
+      const directory = await directoryOf(req);
+      const sessionID = paramOf(req, "id");
+      const idempotencyKey = req.body?.idempotencyKey;
+      if (typeof idempotencyKey !== "string" || !/^[A-Za-z0-9_.:-]{8,200}$/.test(idempotencyKey)) {
+        throw new HttpError(400, "a valid idempotencyKey is required");
+      }
+      const item = await pending.store.add(directory, sessionID, idempotencyKey, promptInput(req.body));
+      void pending.reconcile(directory, sessionID);
+      res.status(201).json({ item: publicPendingItem(item) });
+    }),
+  );
+
+  router.patch(
+    "/sessions/:id/pending-prompts/:itemId",
+    sessionRoute(async (req, res) => {
+      const directory = await directoryOf(req);
+      const text = req.body?.text;
+      if (typeof text !== "string" || !text.trim()) throw new HttpError(400, "'text' is required");
+      const item = await pending.store.edit(directory, paramOf(req, "id"), paramOf(req, "itemId"), text);
+      res.json({ item: publicPendingItem(item) });
+    }),
+  );
+
+  router.delete(
+    "/sessions/:id/pending-prompts/:itemId",
+    sessionRoute(async (req, res) => {
+      const directory = await directoryOf(req);
+      await pending.store.remove(directory, paramOf(req, "id"), paramOf(req, "itemId"));
+      res.status(204).end();
+    }),
+  );
+
+  router.post(
+    "/sessions/:id/pending-prompts/:itemId/steer",
+    sessionRoute(async (req, res) => {
+      const directory = await directoryOf(req);
+      await pending.steer(directory, paramOf(req, "id"), paramOf(req, "itemId"));
+      res.status(202).json({ accepted: true });
+    }),
+  );
+
+  router.post(
+    "/sessions/:id/pending-prompts/pause",
+    sessionRoute(async (req, res) => {
+      const directory = await directoryOf(req);
+      await pending.pause(directory, paramOf(req, "id"));
+      res.json({ paused: true });
+    }),
+  );
+
+  router.post(
+    "/sessions/:id/pending-prompts/resume",
+    sessionRoute(async (req, res) => {
+      const directory = await directoryOf(req);
+      await pending.resume(directory, paramOf(req, "id"));
+      res.json({ paused: false });
     }),
   );
 
@@ -247,7 +385,9 @@ export function sessionRoutes(config: OpencodeConfig, bus: EventBus): Router {
     "/sessions/:id/abort",
     sessionRoute(async (req, res) => {
       const directory = await directoryOf(req);
-      await abortSession(config, directory, paramOf(req, "id"));
+      const sessionID = paramOf(req, "id");
+      await pending.pause(directory, sessionID, "stopped");
+      await abortSession(config, directory, sessionID);
       res.json({ aborted: true });
     }),
   );

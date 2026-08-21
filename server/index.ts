@@ -31,6 +31,9 @@ import { forgeRoutes } from "./routes/forge.js";
 import { reminderRoutes } from "./routes/reminders.js";
 import { appConfigRoutes } from "./routes/appConfig.js";
 import { parsePublicAppUrl } from "./publicAppUrl.js";
+import { PendingPromptStore } from "./pending-prompts/store.js";
+import { PendingPromptDispatcher } from "./pending-prompts/dispatcher.js";
+import { observeSession, prompt } from "./opencode/sessions.js";
 
 dotenv.config();
 
@@ -50,8 +53,14 @@ bus.start();
 const notificationStore = new PreferenceStore();
 const notificationService = new NotificationService(opencode, bus, notificationStore);
 notificationService.start();
+const pendingPromptStore = new PendingPromptStore();
+const pendingPromptDispatcher = new PendingPromptDispatcher(pendingPromptStore, {
+  observe: (directory, sessionID, since) => observeSession(opencode, directory, sessionID, since),
+  send: (directory, sessionID, input) => prompt(opencode, directory, sessionID, input),
+});
+void pendingPromptDispatcher.start(bus);
 
-app.use("/api", sessionRoutes(opencode, bus));
+app.use("/api", sessionRoutes(opencode, bus, pendingPromptDispatcher));
 app.use("/api", settingsRoutes(opencode));
 app.use("/api", mcpRoutes(opencode));
 app.use("/api", workspaceRoutes(opencode));

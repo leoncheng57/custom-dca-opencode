@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 // Browser tier — the built SPA against the real BFF against the mock agent.
 
@@ -14,6 +14,19 @@ async function promptPayload(text: string): Promise<Record<string, unknown> | un
   });
 }
 
+async function createQueueSession(page: Page, status: "busy" | "retry" | null = "busy"): Promise<string> {
+  const response = await page.request.post("/api/sessions", {
+    data: { directory: DIR, title: `UI queue ${Date.now()}`, model: { providerID: "anthropic", modelID: "claude-opus-5" } },
+  });
+  const sessionID = (await response.json()).session.id as string;
+  await fetch(`${MOCK_URL}/test/session-status`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionID, type: status }),
+  });
+  return sessionID;
+}
+
 test.describe("hub", () => {
   test("lists sessions for the directory", async ({ page }) => {
     await page.goto(hub);
@@ -26,8 +39,8 @@ test.describe("hub", () => {
 
   test("shows a running pill for the busy session", async ({ page }) => {
     await page.goto(hub);
-    const pills = page.getByTestId("opencode-status-pill");
-    await expect(pills.filter({ hasText: "running" })).toHaveCount(1);
+    const row = page.getByTestId("opencode-session-row").filter({ hasText: "Refactor the parser" });
+    await expect(row.getByTestId("opencode-status-pill")).toHaveText("running");
   });
 
   test("reports the upstream agent version", async ({ page }) => {
@@ -219,6 +232,65 @@ test.describe("composer", () => {
     await expect(reminder).toContainText("no-force-push");
     await expect(reminder).toContainText("Do not force-push");
     await expect(user).not.toContainText("<reminder");
+  });
+});
+
+test.describe("queued follow-ups", () => {
+  test("running shows Queue and Steer now while idle shows Send", async ({ page }) => {
+    const sessionID = await createQueueSession(page);
+    await page.goto(`/sessions/${sessionID}?directory=${encodeURIComponent(DIR)}`);
+    await expect(page.getByTestId("opencode-queue")).toBeVisible();
+    await expect(page.getByTestId("opencode-steer")).toHaveText("Steer now");
+    await expect(page.getByTestId("opencode-steer-copy")).toContainText("best effort");
+    await fetch(`${MOCK_URL}/test/session-status`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionID, type: null, complete: true }),
+    });
+    await expect(page.getByTestId("opencode-send")).toBeVisible();
+  });
+
+  test("queued context survives reload and the row can explicitly Steer now", async ({ page }) => {
+    const sessionID = await createQueueSession(page);
+    const text = `queued UI ${Date.now()}`;
+    await page.goto(`/sessions/${sessionID}?directory=${encodeURIComponent(DIR)}`);
+    await page.getByTestId("opencode-composer-mode-plan").click();
+    await page.getByTestId("composer-reminder-select").selectOption("no-force-push");
+    await page.getByTestId("opencode-attach").setInputFiles({ name: "pixel.png", mimeType: "image/png", buffer: Buffer.from("89504e470d0a1a0a", "hex") });
+    await page.getByTestId("opencode-composer").fill(text);
+    await page.getByTestId("opencode-queue").click();
+    const row = page.getByTestId("opencode-pending-row").filter({ hasText: text });
+    await expect(row).toContainText("plan");
+    await expect(row).toContainText("no-force-push");
+    await expect(row).toContainText("1 image");
+    const state = await (await page.request.get(`/api/sessions/${sessionID}/pending-prompts?directory=${DIR}`)).json();
+    expect(state.items[0]).toMatchObject({ mode: "plan", model: { providerID: "anthropic", modelID: "claude-opus-5" }, reminder: "no-force-push" });
+    expect(JSON.stringify(state)).not.toContain("base64");
+    await page.reload();
+    await expect(page.getByTestId("opencode-pending-row").filter({ hasText: text })).toBeVisible();
+    await page.getByTestId("opencode-pending-row").filter({ hasText: text }).getByTestId("opencode-pending-steer").click();
+    await expect(page.getByTestId("opencode-pending-row").filter({ hasText: text })).toHaveCount(0);
+    await expect.poll(async () => {
+      const payloads = await (await fetch(`${MOCK_URL}/test/prompt-payloads`)).json() as Array<{ parts?: Array<{ text?: string }> }>;
+      return payloads.some((payload) => payload.parts?.some((part) => part.text?.startsWith(text)));
+    }).toBe(true);
+  });
+
+  test("Stop pauses queued work until Resume", async ({ page }) => {
+    const sessionID = await createQueueSession(page);
+    await page.goto(`/sessions/${sessionID}?directory=${encodeURIComponent(DIR)}`);
+    await page.getByTestId("opencode-composer").fill(`paused UI ${Date.now()}`);
+    await page.getByTestId("opencode-queue").click();
+    await page.getByTestId("opencode-abort").click();
+    await expect(page.getByTestId("opencode-pending-paused")).toContainText("stopped");
+    await expect(page.getByTestId("opencode-pending-resume")).toBeVisible();
+  });
+
+  test("running queue controls fit at 390px", async ({ page }) => {
+    const sessionID = await createQueueSession(page);
+    await page.setViewportSize({ width: 390, height: 740 });
+    await page.goto(`/sessions/${sessionID}?directory=${encodeURIComponent(DIR)}`);
+    await expect(page.getByTestId("opencode-queue")).toBeVisible();
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
   });
 });
 

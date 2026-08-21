@@ -112,6 +112,16 @@ export function toSummary(raw: RawSession, running: boolean): SessionSummary {
 
 type StatusMap = Record<string, { type?: string } | undefined>;
 
+export async function sessionStatus(
+  config: OpencodeConfig,
+  directory: string,
+  sessionID: string,
+): Promise<"busy" | "retry" | "idle"> {
+  const data = await request<StatusMap>(config, "/session/status", { directory });
+  const type = data?.[sessionID]?.type;
+  return type === "busy" || type === "retry" ? type : "idle";
+}
+
 /** IDs the current server process is actively working on. */
 export async function runningSessions(
   config: OpencodeConfig,
@@ -123,6 +133,25 @@ export async function runningSessions(
       .filter(([, value]) => value?.type === "busy" || value?.type === "retry")
       .map(([id]) => id),
   );
+}
+
+export async function observeSession(
+  config: OpencodeConfig,
+  directory: string,
+  sessionID: string,
+  since?: string,
+): Promise<"busy" | "retry" | "idle" | "interrupted" | "completed"> {
+  const status = await sessionStatus(config, directory, sessionID);
+  if (status !== "idle") return status;
+  const messages = await listMessages(config, directory, sessionID);
+  const last = messages.at(-1) as { info?: { role?: string; time?: { completed?: number } } } | undefined;
+  if (!last) return "idle";
+  if (last.info?.role === "user") return "interrupted";
+  if (last.info?.role === "assistant" && typeof last.info.time?.completed !== "number") return "interrupted";
+  if (since && last.info?.role === "assistant" && typeof last.info.time?.completed === "number" && last.info.time.completed >= Date.parse(since)) {
+    return "completed";
+  }
+  return "idle";
 }
 
 export async function listSessions(

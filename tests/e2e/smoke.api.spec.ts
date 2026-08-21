@@ -6,6 +6,7 @@ import { expect, test } from "@playwright/test";
 const DIR = process.platform === "darwin" ? "/private/tmp/mock-project" : "/tmp/mock-project";
 const TOOL_FAILURE_DIR = process.platform === "darwin" ? "/private/tmp/mock-tool-failure" : "/tmp/mock-tool-failure";
 const MOCK_URL = `http://127.0.0.1:${process.env.MOCK_OPENCODE_PORT || 4599}`;
+const PREVIEW_PORT = Number(process.env.MOCK_PREVIEW_PORT || 4600);
 
 async function promptPayload(text: string): Promise<Record<string, unknown>> {
   const payloads = await (await fetch(`${MOCK_URL}/test/prompt-payloads`)).json() as Array<Record<string, unknown>>;
@@ -15,6 +16,15 @@ async function promptPayload(text: string): Promise<Record<string, unknown>> {
   });
   expect(payload).toBeDefined();
   return payload!;
+}
+
+async function setMockStatus(sessionID: string, type: "busy" | "retry" | null, complete = false): Promise<void> {
+  const response = await fetch(`${MOCK_URL}/test/session-status`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionID, type, complete }),
+  });
+  expect(response.ok).toBe(true);
 }
 
 test.describe("health", () => {
@@ -230,6 +240,95 @@ test.describe("prompting", () => {
   });
 });
 
+test.describe("queued follow-ups and steering", () => {
+  async function createSession(request: import("@playwright/test").APIRequestContext): Promise<string> {
+    const response = await request.post("/api/sessions", { data: { directory: DIR, title: `queue ${Date.now()}` } });
+    return (await response.json()).session.id as string;
+  }
+
+  test("enqueues durably, deduplicates by browser key, sanitizes, edits, and removes", async ({ request }) => {
+    const sessionID = await createSession(request);
+    await setMockStatus(sessionID, "busy");
+    const key = `browser-${Date.now()}`;
+    const data = {
+      idempotencyKey: key,
+      text: "queued rich context",
+      mode: "plan",
+      model: { providerID: "anthropic", modelID: "claude-opus-5" },
+      reminder: "no-force-push",
+      attachments: [{ filename: "pixel.png", mime: "image/png", url: "data:image/png;base64,iVBORw0KGgo=" }],
+    };
+    const added = await request.post(`/api/sessions/${sessionID}/pending-prompts?directory=${DIR}`, { data });
+    expect(added.status()).toBe(201);
+    const item = (await added.json()).item;
+    expect(item).toMatchObject({ text: data.text, status: "queued", reminder: "no-force-push", attachments: [{ filename: "pixel.png", mime: "image/png" }] });
+    expect(JSON.stringify(item)).not.toContain("base64");
+    expect(item).not.toHaveProperty("idempotencyKey");
+
+    const duplicate = await request.post(`/api/sessions/${sessionID}/pending-prompts?directory=${DIR}`, {
+      data: { ...data, text: "must not replace original" },
+    });
+    expect((await duplicate.json()).item.id).toBe(item.id);
+
+    const edited = await request.patch(`/api/sessions/${sessionID}/pending-prompts/${item.id}?directory=${DIR}`, { data: { text: "edited text" } });
+    expect((await edited.json()).item).toMatchObject({ text: "edited text", mode: "plan", reminder: "no-force-push" });
+    expect((await request.delete(`/api/sessions/${sessionID}/pending-prompts/${item.id}?directory=${DIR}`)).status()).toBe(204);
+  });
+
+  test("dispatches FIFO only across observed busy then completed idle lifecycles", async ({ request }) => {
+    const sessionID = await createSession(request);
+    await setMockStatus(sessionID, "busy");
+    for (const [index, text] of [`fifo first ${Date.now()}`, `fifo second ${Date.now()}`].entries()) {
+      const response = await request.post(`/api/sessions/${sessionID}/pending-prompts?directory=${DIR}`, {
+        data: { idempotencyKey: `browser-fifo-${Date.now()}-${index}`, text, mode: "build" },
+      });
+      expect(response.status()).toBe(201);
+    }
+    let state = await (await request.get(`/api/sessions/${sessionID}/pending-prompts?directory=${DIR}`)).json();
+    expect(state.items.map((item: { status: string }) => item.status)).toEqual(["queued", "queued"]);
+
+    await setMockStatus(sessionID, null, true);
+    await expect.poll(async () => {
+      const payloads = await (await fetch(`${MOCK_URL}/test/prompt-payloads`)).json() as Array<{ sessionID: string; parts?: Array<{ text?: string }> }>;
+      return payloads.some((payload) => payload.sessionID === sessionID && payload.parts?.some((part) => part.text === state.items[0].text));
+    }).toBe(true);
+    await setMockStatus(sessionID, "busy");
+    await expect.poll(async () => {
+      const current = await (await request.get(`/api/sessions/${sessionID}/pending-prompts?directory=${DIR}`)).json();
+      return current.phase;
+    }).toBe("awaiting-idle");
+    await setMockStatus(sessionID, null, true);
+    await expect.poll(async () => {
+      const payloads = await (await fetch(`${MOCK_URL}/test/prompt-payloads`)).json() as Array<{ sessionID: string; parts?: Array<{ text?: string }> }>;
+      return payloads.some((payload) => payload.sessionID === sessionID && payload.parts?.some((part) => part.text === state.items[1].text));
+    }).toBe(true);
+  });
+
+  test("Stop pauses before abort, Resume is explicit, and Steer now is separate", async ({ request }) => {
+    const sessionID = await createSession(request);
+    await setMockStatus(sessionID, "busy");
+    const text = `after stop ${Date.now()}`;
+    await request.post(`/api/sessions/${sessionID}/pending-prompts?directory=${DIR}`, {
+      data: { idempotencyKey: `browser-stop-${Date.now()}`, text, mode: "build" },
+    });
+    await request.post(`/api/sessions/${sessionID}/abort?directory=${DIR}`);
+    let state = await (await request.get(`/api/sessions/${sessionID}/pending-prompts?directory=${DIR}`)).json();
+    expect(state).toMatchObject({ paused: true, pauseReason: "stopped" });
+    await request.post(`/api/sessions/${sessionID}/pending-prompts/resume?directory=${DIR}`);
+    await expect.poll(async () => {
+      const payloads = await (await fetch(`${MOCK_URL}/test/prompt-payloads`)).json() as Array<{ sessionID: string; parts?: Array<{ text?: string }> }>;
+      return payloads.some((payload) => payload.sessionID === sessionID && payload.parts?.some((part) => part.text === text));
+    }).toBe(true);
+
+    const idleSteer = await request.post(`/api/sessions/${sessionID}/steer?directory=${DIR}`, { data: { text: "idle steer", mode: "build" } });
+    expect(idleSteer.status()).toBe(409);
+    await setMockStatus(sessionID, "busy");
+    const steerText = `best effort steer ${Date.now()}`;
+    expect((await request.post(`/api/sessions/${sessionID}/steer?directory=${DIR}`, { data: { text: steerText, mode: "build" } })).status()).toBe(202);
+    expect((await promptPayload(steerText)).sessionID).toBe(sessionID);
+  });
+});
+
 test.describe("event stream", () => {
   // Playwright's `request` fixture buffers the whole body, which never
   // completes for an intentionally-infinite SSE stream. Read the first frame
@@ -333,7 +432,7 @@ test.describe("preview security", () => {
   test("allows only configured ports and strips credentials", async ({ request }) => {
     const denied = await request.get("/api/preview/9999/");
     expect(denied.status()).toBe(403);
-    const proxied = await request.get("/api/preview/4600/hello?q=1", {
+    const proxied = await request.get(`/api/preview/${PREVIEW_PORT}/hello?q=1`, {
       headers: { Authorization: "Bearer must-not-forward", Cookie: "secret=yes" },
     });
     const body = await proxied.json();
@@ -345,9 +444,9 @@ test.describe("preview security", () => {
   });
 
   test("rewrites root-relative redirects under the proxy mount", async ({ request }) => {
-    const res = await request.get("/api/preview/4600/redirect", { maxRedirects: 0 });
+    const res = await request.get(`/api/preview/${PREVIEW_PORT}/redirect`, { maxRedirects: 0 });
     expect(res.status()).toBe(302);
-    expect(res.headers().location).toBe("/api/preview/4600/target");
+    expect(res.headers().location).toBe(`/api/preview/${PREVIEW_PORT}/target`);
   });
 });
 

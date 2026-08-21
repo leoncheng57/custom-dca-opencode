@@ -93,6 +93,7 @@ const worktrees = [`${MOCK_DIRECTORY}.worktrees/fixture`];
 let pendingPermissions = [{ id: "perm_mock", sessionID: "ses_mock_done", permission: "bash", patterns: ["npm test"] }];
 mkdirSync(worktrees[0], { recursive: true });
 const eventClients = new Set<ServerResponse>();
+const statuses = new Map<string, "busy" | "retry">([["ses_mock_running", "busy"]]);
 
 function body(req: IncomingMessage): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
@@ -184,6 +185,27 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
       : json(res, 200, toolIDs);
   }
   if (pathname === "/test/prompt-payloads") return json(res, 200, promptPayloads);
+  if (pathname === "/test/session-status" && req.method === "POST") {
+    void body(req).then((input) => {
+      const sessionID = typeof input.sessionID === "string" ? input.sessionID : "";
+      const type = input.type;
+      if (!sessionID || (type !== null && type !== "busy" && type !== "retry")) return json(res, 400, { error: "invalid status" });
+      if (type === null) statuses.delete(sessionID);
+      else statuses.set(sessionID, type);
+      if (input.complete === true) {
+        const now = Date.now();
+        const sessionMessages = messages.get(sessionID) ?? [];
+        sessionMessages.push({
+          info: { id: `msg_assistant_${now}`, role: "assistant", time: { created: now, completed: now + 1 } },
+          parts: [{ id: `prt_assistant_${now}`, messageID: `msg_assistant_${now}`, type: "text", text: "completed" }],
+        });
+        messages.set(sessionID, sessionMessages);
+      }
+      emit(type === null ? "session.idle" : "session.status", { sessionID });
+      json(res, 200, true);
+    });
+    return;
+  }
 
   if (pathname === "/mcp" && req.method === "GET") return json(res, 200, mcpServers);
   const mcpMatch = /^\/mcp\/([^/]+)\/(connect|disconnect)$/.exec(pathname);
@@ -239,7 +261,7 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
   if (pathname === "/experimental/worktree/reset" && req.method === "POST") return json(res, 200, true);
 
   if (pathname === "/session/status") {
-    return json(res, 200, { ses_mock_running: { type: "busy" } });
+    return json(res, 200, Object.fromEntries([...statuses].map(([id, type]) => [id, { type }])));
   }
 
   if (pathname === "/session" && req.method === "GET") {
@@ -251,12 +273,13 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     let raw = "";
     req.on("data", (chunk) => (raw += chunk));
     req.on("end", () => {
-      const body = raw ? (JSON.parse(raw) as { title?: string; agent?: string }) : {};
+      const body = raw ? (JSON.parse(raw) as { title?: string; agent?: string; model?: { providerID: string; modelID: string } }) : {};
       const created = {
         id: `ses_mock_new_${Date.now()}`,
         title: body.title ?? "Untitled session",
         directory: directory ?? MOCK_DIRECTORY,
         agent: body.agent,
+        model: body.model,
         cost: 0,
         tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
         time: { created: Date.now(), updated: Date.now() },
@@ -294,6 +317,8 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     }
     if (rest === "/abort" && req.method === "POST") {
       if (!session) return unknownError(res);
+      statuses.delete(id);
+      emit("session.idle", { sessionID: id });
       return json(res, 200, true);
     }
     if (!session) return unknownError(res);

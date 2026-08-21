@@ -9,7 +9,7 @@ import { RunningIndicator, Transcript } from "../components/transcript.js";
 import { SessionInspector } from "../components/session-inspector.js";
 import { WorkspacePanels } from "../components/workspace-panels.js";
 import { AgentModeToggle } from "../components/agent-mode-toggle.js";
-import { api, formatCost, type ReminderSummary, type SessionSummary } from "../lib/api.js";
+import { api, formatCost, type PendingPromptItem, type ReminderSummary, type SessionSummary } from "../lib/api.js";
 import { latestModeMessageID, modeFromMessages, type AgentMode } from "../lib/agentMode.js";
 import { collapseActionGroups, mergeEvents, runningActivity } from "../lib/derive.js";
 import { normalizeTranscript, type RawMessage } from "../lib/events.js";
@@ -35,6 +35,9 @@ export function ConversationPage() {
   const [reminderCatalogue, setReminderCatalogue] = useState<ReminderSummary[]>([]);
   const [selectedReminder, setSelectedReminder] = useState("");
   const [mode, setMode] = useState<AgentMode>("build");
+  const [editingPending, setEditingPending] = useState<PendingPromptItem | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const queueKey = useRef<string | null>(null);
   const derivedModeMessage = useRef<string | undefined>(undefined);
   const modeSelectionDirty = useRef(false);
 
@@ -60,6 +63,7 @@ export function ConversationPage() {
   }, [mode, stream.loaded, stream.messages]);
 
   const selectMode = (nextMode: AgentMode) => {
+    queueKey.current = null;
     modeSelectionDirty.current = true;
     setMode(nextMode);
   };
@@ -117,28 +121,47 @@ export function ConversationPage() {
     bottomRef.current?.scrollIntoView({ block: "end" });
   }, [events.length]);
 
-  const send = async () => {
+  const submit = async (action: "send" | "pending" | "steer") => {
     const text = draft.trim();
     if (!text) return;
     setSending(true);
+    setActionError(null);
     try {
-      await api.prompt(
-        directory,
-        id,
-        text,
-        mode,
-        undefined,
-        attachments,
-        selectedReminder || undefined,
-      );
+      const model = session?.model?.providerID && session.model.modelID
+        ? { providerID: session.model.providerID, modelID: session.model.modelID }
+        : undefined;
+      const input = { text, mode, model, attachments, reminder: selectedReminder || undefined };
+      if (editingPending) {
+        await api.editPendingPrompt(directory, id, editingPending.id, text);
+      } else if (action === "pending") {
+        queueKey.current ??= crypto.randomUUID();
+        await api.addPendingPrompt(directory, id, { ...input, idempotencyKey: queueKey.current });
+      } else if (action === "steer") {
+        await api.steer(directory, id, text, mode, model, attachments, selectedReminder || undefined);
+      } else {
+        await api.prompt(directory, id, text, mode, model, attachments, selectedReminder || undefined);
+      }
+      queueKey.current = null;
       setDraft("");
       setAttachments([]);
       // Per-message choice: never let a reminder silently ride on later turns.
       setSelectedReminder("");
+      setEditingPending(null);
       stream.refresh();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
     } finally {
       setSending(false);
     }
+  };
+
+  const editPending = (item: PendingPromptItem) => {
+    setEditingPending(item);
+    setDraft(item.text);
+    modeSelectionDirty.current = true;
+    setMode(item.mode);
+    setAttachments([]);
+    setSelectedReminder("");
   };
 
   if (!directory) {
@@ -180,7 +203,7 @@ export function ConversationPage() {
           <Button
             size="sm"
             variant="secondary"
-            onClick={() => void api.abort(directory, id).then(stream.refresh)}
+            onClick={() => void api.abort(directory, id).then(stream.refresh).catch((error: unknown) => setActionError(error instanceof Error ? error.message : String(error)))}
             data-testid="opencode-abort"
           >
             Stop
@@ -219,6 +242,12 @@ export function ConversationPage() {
           <Alert variant="danger" data-testid="opencode-error-banner">
             {stream.error}
           </Alert>
+        </div>
+      )}
+
+      {actionError && (
+        <div className="px-4 pt-3">
+          <Alert variant="danger" data-testid="opencode-action-error">{actionError}</Alert>
         </div>
       )}
 
@@ -269,17 +298,47 @@ export function ConversationPage() {
 
       <footer className="border-t border-[var(--color-border-default)] p-3">
         <div className="mx-auto max-w-3xl">
+          {stream.pending.items.length > 0 && (
+            <div className="mb-3 rounded-md border border-[var(--color-border-default)] p-2" data-testid="opencode-pending-prompts">
+              <div className="mb-2 flex min-w-0 items-center gap-2 text-xs">
+                <strong className="min-w-0 flex-1">Queued follow-ups</strong>
+                {stream.pending.paused && stream.pending.items.some((item) => item.status === "uncertain") ? (
+                  <span className="text-[var(--color-text-muted)]">Manual review required</span>
+                ) : stream.pending.paused ? (
+                  <Button size="sm" variant="secondary" onClick={() => void api.resumePendingPrompts(directory, id).then(stream.refresh)} data-testid="opencode-pending-resume">Resume</Button>
+                ) : (
+                  <Button size="sm" variant="secondary" onClick={() => void api.pausePendingPrompts(directory, id).then(stream.refresh)} data-testid="opencode-pending-pause">Pause</Button>
+                )}
+              </div>
+              {stream.pending.paused && <p className="mb-2 text-xs text-[var(--color-text-muted)]" data-testid="opencode-pending-paused">Paused{stream.pending.pauseReason ? `: ${stream.pending.pauseReason}` : ""}</p>}
+              <div className="space-y-1">
+                {stream.pending.items.map((item) => (
+                  <div key={item.id} className="flex min-w-0 flex-wrap items-center gap-2 rounded bg-[var(--color-background-surface)] px-2 py-1 text-xs" data-testid="opencode-pending-row">
+                    <span className="min-w-0 flex-1 truncate">{item.text}</span>
+                    <span className="shrink-0 text-[var(--color-text-muted)]">{item.mode}{item.reminder ? ` · ${item.reminder}` : ""}{item.attachments?.length ? ` · ${item.attachments.length} image` : ""}</span>
+                    {item.status === "queued" && <button type="button" className="underline" onClick={() => editPending(item)} data-testid="opencode-pending-edit">Edit</button>}
+                    {item.status === "queued" && <button type="button" className="underline" onClick={() => void api.removePendingPrompt(directory, id, item.id).then(stream.refresh).catch((error: unknown) => setActionError(error instanceof Error ? error.message : String(error)))} data-testid="opencode-pending-remove">Remove</button>}
+                    {item.status === "queued" && <button type="button" className="underline" onClick={() => void api.steerPendingPrompt(directory, id, item.id).then(stream.refresh).catch((error: unknown) => setActionError(error instanceof Error ? error.message : String(error)))} data-testid="opencode-pending-steer">Steer now</button>}
+                    {item.status !== "queued" && <span className="shrink-0">{item.status}</span>}
+                    {item.lastError && <span className="basis-full text-[var(--color-text-muted)]">{item.lastError}</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {editingPending && <p className="mb-2 text-xs text-[var(--color-text-muted)]" data-testid="opencode-pending-editing">Editing queued text; its original send context is retained.</p>}
           <div className="mb-2 flex items-center justify-between gap-2">
-            <AgentModeToggle mode={mode} onChange={selectMode} testId="opencode-composer-mode" />
+            <AgentModeToggle mode={mode} onChange={selectMode} testId="opencode-composer-mode" disabled={Boolean(editingPending)} />
             <span className="min-w-0 truncate text-[11px] text-[var(--color-text-muted)]">
               {mode === "plan" ? "Read-only analysis" : "Can modify files"}
             </span>
           </div>
-          {attachments.length > 0 && <div className="mb-2 flex flex-wrap gap-2">{attachments.map((attachment, index) => <button key={`${attachment.filename}-${index}`} type="button" onClick={() => setAttachments((items) => items.filter((_, itemIndex) => itemIndex !== index))} className="rounded border border-[var(--color-border-default)] px-2 py-1 text-xs" data-testid="opencode-attachment-chip">{attachment.filename} x</button>)}</div>}
-          <div className="flex min-w-0 gap-2">
-          <label className="inline-flex cursor-pointer items-center rounded-md border border-[var(--color-border-default)] px-3 text-xs font-semibold" data-testid="opencode-attach-label">
+          {attachments.length > 0 && <div className="mb-2 flex flex-wrap gap-2">{attachments.map((attachment, index) => <button key={`${attachment.filename}-${index}`} type="button" onClick={() => { queueKey.current = null; setAttachments((items) => items.filter((_, itemIndex) => itemIndex !== index)); }} className="rounded border border-[var(--color-border-default)] px-2 py-1 text-xs" data-testid="opencode-attachment-chip">{attachment.filename} x</button>)}</div>}
+          <div className="flex min-w-0 flex-wrap gap-2 sm:flex-nowrap">
+          {!editingPending && <label className="inline-flex cursor-pointer items-center rounded-md border border-[var(--color-border-default)] px-3 text-xs font-semibold" data-testid="opencode-attach-label">
             Attach
-            <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple className="sr-only" data-testid="opencode-attach" onChange={(event) => {
+             <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple className="sr-only" data-testid="opencode-attach" onChange={(event) => {
+               queueKey.current = null;
               const files = [...(event.target.files ?? [])].slice(0, Math.max(0, 4 - attachments.length)).filter((file) => file.size <= 3 * 1024 * 1024);
               void Promise.all(files.map((file) => new Promise<{ filename: string; mime: string; url: string }>((resolve, reject) => {
                 const reader = new FileReader();
@@ -289,11 +348,11 @@ export function ConversationPage() {
               }))).then((next) => setAttachments((items) => [...items, ...next]));
               event.target.value = "";
             }} />
-          </label>
-          {reminderCatalogue.length > 0 && (
+          </label>}
+          {!editingPending && reminderCatalogue.length > 0 && (
             <select
               value={selectedReminder}
-              onChange={(event) => setSelectedReminder(event.target.value)}
+             onChange={(event) => { queueKey.current = null; setSelectedReminder(event.target.value); }}
               className={`min-w-0 rounded-md border px-2 text-xs ${
                 selectedReminder
                   ? "border-[var(--color-border-focus)] bg-[var(--color-background-surface)] text-[var(--color-text-default)]"
@@ -313,16 +372,28 @@ export function ConversationPage() {
           )}
           <textarea
             value={draft}
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={(event) => { queueKey.current = null; setDraft(event.target.value); }}
             rows={2}
             placeholder="Send a follow-up…"
-            className="flex-1 rounded-md border border-[var(--color-border-default)] bg-transparent p-2 text-sm"
+            className="min-w-0 flex-[1_1_12rem] rounded-md border border-[var(--color-border-default)] bg-transparent p-2 text-sm"
             data-testid="opencode-composer"
           />
-          <Button onClick={() => void send()} disabled={sending || !draft.trim()} data-testid="opencode-send">
-            {sending ? "Sending…" : "Send"}
-          </Button>
-          </div>
+           {stream.running && !editingPending ? (
+             <div className="flex shrink-0 gap-2">
+               <Button onClick={() => void submit("pending")} disabled={sending || !draft.trim()} data-testid="opencode-queue">
+                  {sending ? "Saving…" : "Queue"}
+                </Button>
+               <Button variant="secondary" title="Best effort: OpenCode may ignore this while busy or leave it unanswered." onClick={() => void submit("steer")} disabled={sending || !draft.trim()} data-testid="opencode-steer">
+                  {sending ? "Sending…" : "Steer now"}
+                </Button>
+             </div>
+           ) : (
+             <Button onClick={() => void submit("send")} disabled={sending || !draft.trim()} data-testid="opencode-send">
+               {sending ? "Sending…" : editingPending ? "Save" : "Send"}
+             </Button>
+           )}
+           </div>
+           {stream.running && !editingPending && <p className="mt-2 text-[11px] text-[var(--color-text-muted)]" data-testid="opencode-steer-copy">Steer now is best effort: OpenCode may ignore it during the active run or leave it unanswered.</p>}
         </div>
       </footer>
       {workspaceOpen && <WorkspacePanels directory={directory} onClose={() => setWorkspaceOpen(false)} />}
