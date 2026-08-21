@@ -21,13 +21,13 @@ test.describe("hub", () => {
     await expect(page.getByTestId("opencode-session-list")).toBeVisible();
     const rows = page.getByTestId("opencode-session-row");
     expect(await rows.count()).toBeGreaterThanOrEqual(2);
-    await expect(page.getByText("Add a health endpoint")).toBeVisible();
+    await expect(page.getByTestId("opencode-session-list").getByText("Add a health endpoint")).toBeVisible();
     await expect(page.getByText("Old archived work")).toHaveCount(0);
   });
 
   test("shows a running pill for the busy session", async ({ page }) => {
     await page.goto(hub);
-    const pills = page.getByTestId("opencode-status-pill");
+    const pills = page.getByTestId("opencode-session-list").getByTestId("opencode-status-pill");
     await expect(pills.filter({ hasText: "running" })).toHaveCount(1);
   });
 
@@ -103,6 +103,89 @@ test.describe("hub", () => {
     await page.getByTestId("opencode-session-row").first().click();
     await expect(page).toHaveURL(/\/sessions\/.*directory=/);
     await expect(page.getByTestId("opencode-conversation")).toBeVisible();
+  });
+
+  test("orders recently opened independently from recently active and persists reloads", async ({ page }) => {
+    await page.route("**/api/sessions?*", async (route) => {
+      const response = await route.fetch();
+      const payload = await response.json() as { sessions: Array<{ id: string }> };
+      await route.fulfill({
+        response,
+        json: {
+          ...payload,
+          sessions: payload.sessions.filter(({ id }) => ["ses_mock_done", "ses_mock_running", "ses_mock_unknown_model"].includes(id)),
+        },
+      });
+    });
+    await page.goto(hub);
+    const sessions = page.getByTestId("opencode-session-list");
+
+    await sessions.getByText("Add a health endpoint", { exact: true }).click();
+    await page.getByRole("link", { name: "Sessions" }).click();
+    await sessions.getByText("Refactor the parser", { exact: true }).click();
+    await page.getByRole("link", { name: "Sessions" }).click();
+
+    const openedRows = page.getByTestId("opencode-recently-opened-row");
+    await expect(openedRows).toHaveCount(2);
+    expect(await openedRows.allTextContents()).toEqual([
+      expect.stringContaining("Refactor the parser"),
+      expect.stringContaining("Add a health endpoint"),
+    ]);
+
+    const activeRows = page.getByTestId("opencode-recently-active-row");
+    await expect(activeRows).toHaveCount(3);
+    expect(await activeRows.allTextContents()).toEqual([
+      expect.stringContaining("Imported unknown model"),
+      expect.stringContaining("Refactor the parser"),
+      expect.stringContaining("Add a health endpoint"),
+    ]);
+    for (const row of await openedRows.all()) {
+      await expect(row).toHaveAttribute("href", new RegExp(`directory=${encodeURIComponent(DIR)}`));
+    }
+    for (const row of await activeRows.all()) {
+      await expect(row).toHaveAttribute("href", new RegExp(`directory=${encodeURIComponent(DIR)}`));
+    }
+
+    await page.reload();
+    await expect(page.getByTestId("opencode-recently-opened-row")).toHaveCount(2);
+    expect(await page.getByTestId("opencode-recently-opened-row").allTextContents()).toEqual([
+      expect.stringContaining("Refactor the parser"),
+      expect.stringContaining("Add a health endpoint"),
+    ]);
+  });
+
+  test("keeps recently opened empty when storage only contains another directory", async ({ page }) => {
+    await page.addInitScript(({ directory }) => {
+      localStorage.setItem("opencode.recentSessions.v1", JSON.stringify({
+        version: 1,
+        entries: [{ id: "ses_mock_done", directory, openedAt: Date.now() }],
+      }));
+    }, { directory: `${DIR}-other` });
+    await page.goto(hub);
+    await expect(page.getByTestId("opencode-recently-opened-empty")).toBeVisible();
+    await expect(page.getByTestId("opencode-recently-opened-row")).toHaveCount(0);
+  });
+
+  test("keeps recent rows usable without overflow at 390px", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 740 });
+    await page.addInitScript(({ directory }) => {
+      localStorage.setItem("opencode.recentSessions.v1", JSON.stringify({
+        version: 1,
+        entries: [
+          { id: "ses_mock_running", directory, openedAt: 2 },
+          { id: "ses_mock_done", directory, openedAt: 1 },
+        ],
+      }));
+    }, { directory: DIR });
+    await page.goto(hub);
+    const recent = page.getByTestId("opencode-recent-sessions");
+    await expect(recent).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+    const componentBox = await recent.boundingBox();
+    expect(componentBox?.width).toBeLessThanOrEqual(358);
+    for (const row of await page.getByTestId("opencode-recently-opened-row").all()) {
+      expect((await row.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+    }
   });
 
   test("starts the initial prompt in Plan mode", async ({ page }) => {

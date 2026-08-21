@@ -18,6 +18,11 @@ import {
 } from "../lib/api.js";
 import type { AgentMode } from "../lib/agentMode.js";
 import { catalogueDefault, sameModel, type ModelCatalogue, type ModelSelection } from "../lib/models.js";
+import {
+  readRecentSessionOpens,
+  recentlyActiveSessions,
+  recentlyOpenedSessions,
+} from "../lib/recentSessions.js";
 
 const DIRECTORY_KEY = "opencode.directory.v1";
 const POLL_MS = 10_000;
@@ -64,6 +69,7 @@ export function HubPage() {
   const [projectSearch, setProjectSearch] = useState("");
   const [pinsSaving, setPinsSaving] = useState(false);
   const [projectError, setProjectError] = useState<string | null>(null);
+  const recentOpens = readRecentSessionOpens(localStorage);
 
   useEffect(() => {
     if (directory) localStorage.setItem(DIRECTORY_KEY, directory);
@@ -218,6 +224,31 @@ export function HubPage() {
   const selectedProject = projectByDirectory.get(directory);
   const showOtherWorkspace = Boolean(directory && projects && !selectedProject);
   const hasRunningSession = sessions?.some((session) => session.running) ?? false;
+  const recentlyOpened = sessions ? recentlyOpenedSessions(directory, sessions, recentOpens) : [];
+  const recentlyActive = sessions ? recentlyActiveSessions(directory, sessions) : [];
+
+  const recentList = (items: SessionSummary[], emptyMessage: string, testId: string) => (
+    items.length === 0 ? (
+      <p className="px-4 py-5 text-sm text-[var(--color-text-muted)]" data-testid={`${testId}-empty`}>
+        {emptyMessage}
+      </p>
+    ) : (
+      <ul className="divide-y divide-[var(--color-border-default)]" data-testid={testId}>
+        {items.map((session) => (
+          <li key={session.id}>
+            <Link
+              to={`/sessions/${session.id}?directory=${encodeURIComponent(session.directory)}`}
+              className="flex min-h-11 min-w-0 items-center gap-3 px-4 py-2 text-sm hover:bg-[var(--hh-row-hover)]"
+              data-testid={`${testId}-row`}
+            >
+              <StatusPill running={session.running} />
+              <span className="min-w-0 flex-1 truncate">{session.title}</span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    )
+  );
 
   return (
     <main className="mx-auto max-w-4xl space-y-5 p-4 sm:p-6" data-testid="opencode-hub">
@@ -448,6 +479,19 @@ export function HubPage() {
         </section>
       )}
 
+      {directory && sessions !== null && (
+        <section className="grid overflow-hidden rounded-xl border border-[var(--color-border-default)] sm:grid-cols-2" data-testid="opencode-recent-sessions">
+          <div className="min-w-0 sm:border-r sm:border-[var(--color-border-default)]">
+            <h2 className="border-b border-[var(--color-border-default)] px-4 py-2 text-sm font-semibold">Recently opened</h2>
+            {recentList(recentlyOpened, "Open a session to keep it handy here.", "opencode-recently-opened")}
+          </div>
+          <div className="min-w-0 border-t border-[var(--color-border-default)] sm:border-t-0">
+            <h2 className="border-b border-[var(--color-border-default)] px-4 py-2 text-sm font-semibold">Recently active</h2>
+            {recentList(recentlyActive, "No active session history in this directory.", "opencode-recently-active")}
+          </div>
+        </section>
+      )}
+
       <section className="rounded-xl border border-[var(--color-border-default)]">
         <div className="border-b border-[var(--color-border-default)] px-4 py-2 text-sm font-semibold">
           Sessions
@@ -473,7 +517,7 @@ export function HubPage() {
                 data-testid="opencode-session-row"
               >
                 <Link
-                  to={`/sessions/${session.id}?directory=${encodeURIComponent(directory)}`}
+                  to={`/sessions/${session.id}?directory=${encodeURIComponent(session.directory)}`}
                   className="flex min-w-0 items-center gap-3 px-4 py-3 text-sm hover:bg-[var(--hh-row-hover)]"
                 >
                   <StatusPill running={session.running} />
