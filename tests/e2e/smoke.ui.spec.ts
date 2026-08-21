@@ -67,16 +67,28 @@ test.describe("hub", () => {
     await expect(page.getByTestId("opencode-upstream-badge")).toContainText("1.18.21");
   });
 
-  test("shows a directory-wide auto permissions warning and control", async ({ page }) => {
+  test("shows compact directory-wide auto permissions controls", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 740 });
     await page.goto(hub);
     const control = page.getByTestId("opencode-hub-auto-permissions");
+    const toggle = control.getByTestId("opencode-hub-auto-permissions-toggle");
     await expect(control).toContainText("Auto permissions: OFF");
-    await control.getByTestId("opencode-hub-auto-permissions-toggle").click();
+    await expect(toggle).toHaveAttribute("role", "switch");
+    await expect(toggle).toHaveAttribute("aria-checked", "false");
+    await expect(toggle).toHaveAccessibleName("Turn auto permissions on");
+    expect((await control.boundingBox())?.height).toBeLessThanOrEqual(40);
+    await toggle.click();
     await expect(control).toContainText("Auto permissions: ON");
+    await expect(toggle).toHaveAttribute("aria-checked", "true");
+    await expect(toggle).toHaveAccessibleName("Turn auto permissions off");
+    expect((await control.boundingBox())?.height).toBeLessThanOrEqual(40);
+    await expect(control.getByTestId("opencode-hub-auto-permissions-warning")).toHaveCount(0);
+    await control.getByTestId("opencode-hub-auto-permissions-details").click();
     await expect(control.getByTestId("opencode-hub-auto-permissions-warning")).toContainText("arbitrary shell commands");
     await expect(control).toContainText("every session using this project directory");
-    await control.getByTestId("opencode-hub-auto-permissions-toggle").click();
+    await toggle.click();
     await expect(control).toContainText("Auto permissions: OFF");
+    await expect(control.getByTestId("opencode-hub-auto-permissions-warning")).toHaveCount(0);
   });
 
   test("selects the configured model from the safe catalogue", async ({ page }) => {
