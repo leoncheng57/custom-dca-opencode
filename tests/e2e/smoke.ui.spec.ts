@@ -4,6 +4,15 @@ import { expect, test } from "@playwright/test";
 
 const DIR = process.platform === "darwin" ? "/private/tmp/mock-project" : "/tmp/mock-project";
 const hub = `/?directory=${encodeURIComponent(DIR)}`;
+const MOCK_URL = `http://127.0.0.1:${process.env.MOCK_OPENCODE_PORT || 4599}`;
+
+async function promptPayload(text: string): Promise<Record<string, unknown> | undefined> {
+  const payloads = await (await fetch(`${MOCK_URL}/test/prompt-payloads`)).json() as Array<Record<string, unknown>>;
+  return payloads.find((item) => {
+    const parts = item.parts as Array<{ type?: string; text?: string }> | undefined;
+    return parts?.some((part) => part.type === "text" && part.text === text);
+  });
+}
 
 test.describe("hub", () => {
   test("lists sessions for the directory", async ({ page }) => {
@@ -38,6 +47,18 @@ test.describe("hub", () => {
     await page.getByTestId("opencode-session-row").first().click();
     await expect(page).toHaveURL(/\/sessions\/.*directory=/);
     await expect(page.getByTestId("opencode-conversation")).toBeVisible();
+  });
+
+  test("starts the initial prompt in Plan mode", async ({ page }) => {
+    const text = `initial plan ${Date.now()}`;
+    await page.goto(hub);
+    await expect(page.getByTestId("opencode-hub-mode")).toBeVisible();
+    await page.getByTestId("opencode-hub-mode-plan").click();
+    await page.getByTestId("opencode-prompt").fill(text);
+    await page.getByTestId("opencode-start").click();
+    await expect(page).toHaveURL(/\/sessions\/ses_mock_new_/);
+    await expect.poll(() => promptPayload(text)).toMatchObject({ agent: "plan" });
+    await expect(page.getByTestId("opencode-composer-mode-plan")).toHaveAttribute("aria-pressed", "true");
   });
 });
 
@@ -167,6 +188,18 @@ test.describe("composer", () => {
     await expect(page.getByTestId("opencode-send")).toBeDisabled();
   });
 
+  test("persists the selected mode from the latest message across reload", async ({ page }) => {
+    const text = `follow-up plan ${Date.now()}`;
+    await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
+    await expect(page.getByTestId("opencode-composer-mode")).toBeVisible();
+    await page.getByTestId("opencode-composer-mode-plan").click();
+    await page.getByTestId("opencode-composer").fill(text);
+    await page.getByTestId("opencode-send").click();
+    await expect.poll(() => promptPayload(text)).toMatchObject({ agent: "plan" });
+    await page.reload();
+    await expect(page.getByTestId("opencode-composer-mode-plan")).toHaveAttribute("aria-pressed", "true");
+  });
+
   test("attaches one reminder, round-trips it, and resets the picker", async ({ page }) => {
     const text = `push safely ${Date.now()}`;
     await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
@@ -196,6 +229,7 @@ test.describe("mobile", () => {
   test("hub is usable on a phone", async ({ page }) => {
     await page.goto(hub);
     await expect(page.getByTestId("opencode-session-list")).toBeVisible();
+    await expect(page.getByTestId("opencode-hub-mode")).toBeVisible();
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
     );
@@ -205,6 +239,7 @@ test.describe("mobile", () => {
   test("transcript is the only scrolling region", async ({ page }) => {
     await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
     await expect(page.getByTestId("opencode-transcript")).toBeVisible();
+    await expect(page.getByTestId("opencode-composer-mode")).toBeVisible();
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
     );

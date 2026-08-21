@@ -5,7 +5,9 @@ import { Alert } from "../ds/alert.js";
 import { Badge } from "../ds/badge.js";
 import { Button } from "../ds/button.js";
 import { LoadingIndicator } from "../ds/loading-indicator.js";
+import { AgentModeToggle } from "../components/agent-mode-toggle.js";
 import { api, formatCost, type HealthResponse, type SessionSummary, type Worktree } from "../lib/api.js";
+import type { AgentMode } from "../lib/agentMode.js";
 
 const DIRECTORY_KEY = "opencode.directory.v1";
 const POLL_MS = 10_000;
@@ -40,6 +42,7 @@ export function HubPage() {
   const [prompt, setPrompt] = useState("");
   const [creating, setCreating] = useState(false);
   const [isolated, setIsolated] = useState(false);
+  const [mode, setMode] = useState<AgentMode>("build");
   const [worktrees, setWorktrees] = useState<Worktree[]>([]);
 
   useEffect(() => {
@@ -95,7 +98,7 @@ export function HubPage() {
     setCreating(true);
     setError(null);
     try {
-      const { session } = await api.createSession({ directory, prompt, isolated });
+      const { session } = await api.createSession({ directory, prompt, isolated, mode });
       navigate(`/sessions/${session.id}?directory=${encodeURIComponent(session.directory)}`);
     } catch (e) {
       setError((e as Error).message);
@@ -170,7 +173,8 @@ export function HubPage() {
           className="mb-2 w-full rounded-md border border-[var(--color-border-default)] bg-transparent p-2 text-sm"
           data-testid="opencode-prompt"
         />
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <AgentModeToggle mode={mode} onChange={setMode} testId="opencode-hub-mode" />
           <Button
             onClick={() => void create()}
             disabled={creating || !prompt.trim() || !directory}

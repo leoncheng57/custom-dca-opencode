@@ -19,6 +19,8 @@ import {
   listSessions,
   listTodos,
   prompt,
+  PlanToolDiscoveryError,
+  type AgentMode,
 } from "../opencode/sessions.js";
 import { createWorktree } from "../opencode/worktrees.js";
 import { getModelContextLimit } from "../opencode/config.js";
@@ -76,6 +78,12 @@ function promptReminder(value: unknown): ReminderPreset | undefined {
   return preset;
 }
 
+function promptMode(value: unknown): AgentMode {
+  if (value === undefined) return "build";
+  if (value !== "plan" && value !== "build") throw new HttpError(400, "mode must be 'plan' or 'build'");
+  return value;
+}
+
 /**
  * Map thrown errors onto responses without leaking stack traces.
  *
@@ -87,6 +95,10 @@ function promptReminder(value: unknown): ReminderPreset | undefined {
 function fail(res: Response, error: unknown, options: { notFoundOn5xx?: boolean } = {}): void {
   if (error instanceof HttpError || error instanceof PathError) {
     res.status(error.status).json({ error: error.message });
+    return;
+  }
+  if (error instanceof PlanToolDiscoveryError) {
+    res.status(502).json({ error: error.message });
     return;
   }
   if (error instanceof OpencodeError) {
@@ -139,7 +151,8 @@ export function sessionRoutes(config: OpencodeConfig, bus: EventBus): Router {
     "/sessions",
     asyncRoute(async (req, res) => {
       const projectDirectory = await directoryOf(req);
-      const { title, agent, model, prompt: initialPrompt, isolated, worktreeName } = req.body ?? {};
+      const { title, model, prompt: initialPrompt, isolated, worktreeName } = req.body ?? {};
+      const mode = promptMode(req.body?.mode);
       const directory = isolated === true
         ? (await createWorktree(
             config,
@@ -148,10 +161,10 @@ export function sessionRoutes(config: OpencodeConfig, bus: EventBus): Router {
             typeof worktreeName === "string" ? worktreeName : undefined,
           )).directory
         : projectDirectory;
-      const session = await createSession(config, { directory, title, agent, model });
+      const session = await createSession(config, { directory, title, agent: mode, model });
       // Fire-and-forget the opening turn so the response is not held for it.
       if (typeof initialPrompt === "string" && initialPrompt.trim()) {
-        await prompt(config, directory, session.id, { text: initialPrompt, agent, model });
+        await prompt(config, directory, session.id, { text: initialPrompt, mode, model });
       }
       res.status(201).json({ session });
     }),
@@ -214,13 +227,13 @@ export function sessionRoutes(config: OpencodeConfig, bus: EventBus): Router {
     "/sessions/:id/prompt",
     sessionRoute(async (req, res) => {
       const directory = await directoryOf(req);
-      const { text, agent, model, attachments, reminder } = req.body ?? {};
+      const { text, model, attachments, reminder } = req.body ?? {};
       if (typeof text !== "string" || !text.trim()) {
         throw new HttpError(400, "'text' is required");
       }
       await prompt(config, directory, paramOf(req, "id"), {
         text,
-        agent,
+        mode: promptMode(req.body?.mode),
         model,
         attachments: promptAttachments(attachments),
         reminder: promptReminder(reminder),

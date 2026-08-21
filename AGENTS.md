@@ -88,9 +88,11 @@ several decisions below.
    - Permissions **editor** — downgraded to a read-only display of effective rules.
      Authoring happens in `opencode.jsonc`, which has `$schema` autocomplete.
    - Skills toggles, condenser settings — no OpenCode equivalent; dropped.
-9. **Deferred, not deleted:** Plan/Build mode. OpenCode has no per-action
-   `security_risk`, so it would become agent-switch (`POST /api/session/{id}/agent`)
-   plus permission rulesets. Wait to see whether the permission policy alone suffices.
+9. **Plan/Build is enforced per prompt on the classic API.** Build sends the native
+   `build` agent normally. Plan sends the native `plan` agent plus a BFF-generated,
+   deny-by-default tool map because project permissions can override agent denials
+   under last-match-wins precedence. This is deterministic read-only mode, not an
+   OpenHands-style per-action risk score.
 
 ## Client conventions (inherited from the OpenHands runner, still enforced)
 

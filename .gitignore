@@ -11,3 +11,4 @@ playwright-report/
 .DS_Store
 mcp-servers.json
 screenshots-out/
+.agent-status.json
