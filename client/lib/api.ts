@@ -110,18 +110,22 @@ export interface ReviewStatus {
   pipeline: string | null;
   mergeable: boolean | null;
   headSha: string;
-  description: string;
   number: number;
   project: string;
 }
-export interface ReviewComment { id: string; author: string; body: string; createdAt: string; resolved: boolean }
-export interface ReviewJob { name: string; status: string; webUrl: string; duration: number | null }
-export interface ReviewStage { name: string; status: string; jobs: ReviewJob[] }
-export interface ReviewPipeline { status: string; webUrl: string; stages: ReviewStage[] }
+export interface ReviewComment { id: string; author: string; body: string; createdAt: string; resolved: boolean | null; discussionId: string | null; bodyTruncated: boolean }
+export interface ReviewSummary { id: string; author: string; state: string; body: string; submittedAt: string; bodyTruncated: boolean }
+export interface ReviewPipeline { id: string; status: string; webUrl: string; createdAt: string; completedAt: string; duration: number | null }
+export interface ReviewCheck { id: string; name: string; stage: string; status: string; webUrl: string; startedAt: string; completedAt: string; duration: number | null; source: "check" | "status" | "job" }
+export interface DetailSection<T> { value: T; error: "Authentication unavailable" | "Rate limited" | "Unavailable" | null; truncated: boolean }
 export interface ReviewDetails {
-  comments: { value: ReviewComment[]; error: string | null };
-  pipeline: { value: ReviewPipeline | null; error: string | null };
+  description: DetailSection<string>;
+  comments: DetailSection<ReviewComment[]>;
+  reviews: DetailSection<ReviewSummary[]>;
+  pipelines: DetailSection<ReviewPipeline[]>;
+  checks: DetailSection<ReviewCheck[]>;
   partial: boolean;
+  auth: "available" | "unavailable" | "rate_limited";
 }
 export interface PermissionRequest {
   id: string;

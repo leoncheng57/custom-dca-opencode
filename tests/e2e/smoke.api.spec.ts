@@ -6,6 +6,7 @@ import { expect, test } from "@playwright/test";
 const DIR = process.platform === "darwin" ? "/private/tmp/mock-project" : "/tmp/mock-project";
 const TOOL_FAILURE_DIR = process.platform === "darwin" ? "/private/tmp/mock-tool-failure" : "/tmp/mock-tool-failure";
 const MOCK_URL = `http://127.0.0.1:${process.env.MOCK_OPENCODE_PORT || 4599}`;
+const PREVIEW_PORT = Number(process.env.MOCK_PREVIEW_PORT || 4600);
 
 async function promptPayload(text: string): Promise<Record<string, unknown>> {
   const payloads = await (await fetch(`${MOCK_URL}/test/prompt-payloads`)).json() as Array<Record<string, unknown>>;
@@ -333,7 +334,7 @@ test.describe("preview security", () => {
   test("allows only configured ports and strips credentials", async ({ request }) => {
     const denied = await request.get("/api/preview/9999/");
     expect(denied.status()).toBe(403);
-    const proxied = await request.get("/api/preview/4600/hello?q=1", {
+    const proxied = await request.get(`/api/preview/${PREVIEW_PORT}/hello?q=1`, {
       headers: { Authorization: "Bearer must-not-forward", Cookie: "secret=yes" },
     });
     const body = await proxied.json();
@@ -345,9 +346,9 @@ test.describe("preview security", () => {
   });
 
   test("rewrites root-relative redirects under the proxy mount", async ({ request }) => {
-    const res = await request.get("/api/preview/4600/redirect", { maxRedirects: 0 });
+    const res = await request.get(`/api/preview/${PREVIEW_PORT}/redirect`, { maxRedirects: 0 });
     expect(res.status()).toBe(302);
-    expect(res.headers().location).toBe("/api/preview/4600/target");
+    expect(res.headers().location).toBe(`/api/preview/${PREVIEW_PORT}/target`);
   });
 });
 

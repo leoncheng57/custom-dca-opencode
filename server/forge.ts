@@ -11,47 +11,8 @@ export interface ReviewStatus {
   pipeline: string | null;
   mergeable: boolean | null;
   headSha: string;
-  description: string;
   number: number;
   project: string;
-}
-
-export interface ReviewComment {
-  id: string;
-  author: string;
-  body: string;
-  createdAt: string;
-  resolved: boolean;
-}
-
-export interface ReviewJob {
-  name: string;
-  status: string;
-  webUrl: string;
-  duration: number | null;
-}
-
-export interface ReviewStage {
-  name: string;
-  status: string;
-  jobs: ReviewJob[];
-}
-
-export interface ReviewPipeline {
-  status: string;
-  webUrl: string;
-  stages: ReviewStage[];
-}
-
-interface DetailSection<T> {
-  value: T;
-  error: string | null;
-}
-
-export interface ReviewDetails {
-  comments: DetailSection<ReviewComment[]>;
-  pipeline: DetailSection<ReviewPipeline | null>;
-  partial: boolean;
 }
 
 function gitlabOrigin(): string {
@@ -96,6 +57,14 @@ function githubPath(ref: Extract<ReviewRef, { forge: "github" }>): string {
   return `/repos/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}`;
 }
 
+function aggregatePipelineStatus(status: unknown): string | null {
+  const value = String(status ?? "").toLowerCase();
+  if (!value) return null;
+  if (["success", "passed", "skipped", "neutral"].includes(value)) return "passed";
+  if (["running", "pending", "created", "waiting", "preparing", "scheduled", "manual"].includes(value)) return "running";
+  return "failed";
+}
+
 export async function getReviewStatus(ref: ReviewRef): Promise<ReviewStatus> {
   if (ref.forge === "github") {
     const api = githubApi();
@@ -118,12 +87,11 @@ export async function getReviewStatus(ref: ReviewRef): Promise<ReviewStatus> {
       url: ref.url,
       forge: "github",
       title: String(pr.title ?? "Pull request"),
-      state: String(pr.state ?? "unknown"),
+      state: pr.merged_at ? "merged" : String(pr.state ?? "unknown"),
       author: String(pr.user?.login ?? "unknown"),
       pipeline,
       mergeable: typeof pr.mergeable === "boolean" ? pr.mergeable : null,
       headSha: String(pr.head?.sha ?? ""),
-      description: String(pr.body ?? ""),
       number: ref.number,
       project: `${ref.owner}/${ref.repo}`,
     };
@@ -139,136 +107,11 @@ export async function getReviewStatus(ref: ReviewRef): Promise<ReviewStatus> {
     title: String(mr.title ?? "Merge request"),
     state: String(mr.state ?? "unknown"),
     author: String(mr.author?.username ?? "unknown"),
-    pipeline: pipelines[0]?.status ?? null,
+    pipeline: aggregatePipelineStatus(pipelines[0]?.status),
     mergeable: mr.merge_status === "can_be_merged" ? true : mr.merge_status ? false : null,
     headSha: String(mr.sha ?? ""),
-    description: String(mr.description ?? ""),
     number: ref.number,
     project: ref.project,
-  };
-}
-
-function normalizeCheckStatus(status?: string, conclusion?: string): string {
-  if (status !== "completed") return status === "in_progress" ? "running" : "pending";
-  if (conclusion === "success" || conclusion === "neutral" || conclusion === "skipped") return "success";
-  if (conclusion === "cancelled") return "canceled";
-  return "failed";
-}
-
-function stageStatus(statuses: string[]): string {
-  for (const status of ["failed", "running", "pending", "canceled", "manual", "skipped"]) {
-    if (statuses.includes(status)) return status;
-  }
-  return statuses.length > 0 && statuses.every((status) => status === "success") ? "success" : statuses[0] ?? "skipped";
-}
-
-async function getReviewComments(ref: ReviewRef): Promise<ReviewComment[]> {
-  if (ref.forge === "github") {
-    const comments = await forgeFetch<Array<Record<string, any>>>(
-      new URL(`${githubPath(ref)}/issues/${ref.number}/comments?per_page=50`, githubApi()),
-      process.env.GITHUB_TOKEN,
-    );
-    return comments.map((comment) => ({
-      id: String(comment.id ?? ""),
-      author: String(comment.user?.login ?? "unknown"),
-      body: String(comment.body ?? ""),
-      createdAt: String(comment.created_at ?? ""),
-      resolved: false,
-    }));
-  }
-
-  const discussions = await forgeFetch<Array<Record<string, any>>>(
-    new URL(`merge_requests/${ref.number}/discussions?per_page=50`, gitlabApi(ref)),
-    process.env.GITLAB_TOKEN,
-  );
-  return discussions
-    .flatMap((discussion) => Array.isArray(discussion.notes) ? discussion.notes : [])
-    .filter((note: Record<string, any>) => !note.system && !note.position)
-    .map((note: Record<string, any>) => ({
-      id: String(note.id ?? ""),
-      author: String(note.author?.username ?? "unknown"),
-      body: String(note.body ?? ""),
-      createdAt: String(note.created_at ?? ""),
-      resolved: Boolean(note.resolved),
-    }))
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
-    .slice(-50);
-}
-
-async function getReviewPipeline(ref: ReviewRef): Promise<ReviewPipeline | null> {
-  if (ref.forge === "github") {
-    const pr = await forgeFetch<Record<string, any>>(
-      new URL(`${githubPath(ref)}/pulls/${ref.number}`, githubApi()),
-      process.env.GITHUB_TOKEN,
-    );
-    if (typeof pr.head?.sha !== "string") return null;
-    const checks = await forgeFetch<{ check_runs?: Array<Record<string, any>> }>(
-      new URL(`${githubPath(ref)}/commits/${pr.head.sha}/check-runs?per_page=50`, githubApi()),
-      process.env.GITHUB_TOKEN,
-    );
-    const jobs = (checks.check_runs ?? []).map((check) => {
-      const started = Date.parse(String(check.started_at ?? ""));
-      const completed = Date.parse(String(check.completed_at ?? ""));
-      return {
-        name: String(check.name ?? "Check"),
-        status: normalizeCheckStatus(check.status, check.conclusion),
-        webUrl: String(check.html_url ?? ""),
-        duration: Number.isFinite(started) && Number.isFinite(completed) ? Math.max(0, (completed - started) / 1000) : null,
-      };
-    });
-    if (jobs.length === 0) return null;
-    const status = stageStatus(jobs.map((job) => job.status));
-    return {
-      status,
-      webUrl: `${ref.url.replace(/\/$/, "")}/checks`,
-      stages: [{ name: "checks", status, jobs }],
-    };
-  }
-
-  const api = gitlabApi(ref);
-  const pipelines = await forgeFetch<Array<Record<string, any>>>(
-    new URL(`merge_requests/${ref.number}/pipelines`, api),
-    process.env.GITLAB_TOKEN,
-  );
-  const latest = pipelines[0];
-  if (!latest?.id) return null;
-  const jobs = await forgeFetch<Array<Record<string, any>>>(
-    new URL(`pipelines/${latest.id}/jobs?per_page=100`, api),
-    process.env.GITLAB_TOKEN,
-  );
-  const stages = new Map<string, ReviewJob[]>();
-  for (const job of jobs) {
-    const name = String(job.stage ?? "pipeline");
-    const item = {
-      name: String(job.name ?? "Job"),
-      status: String(job.status ?? "unknown"),
-      webUrl: String(job.web_url ?? ""),
-      duration: typeof job.duration === "number" ? job.duration : null,
-    };
-    stages.set(name, [...(stages.get(name) ?? []), item]);
-  }
-  return {
-    status: String(latest.status ?? "unknown"),
-    webUrl: String(latest.web_url ?? ""),
-    stages: [...stages].map(([name, jobs]) => ({ name, status: stageStatus(jobs.map((job) => job.status)), jobs })),
-  };
-}
-
-function detailSection<T>(result: PromiseSettledResult<T>, fallback: T): DetailSection<T> {
-  return result.status === "fulfilled"
-    ? { value: result.value, error: null }
-    : { value: fallback, error: result.reason instanceof Error ? result.reason.message : String(result.reason) };
-}
-
-export async function getReviewDetails(ref: ReviewRef): Promise<ReviewDetails> {
-  const [commentsResult, pipelineResult] = await Promise.allSettled([
-    getReviewComments(ref),
-    getReviewPipeline(ref),
-  ]);
-  return {
-    comments: detailSection(commentsResult, []),
-    pipeline: detailSection(pipelineResult, null),
-    partial: commentsResult.status === "rejected" || pipelineResult.status === "rejected",
   };
 }
 

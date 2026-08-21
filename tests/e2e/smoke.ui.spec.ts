@@ -5,6 +5,7 @@ import { expect, test } from "@playwright/test";
 const DIR = process.platform === "darwin" ? "/private/tmp/mock-project" : "/tmp/mock-project";
 const hub = `/?directory=${encodeURIComponent(DIR)}`;
 const MOCK_URL = `http://127.0.0.1:${process.env.MOCK_OPENCODE_PORT || 4599}`;
+const FORGE_URL = `http://127.0.0.1:${process.env.MOCK_PREVIEW_PORT || 4600}`;
 
 async function promptPayload(text: string): Promise<Record<string, unknown> | undefined> {
   const payloads = await (await fetch(`${MOCK_URL}/test/prompt-payloads`)).json() as Array<Record<string, unknown>>;
@@ -283,12 +284,14 @@ test.describe("workspace UI", () => {
     await page.getByTestId("opencode-inspector-commands").click();
     await expect(page.getByTestId("opencode-command-row")).toHaveCount(3);
     await page.getByTestId("opencode-inspector-links").click();
-    await expect(page.getByTestId("opencode-merge-request-link")).toContainText("Mock pull request");
-    await expect(page.getByTestId("opencode-merge-request-link")).toContainText("pipeline passed");
+    await expect(page.getByTestId("opencode-review-card")).toContainText("Mock pull request");
+    await expect(page.getByTestId("opencode-review-card")).toContainText("checks passed");
     await page.getByTestId("opencode-review-details-toggle").click();
     await expect(page.getByTestId("opencode-review-details")).toContainText("Ready to ship.");
     await expect(page.getByTestId("opencode-review-comment")).toContainText("Looks good.");
-    await expect(page.getByTestId("opencode-review-stage")).toContainText("test: success");
+    const failed = page.getByTestId("opencode-review-check").filter({ hasText: "test" });
+    await expect(failed).toHaveAttribute("data-status", "failed");
+    await expect(failed.getByRole("link")).toHaveAttribute("rel", "noreferrer");
     await page.getByTestId("opencode-workspace-open").click();
     await page.getByTestId("opencode-file-node").filter({ hasText: "README.md" }).click();
     await expect(page.getByTestId("opencode-file-viewer")).toContainText("Mock project");
@@ -296,6 +299,47 @@ test.describe("workspace UI", () => {
     await expect(page.getByTestId("opencode-diff-viewer")).toContainText("+new");
     await page.getByTestId("opencode-workspace-preview").click();
     await expect(page.getByTestId("opencode-preview-frame")).toBeVisible();
+  });
+
+  test("fetches expensive review details only after expansion", async ({ page }) => {
+    await fetch(`${FORGE_URL}/test/forge-reset`, { method: "POST" });
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(conversation);
+    await page.getByTestId("opencode-inspector-links").click();
+    await expect(page.getByTestId("opencode-review-card")).toContainText("Mock pull request");
+    expect(await (await fetch(`${FORGE_URL}/test/forge-state`)).json()).toMatchObject({ detailRequests: 0 });
+    await page.getByTestId("opencode-review-details-toggle").click();
+    await expect(page.getByTestId("opencode-review-check")).toBeVisible();
+    expect(await (await fetch(`${FORGE_URL}/test/forge-state`)).json()).toMatchObject({ detailRequests: 4 });
+  });
+
+  test("keeps merge confirmation bound to the reviewed SHA", async ({ page }) => {
+    await fetch(`${FORGE_URL}/test/forge-reset`, { method: "POST" });
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(conversation);
+    await page.getByTestId("opencode-inspector-links").click();
+    await expect(page.getByTestId("opencode-merge-review")).toBeVisible();
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.getByTestId("opencode-merge-review").click();
+    await expect(page.getByTestId("opencode-review-card")).toHaveAttribute("data-state", "merged");
+    await expect.poll(async () => (await (await fetch(`${FORGE_URL}/test/forge-state`)).json()).mergeBody).toEqual({ sha: "abc123" });
+  });
+
+  test("review card remains width-safe in a mobile cockpit host", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(conversation);
+    await page.getByTestId("opencode-inspector-links").click();
+    await expect(page.getByTestId("opencode-review-card")).toBeVisible();
+    await page.setViewportSize({ width: 390, height: 740 });
+    await page.getByTestId("opencode-session-inspector").evaluate((element) => {
+      element.style.display = "block";
+      element.style.width = "390px";
+      element.style.maxWidth = "100%";
+    });
+    const cardWidth = await page.getByTestId("opencode-review-card").evaluate((element) => element.getBoundingClientRect().width);
+    expect(cardWidth).toBeLessThanOrEqual(390);
+    const overflow = await page.getByTestId("opencode-review-card").evaluate((element) => element.scrollWidth - element.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
   });
 
   test("workspace drawer fits a phone", async ({ page }) => {

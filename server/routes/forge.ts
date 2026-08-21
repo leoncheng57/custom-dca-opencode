@@ -1,6 +1,7 @@
 import { Router } from "express";
 
-import { getReviewDetails, getReviewStatus, mergeReview, parseReviewUrl } from "../forge.js";
+import { getReviewStatus, mergeReview, parseReviewUrl } from "../forge.js";
+import { getReviewDetails } from "../forge-details.js";
 
 export function forgeRoutes(): Router {
   const router = Router();
