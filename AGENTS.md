@@ -139,10 +139,11 @@ full:/sessions/ses_mock_done?directory=/tmp/mock-project
 ```
 ````
 
-Blank lines and lines beginning with `#` are ignored. `full:` captures the full page;
-ordinary routes use a 1280x800 viewport. Requests are limited to 10 known UI routes and
-reject whitespace, controls, schemes, hosts, backslashes, malformed encoding, and path
-traversal.
+Blank lines and lines beginning with `#` are ignored. Every route captures dark-mode
+desktop (1280x800) and mobile (390x740) PNGs; `full:` captures the full page at both
+widths. The sticky comment renders `Route`, `Desktop`, and `Mobile` columns. Requests are
+limited to 10 known UI routes and reject whitespace, controls, schemes, hosts,
+backslashes, malformed encoding, and path traversal.
 
 The read-only `pull_request` workflow runs the production SPA and BFF against only the
 fixed Playwright OpenCode and forge mocks. A separate default-branch `workflow_run`
