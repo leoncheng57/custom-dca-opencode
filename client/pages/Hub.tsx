@@ -5,7 +5,7 @@ import { Alert } from "../ds/alert.js";
 import { Badge } from "../ds/badge.js";
 import { Button } from "../ds/button.js";
 import { LoadingIndicator } from "../ds/loading-indicator.js";
-import { api, formatCost, type HealthResponse, type SessionSummary } from "../lib/api.js";
+import { api, formatCost, type HealthResponse, type SessionSummary, type Worktree } from "../lib/api.js";
 
 const DIRECTORY_KEY = "opencode.directory.v1";
 const POLL_MS = 10_000;
@@ -39,6 +39,8 @@ export function HubPage() {
   const [error, setError] = useState<string | null>(null);
   const [prompt, setPrompt] = useState("");
   const [creating, setCreating] = useState(false);
+  const [isolated, setIsolated] = useState(false);
+  const [worktrees, setWorktrees] = useState<Worktree[]>([]);
 
   useEffect(() => {
     if (directory) localStorage.setItem(DIRECTORY_KEY, directory);
@@ -76,6 +78,11 @@ export function HubPage() {
     return () => clearInterval(timer);
   }, [directory, refresh]);
 
+  useEffect(() => {
+    if (!directory) return;
+    void api.worktrees(directory).then((result) => setWorktrees(result.worktrees)).catch(() => setWorktrees([]));
+  }, [directory]);
+
   const applyDirectory = () => {
     const next = directoryInput.trim();
     if (!next) return;
@@ -88,8 +95,8 @@ export function HubPage() {
     setCreating(true);
     setError(null);
     try {
-      const { session } = await api.createSession({ directory, prompt });
-      navigate(`/sessions/${session.id}?directory=${encodeURIComponent(directory)}`);
+      const { session } = await api.createSession({ directory, prompt, isolated });
+      navigate(`/sessions/${session.id}?directory=${encodeURIComponent(session.directory)}`);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -177,7 +184,26 @@ export function HubPage() {
             </span>
           )}
         </div>
+        <label className="mt-3 flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={isolated} onChange={(event) => setIsolated(event.target.checked)} data-testid="opencode-isolated-workspace" />
+          Isolated workspace (creates an OpenCode worktree before the agent starts)
+        </label>
       </section>
+
+      {directory && worktrees.length > 0 && (
+        <section className="rounded-xl border border-[var(--color-border-default)]" data-testid="opencode-worktree-list">
+          <div className="border-b border-[var(--color-border-default)] px-4 py-2 text-sm font-semibold">Isolated workspaces</div>
+          <ul className="divide-y divide-[var(--color-border-default)]">
+            {worktrees.map((worktree) => (
+              <li key={worktree.directory} className="flex min-w-0 items-center gap-2 p-3 text-sm">
+                <Link to={`/?directory=${encodeURIComponent(worktree.directory)}`} className="min-w-0 flex-1 truncate underline" data-testid="opencode-worktree-open">{worktree.name}</Link>
+                <Button size="sm" variant="secondary" onClick={() => { if (window.confirm(`Hard-reset and clean ${worktree.name}?`)) void api.resetWorktree(directory, worktree.directory); }} data-testid="opencode-worktree-reset">Reset</Button>
+                <Button size="sm" variant="danger" onClick={() => { if (window.confirm(`Force-delete ${worktree.name} and its branch?`)) void api.deleteWorktree(directory, worktree.directory).then(() => setWorktrees((items) => items.filter((item) => item.directory !== worktree.directory))); }} data-testid="opencode-worktree-delete">Delete</Button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section className="rounded-xl border border-[var(--color-border-default)]">
         <div className="border-b border-[var(--color-border-default)] px-4 py-2 text-sm font-semibold">

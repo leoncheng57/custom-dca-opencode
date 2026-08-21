@@ -100,7 +100,7 @@
 
 <div class="wrap">
 
-<div class="banner"><b>v2 changes (Aug 21):</b> dropped preview proxy, Terminal page, web PTY, manager runs (+ Postgres), latency probes, permissions <em>editor</em> (now read-only display), providers page, disk bar &mdash; most existed only to work around the agent-canvas container boundary. R2 auto-resume is <b>accepted, with detection-only</b> UX added to Phase 2. <b>All decisions resolved:</b> git identity = local tools as-is (no bot plugin) &middot; Resume = prefill composer &middot; <b>fresh new public repo</b>. New: <a href="#oneshot">one-shot execution strategy</a> using background opencode subagents on <code>anthropic/claude-opus-5</code>.</div>
+<div class="banner"><b>Completed Aug 21:</b> all implementation waves and the deterministic E2E wave are green. Preview <em>lifecycle</em>, Terminal, web PTY, manager runs (+ Postgres), latency probes, permissions <em>editor</em> (read-only display retained), providers page and disk bar were dropped. The allowlisted read-only preview <em>reverse proxy</em> remains for phones, where there is no cmux pane. R2 auto-resume is <b>accepted, with detection-only</b> UX. Git identity = local tools as-is &middot; Resume = prefill composer &middot; public repo.</div>
 
 <nav class="toc">
   <a href="#overview"><span class="num">—</span>Overview &amp; what was dropped</a>
@@ -127,7 +127,7 @@
 <h3>Dropped, and why</h3>
 <table>
   <tr><th>Dropped</th><th>Was</th><th>Reason</th></tr>
-  <tr><td><b>Live preview proxy</b></td><td>7 BFF routes + 524-line panel</td><td>Existed because the dev server ran <em>inside</em> agent-canvas. It runs on your host now — open <code>localhost:&lt;port&gt;</code> in a cmux browser pane</td></tr>
+  <tr><td><b>Preview lifecycle</b></td><td>start/stop/logs/status plumbing</td><td>Dropped. A GET/HEAD-only, port-allowlisted localhost reverse proxy remains for mobile access; it has no lifecycle control, credentials, WebSockets or HTML rewriting.</td></tr>
   <tr><td><b>Terminal page</b></td><td>read-only bash-event history</td><td>No <code>bash_events</code> store in OpenCode (rebuild, not port) — and the Commands panel already answers "what did the agent run", with <code>.sh</code> export</td></tr>
   <tr><td><b>Web PTY</b></td><td>Phase 8 "new capability"</td><td>You live in cmux with Ghostty terminals. A terminal in a browser tab in a terminal multiplexer is not a feature</td></tr>
   <tr><td><b>Manager runs</b></td><td>~2,200 server lines + UI + Postgres</td><td>The <code>manager-children</code> cmux skill covers waves-of-workers-in-worktrees. Dropping this <b>removes the last Docker container</b></td></tr>
@@ -366,7 +366,7 @@
 <div class="phase">
   <div class="ph"><div class="t"><span class="idx">P4</span>Files · Changes</div><div class="est">~1.5 days</div></div>
   <div class="pb">
-    <p class="goal"><b>Goal:</b> the two surviving workspace panels (preview, terminal, disk bar dropped).</p>
+    <p class="goal"><b>Goal:</b> files and changes, plus the mobile-only-safe preview reverse proxy (preview lifecycle, terminal and disk bar dropped).</p>
     <table>
       <tr><th>Panel</th><th>Backing</th><th>Work</th></tr>
       <tr><td><b>Files</b></td><td><code>GET /file?path=</code> → <code>FileNode[]</code>; <code>GET /file/content?path=</code> (text or base64+mimeType)</td><td>Shim to the client's <code>{path,dirs,files,nextPageId}</code> shape; one level per call, recurse in the BFF</td></tr>
@@ -423,12 +423,12 @@
       <tr><th>Page</th><th>Backing</th><th>Note</th></tr>
       <tr><td><b>Notifications</b></td><td>BFF-local JSON (<code>.state/ntfy-prefs.json</code>)</td><td>Per-event toggles × channels, volume, test buttons. <code>misc_settings</code> KV replaced by owning the store</td></tr>
       <tr><td><b>Agent settings</b></td><td><code>PATCH /global/config</code> → <code>compaction{auto,prune,reserved}</code>, <code>model</code>, <code>small_model</code>, <code>default_agent</code>, <code>subagent_depth</code></td><td>Condenser page survives, re-pointed and broader</td></tr>
-      <tr><td><b>MCP manager</b> <span class="tag new">NEW</span></td><td><code>POST /mcp</code> (add) · connect/disconnect/auth · <code>Config.mcp</code> durable enable/disable</td><td>OpenHands was read-only + a sync script; full CRUD now</td></tr>
+      <tr><td><b>MCP manager</b> <span class="tag new">NEW</span></td><td><code>GET /mcp</code> status + runtime connect/disconnect</td><td>Durable CRUD/auth deferred: effective MCP config currently comes from a higher-precedence source than empty global config, so claiming persistence would be dishonest</td></tr>
       <tr><td><b>Permissions</b> <span class="tag del">READ-ONLY</span></td><td><code>GET /config</code> effective rules + <code>GET /api/permission/saved</code></td><td>Display what's active; <b>author in <code>opencode.jsonc</code></b> ($schema autocomplete beats a form)</td></tr>
       <tr><td><s>Providers page</s> · <s>skills toggles</s></td><td>—</td><td>Dropped / no equivalent</td></tr>
     </table>
     <div class="callout info"><b>Plan/Build: deferred, not designed.</b> No per-action <code>security_risk</code> exists; if it returns it's agent-switch (<code>POST /api/session/{id}/agent</code>) + permission rulesets. Wait to see whether the Phase 0 policy alone suffices.</div>
-    <div class="accept"><b>Done when:</b> per-event notification toggles work, compaction threshold is editable, and <code>gitlab-mcp</code> can be re-authed — all without touching a config file.</div>
+    <div class="accept"><b>Done:</b> per-event browser/ntfy toggles, volume/test controls, compaction settings, MCP status/error display and runtime connect/disconnect are covered by mock-backed E2E.</div>
   </div>
 </div>
 

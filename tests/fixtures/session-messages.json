@@ -103,7 +103,7 @@
         "sessionID": "ses_fixture",
         "messageID": "msg_asst_001",
         "type": "text",
-        "text": "I'll add the route now."
+        "text": "I'll add the route now. Review: https://github.com/acme/demo/pull/7"
       },
       {
         "id": "prt_patch_001",

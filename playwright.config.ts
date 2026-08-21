@@ -9,6 +9,7 @@ import { defineConfig } from "@playwright/test";
 // and the real BFF code path, with only the agent itself faked.
 const PORT = Number(process.env.PORT || 3410);
 const MOCK_PORT = Number(process.env.MOCK_OPENCODE_PORT || 4599);
+const PREVIEW_PORT = Number(process.env.MOCK_PREVIEW_PORT || 4600);
 
 export default defineConfig({
   testDir: "tests/e2e",
@@ -29,6 +30,12 @@ export default defineConfig({
       timeout: 30_000,
     },
     {
+      command: `npx tsx tests/e2e/mock-preview.ts ${PREVIEW_PORT}`,
+      port: PREVIEW_PORT,
+      reuseExistingServer: !process.env.CI,
+      timeout: 30_000,
+    },
+    {
       // Test the built bundle, not the dev server — the predecessor had bugs
       // that only appeared after a production build.
       command: "npm run build && node dist/server/index.js",
@@ -38,6 +45,11 @@ export default defineConfig({
       env: {
         PORT: String(PORT),
         OPENCODE_URL: `http://127.0.0.1:${MOCK_PORT}`,
+        PROJECTS_DIR: "/tmp",
+        OPENCODE_WORKTREE_ROOT: "/tmp",
+        NOTIFICATION_PREFS_FILE: "/tmp/custom-dca-opencode-e2e-notifications.json",
+        PREVIEW_ALLOWED_PORTS: String(PREVIEW_PORT),
+        GITHUB_API_URL: `http://127.0.0.1:${PREVIEW_PORT}`,
       },
     },
   ],

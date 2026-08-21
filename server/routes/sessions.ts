@@ -7,8 +7,9 @@
 
 import { Router, type Request, type Response } from "express";
 
-import { OpencodeError, type OpencodeConfig } from "../opencode/client.js";
+import { OpencodeError, request, type OpencodeConfig } from "../opencode/client.js";
 import type { EventBus } from "../opencode/events.js";
+import { PathError, requireWorkspaceDirectory } from "../paths.js";
 import {
   abortSession,
   createSession,
@@ -19,17 +20,13 @@ import {
   listTodos,
   prompt,
 } from "../opencode/sessions.js";
+import { createWorktree } from "../opencode/worktrees.js";
+import { getModelContextLimit } from "../opencode/config.js";
 
 /** Resolve and validate the project scope for a request. */
-function directoryOf(req: Request): string {
+async function directoryOf(req: Request): Promise<string> {
   const value = req.query.directory ?? req.body?.directory;
-  if (typeof value !== "string" || !value.trim()) {
-    throw new HttpError(400, "a 'directory' query parameter is required");
-  }
-  if (!value.startsWith("/")) {
-    throw new HttpError(400, "'directory' must be an absolute path");
-  }
-  return value;
+  return requireWorkspaceDirectory(value);
 }
 
 /**
@@ -54,6 +51,21 @@ class HttpError extends Error {
   }
 }
 
+function promptAttachments(value: unknown): Array<{ filename: string; mime: string; url: string }> {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 4) throw new HttpError(400, "at most four image attachments are allowed");
+  return value.map((item) => {
+    const source = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+    const filename = typeof source.filename === "string" ? source.filename.slice(0, 200) : "image";
+    const mime = typeof source.mime === "string" ? source.mime : "";
+    const url = typeof source.url === "string" ? source.url : "";
+    if (!/^image\/(png|jpeg|gif|webp)$/.test(mime) || !url.startsWith(`data:${mime};base64,`) || url.length > 4_200_000) {
+      throw new HttpError(400, "attachments must be PNG, JPEG, GIF or WebP data URLs under 3 MiB");
+    }
+    return { filename, mime, url };
+  });
+}
+
 /**
  * Map thrown errors onto responses without leaking stack traces.
  *
@@ -63,7 +75,7 @@ class HttpError extends Error {
  * get the honest status instead.
  */
 function fail(res: Response, error: unknown, options: { notFoundOn5xx?: boolean } = {}): void {
-  if (error instanceof HttpError) {
+  if (error instanceof HttpError || error instanceof PathError) {
     res.status(error.status).json({ error: error.message });
     return;
   }
@@ -102,7 +114,7 @@ export function sessionRoutes(config: OpencodeConfig, bus: EventBus): Router {
   router.get(
     "/sessions",
     asyncRoute(async (req, res) => {
-      const directory = directoryOf(req);
+      const directory = await directoryOf(req);
       const limit = Number(req.query.limit ?? 100);
       const sessions = await listSessions(config, directory, {
         limit: Number.isFinite(limit) ? limit : 100,
@@ -116,8 +128,16 @@ export function sessionRoutes(config: OpencodeConfig, bus: EventBus): Router {
   router.post(
     "/sessions",
     asyncRoute(async (req, res) => {
-      const directory = directoryOf(req);
-      const { title, agent, model, prompt: initialPrompt } = req.body ?? {};
+      const projectDirectory = await directoryOf(req);
+      const { title, agent, model, prompt: initialPrompt, isolated, worktreeName } = req.body ?? {};
+      const directory = isolated === true
+        ? (await createWorktree(
+            config,
+            bus,
+            projectDirectory,
+            typeof worktreeName === "string" ? worktreeName : undefined,
+          )).directory
+        : projectDirectory;
       const session = await createSession(config, { directory, title, agent, model });
       // Fire-and-forget the opening turn so the response is not held for it.
       if (typeof initialPrompt === "string" && initialPrompt.trim()) {
@@ -130,7 +150,7 @@ export function sessionRoutes(config: OpencodeConfig, bus: EventBus): Router {
   router.get(
     "/sessions/:id",
     sessionRoute(async (req, res) => {
-      const directory = directoryOf(req);
+      const directory = await directoryOf(req);
       res.json({ session: await getSession(config, directory, paramOf(req, "id")) });
     }),
   );
@@ -138,7 +158,7 @@ export function sessionRoutes(config: OpencodeConfig, bus: EventBus): Router {
   router.delete(
     "/sessions/:id",
     sessionRoute(async (req, res) => {
-      const directory = directoryOf(req);
+      const directory = await directoryOf(req);
       await deleteSession(config, directory, paramOf(req, "id"));
       res.status(204).end();
     }),
@@ -147,7 +167,7 @@ export function sessionRoutes(config: OpencodeConfig, bus: EventBus): Router {
   router.get(
     "/sessions/:id/messages",
     sessionRoute(async (req, res) => {
-      const directory = directoryOf(req);
+      const directory = await directoryOf(req);
       // Raw {info, parts} — the client adapter owns the shaping so there is
       // exactly one place that understands OpenCode's wire format.
       const [messages, session] = await Promise.all([
@@ -161,20 +181,39 @@ export function sessionRoutes(config: OpencodeConfig, bus: EventBus): Router {
   router.get(
     "/sessions/:id/todos",
     sessionRoute(async (req, res) => {
-      const directory = directoryOf(req);
+      const directory = await directoryOf(req);
       res.json({ todos: await listTodos(config, directory, paramOf(req, "id")) });
+    }),
+  );
+
+  router.get(
+    "/sessions/:id/model-limit",
+    sessionRoute(async (req, res) => {
+      const directory = await directoryOf(req);
+      const session = await getSession(config, directory, paramOf(req, "id"));
+      const providerID = session.model?.providerID;
+      const modelID = session.model?.modelID;
+      const context = providerID && modelID
+        ? await getModelContextLimit(config, directory, providerID, modelID)
+        : null;
+      res.json({ context });
     }),
   );
 
   router.post(
     "/sessions/:id/prompt",
     sessionRoute(async (req, res) => {
-      const directory = directoryOf(req);
-      const { text, agent, model } = req.body ?? {};
+      const directory = await directoryOf(req);
+      const { text, agent, model, attachments } = req.body ?? {};
       if (typeof text !== "string" || !text.trim()) {
         throw new HttpError(400, "'text' is required");
       }
-      await prompt(config, directory, paramOf(req, "id"), { text, agent, model });
+      await prompt(config, directory, paramOf(req, "id"), {
+        text,
+        agent,
+        model,
+        attachments: promptAttachments(attachments),
+      });
       // 202: accepted, running server-side. Progress arrives over SSE.
       res.status(202).json({ accepted: true });
     }),
@@ -183,9 +222,34 @@ export function sessionRoutes(config: OpencodeConfig, bus: EventBus): Router {
   router.post(
     "/sessions/:id/abort",
     sessionRoute(async (req, res) => {
-      const directory = directoryOf(req);
+      const directory = await directoryOf(req);
       await abortSession(config, directory, paramOf(req, "id"));
       res.json({ aborted: true });
+    }),
+  );
+
+  router.get(
+    "/permission-requests",
+    asyncRoute(async (req, res) => {
+      const directory = await directoryOf(req);
+      res.json({ requests: await request<unknown[]>(config, "/permission", { directory }) });
+    }),
+  );
+
+  router.post(
+    "/permission-requests/:requestId/reply",
+    asyncRoute(async (req, res) => {
+      const directory = await directoryOf(req);
+      const reply = req.body?.reply;
+      if (reply !== "once" && reply !== "always" && reply !== "reject") {
+        throw new HttpError(400, "reply must be 'once', 'always' or 'reject'");
+      }
+      await request<boolean>(config, `/permission/${encodeURIComponent(paramOf(req, "requestId"))}/reply`, {
+        method: "POST",
+        directory,
+        body: { reply, ...(typeof req.body?.message === "string" ? { message: req.body.message } : {}) },
+      });
+      res.json({ replied: true });
     }),
   );
 

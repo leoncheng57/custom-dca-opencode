@@ -22,11 +22,12 @@ several decisions below.
 - **The API is much larger than the docs.** `GET /doc` on a live server returns
   OpenAPI 3.1 with 162 paths / 188 operations; the published docs show ~60. When in
   doubt, curl `/doc`, not the website.
-- **Use `dist/v2/gen/` SDK types.** `dist/gen/` and the GitHub `dev` branch are stale
-  in ways that fail silently — they still say `permission.updated` (actually
-  `permission.asked`) and still declare `Todo.id`, which was removed in 1.18.19.
+- **The live `GET /doc` is the contract.** The SDK's classic query types are narrower
+  than the 1.18.19 server and its event union is stale, so `server/opencode/client.ts`
+  owns a small typed fetch seam instead of casting around the SDK.
 - Tests: `npm test` (vitest, `tests/*.test.ts`, node environment, import with `.js`
-  suffixes). `npm run typecheck` runs both tsconfigs. Playwright e2e needs the stack up.
+  suffixes). `npm run typecheck` runs both tsconfigs. Playwright starts deterministic
+  mock OpenCode and preview servers, so `npm run test:e2e` needs no live stack or keys.
 
 ## Non-obvious API contracts (each one cost real debugging)
 

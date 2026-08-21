@@ -17,7 +17,8 @@
 // Run standalone:  npx tsx tests/e2e/mock-opencode.ts [port]
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -26,15 +27,23 @@ const fixture = JSON.parse(
   readFileSync(path.resolve(here, "../fixtures/session-messages.json"), "utf8"),
 ) as unknown[];
 
-export const MOCK_DIRECTORY = "/tmp/mock-project";
+const MOCK_DIRECTORY_INPUT = "/tmp/mock-project";
+mkdirSync(MOCK_DIRECTORY_INPUT, { recursive: true });
+export const MOCK_DIRECTORY = realpathSync(MOCK_DIRECTORY_INPUT);
+if (!existsSync(path.join(MOCK_DIRECTORY, ".git"))) {
+  execFileSync("git", ["init", "-q", MOCK_DIRECTORY]);
+  writeFileSync(path.join(MOCK_DIRECTORY, "README.md"), "# Mock project\n");
+  execFileSync("git", ["-C", MOCK_DIRECTORY, "add", "README.md"]);
+  execFileSync("git", ["-C", MOCK_DIRECTORY, "-c", "user.name=E2E", "-c", "user.email=e2e@example.test", "commit", "-qm", "fixture"]);
+}
 
-const SESSIONS = [
+const SESSIONS: Array<Record<string, any>> = [
   {
     id: "ses_mock_done",
     title: "Add a health endpoint",
     directory: MOCK_DIRECTORY,
     agent: "build",
-    model: { providerID: "anthropic", modelID: "claude-opus-5" },
+    model: { providerID: "anthropic", id: "claude-opus-5" },
     cost: 0.0431,
     tokens: { input: 110, output: 940, reasoning: 250, cache: { read: 10400, write: 800 } },
     time: { created: 1787000000000, updated: 1787000012000 },
@@ -44,7 +53,7 @@ const SESSIONS = [
     title: "Refactor the parser",
     directory: MOCK_DIRECTORY,
     agent: "build",
-    model: { providerID: "anthropic", modelID: "claude-opus-5" },
+    model: { providerID: "anthropic", id: "claude-opus-5" },
     cost: 0.12,
     tokens: { input: 20, output: 300, reasoning: 0, cache: { read: 900, write: 100 } },
     time: { created: 1787000100000, updated: 1787000200000 },
@@ -64,6 +73,33 @@ const TODOS = [
   { content: "Add the route", status: "in_progress", priority: "high" },
   { content: "Write a test", status: "pending", priority: "medium" },
 ];
+
+let globalConfig: Record<string, unknown> = {};
+let mcpServers: Record<string, unknown> = {
+  github: { status: "connected" },
+  docs: { status: "failed", error: "mock connection refused" },
+  auth: { status: "needs_auth" },
+};
+const worktrees = [`${MOCK_DIRECTORY}.worktrees/fixture`];
+let pendingPermissions = [{ id: "perm_mock", sessionID: "ses_mock_done", permission: "bash", patterns: ["npm test"] }];
+mkdirSync(worktrees[0], { recursive: true });
+const eventClients = new Set<ServerResponse>();
+
+function body(req: IncomingMessage): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    let raw = "";
+    req.on("data", (chunk) => (raw += chunk));
+    req.on("end", () => {
+      try { resolve(raw ? (JSON.parse(raw) as Record<string, unknown>) : {}); }
+      catch (error) { reject(error); }
+    });
+  });
+}
+
+function emit(type: string, properties: Record<string, unknown>, directory = MOCK_DIRECTORY): void {
+  const frame = `data: ${JSON.stringify({ directory, payload: { type, properties } })}\n\n`;
+  for (const client of eventClients) client.write(frame);
+}
 
 function json(res: ServerResponse, status: number, body: unknown): void {
   const payload = JSON.stringify(body);
@@ -95,6 +131,7 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
       Connection: "keep-alive",
     });
     res.write(`data: ${JSON.stringify({ payload: { type: "server.connected", properties: {} } })}\n\n`);
+    eventClients.add(res);
     // The real server heartbeats every 10s with a type absent from the typed
     // union — clients must tolerate it.
     const beat = setInterval(() => {
@@ -102,9 +139,89 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
         `data: ${JSON.stringify({ directory: MOCK_DIRECTORY, payload: { type: "server.heartbeat", properties: {} } })}\n\n`,
       );
     }, 1_000);
-    req.on("close", () => clearInterval(beat));
+    req.on("close", () => { clearInterval(beat); eventClients.delete(res); });
     return;
   }
+
+  if (pathname === "/global/config") {
+    if (req.method === "GET") return json(res, 200, globalConfig);
+    if (req.method === "PATCH") {
+      void body(req).then((patch) => {
+        globalConfig = {
+          ...globalConfig,
+          ...patch,
+          ...(patch.compaction && typeof patch.compaction === "object"
+            ? { compaction: { ...((globalConfig.compaction as object) ?? {}), ...(patch.compaction as object) } }
+            : {}),
+        };
+        json(res, 200, globalConfig);
+      });
+      return;
+    }
+  }
+
+  if (pathname === "/config") {
+    return json(res, 200, { model: "anthropic/claude-opus-5", permission: { "*": "ask", read: "allow" } });
+  }
+  if (pathname === "/config/providers") {
+    return json(res, 200, {
+      providers: [{ id: "anthropic", models: { "claude-opus-5": { limit: { context: 200000 } } } }],
+      default: { anthropic: "claude-opus-5" },
+    });
+  }
+
+  if (pathname === "/mcp" && req.method === "GET") return json(res, 200, mcpServers);
+  const mcpMatch = /^\/mcp\/([^/]+)\/(connect|disconnect)$/.exec(pathname);
+  if (mcpMatch && req.method === "POST") {
+    const name = decodeURIComponent(mcpMatch[1]);
+    if (!(name in mcpServers)) return json(res, 404, { error: "unknown MCP" });
+    mcpServers = { ...mcpServers, [name]: { status: mcpMatch[2] === "connect" ? "connected" : "disabled" } };
+    return json(res, 200, true);
+  }
+
+  if (pathname === "/lsp") return json(res, 200, { typescript: { status: "connected" } });
+  if (pathname === "/permission") return json(res, 200, pendingPermissions);
+  const permissionReply = /^\/permission\/([^/]+)\/reply$/.exec(pathname);
+  if (permissionReply && req.method === "POST") {
+    pendingPermissions = pendingPermissions.filter((request) => request.id !== decodeURIComponent(permissionReply[1]));
+    return json(res, 200, true);
+  }
+
+  if (pathname === "/file") {
+    const relative = url.searchParams.get("path") ?? "";
+    return json(res, 200, relative === "src"
+      ? [{ name: "index.ts", path: "src/index.ts", type: "file", ignored: false }]
+      : [
+          { name: "src", path: "src", type: "directory", ignored: false },
+          { name: "README.md", path: "README.md", type: "file", ignored: false },
+          { name: "node_modules", path: "node_modules", type: "directory", ignored: true },
+        ]);
+  }
+  if (pathname === "/file/content") {
+    const relative = url.searchParams.get("path") ?? "";
+    return json(res, 200, { type: "text", content: relative === "README.md" ? "# Mock project" : "export const answer = 42;" });
+  }
+  if (pathname === "/vcs/diff") {
+    return json(res, 200, [{ file: "src/index.ts", status: "modified", additions: 1, deletions: 1, patch: "@@ -1 +1 @@\n-old\n+new" }]);
+  }
+
+  if (pathname === "/experimental/worktree") {
+    if (req.method === "GET") return json(res, 200, worktrees);
+    if (req.method === "POST") {
+      void body(req).then((input) => {
+        const name = typeof input.name === "string" ? input.name : `mock-${Date.now()}`;
+        const directory = `${MOCK_DIRECTORY}.worktrees/${name}`;
+        mkdirSync(directory, { recursive: true });
+        worktrees.push(directory);
+        const value = { name, branch: name, directory };
+        json(res, 200, value);
+        setTimeout(() => emit("worktree.ready", { name, branch: name }, directory), 10);
+      });
+      return;
+    }
+    if (req.method === "DELETE") return json(res, 200, true);
+  }
+  if (pathname === "/experimental/worktree/reset" && req.method === "POST") return json(res, 200, true);
 
   if (pathname === "/session/status") {
     return json(res, 200, { ses_mock_running: { type: "busy" } });
@@ -120,14 +237,16 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     req.on("data", (chunk) => (raw += chunk));
     req.on("end", () => {
       const body = raw ? (JSON.parse(raw) as { title?: string }) : {};
-      json(res, 200, {
+      const created = {
         id: `ses_mock_new_${Date.now()}`,
         title: body.title ?? "Untitled session",
         directory: directory ?? MOCK_DIRECTORY,
         cost: 0,
         tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
         time: { created: Date.now(), updated: Date.now() },
-      });
+      };
+      SESSIONS.push(created);
+      json(res, 200, created);
     });
     return;
   }

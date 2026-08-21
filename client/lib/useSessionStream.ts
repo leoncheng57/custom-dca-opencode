@@ -17,7 +17,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { api, ApiError } from "./api.js";
+import { api, ApiError, type PermissionRequest } from "./api.js";
 
 const POLL_MS = 3_000;
 const RETRY_BASE_MS = 2_000;
@@ -32,6 +32,7 @@ export interface SessionStreamState {
   messages: unknown[];
   running: boolean;
   todos: Array<{ content: string; status: string; priority: string }>;
+  permissions: PermissionRequest[];
   error: string | null;
   /** True once the first fetch has resolved, so the UI can skip a spinner. */
   loaded: boolean;
@@ -42,6 +43,7 @@ export function useSessionStream(directory: string, sessionId: string): SessionS
   const [messages, setMessages] = useState<unknown[]>([]);
   const [running, setRunning] = useState(false);
   const [todos, setTodos] = useState<Array<{ content: string; status: string; priority: string }>>([]);
+  const [permissions, setPermissions] = useState<PermissionRequest[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
 
@@ -54,9 +56,10 @@ export function useSessionStream(directory: string, sessionId: string): SessionS
     if (inFlight.current) return;
     inFlight.current = true;
     try {
-      const [messageResult, todoResult] = await Promise.allSettled([
+      const [messageResult, todoResult, permissionResult] = await Promise.allSettled([
         api.messages(directory, sessionId),
         api.todos(directory, sessionId),
+        api.permissionRequests(directory),
       ]);
       if (liveId.current !== sessionId) return;
 
@@ -70,6 +73,9 @@ export function useSessionStream(directory: string, sessionId: string): SessionS
       }
       // Todos are supplementary — a failure there must not blank the transcript.
       if (todoResult.status === "fulfilled") setTodos(todoResult.value.todos);
+      if (permissionResult.status === "fulfilled") {
+        setPermissions(permissionResult.value.requests.filter((request) => request.sessionID === sessionId));
+      }
     } finally {
       inFlight.current = false;
       setLoaded(true);
@@ -158,7 +164,7 @@ export function useSessionStream(directory: string, sessionId: string): SessionS
     void poll();
   }, [poll]);
 
-  return { messages, running, todos, error, loaded, refresh };
+  return { messages, running, todos, permissions, error, loaded, refresh };
 }
 
 /** True when an error means "stop trying" rather than "retry later". */

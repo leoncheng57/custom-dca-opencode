@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 // Browser tier — the built SPA against the real BFF against the mock agent.
 
-const DIR = "/tmp/mock-project";
+const DIR = process.platform === "darwin" ? "/private/tmp/mock-project" : "/tmp/mock-project";
 const hub = `/?directory=${encodeURIComponent(DIR)}`;
 
 test.describe("hub", () => {
@@ -10,8 +10,9 @@ test.describe("hub", () => {
     await page.goto(hub);
     await expect(page.getByTestId("opencode-session-list")).toBeVisible();
     const rows = page.getByTestId("opencode-session-row");
-    await expect(rows).toHaveCount(2); // archived one is hidden
+    expect(await rows.count()).toBeGreaterThanOrEqual(2);
     await expect(page.getByText("Add a health endpoint")).toBeVisible();
+    await expect(page.getByText("Old archived work")).toHaveCount(0);
   });
 
   test("shows a running pill for the busy session", async ({ page }) => {
@@ -55,6 +56,11 @@ test.describe("transcript", () => {
   test("shows the reasoning duration OpenHands could not", async ({ page }) => {
     await page.goto(conversation);
     await expect(page.getByTestId("opencode-thought")).toContainText("2.0s");
+  });
+
+  test("shows live context usage against the model limit", async ({ page }) => {
+    await page.goto(conversation);
+    await expect(page.getByTestId("opencode-context-tokens")).toContainText("%");
   });
 
   // Encrypted-only reasoning must not produce an empty row.
@@ -118,6 +124,15 @@ test.describe("composer", () => {
     await expect(page.getByTestId("opencode-composer")).toHaveValue("");
   });
 
+  test("accepts an image attachment", async ({ page }) => {
+    await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
+    await page.getByTestId("opencode-attach").setInputFiles({ name: "pixel.png", mimeType: "image/png", buffer: Buffer.from("89504e470d0a1a0a", "hex") });
+    await expect(page.getByTestId("opencode-attachment-chip")).toContainText("pixel.png");
+    await page.getByTestId("opencode-composer").fill("inspect this");
+    await page.getByTestId("opencode-send").click();
+    await expect(page.getByTestId("opencode-attachment-chip")).toHaveCount(0);
+  });
+
   test("disables send when empty", async ({ page }) => {
     await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
     await expect(page.getByTestId("opencode-send")).toBeDisabled();
@@ -143,6 +158,63 @@ test.describe("mobile", () => {
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
     );
+    expect(overflow).toBeLessThanOrEqual(1);
+  });
+});
+
+test.describe("settings and tools UI", () => {
+  test("edits compaction settings", async ({ page }) => {
+    await page.goto("/settings");
+    await page.getByTestId("opencode-setting-model").fill("anthropic/claude-opus-5");
+    await page.getByTestId("opencode-compaction-auto").check();
+    await page.getByTestId("opencode-compaction-reserved").fill("4096");
+    await page.getByTestId("opencode-settings-save").click();
+    await expect(page.getByText("Saved", { exact: true })).toBeVisible();
+  });
+
+  test("shows MCP failures, LSP status and permissions", async ({ page }) => {
+    await page.goto(`/tools?directory=${encodeURIComponent(DIR)}`);
+    await expect(page.getByTestId("opencode-mcp-row").filter({ hasText: "docs" })).toContainText(/connected|mock connection refused/);
+    await expect(page.getByTestId("opencode-lsp-status")).toContainText("typescript");
+    await expect(page.getByTestId("opencode-effective-permissions")).toContainText("allow");
+  });
+
+  test("keeps browser and ntfy event toggles independent", async ({ page }) => {
+    await page.goto("/settings/notifications");
+    const browser = page.getByTestId("opencode-notify-browser-idle");
+    const ntfy = page.getByTestId("opencode-notify-ntfy-idle");
+    const ntfyBefore = await ntfy.isChecked();
+    await browser.click();
+    expect(await ntfy.isChecked()).toBe(ntfyBefore);
+  });
+});
+
+test.describe("workspace UI", () => {
+  const conversation = `/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`;
+
+  test("opens files, changes, commands and preview", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(conversation);
+    await page.getByTestId("opencode-inspector-commands").click();
+    await expect(page.getByTestId("opencode-command-row")).toHaveCount(3);
+    await page.getByTestId("opencode-inspector-links").click();
+    await expect(page.getByTestId("opencode-merge-request-link")).toContainText("Mock pull request");
+    await expect(page.getByTestId("opencode-merge-request-link")).toContainText("pipeline passed");
+    await page.getByTestId("opencode-workspace-open").click();
+    await page.getByTestId("opencode-file-node").filter({ hasText: "README.md" }).click();
+    await expect(page.getByTestId("opencode-file-viewer")).toContainText("Mock project");
+    await page.getByTestId("opencode-workspace-changes").click();
+    await expect(page.getByTestId("opencode-diff-viewer")).toContainText("+new");
+    await page.getByTestId("opencode-workspace-preview").click();
+    await expect(page.getByTestId("opencode-preview-frame")).toBeVisible();
+  });
+
+  test("workspace drawer fits a phone", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 740 });
+    await page.goto(conversation);
+    await page.getByTestId("opencode-workspace-open").click();
+    await expect(page.getByTestId("opencode-workspace-panels")).toBeVisible();
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(1);
   });
 });

@@ -8,8 +8,8 @@
 //   - runs what the OpenCode API does not expose: git history, forge APIs,
 //     notification transport
 //
-// Phase 0 ships the shell: config, health, static serving. Routes land in
-// later phases (see AGENTS.md).
+// All browser-facing API routes are registered here; feature modules own the
+// upstream and filesystem details so this entrypoint remains auditable.
 
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -19,6 +19,15 @@ import dotenv from "dotenv";
 import { readOpencodeConfig, checkHealth, EXPECTED_SERVER_VERSION } from "./opencode/client.js";
 import { EventBus } from "./opencode/events.js";
 import { sessionRoutes } from "./routes/sessions.js";
+import { settingsRoutes } from "./routes/settings.js";
+import { mcpRoutes } from "./routes/mcp.js";
+import { workspaceRoutes } from "./routes/workspace.js";
+import { parseAllowedPorts, previewRoutes } from "./routes/preview.js";
+import { worktreeRoutes } from "./routes/worktrees.js";
+import { notificationRoutes } from "./routes/notifications.js";
+import { PreferenceStore } from "./notifications/preferences.js";
+import { NotificationService } from "./notifications/service.js";
+import { forgeRoutes } from "./routes/forge.js";
 
 dotenv.config();
 
@@ -34,8 +43,19 @@ bus.on("error", (error: unknown) => {
   console.warn("[bus]", error instanceof Error ? error.message : error);
 });
 bus.start();
+const notificationStore = new PreferenceStore();
+const notificationService = new NotificationService(opencode, bus, notificationStore);
+notificationService.start();
 
 app.use("/api", sessionRoutes(opencode, bus));
+app.use("/api", settingsRoutes(opencode));
+app.use("/api", mcpRoutes(opencode));
+app.use("/api", workspaceRoutes(opencode));
+app.use("/api", worktreeRoutes(opencode, bus));
+app.use("/api", notificationRoutes(notificationStore));
+app.use("/api", forgeRoutes());
+const opencodePort = Number(new URL(opencode.baseUrl).port || 80);
+app.use("/api", previewRoutes(parseAllowedPorts(process.env.PREVIEW_ALLOWED_PORTS, [PORT, opencodePort])));
 
 /**
  * Liveness for this BFF plus reachability of the OpenCode server behind it.
