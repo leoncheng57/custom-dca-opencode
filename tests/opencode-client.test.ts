@@ -70,7 +70,7 @@ describe("eventStreamUrl", () => {
 
 describe("version pin", () => {
   it("matches the server this client was generated against", () => {
-    // Bump deliberately, together with the @opencode-ai/sdk dependency.
-    expect(EXPECTED_SERVER_VERSION).toBe("1.18.19");
+    // Bump deliberately after re-auditing the live GET /doc contract.
+    expect(EXPECTED_SERVER_VERSION).toBe("1.18.21");
   });
 });

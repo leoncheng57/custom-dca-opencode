@@ -315,7 +315,7 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
   const directory = url.searchParams.get("directory");
 
   if (pathname === "/global/health") {
-    return json(res, 200, { healthy: true, version: "1.18.19" });
+    return json(res, 200, { healthy: true, version: "1.18.21" });
   }
 
   if (pathname === "/global/event") {

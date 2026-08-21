@@ -57,7 +57,7 @@ test.describe("health", () => {
     const body = await res.json();
     expect(body.healthy).toBe(true);
     expect(body.upstream.reachable).toBe(true);
-    expect(body.upstream.version).toBe("1.18.19");
+    expect(body.upstream.version).toBe("1.18.21");
     expect(body.upstream.versionMatches).toBe(true);
   });
 
