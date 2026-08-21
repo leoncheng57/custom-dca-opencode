@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "../ds/button.js";
+import { normalizeTranscript } from "../lib/events.js";
+import { fetchAllMessagePages } from "../lib/messagePages.js";
 import { Badge, type BadgeVariant } from "../ds/badge.js";
 import {
   extractCommands,
+  serializeCommands,
   extractMrUrls,
   formatClockTime,
   type CommandEntry,
@@ -141,15 +144,7 @@ function CatalogPanel({ catalogue, loading, error, directory, onRefresh }: {
 }
 
 function exportCommands(commands: CommandEntry[]): void {
-  const lines = [
-    "#!/usr/bin/env bash",
-    "set -euo pipefail",
-    "",
-    ...commands
-      .filter((command) => command.category === "command")
-      .flatMap((command) => [`# ${command.status} at ${command.timestamp}`, command.text, ""]),
-  ];
-  const url = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/x-shellscript" }));
+  const url = URL.createObjectURL(new Blob([serializeCommands(commands)], { type: "text/x-shellscript" }));
   const link = document.createElement("a");
   link.href = url;
   link.download = "session-commands.sh";
@@ -177,6 +172,9 @@ function InspectorContent({
   onTabChange,
   onCatalogRefresh,
   onJump,
+  onExportCommands,
+  commandExporting,
+  commandExportError,
 }: {
   catalogue: CatalogResponse | null;
   catalogError: string | null;
@@ -191,6 +189,9 @@ function InspectorContent({
   onTabChange: (tab: InspectorTab) => void;
   onCatalogRefresh: () => void;
   onJump: (id: string) => void;
+  onExportCommands: () => void;
+  commandExporting: boolean;
+  commandExportError: string | null;
 }) {
   return (
     <>
@@ -227,13 +228,14 @@ function InspectorContent({
               <Button
                 size="sm"
                 variant="secondary"
-                disabled={!commands.some((command) => command.category === "command")}
-                onClick={() => exportCommands(commands)}
+                disabled={commandExporting}
+                onClick={onExportCommands}
                 data-testid="opencode-export-commands"
               >
-                Export .sh
+                {commandExporting ? "Loading..." : "Export .sh"}
               </Button>
             </div>
+            {commandExportError && <p role="alert" className="mb-2 text-xs text-[var(--color-text-danger)]">{commandExportError}</p>}
             {commands.length === 0 ? (
               <p className="text-sm text-[var(--color-text-muted)]">No tool calls yet.</p>
             ) : (
@@ -346,18 +348,28 @@ function MobileInspector({ onClose, children }: { onClose: () => void; children:
   );
 }
 
-export function SessionInspector({ directory, events, todos, todosLoaded, todosError, mobileOpen = false, onMobileClose }: SessionInspectorProps) {
+export function SessionInspector({ directory, sessionID, events, todos, todosLoaded, todosError, mobileOpen = false, onMobileClose }: SessionInspectorProps & { sessionID: string }) {
   const commands = useMemo(() => extractCommands(events), [events]);
   const links = useMemo(() => extractMrUrls(events), [events]);
   const [tab, setTab] = useState<InspectorTab>("todo");
   const [catalogue, setCatalogue] = useState<{ directory: string; value: CatalogResponse } | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [commandExporting, setCommandExporting] = useState(false);
+  const [commandExportError, setCommandExportError] = useState<string | null>(null);
   const catalogRequest = useRef<{ id: number; controller: AbortController } | null>(null);
   const catalogueRef = useRef(catalogue);
   const directoryRef = useRef(directory);
   catalogueRef.current = catalogue;
   directoryRef.current = directory;
+  const exportCompleteCommands = useCallback(() => {
+    setCommandExporting(true);
+    setCommandExportError(null);
+    void fetchAllMessagePages((before) => api.messages(directory, sessionID, { limit: 100, ...(before ? { before } : {}) }))
+      .then((messages) => exportCommands(extractCommands(normalizeTranscript(messages).events)))
+      .catch((error: unknown) => setCommandExportError(`Command export failed: ${error instanceof Error ? error.message : String(error)}`))
+      .finally(() => setCommandExporting(false));
+  }, [directory, sessionID]);
 
   const loadCatalogue = useCallback((force = false) => {
     if (!directory || (!force && catalogueRef.current?.directory === directory)) return;
@@ -400,6 +412,9 @@ export function SessionInspector({ directory, events, todos, todosLoaded, todosE
       onTabChange={setTab}
       onCatalogRefresh={() => loadCatalogue(true)}
       onJump={onJump}
+      onExportCommands={exportCompleteCommands}
+      commandExporting={commandExporting}
+      commandExportError={commandExportError}
     />
   );
 

@@ -61,6 +61,12 @@ export function transcriptMessages(pages: TranscriptPages): RawMessage[] {
   return mergeMessagePages(pages.older, pages.newest);
 }
 
+export function invalidateOlderPages(pages: TranscriptPages, messageID?: string): TranscriptPages {
+  if (pages.older.length === 0) return pages;
+  if (messageID && !pages.older.some((message) => message.info?.id === messageID || message.parts?.some((part) => part.messageID === messageID))) return pages;
+  return { newest: pages.newest, older: [] };
+}
+
 export async function fetchAllMessagePages(
   fetchPage: (before?: string) => Promise<Pick<MessagePage, "messages" | "nextCursor">>,
 ): Promise<RawMessage[]> {

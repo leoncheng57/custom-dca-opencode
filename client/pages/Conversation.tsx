@@ -543,6 +543,7 @@ export function ConversationPage() {
 
         <SessionInspector
           directory={directory}
+          sessionID={id}
           events={events}
           todos={stream.todos}
           todosLoaded={stream.todosLoaded}

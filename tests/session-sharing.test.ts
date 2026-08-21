@@ -8,6 +8,7 @@ import {
 } from "../client/lib/sessionSharing.js";
 import { normalizeTranscript, type RawMessage } from "../client/lib/events.js";
 import { fetchAllMessagePages } from "../client/lib/messagePages.js";
+import { extractCommands, serializeCommands } from "../client/lib/derive.js";
 import type { TranscriptEvent } from "../client/lib/transcript.js";
 
 const events: TranscriptEvent[] = [
@@ -103,6 +104,22 @@ describe("session sharing serialization", () => {
     expect(payload.entries[0].text).toBe("Message 1");
     expect(payload.entries.at(-1)?.text).toBe("Message 125");
     expect(markdown.indexOf("Message 1")).toBeLessThan(markdown.indexOf("Message 125"));
+  });
+
+  it("exports old shell commands from complete paged history in order", async () => {
+    const raw: RawMessage[] = Array.from({ length: 125 }, (_, index) => ({
+      info: { id: `msg_tool_${index + 1}`, role: "assistant", time: { created: index + 1, completed: index + 1 } },
+      parts: [{ id: `prt_tool_${index + 1}`, messageID: `msg_tool_${index + 1}`, type: "tool", tool: "bash", state: { status: "completed", input: { command: `echo command-${index + 1}` } } }],
+    }));
+    const complete = await fetchAllMessagePages(async (before) => {
+      const end = before ? Number(before) : raw.length;
+      const start = Math.max(0, end - 100);
+      return { messages: raw.slice(start, end), nextCursor: start > 0 ? String(start) : null };
+    });
+    const script = serializeCommands(extractCommands(normalizeTranscript(complete).events));
+    expect(script).toContain("echo command-1");
+    expect(script).toContain("echo command-125");
+    expect(script.indexOf("echo command-1\n")).toBeLessThan(script.indexOf("echo command-125\n"));
   });
 });
 

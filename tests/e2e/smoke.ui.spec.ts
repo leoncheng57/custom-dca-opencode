@@ -333,6 +333,15 @@ test.describe("transcript", () => {
     await expect(page.getByTestId("opencode-todo-list")).toContainText("Add the route");
   });
 
+  test("hides seeded permission and question state on a session transition", async ({ page }) => {
+    await page.goto(conversation);
+    await expect(page.getByTestId("opencode-permission-request")).toBeVisible();
+    await expect(page.getByTestId("opencode-question-request")).toBeVisible();
+    await navigateInApp(page, mobileConversation);
+    await expect(page.getByTestId("opencode-permission-request")).toHaveCount(0);
+    await expect(page.getByTestId("opencode-question-request")).toHaveCount(0);
+  });
+
   test("rejects stale earlier-page completion after revisiting the same session", async ({ page }) => {
     let releaseBackfill!: () => void;
     let held = false;

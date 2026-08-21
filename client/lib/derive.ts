@@ -166,6 +166,12 @@ export interface CommandEntry {
   outputPreview?: string;
 }
 
+export function serializeCommands(commands: CommandEntry[]): string {
+  return ["#!/usr/bin/env bash", "set -euo pipefail", "", ...commands
+    .filter((command) => command.category === "command")
+    .flatMap((command) => [`# ${command.status} at ${command.timestamp}`, command.text, ""])].join("\n");
+}
+
 // Narrow on purpose: a loose /file/ would swallow unrelated tools. Anything
 // unmatched falls through to "other" and is still listed, so a miss only
 // affects filtering, never visibility.

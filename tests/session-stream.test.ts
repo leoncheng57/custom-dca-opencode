@@ -5,6 +5,7 @@ import {
   appendOlderPage,
   emptyTranscriptPages,
   fetchAllMessagePages,
+  invalidateOlderPages,
   mergeMessagePages,
   refreshNewestPage,
   transcriptMessages,
@@ -102,5 +103,11 @@ describe("transcript page merging", () => {
     expect(cursors).toEqual([undefined, "125", "25"]);
     expect(complete).toHaveLength(225);
     expect(complete.map((item) => item.info?.id)).toEqual(all.map((item) => item.info?.id));
+  });
+
+  it("invalidates stale content when a mutated message belongs to older backfill", () => {
+    const pages = { newest: [message("new", 3)], older: [message("old", 1, "stale"), message("middle", 2)] };
+    expect(transcriptMessages(invalidateOlderPages(pages, "old"))).toEqual([pages.newest[0]]);
+    expect(invalidateOlderPages(pages, "missing")).toBe(pages);
   });
 });
