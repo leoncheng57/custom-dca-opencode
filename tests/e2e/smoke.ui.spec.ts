@@ -827,6 +827,9 @@ test.describe("settings and tools UI", () => {
     await expect(badge).toBeVisible();
     // The count lives on the link label so it is announced, not just painted.
     await expect(page.getByTestId("opencode-nav-notifications")).toHaveAttribute("aria-label", /awaiting reply/);
+    await page.setViewportSize({ width: 390, height: 740 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth))
+      .toBeLessThanOrEqual(1);
 
     const row = page.getByTestId("opencode-notification-record").filter({ hasText: "OpenCode needs permission" }).first();
     await expect(row).toHaveAttribute("data-active", "true");

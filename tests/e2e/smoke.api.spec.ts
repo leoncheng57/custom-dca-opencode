@@ -918,6 +918,6 @@ test.describe("notification history", () => {
     expect(current.activeCount).toBeGreaterThan(0);
     expect(other.activeCount).toBe(0);
     expect(record(other.records, requestID)).toBeTruthy();
-    await fetch(`${MOCK_URL}/test/permissions/reset?directory=${encodeURIComponent(DIR)}`, { method: "POST" });
+    await request.post(`/api/permission-requests/${requestID}/reply?directory=${DIR}`, { data: { reply: "once" } });
   });
 });

@@ -175,13 +175,18 @@ export function AppShell() {
                 // badge itself is decorative.
                 aria-label={badged ? `${label}, ${activeCount} awaiting reply` : undefined}
                 className={({ isActive }) =>
-                  `flex items-center gap-1.5 rounded px-2 py-1 text-xs ${isActive ? "bg-[var(--color-background-surface-neutral-muted)] font-semibold" : "text-[var(--color-text-muted)]"}`
+                  `relative flex items-center rounded px-2 py-1 text-xs ${isActive ? "bg-[var(--color-background-surface-neutral-muted)] font-semibold" : "text-[var(--color-text-muted)]"}`
                 }
                 data-testid={`opencode-nav-${label.toLowerCase()}`}
               >
                 {label}
                 {badged && (
-                  <Badge variant="counter" aria-hidden="true" data-testid="opencode-nav-notifications-badge">
+                  <Badge
+                    variant="counter"
+                    className="absolute -top-1 left-full -translate-x-1/2"
+                    aria-hidden="true"
+                    data-testid="opencode-nav-notifications-badge"
+                  >
                     {activeCount}
                   </Badge>
                 )}
