@@ -106,6 +106,48 @@ let mcpServers: Record<string, unknown> = {
 };
 const worktrees = [`${MOCK_DIRECTORY}.worktrees/fixture`];
 let pendingPermissions = [{ id: "perm_mock", sessionID: "ses_mock_done", permission: "bash", patterns: ["npm test"] }];
+const questionFixture = () => [
+  {
+    id: "que_mock",
+    sessionID: "ses_mock_done",
+    questions: [
+      {
+        header: "Deployment",
+        question: "Where should this ship?",
+        options: [{ label: "Staging", description: "Use the staging environment" }, { label: "Production", description: "Use production" }],
+        custom: false,
+      },
+      {
+        header: "Checks",
+        question: "Which checks should run?",
+        options: [{ label: "Unit", description: "Run unit tests" }, { label: "E2E", description: "Run browser tests" }],
+        multiple: true,
+        custom: true,
+      },
+    ],
+  },
+  {
+    id: "que_api",
+    sessionID: "ses_mock_running",
+    questions: [
+      {
+        header: "Deployment",
+        question: "Where should this ship?",
+        options: [{ label: "Staging", description: "Use the staging environment" }, { label: "Production", description: "Use production" }],
+        custom: false,
+      },
+      {
+        header: "Checks",
+        question: "Which checks should run?",
+        options: [{ label: "Unit", description: "Run unit tests" }, { label: "E2E", description: "Run browser tests" }],
+        multiple: true,
+        custom: true,
+      },
+    ],
+  },
+];
+let pendingQuestions = questionFixture();
+const questionReplies: Array<{ id: string; answers?: unknown; rejected?: boolean }> = [];
 mkdirSync(worktrees[0], { recursive: true });
 const eventClients = new Set<ServerResponse>();
 
@@ -214,6 +256,24 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
   }
   if (pathname === "/test/prompt-payloads") return json(res, 200, promptPayloads);
   if (pathname === "/test/session-payloads") return json(res, 200, sessionPayloads);
+  if (pathname === "/test/question-replies") {
+    const id = url.searchParams.get("id");
+    return json(res, 200, id ? questionReplies.filter((reply) => reply.id === id) : questionReplies);
+  }
+  if (pathname === "/test/questions/reset" && req.method === "POST") {
+    const scope = url.searchParams.get("scope");
+    const fixtures = questionFixture();
+    const resetIDs = scope === "api" ? new Set(["que_api"]) : scope === "ui" ? new Set(["que_mock"]) : new Set(["que_api", "que_mock"]);
+    pendingQuestions = [...pendingQuestions.filter((item) => !resetIDs.has(item.id)), ...fixtures.filter((item) => resetIDs.has(item.id))];
+    for (let index = questionReplies.length - 1; index >= 0; index -= 1) {
+      if (resetIDs.has(questionReplies[index].id)) questionReplies.splice(index, 1);
+    }
+    return json(res, 200, true);
+  }
+  if (pathname === "/test/permissions/reset" && req.method === "POST") {
+    pendingPermissions = [{ id: "perm_mock", sessionID: "ses_mock_done", permission: "bash", patterns: ["npm test"] }];
+    return json(res, 200, true);
+  }
 
   if (pathname === "/mcp" && req.method === "GET") return json(res, 200, mcpServers);
   const mcpMatch = /^\/mcp\/([^/]+)\/(connect|disconnect)$/.exec(pathname);
@@ -231,7 +291,23 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     pendingPermissions = pendingPermissions.filter((request) => request.id !== decodeURIComponent(permissionReply[1]));
     return json(res, 200, true);
   }
-
+  if (pathname === "/question" && req.method === "GET") return json(res, 200, pendingQuestions);
+  const questionAction = /^\/question\/([^/]+)\/(reply|reject)$/.exec(pathname);
+  if (questionAction && req.method === "POST") {
+    const id = decodeURIComponent(questionAction[1]);
+    if (!pendingQuestions.some((request) => request.id === id)) return json(res, 200, false);
+    if (questionAction[2] === "reply") {
+      void body(req).then((input) => {
+        questionReplies.push({ id, answers: input.answers });
+        pendingQuestions = pendingQuestions.filter((request) => request.id !== id);
+        json(res, 200, true);
+      });
+      return;
+    }
+    questionReplies.push({ id, rejected: true });
+    pendingQuestions = pendingQuestions.filter((request) => request.id !== id);
+    return json(res, 200, true);
+  }
   if (pathname === "/file") {
     const relative = url.searchParams.get("path") ?? "";
     return json(res, 200, relative === "src"

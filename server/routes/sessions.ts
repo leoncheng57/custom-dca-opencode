@@ -32,6 +32,8 @@ import {
 } from "../opencode/config.js";
 import { reminderCatalogue } from "../reminders/loader.js";
 import { isValidReminderId, type ReminderPreset } from "../reminders/reminders.js";
+import { eventClickUrl } from "../publicAppUrl.js";
+import { parseQuestionRequests, validateQuestionAnswers, type QuestionRequest } from "../opencode/questions.js";
 
 /** Resolve and validate the project scope for a request. */
 async function directoryOf(req: Request): Promise<string> {
@@ -69,7 +71,11 @@ function promptAttachments(value: unknown): Array<{ filename: string; mime: stri
     const filename = typeof source.filename === "string" ? source.filename.slice(0, 200) : "image";
     const mime = typeof source.mime === "string" ? source.mime : "";
     const url = typeof source.url === "string" ? source.url : "";
-    if (!/^image\/(png|jpeg|gif|webp)$/.test(mime) || !url.startsWith(`data:${mime};base64,`) || url.length > 4_200_000) {
+    const prefix = `data:${mime};base64,`;
+    const encoded = url.startsWith(prefix) ? url.slice(prefix.length) : "";
+    const validBase64 = encoded.length > 0 && encoded.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(encoded);
+    const decodedBytes = validBase64 ? Buffer.byteLength(encoded, "base64") : Number.POSITIVE_INFINITY;
+    if (!/^image\/(png|jpeg|gif|webp)$/.test(mime) || !validBase64 || decodedBytes > 3 * 1024 * 1024) {
       throw new HttpError(400, "attachments must be PNG, JPEG, GIF or WebP data URLs under 3 MiB");
     }
     return { filename, mime, url };
@@ -172,8 +178,15 @@ const asyncRoute =
 const sessionRoute = (handler: (req: Request, res: Response) => Promise<void>) =>
   asyncRoute(handler, { notFoundOn5xx: true });
 
-export function sessionRoutes(config: OpencodeConfig, bus: EventBus): Router {
+export function sessionRoutes(config: OpencodeConfig, bus: EventBus, publicAppUrl: string | null = null): Router {
   const router = Router();
+  const pendingQuestions = async (directory: string): Promise<QuestionRequest[]> => {
+    try {
+      return parseQuestionRequests(await request<unknown>(config, "/question", { directory }));
+    } catch (error) {
+      throw new HttpError(502, error instanceof Error ? error.message : String(error));
+    }
+  };
 
   router.get(
     "/models",
@@ -329,6 +342,58 @@ export function sessionRoutes(config: OpencodeConfig, bus: EventBus): Router {
     }),
   );
 
+  const ownedQuestion = async (directory: string, sessionID: string, requestID: string): Promise<QuestionRequest> => {
+    const pending = await pendingQuestions(directory);
+    const found = pending.find((item) => item.id === requestID && item.sessionID === sessionID);
+    if (!found) throw new HttpError(404, "question request not found for this session");
+    return found;
+  };
+
+  router.get(
+    "/sessions/:id/questions",
+    sessionRoute(async (req, res) => {
+      const directory = await directoryOf(req);
+      const sessionID = paramOf(req, "id");
+      const pending = await pendingQuestions(directory);
+      res.json({ requests: pending.filter((item) => item.sessionID === sessionID) });
+    }),
+  );
+
+  router.post(
+    "/sessions/:id/questions/:requestId/reply",
+    sessionRoute(async (req, res) => {
+      const directory = await directoryOf(req);
+      const pending = await ownedQuestion(directory, paramOf(req, "id"), paramOf(req, "requestId"));
+      const replied = await request<boolean>(config, `/question/${encodeURIComponent(pending.id)}/reply`, {
+        method: "POST",
+        directory,
+        body: { answers: (() => {
+          try {
+            return validateQuestionAnswers(pending.questions, req.body?.answers);
+          } catch (error) {
+            throw new HttpError(400, error instanceof Error ? error.message : String(error));
+          }
+        })() },
+      });
+      if (!replied) throw new HttpError(409, "OpenCode did not accept the question reply");
+      res.json({ replied: true });
+    }),
+  );
+
+  router.post(
+    "/sessions/:id/questions/:requestId/reject",
+    sessionRoute(async (req, res) => {
+      const directory = await directoryOf(req);
+      const pending = await ownedQuestion(directory, paramOf(req, "id"), paramOf(req, "requestId"));
+      const rejected = await request<boolean>(config, `/question/${encodeURIComponent(pending.id)}/reject`, {
+        method: "POST",
+        directory,
+      });
+      if (!rejected) throw new HttpError(409, "OpenCode did not accept the question rejection");
+      res.json({ rejected: true });
+    }),
+  );
+
   /**
    * SSE fan-out. One upstream subscription serves every connected tab.
    *
@@ -349,7 +414,10 @@ export function sessionRoutes(config: OpencodeConfig, bus: EventBus): Router {
 
     const onEvent = (event: { type: string; properties: unknown; directory?: string }) => {
       if (scope && event.directory && event.directory !== scope) return;
-      res.write(`data: ${JSON.stringify(event)}\n\n`);
+      const properties = event.properties && typeof event.properties === "object"
+        ? event.properties as Record<string, unknown>
+        : {};
+      res.write(`data: ${JSON.stringify({ ...event, click: eventClickUrl(publicAppUrl, { ...event, properties }) })}\n\n`);
     };
     bus.on("event", onEvent);
 

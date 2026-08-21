@@ -16,3 +16,19 @@ export function parsePublicAppUrl(value: string | undefined): string | null {
   }
   return url.origin;
 }
+
+export function conversationUrl(publicAppUrl: string | null, sessionID?: unknown, directory?: unknown): string | undefined {
+  if (!publicAppUrl) return undefined;
+  if (typeof sessionID !== "string" || !sessionID || typeof directory !== "string" || !directory) return publicAppUrl;
+  const url = new URL(`/sessions/${encodeURIComponent(sessionID)}`, publicAppUrl);
+  url.searchParams.set("directory", directory);
+  return url.toString();
+}
+
+export function eventClickUrl(
+  publicAppUrl: string | null,
+  event: { type: string; properties: Record<string, unknown>; directory?: string },
+): string | undefined {
+  if (!["question.asked", "permission.asked", "session.idle", "session.error"].includes(event.type)) return undefined;
+  return conversationUrl(publicAppUrl, event.properties.sessionID, event.directory);
+}

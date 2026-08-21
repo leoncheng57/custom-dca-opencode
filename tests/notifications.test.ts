@@ -1,13 +1,16 @@
 import { readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { classifyEvent } from "../server/notifications/service.js";
 import {
   normalizePreferences,
   PreferenceStore,
 } from "../server/notifications/preferences.js";
+import { sendNtfy } from "../server/notifications/ntfy.js";
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe("notification preferences", () => {
   it("normalises independent event channels and clamps values", () => {
@@ -35,7 +38,32 @@ describe("notification preferences", () => {
   it("rejects unsafe ntfy destinations and topics", () => {
     expect(() => normalizePreferences({ ntfy: { server: "file:///etc", topic: "ok" } })).toThrow();
     expect(() => normalizePreferences({ ntfy: { server: "https://ntfy.sh/path", topic: "ok" } })).toThrow();
+    expect(() => normalizePreferences({ ntfy: { server: "https://user:secret@ntfy.sh", topic: "ok" } })).toThrow();
+    expect(() => normalizePreferences({ ntfy: { server: "https://ntfy.sh?next=evil", topic: "ok" } })).toThrow();
     expect(() => normalizePreferences({ ntfy: { server: "https://ntfy.sh", topic: "bad/topic" } })).toThrow();
+  });
+});
+
+describe("ntfy delivery", () => {
+  it("sends credentials and an encoded click URL only to the trusted origin", async () => {
+    const fetchMock = vi.fn(async () => new Response("ok", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const preferences = normalizePreferences({ ntfy: { enabled: true, server: "https://ntfy.sh", topic: "team" } });
+    const click = "https://ide.example.test/sessions/ses%2Fa?directory=%2Ftmp%2Fproject+one";
+    await sendNtfy(preferences, { event: "question", title: "Question", body: "Review it", click }, "secret");
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://ntfy.sh/team");
+    expect(init?.headers).toMatchObject({ Authorization: "Bearer secret", Click: click });
+    expect(init?.redirect).toBe("manual");
+
+    await expect(sendNtfy(
+      { ...preferences, ntfy: { ...preferences.ntfy, server: "https://evil.example" } },
+      { event: "question", title: "Question", body: "Review it" },
+      "secret",
+    )).rejects.toThrow("untrusted origin");
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 });
 

@@ -172,4 +172,5 @@ export const UI_EVENT_TYPES = [
   "permission.replied",
   "question.asked",
   "question.replied",
+  "question.rejected",
 ] as const;

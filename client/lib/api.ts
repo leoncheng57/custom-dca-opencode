@@ -124,6 +124,18 @@ export interface PermissionRequest {
   permission: string;
   patterns: string[];
 }
+export interface QuestionRequest {
+  id: string;
+  sessionID: string;
+  questions: Array<{
+    question: string;
+    header: string;
+    options: Array<{ label: string; description: string }>;
+    multiple?: boolean;
+    custom?: boolean;
+  }>;
+  tool?: unknown;
+}
 export interface ReminderSummary {
   id: string;
   description: string;
@@ -334,6 +346,20 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ reply }),
     }).then((r) => json<{ replied: boolean }>(r)),
+  questionRequests: (directory: string, sessionId: string) =>
+    fetch(scoped(`/sessions/${encodeURIComponent(sessionId)}/questions`, directory)).then((r) =>
+      json<{ requests: QuestionRequest[] }>(r),
+    ),
+  replyQuestion: (directory: string, sessionId: string, requestId: string, answers: string[][]) =>
+    fetch(scoped(`/sessions/${encodeURIComponent(sessionId)}/questions/${encodeURIComponent(requestId)}/reply`, directory), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ answers }),
+    }).then((r) => json<{ replied: boolean }>(r)),
+  rejectQuestion: (directory: string, sessionId: string, requestId: string) =>
+    fetch(scoped(`/sessions/${encodeURIComponent(sessionId)}/questions/${encodeURIComponent(requestId)}/reject`, directory), {
+      method: "POST",
+    }).then((r) => json<{ rejected: boolean }>(r)),
   reminders: () =>
     fetch("/api/reminders").then((r) => json<{ reminders: ReminderSummary[] }>(r)),
 
