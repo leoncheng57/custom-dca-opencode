@@ -199,7 +199,7 @@ export function ConversationPage() {
     } else {
       setNewActivity(true);
     }
-  }, [events, stream.running]);
+  }, [events]);
 
   useEffect(() => {
     const scroller = transcriptScrollerRef.current;

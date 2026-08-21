@@ -65,6 +65,7 @@ const messages = new Map<string, unknown[]>([
 ]);
 const promptPayloads: Array<Record<string, unknown> & { sessionID: string }> = [];
 let sessionListRequests = 0;
+let mobileRunning = true;
 const sessionPayloads: Array<Record<string, unknown>> = [];
 const toolIDs = [
   "invalid", "question", "bash", "read", "glob", "grep", "edit", "write", "task",
@@ -325,6 +326,12 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
   if (pathname === "/test/session-payloads") return json(res, 200, sessionPayloads);
   if (pathname === "/test/mobile/reset" && req.method === "POST") {
     messages.set("ses_mock_mobile", mobileMessages());
+    mobileRunning = true;
+    return json(res, 200, true);
+  }
+  if (pathname === "/test/mobile/idle" && req.method === "POST") {
+    mobileRunning = false;
+    emit("session.idle", { sessionID: "ses_mock_mobile" });
     return json(res, 200, true);
   }
   if (pathname === "/test/mobile/grow" && req.method === "POST") {
@@ -441,7 +448,10 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
   if (pathname === "/experimental/worktree/reset" && req.method === "POST") return json(res, 200, true);
 
   if (pathname === "/session/status") {
-    return json(res, 200, { ses_mock_running: { type: "busy" } });
+    return json(res, 200, {
+      ses_mock_running: { type: "busy" },
+      ...(mobileRunning ? { ses_mock_mobile: { type: "busy" } } : {}),
+    });
   }
 
   if (pathname === "/session" && req.method === "GET") {

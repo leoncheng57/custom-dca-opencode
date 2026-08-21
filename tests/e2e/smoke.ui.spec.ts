@@ -486,6 +486,21 @@ test.describe("mobile", () => {
     await expect(page.getByTestId("opencode-jump-to-latest")).toHaveCount(0);
   });
 
+  test("does not show Jump to latest merely because a scrolled-up run goes idle", async ({ page }) => {
+    await page.goto(`/sessions/ses_mock_mobile?directory=${encodeURIComponent(DIR)}`);
+    const transcript = page.getByTestId("opencode-transcript");
+    await expect(page.getByText("running", { exact: true })).toBeVisible();
+    await transcript.evaluate((element) => {
+      element.scrollTop = 240;
+      element.dispatchEvent(new Event("scroll", { bubbles: true }));
+    });
+    await expect(page.getByTestId("opencode-jump-to-latest")).toHaveCount(0);
+
+    await fetch(`${MOCK_URL}/test/mobile/idle`, { method: "POST" });
+    await expect(page.getByText("running", { exact: true })).toHaveCount(0);
+    await expect(page.getByTestId("opencode-jump-to-latest")).toHaveCount(0);
+  });
+
   test("stacks the Changes rail above the diff at phone width", async ({ page }) => {
     await page.goto(`/sessions/ses_mock_mobile?directory=${encodeURIComponent(DIR)}`);
     await page.getByTestId("opencode-workspace-open").click();
