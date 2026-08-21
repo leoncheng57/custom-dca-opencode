@@ -33,6 +33,7 @@ import { forgeRoutes } from "./routes/forge.js";
 import { reminderRoutes } from "./routes/reminders.js";
 import { appConfigRoutes } from "./routes/appConfig.js";
 import { projectRoutes } from "./routes/projects.js";
+import { recentRoutes } from "./routes/recents.js";
 import { parsePublicAppUrl } from "./publicAppUrl.js";
 
 dotenv.config();
@@ -74,6 +75,7 @@ app.use("/api", forgeRoutes());
 app.use("/api", reminderRoutes());
 app.use("/api", appConfigRoutes(publicAppUrl));
 app.use("/api", projectRoutes());
+app.use("/api", recentRoutes(opencode));
 const opencodePort = Number(new URL(opencode.baseUrl).port || 80);
 app.use("/api", previewRoutes(parseAllowedPorts(process.env.PREVIEW_ALLOWED_PORTS, [PORT, opencodePort])));
 

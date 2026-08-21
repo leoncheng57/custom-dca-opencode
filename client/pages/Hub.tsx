@@ -21,12 +21,16 @@ import type { AgentMode } from "../lib/agentMode.js";
 import { catalogueDefault, sameModel, type ModelCatalogue, type ModelSelection } from "../lib/models.js";
 import {
   readRecentSessionOpens,
+  recentDirectories,
   recentlyActiveSessions,
   recentlyOpenedSessions,
 } from "../lib/recentSessions.js";
 
 const DIRECTORY_KEY = "opencode.directory.v1";
 const POLL_MS = 10_000;
+// Recents fan out across projects, so they refresh on their own slower timer
+// rather than riding the per-directory session poll.
+const RECENTS_POLL_MS = 60_000;
 
 export function StatusPill({ running }: { running: boolean }) {
   return (
@@ -70,7 +74,18 @@ export function HubPage() {
   const [projectSearch, setProjectSearch] = useState("");
   const [pinsSaving, setPinsSaving] = useState(false);
   const [projectError, setProjectError] = useState<string | null>(null);
+  const [recents, setRecents] = useState<SessionSummary[] | null>(null);
   const recentOpens = readRecentSessionOpens(localStorage);
+
+  // The projects this browser knows about, newest first. The BFF unions this
+  // with the shared pins, so a fresh browser still sees pinned projects.
+  const recentScope = [...new Set([
+    ...(directory ? [directory] : []),
+    ...recentDirectories(recentOpens),
+  ])];
+  // Effects cannot depend on a fresh array every render; key on the content.
+  const recentScopeKey = recentScope.join("\n");
+  const recentLookupKey = recentOpens.map((entry) => entry.id).join("\n");
 
   useEffect(() => {
     if (directory) localStorage.setItem(DIRECTORY_KEY, directory);
@@ -129,6 +144,29 @@ export function HubPage() {
     if (!directory) return;
     void api.worktrees(directory).then((result) => setWorktrees(result.worktrees)).catch(() => setWorktrees([]));
   }, [directory]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      const directories = recentScopeKey ? recentScopeKey.split("\n") : [];
+      const lookups = recentLookupKey ? recentLookupKey.split("\n") : [];
+      api
+        .recentSessions(directories, lookups)
+        // An empty panel is a better failure than a stuck spinner: recents are
+        // a convenience, and the full session list below is still authoritative.
+        .then((result) => { if (!cancelled) setRecents(result.sessions); })
+        .catch(() => { if (!cancelled) setRecents([]); });
+    };
+    load();
+    const timer = setInterval(() => {
+      if (document.visibilityState === "hidden") return;
+      load();
+    }, RECENTS_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [recentScopeKey, recentLookupKey]);
 
   useEffect(() => {
     setModelCatalogue(null);
@@ -225,8 +263,16 @@ export function HubPage() {
   const selectedProject = projectByDirectory.get(directory);
   const showOtherWorkspace = Boolean(directory && projects && !selectedProject);
   const hasRunningSession = sessions?.some((session) => session.running) ?? false;
-  const recentlyOpened = sessions ? recentlyOpenedSessions(directory, sessions, recentOpens) : [];
-  const recentlyActive = sessions ? recentlyActiveSessions(directory, sessions) : [];
+  const recentlyOpened = recents ? recentlyOpenedSessions(recents, recentOpens) : [];
+  const recentlyActive = recents ? recentlyActiveSessions(recents) : [];
+
+  // Recents span projects, so every row needs a project label — two sessions
+  // called "Fix the tests" are otherwise indistinguishable. Discovery only
+  // covers PROJECTS_DIR, so worktrees and ad-hoc paths fall back to a basename.
+  const projectLabel = (sessionDirectory: string) =>
+    projectByDirectory.get(sessionDirectory)?.name
+    ?? sessionDirectory.split(/[\\/]/).filter(Boolean).at(-1)
+    ?? sessionDirectory;
 
   const recentList = (items: SessionSummary[], emptyMessage: string, testId: string) => (
     items.length === 0 ? (
@@ -236,7 +282,7 @@ export function HubPage() {
     ) : (
       <ul className="divide-y divide-[var(--color-border-default)]" data-testid={testId}>
         {items.map((session) => (
-          <li key={session.id}>
+          <li key={`${session.directory}\u0000${session.id}`}>
             <Link
               to={`/sessions/${session.id}?directory=${encodeURIComponent(session.directory)}`}
               className="flex min-h-11 min-w-0 items-center gap-3 px-4 py-2 text-sm hover:bg-[var(--hh-row-hover)]"
@@ -244,6 +290,13 @@ export function HubPage() {
             >
               <StatusPill running={session.running} />
               <span className="min-w-0 flex-1 truncate">{session.title}</span>
+              <span
+                className="max-w-[40%] shrink-0 truncate text-[11px] text-[var(--color-text-muted)]"
+                title={session.directory}
+                data-testid={`${testId}-project`}
+              >
+                {projectLabel(session.directory)}
+              </span>
             </Link>
           </li>
         ))}
@@ -292,7 +345,7 @@ export function HubPage() {
       {modelError && <Alert variant="danger" data-testid="opencode-model-error">{modelError}</Alert>}
       {projectError && <Alert variant="warning" data-testid="opencode-projects-error">Project picker: {projectError}</Alert>}
 
-      {directory && sessions !== null && (
+      {recents !== null && (
         <section className="grid overflow-hidden rounded-xl border border-[var(--color-border-default)] sm:grid-cols-2" data-testid="opencode-recent-sessions">
           <div className="min-w-0 sm:border-r sm:border-[var(--color-border-default)]">
             <h2 className="border-b border-[var(--color-border-default)] px-4 py-2 text-sm font-semibold">Recently opened</h2>
@@ -300,7 +353,7 @@ export function HubPage() {
           </div>
           <div className="min-w-0 border-t border-[var(--color-border-default)] sm:border-t-0">
             <h2 className="border-b border-[var(--color-border-default)] px-4 py-2 text-sm font-semibold">Recently active</h2>
-            {recentList(recentlyActive, "No active session history in this directory.", "opencode-recently-active")}
+            {recentList(recentlyActive, "No recent sessions in your pinned or recently opened projects.", "opencode-recently-active")}
           </div>
         </section>
       )}

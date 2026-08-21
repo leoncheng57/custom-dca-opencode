@@ -260,6 +260,24 @@ export const api = {
       json<{ sessions: SessionSummary[] }>(r),
     ),
 
+  /**
+   * Recent sessions across projects. Unlike every other session call this one
+   * is not scoped to a single directory: the caller passes the projects it
+   * knows about and the BFF unions them with the shared pins.
+   *
+   * `lookupIDs` names sessions the browser opened previously. They are usually
+   * not among the most recently active, so they have to be requested by id or
+   * the "recently opened" panel would come back empty.
+   */
+  recentSessions: (directories: string[], lookupIDs: string[] = [], limit = 5) => {
+    const query = new URLSearchParams({ limit: String(limit) });
+    for (const directory of directories) query.append("directory", directory);
+    for (const id of lookupIDs) query.append("session", id);
+    return fetch(`/api/recent-sessions?${query}`).then((r) =>
+      json<{ sessions: SessionSummary[]; directories: string[] }>(r),
+    );
+  },
+
   models: (directory: string) =>
     fetch(scoped("/models", directory)).then((r) => json<ModelCatalogue>(r)),
 

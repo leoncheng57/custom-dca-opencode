@@ -128,6 +128,18 @@ several decisions below.
     It does not change the Plan/Build session-policy activation above. Permission and
     parked-permission notifications are suppressed while enabled because asked requests
     are handled immediately.
+11. **Recents are cross-project; they are the one non-directory-scoped route.**
+    The Hub shows recent work before a project is chosen, so `GET /api/recent-sessions`
+    takes a *set* of directories instead of `?directory=`. There is no global session
+    list upstream — `/session` is directory-scoped — so this is a capped, concurrency-
+    limited fan-out (`listSessionsAcross`) whose per-directory failures are swallowed:
+    one renamed project must not blank a panel that is mostly about other projects.
+    The candidate set is shared pins plus the browser's own history, **not** every
+    discovered project, because discovery is capped at 500 directories and each costs
+    two upstream calls. Consequence to accept or revisit: a project that is neither
+    pinned nor previously opened in this browser stays invisible. Recents poll on
+    their own 60s timer, not the 10s session poll. Invalid directories are dropped
+    rather than rejected — localStorage outlives renames and moves between machines.
 
 ## Client conventions (inherited from the OpenHands runner, still enforced)
 
