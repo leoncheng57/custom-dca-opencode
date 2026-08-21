@@ -59,9 +59,20 @@ function mobileMessages(): unknown[] {
   return result;
 }
 
+function paginatedMessages(): unknown[] {
+  return Array.from({ length: 125 }, (_, index) => {
+    const number = index + 1;
+    return {
+      info: { id: `msg_page_${number}`, role: number % 2 ? "user" : "assistant", agent: "build", time: { created: 1787300000000 + number, completed: 1787300000000 + number } },
+      parts: [{ id: `prt_page_${number}`, messageID: `msg_page_${number}`, type: "text", text: `Paged message ${number}` }],
+    };
+  });
+}
+
 const messages = new Map<string, unknown[]>([
   ["ses_mock_done", fixture],
   ["ses_mock_mobile", mobileMessages()],
+  ["ses_mock_paginated", paginatedMessages()],
 ]);
 const promptPayloads: Array<Record<string, unknown> & { sessionID: string }> = [];
 let sessionListRequests = 0;
@@ -192,6 +203,16 @@ const SESSIONS: Array<Record<string, any>> = [
     // Keep the purpose-built long fixture out of ordinary hub assertions while
     // retaining direct route access for mobile transcript tests.
     time: { created: 1787100000000, updated: 1787100100000, archived: 1787100200000 },
+  },
+  {
+    id: "ses_mock_paginated",
+    title: "Paginated export fixture",
+    directory: MOCK_DIRECTORY,
+    agent: "build",
+    model: { providerID: "anthropic", id: "claude-opus-5" },
+    cost: 0,
+    tokens: {},
+    time: { created: 1787300000000, updated: 1787300000200, archived: 1787300000300 },
   },
   {
     id: "ses_mock_other_directory",
@@ -336,9 +357,9 @@ function emit(type: string, properties: Record<string, unknown>, directory = MOC
   for (const client of eventClients) client.write(frame);
 }
 
-function json(res: ServerResponse, status: number, body: unknown): void {
+function json(res: ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}): void {
   const payload = JSON.stringify(body);
-  res.writeHead(status, { "Content-Type": "application/json" });
+  res.writeHead(status, { "Content-Type": "application/json", ...headers });
   res.end(payload);
 }
 
@@ -751,7 +772,16 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
       return json(res, 200, session);
     }
     if (rest === "/message") {
-      return json(res, 200, messages.get(id) ?? []);
+      const all = messages.get(id) ?? [];
+      const requestedLimit = Number(url.searchParams.get("limit") ?? 0);
+      const limit = Number.isInteger(requestedLimit) && requestedLimit > 0 ? requestedLimit : all.length;
+      const requestedBefore = Number(url.searchParams.get("before") ?? all.length);
+      const end = Number.isInteger(requestedBefore) && requestedBefore >= 0
+        ? Math.min(requestedBefore, all.length)
+        : all.length;
+      const start = Math.max(0, end - limit);
+      const nextCursor = start > 0 ? String(start) : null;
+      return json(res, 200, all.slice(start, end), nextCursor ? { "X-Next-Cursor": nextCursor } : {});
     }
     if (rest === "/todo") {
       return json(res, 200, id === "ses_mock_done" ? TODOS : []);

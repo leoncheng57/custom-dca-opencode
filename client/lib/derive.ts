@@ -21,12 +21,12 @@ import type { ToolEvent, TranscriptEvent } from "./transcript.js";
 function fingerprint(event: TranscriptEvent): string {
   switch (event.kind) {
     case "tool":
-      return `${event.status}|${event.output?.length ?? 0}|${event.error ?? ""}|${event.durationMs ?? ""}`;
+      return `${event.status}|${event.output ?? ""}|${event.error ?? ""}|${event.durationMs ?? ""}`;
     case "user":
-      return `${event.text.length}|${event.reminders.map((reminder) => `${reminder.name}:${reminder.body}`).join("|")}`;
+      return `${event.text}|${event.reminders.map((reminder) => `${reminder.name}:${reminder.body}`).join("|")}`;
     case "agent":
     case "thought":
-      return String(event.text.length);
+      return event.text;
     case "status":
       return `${event.label}|${event.detail ?? ""}`;
     case "error":
@@ -35,7 +35,7 @@ function fingerprint(event: TranscriptEvent): string {
 }
 
 /**
- * Merge a freshly fetched page into what we already have.
+ * Reconcile a freshly normalized transcript with what we already have.
  *
  * Returns the SAME array reference when nothing changed, so downstream
  * `useMemo`/`memo` boundaries do not invalidate on every poll.
@@ -44,17 +44,19 @@ export function mergeEvents(
   previous: TranscriptEvent[],
   incoming: TranscriptEvent[],
 ): TranscriptEvent[] {
-  if (incoming.length === 0) return previous;
+  if (incoming.length === 0) return previous.length === 0 ? previous : [];
 
+  const previousById = new Map(previous.map((event) => [event.id, event]));
   const byId = new Map<string, TranscriptEvent>();
-  for (const event of previous) byId.set(event.id, event);
 
-  let changed = false;
+  let changed = previous.length !== incoming.length;
   for (const event of incoming) {
-    const existing = byId.get(event.id);
+    const existing = previousById.get(event.id);
     if (!existing || fingerprint(existing) !== fingerprint(event)) {
       changed = true;
       byId.set(event.id, event);
+    } else {
+      byId.set(event.id, existing);
     }
   }
   if (!changed) return previous;

@@ -16,10 +16,17 @@
 // backoff. The cap survives phone network handovers without reconnect storms;
 // the durable poll keeps serving updates between attempts.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api, ApiError, type PermissionRequest, type QuestionRequest } from "./api.js";
 import type { RawMessage } from "./events.js";
+import {
+  appendOlderPage,
+  emptyTranscriptPages,
+  refreshNewestPage,
+  transcriptMessages,
+  type TranscriptPages,
+} from "./messagePages.js";
 
 const POLL_MS = 3_000;
 const RETRY_BASE_MS = 2_000;
@@ -27,29 +34,6 @@ const RETRY_MAX_MS = 30_000;
 
 export function streamRetryDelay(retries: number): number {
   return Math.min(RETRY_BASE_MS * 2 ** Math.min(retries, 4), RETRY_MAX_MS);
-}
-
-function messageIdentity(message: RawMessage): string {
-  const messageID = message.info?.id ?? message.parts?.find((part) => part.messageID)?.messageID;
-  if (messageID) return `message:${messageID}`;
-  const partIDs = message.parts?.map((part) => part.id).filter((id): id is string => Boolean(id));
-  if (partIDs?.length) return `parts:${partIDs.join("\0")}`;
-  return `unknown:${JSON.stringify(message)}`;
-}
-
-function messageCreated(message: RawMessage): number {
-  return message.info?.time?.created ?? 0;
-}
-
-/** Merge overlapping newest/older pages without changing message or part IDs. */
-export function mergeMessagePages(previous: RawMessage[], incoming: RawMessage[]): RawMessage[] {
-  if (incoming.length === 0) return previous;
-  const byID = new Map(previous.map((message) => [messageIdentity(message), message]));
-  for (const message of incoming) byID.set(messageIdentity(message), message);
-  return [...byID.values()].sort((left, right) => {
-    const created = messageCreated(left) - messageCreated(right);
-    return created || messageIdentity(left).localeCompare(messageIdentity(right));
-  });
 }
 
 export interface SessionStreamState {
@@ -73,7 +57,23 @@ export interface SessionStreamState {
 
 export function useSessionStream(directory: string, sessionId: string): SessionStreamState {
   const scope = `${directory}\0${sessionId}`;
-  const [messages, setMessages] = useState<RawMessage[]>([]);
+  const scopeRef = useRef(scope);
+  const generationRef = useRef(0);
+  const pollGate = useRef({ generation: 0, inFlight: false, queued: false });
+  const backfillRequest = useRef<{ generation: number } | null>(null);
+  const earlierCursor = useRef<string | null>(null);
+  const backfillStarted = useRef(false);
+  if (scopeRef.current !== scope) {
+    scopeRef.current = scope;
+    generationRef.current += 1;
+    pollGate.current = { generation: generationRef.current, inFlight: false, queued: false };
+    backfillRequest.current = null;
+    earlierCursor.current = null;
+    backfillStarted.current = false;
+  }
+  const generation = generationRef.current;
+
+  const [pages, setPages] = useState<TranscriptPages>(emptyTranscriptPages);
   const [running, setRunning] = useState(false);
   const [todos, setTodos] = useState<Array<{ content: string; status: string; priority: string }>>([]);
   const [todosLoaded, setTodosLoaded] = useState(false);
@@ -85,35 +85,23 @@ export function useSessionStream(directory: string, sessionId: string): SessionS
   const [hasEarlier, setHasEarlier] = useState(false);
   const [loadingEarlier, setLoadingEarlier] = useState(false);
   const [loadEarlierError, setLoadEarlierError] = useState<string | null>(null);
-
-  const inFlight = useRef(false);
-  const inFlightScope = useRef<string | null>(null);
-  const pollQueued = useRef(false);
+  const [stateGeneration, setStateGeneration] = useState(generation);
   const permissionRevision = useRef(0);
-  const earlierCursor = useRef<string | null>(null);
-  const backfillStarted = useRef(false);
-  const backfillInFlight = useRef(false);
-  // Guards a stale response landing after the user navigated elsewhere.
-  const liveScope = useRef(scope);
-  liveScope.current = scope;
-  const messagesScope = useRef(scope);
 
   const poll = useCallback(async () => {
-    const requestedScope = `${directory}\0${sessionId}`;
-    if (inFlight.current) {
-      if (inFlightScope.current === requestedScope) {
-        pollQueued.current = true;
-        return;
-      }
-      // A request for the previous route may still be settling. Its scope
-      // guard prevents writes, so do not let it delay the new session.
-      inFlight.current = false;
+    let gate = pollGate.current;
+    if (gate.generation !== generation) {
+      gate = { generation, inFlight: false, queued: false };
+      pollGate.current = gate;
     }
-    inFlight.current = true;
-    inFlightScope.current = requestedScope;
+    if (gate.inFlight) {
+      gate.queued = true;
+      return;
+    }
+    gate.inFlight = true;
     try {
       do {
-        pollQueued.current = false;
+        gate.queued = false;
         const permissionRevisionAtStart = permissionRevision.current;
         const [messageResult, todoResult, permissionResult, questionResult] = await Promise.allSettled([
           api.messages(directory, sessionId, { limit: 100 }),
@@ -121,13 +109,18 @@ export function useSessionStream(directory: string, sessionId: string): SessionS
           api.permissionRequests(directory),
           api.questionRequests(directory, sessionId),
         ]);
-        if (liveScope.current !== requestedScope) return;
+        if (generationRef.current !== generation) return;
 
         if (messageResult.status === "fulfilled") {
-          messagesScope.current = requestedScope;
-          setMessages((previous) => mergeMessagePages(previous, messageResult.value.messages));
+          setPages((previous) => refreshNewestPage(
+            previous,
+            messageResult.value.messages,
+            messageResult.value.nextCursor,
+            backfillStarted.current,
+            100,
+          ));
           setRunning(messageResult.value.running);
-          if (!backfillStarted.current) {
+          if (!backfillStarted.current || messageResult.value.messages.length === 0 || messageResult.value.nextCursor === null) {
             earlierCursor.current = messageResult.value.nextCursor;
             setHasEarlier(messageResult.value.nextCursor !== null);
           }
@@ -149,19 +142,18 @@ export function useSessionStream(directory: string, sessionId: string): SessionS
           setPermissions(permissionResult.value.requests.filter((request) => request.sessionID === sessionId));
         }
         if (questionResult.status === "fulfilled") setQuestions(questionResult.value.requests);
-      } while (pollQueued.current && liveScope.current === requestedScope);
+      } while (gate.queued && generationRef.current === generation);
     } finally {
-      if (inFlightScope.current === requestedScope) {
-        inFlight.current = false;
-        inFlightScope.current = null;
+      if (pollGate.current === gate) {
+        gate.inFlight = false;
       }
-      if (liveScope.current === requestedScope) setLoaded(true);
+      if (generationRef.current === generation) setLoaded(true);
     }
-  }, [directory, sessionId]);
+  }, [directory, generation, sessionId]);
 
   useEffect(() => {
-    messagesScope.current = scope;
-    setMessages([]);
+    setStateGeneration(generation);
+    setPages(emptyTranscriptPages());
     setRunning(false);
     setTodos([]);
     setTodosLoaded(false);
@@ -175,8 +167,8 @@ export function useSessionStream(directory: string, sessionId: string): SessionS
     setLoadEarlierError(null);
     earlierCursor.current = null;
     backfillStarted.current = false;
-    backfillInFlight.current = false;
-  }, [directory, scope, sessionId]);
+    backfillRequest.current = null;
+  }, [generation]);
 
   // Poll loop. Hidden tabs skip ticks and refresh once on return.
   useEffect(() => {
@@ -270,48 +262,48 @@ export function useSessionStream(directory: string, sessionId: string): SessionS
   }, [poll]);
 
   const loadEarlier = useCallback(async () => {
-    const requestedScope = `${directory}\0${sessionId}`;
     const before = earlierCursor.current;
-    if (!before || backfillInFlight.current) return;
+    if (!before || backfillRequest.current?.generation === generation) return;
+    const request = { generation };
     backfillStarted.current = true;
-    backfillInFlight.current = true;
+    backfillRequest.current = request;
     setLoadingEarlier(true);
     setLoadEarlierError(null);
     try {
       const page = await api.messages(directory, sessionId, { limit: 100, before });
-      if (liveScope.current !== requestedScope) return;
-      setMessages((previous) => mergeMessagePages(previous, page.messages));
+      if (generationRef.current !== generation) return;
+      setPages((previous) => appendOlderPage(previous, page.messages));
       earlierCursor.current = page.nextCursor;
       setHasEarlier(page.nextCursor !== null);
     } catch (reason) {
-      if (liveScope.current === requestedScope) {
+      if (generationRef.current === generation) {
         setLoadEarlierError(reason instanceof Error ? reason.message : String(reason));
       }
     } finally {
-      if (liveScope.current === requestedScope) setLoadingEarlier(false);
-      backfillInFlight.current = false;
+      if (generationRef.current === generation) setLoadingEarlier(false);
+      if (backfillRequest.current === request) backfillRequest.current = null;
     }
-  }, [directory, sessionId]);
+  }, [directory, generation, sessionId]);
 
   const replyPermission = useCallback(async (requestId: string, reply: "once" | "always" | "reject") => {
     await api.replyPermission(directory, requestId, reply);
+    if (generationRef.current !== generation) return;
     permissionRevision.current += 1;
-    if (liveScope.current === `${directory}\0${sessionId}`) {
-      setPermissions((requests) => requests.filter((request) => request.id !== requestId));
-    }
+    setPermissions((requests) => requests.filter((request) => request.id !== requestId));
     await poll();
-  }, [directory, poll, sessionId]);
+  }, [directory, generation, poll, sessionId]);
 
-  const currentScope = messagesScope.current === scope;
+  const currentScope = stateGeneration === generation;
+  const messages = useMemo(() => transcriptMessages(pages), [pages]);
   return {
     messages: currentScope ? messages : [],
     running: currentScope && running,
-    todos,
-    todosLoaded,
-    todosError,
-    permissions,
-    questions,
-    error,
+    todos: currentScope ? todos : [],
+    todosLoaded: currentScope && todosLoaded,
+    todosError: currentScope ? todosError : null,
+    permissions: currentScope ? permissions : [],
+    questions: currentScope ? questions : [],
+    error: currentScope ? error : null,
     loaded: currentScope && loaded,
     hasEarlier: currentScope && hasEarlier,
     loadingEarlier: currentScope && loadingEarlier,

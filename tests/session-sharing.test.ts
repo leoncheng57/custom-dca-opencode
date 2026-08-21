@@ -6,6 +6,8 @@ import {
   shareFilename,
   validatedShareUrl,
 } from "../client/lib/sessionSharing.js";
+import { normalizeTranscript, type RawMessage } from "../client/lib/events.js";
+import { fetchAllMessagePages } from "../client/lib/messagePages.js";
 import type { TranscriptEvent } from "../client/lib/transcript.js";
 
 const events: TranscriptEvent[] = [
@@ -81,6 +83,26 @@ describe("session sharing serialization", () => {
       ],
     });
     expect(json).not.toMatch(/hidden reminder|SECRET|dangerous raw|token=|\/secret\/path/);
+  });
+
+  it("serializes a complete chronological export from more than 100 paged messages", async () => {
+    const raw: RawMessage[] = Array.from({ length: 125 }, (_, index) => ({
+      info: { id: `msg_${index + 1}`, role: "assistant", time: { created: index + 1, completed: index + 1 } },
+      parts: [{ id: `prt_${index + 1}`, messageID: `msg_${index + 1}`, type: "text", text: `Message ${index + 1}` }],
+    }));
+    const complete = await fetchAllMessagePages(async (before) => {
+      const end = before ? Number(before) : raw.length;
+      const start = Math.max(0, end - 100);
+      return { messages: raw.slice(start, end), nextCursor: start > 0 ? String(start) : null };
+    });
+    const completeEvents = normalizeTranscript(complete).events;
+    const payload = JSON.parse(serializeSessionJson("Paged", completeEvents, "2026-08-21T13:00:00.000Z")) as { entries: Array<{ text?: string }> };
+    const markdown = serializeShareMarkdown("Paged", completeEvents, { kind: "session" });
+
+    expect(payload.entries).toHaveLength(125);
+    expect(payload.entries[0].text).toBe("Message 1");
+    expect(payload.entries.at(-1)?.text).toBe("Message 125");
+    expect(markdown.indexOf("Message 1")).toBeLessThan(markdown.indexOf("Message 125"));
   });
 });
 

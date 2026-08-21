@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { mergeMessagePages, streamRetryDelay } from "../client/lib/useSessionStream.js";
+import { streamRetryDelay } from "../client/lib/useSessionStream.js";
+import {
+  appendOlderPage,
+  emptyTranscriptPages,
+  fetchAllMessagePages,
+  mergeMessagePages,
+  refreshNewestPage,
+  transcriptMessages,
+} from "../client/lib/messagePages.js";
 import type { RawMessage } from "../client/lib/events.js";
 
 function message(id: string, created: number, text = id): RawMessage {
@@ -57,5 +65,42 @@ describe("transcript page merging", () => {
     const old: RawMessage = { parts: [{ id: "part_1", type: "text", text: "old" }] };
     const updated: RawMessage = { parts: [{ id: "part_1", type: "text", text: "updated" }] };
     expect(mergeMessagePages([old], [updated])).toEqual([updated]);
+  });
+
+  it("treats the newest window as authoritative while preserving deliberate backfill", () => {
+    let pages = refreshNewestPage(emptyTranscriptPages(), [message("msg_3", 3), message("msg_4", 4)], "2", false);
+    pages = appendOlderPage(pages, [message("msg_1", 1), message("msg_2", 2), message("msg_3", 3)]);
+    pages = refreshNewestPage(pages, [message("msg_4", 4, "updated")], "3", true, 2);
+
+    expect(transcriptMessages(pages).map((item) => item.info?.id)).toEqual(["msg_1", "msg_2", "msg_4"]);
+    expect(transcriptMessages(pages).at(-1)?.parts?.[0].text).toBe("updated");
+  });
+
+  it("removes deleted messages from the authoritative newest window", () => {
+    const initial = refreshNewestPage(emptyTranscriptPages(), [message("msg_1", 1), message("msg_2", 2)], "older", false);
+    const refreshed = refreshNewestPage(initial, [message("msg_2", 2)], "older", true, 2);
+    expect(transcriptMessages(refreshed).map((item) => item.info?.id)).toEqual(["msg_2"]);
+  });
+
+  it("accepts same-length reverts and clears stale history on an empty authoritative response", () => {
+    const initial = refreshNewestPage(emptyTranscriptPages(), [message("msg_1", 1, "first")], "older", false);
+    const reverted = refreshNewestPage(initial, [message("msg_1", 1, "again")], "older", true);
+    expect(transcriptMessages(reverted)[0].parts?.[0].text).toBe("again");
+    expect(transcriptMessages(refreshNewestPage(reverted, [], null, true))).toEqual([]);
+  });
+
+  it("fetches more than 100 messages to completion in chronological order", async () => {
+    const all = Array.from({ length: 225 }, (_, index) => message(`msg_${String(index + 1).padStart(3, "0")}`, index + 1));
+    const cursors: Array<string | undefined> = [];
+    const complete = await fetchAllMessagePages(async (before) => {
+      cursors.push(before);
+      const end = before ? Number(before) : all.length;
+      const start = Math.max(0, end - 100);
+      return { messages: all.slice(start, end), nextCursor: start > 0 ? String(start) : null };
+    });
+
+    expect(cursors).toEqual([undefined, "125", "25"]);
+    expect(complete).toHaveLength(225);
+    expect(complete.map((item) => item.info?.id)).toEqual(all.map((item) => item.info?.id));
   });
 });

@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "../ds/button.js";
 import { api, type SessionSummary } from "../lib/api.js";
+import { normalizeTranscript } from "../lib/events.js";
+import { fetchAllMessagePages } from "../lib/messagePages.js";
 import {
   serializeSessionJson,
   serializeShareMarkdown,
@@ -29,8 +31,18 @@ export function ShareExportDialog({ directory, sessionID, title, events, target,
   const [shareUrl, setShareUrl] = useState(() => validatedShareUrl(session.shareUrl));
   const [publicIntent, setPublicIntent] = useState<"create" | "revoke" | null>(null);
   const [working, setWorking] = useState(false);
-  const markdown = useMemo(() => serializeShareMarkdown(title, events, target), [events, target, title]);
-  const json = useMemo(() => target.kind === "session" ? serializeSessionJson(title, events) : null, [events, target, title]);
+  const [completeEvents, setCompleteEvents] = useState<TranscriptEvent[] | null>(() => target.kind === "session" ? null : events);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exportAttempt, setExportAttempt] = useState(0);
+  const exportEvents = target.kind === "session" ? completeEvents : events;
+  const markdown = useMemo(
+    () => exportEvents ? serializeShareMarkdown(title, exportEvents, target) : "",
+    [exportEvents, target, title],
+  );
+  const json = useMemo(
+    () => target.kind === "session" && exportEvents ? serializeSessionJson(title, exportEvents) : null,
+    [exportEvents, target, title],
+  );
   const targetLabel = target.kind === "session" ? "Full session" : target.role === "user" ? "Your message" : "Assistant message";
   const filenameBase = target.kind === "session" ? title : `${title}-${target.role}-message`;
   const canNativeShare = typeof navigator.share === "function";
@@ -46,6 +58,22 @@ export function ShareExportDialog({ directory, sessionID, title, events, target,
       if (previousFocus.current?.isConnected) previousFocus.current.focus();
     };
   }, []);
+
+  useEffect(() => {
+    if (target.kind !== "session") return;
+    let cancelled = false;
+    setCompleteEvents(null);
+    setExportError(null);
+    void fetchAllMessagePages((before) => api.messages(directory, sessionID, {
+      limit: 100,
+      ...(before ? { before } : {}),
+    })).then((messages) => {
+      if (!cancelled) setCompleteEvents(normalizeTranscript(messages).events);
+    }).catch((error: unknown) => {
+      if (!cancelled) setExportError(error instanceof Error ? error.message : String(error));
+    });
+    return () => { cancelled = true; };
+  }, [directory, exportAttempt, sessionID, target]);
 
   const close = () => dialogRef.current?.close();
   const copy = async (text = markdown) => {
@@ -126,15 +154,27 @@ export function ShareExportDialog({ directory, sessionID, title, events, target,
         </div>
 
         <div className="rounded-lg border border-[var(--color-border-default)] p-3 text-xs text-[var(--color-text-muted)]" data-testid="opencode-export-security">
-          Local exports use the sanitized visible transcript. Reminder bodies, provider metadata and signatures, raw tool arguments and output, attachment URLs, and file paths are excluded.
+          Local exports use a fresh, complete, sanitized transcript fetch. Reminder bodies, provider metadata and signatures, raw tool arguments and output, attachment URLs, and file paths are excluded.
         </div>
 
+        {target.kind === "session" && !completeEvents && !exportError && (
+          <p className="text-sm text-[var(--color-text-muted)]" role="status" data-testid="opencode-export-loading">
+            Loading complete transcript...
+          </p>
+        )}
+        {target.kind === "session" && exportError && (
+          <div className="space-y-2" role="alert" data-testid="opencode-export-error">
+            <p className="text-sm text-[var(--color-text-danger)]">Could not load the complete transcript: {exportError}</p>
+            <Button variant="secondary" onClick={() => setExportAttempt((value) => value + 1)} data-testid="opencode-export-retry">Retry export</Button>
+          </div>
+        )}
+
         <div className="flex min-w-0 flex-wrap gap-2">
-          <Button onClick={() => void copy()} data-testid="opencode-export-copy">Copy Markdown</Button>
-          <Button variant="secondary" onClick={() => download(markdown, "md")} data-testid="opencode-export-download">Download Markdown</Button>
+          <Button disabled={!exportEvents} onClick={() => void copy()} data-testid="opencode-export-copy">Copy Markdown</Button>
+          <Button disabled={!exportEvents} variant="secondary" onClick={() => download(markdown, "md")} data-testid="opencode-export-download">Download Markdown</Button>
           {json && <Button variant="secondary" onClick={() => download(json, "json")} data-testid="opencode-export-download-json">Download JSON</Button>}
           {canNativeShare ? (
-            <Button variant="secondary" onClick={() => void nativeShare()} data-testid="opencode-export-native-share">Native Share</Button>
+            <Button disabled={!exportEvents} variant="secondary" onClick={() => void nativeShare()} data-testid="opencode-export-native-share">Native Share</Button>
           ) : null}
         </div>
 
