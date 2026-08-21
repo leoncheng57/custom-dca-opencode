@@ -17,7 +17,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { api, ApiError, type PermissionRequest } from "./api.js";
+import { api, ApiError, type PermissionRequest, type QuestionRequest } from "./api.js";
 
 const POLL_MS = 3_000;
 const RETRY_BASE_MS = 2_000;
@@ -33,6 +33,7 @@ export interface SessionStreamState {
   running: boolean;
   todos: Array<{ content: string; status: string; priority: string }>;
   permissions: PermissionRequest[];
+  questions: QuestionRequest[];
   error: string | null;
   /** True once the first fetch has resolved, so the UI can skip a spinner. */
   loaded: boolean;
@@ -45,6 +46,7 @@ export function useSessionStream(directory: string, sessionId: string): SessionS
   const [running, setRunning] = useState(false);
   const [todos, setTodos] = useState<Array<{ content: string; status: string; priority: string }>>([]);
   const [permissions, setPermissions] = useState<PermissionRequest[]>([]);
+  const [questions, setQuestions] = useState<QuestionRequest[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
 
@@ -65,10 +67,11 @@ export function useSessionStream(directory: string, sessionId: string): SessionS
       do {
         pollQueued.current = false;
         const permissionRevisionAtStart = permissionRevision.current;
-        const [messageResult, todoResult, permissionResult] = await Promise.allSettled([
+        const [messageResult, todoResult, permissionResult, questionResult] = await Promise.allSettled([
           api.messages(directory, sessionId),
           api.todos(directory, sessionId),
           api.permissionRequests(directory),
+          api.questionRequests(directory, sessionId),
         ]);
         if (liveId.current !== sessionId) return;
 
@@ -85,6 +88,7 @@ export function useSessionStream(directory: string, sessionId: string): SessionS
         if (permissionResult.status === "fulfilled" && permissionRevisionAtStart === permissionRevision.current) {
           setPermissions(permissionResult.value.requests.filter((request) => request.sessionID === sessionId));
         }
+        if (questionResult.status === "fulfilled") setQuestions(questionResult.value.requests);
       } while (pollQueued.current && liveId.current === sessionId);
     } finally {
       inFlight.current = false;
@@ -183,7 +187,7 @@ export function useSessionStream(directory: string, sessionId: string): SessionS
     await poll();
   }, [directory, poll, sessionId]);
 
-  return { messages, running, todos, permissions, error, loaded, refresh, replyPermission };
+  return { messages, running, todos, permissions, questions, error, loaded, refresh, replyPermission };
 }
 
 /** True when an error means "stop trying" rather than "retry later". */

@@ -17,6 +17,12 @@ import { request, type OpencodeConfig } from "./client.js";
 
 export type AgentMode = "plan" | "build";
 
+export interface ModelSelection {
+  providerID: string;
+  modelID: string;
+  variant?: string;
+}
+
 const PLAN_TOOL_ALLOWLIST = new Set([
   "read",
   "glob",
@@ -51,7 +57,7 @@ export interface SessionSummary {
   directory: string;
   parentID?: string;
   agent?: string;
-  model?: { providerID?: string; modelID?: string };
+  model?: { providerID?: string; modelID?: string; variant?: string };
   cost: number;
   tokens: {
     input: number;
@@ -73,7 +79,7 @@ interface RawSession {
   directory?: string;
   parentID?: string;
   agent?: string;
-  model?: { providerID?: string; modelID?: string; id?: string };
+  model?: { providerID?: string; modelID?: string; id?: string; variant?: string };
   cost?: number;
   tokens?: {
     input?: number;
@@ -93,7 +99,7 @@ export function toSummary(raw: RawSession, running: boolean): SessionSummary {
     parentID: raw.parentID,
     agent: raw.agent,
     model: raw.model
-      ? { providerID: raw.model.providerID, modelID: raw.model.modelID ?? raw.model.id }
+      ? { providerID: raw.model.providerID, modelID: raw.model.modelID ?? raw.model.id, variant: raw.model.variant }
       : undefined,
     cost: raw.cost ?? 0,
     tokens: {
@@ -163,7 +169,7 @@ export interface CreateSessionInput {
   directory: string;
   title?: string;
   agent?: string;
-  model?: { providerID: string; modelID: string };
+  model?: ModelSelection;
   parentID?: string;
 }
 
@@ -177,7 +183,13 @@ export async function createSession(
     body: {
       ...(input.title ? { title: input.title } : {}),
       ...(input.agent ? { agent: input.agent } : {}),
-      ...(input.model ? { model: input.model } : {}),
+      ...(input.model ? {
+        model: {
+          providerID: input.model.providerID,
+          id: input.model.modelID,
+          ...(input.model.variant ? { variant: input.model.variant } : {}),
+        },
+      } : {}),
       ...(input.parentID ? { parentID: input.parentID } : {}),
     },
   });
@@ -187,7 +199,7 @@ export async function createSession(
 export interface PromptInput {
   text: string;
   mode: AgentMode;
-  model?: { providerID: string; modelID: string };
+  model?: ModelSelection;
   attachments?: Array<{ filename: string; mime: string; url: string }>;
   reminder?: Pick<ReminderPreset, "id" | "body">;
 }
@@ -212,7 +224,10 @@ export async function prompt(
     body: {
       agent: input.mode,
       ...(tools ? { tools } : {}),
-      ...(input.model ? { model: input.model } : {}),
+      ...(input.model ? {
+        model: { providerID: input.model.providerID, modelID: input.model.modelID },
+        ...(input.model.variant ? { variant: input.model.variant } : {}),
+      } : {}),
       parts: [
         {
           type: "text",

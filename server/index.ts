@@ -30,6 +30,7 @@ import { NotificationService } from "./notifications/service.js";
 import { forgeRoutes } from "./routes/forge.js";
 import { reminderRoutes } from "./routes/reminders.js";
 import { appConfigRoutes } from "./routes/appConfig.js";
+import { projectRoutes } from "./routes/projects.js";
 import { parsePublicAppUrl } from "./publicAppUrl.js";
 
 dotenv.config();
@@ -48,10 +49,10 @@ bus.on("error", (error: unknown) => {
 });
 bus.start();
 const notificationStore = new PreferenceStore();
-const notificationService = new NotificationService(opencode, bus, notificationStore);
+const notificationService = new NotificationService(opencode, bus, notificationStore, publicAppUrl);
 notificationService.start();
 
-app.use("/api", sessionRoutes(opencode, bus));
+app.use("/api", sessionRoutes(opencode, bus, publicAppUrl));
 app.use("/api", settingsRoutes(opencode));
 app.use("/api", mcpRoutes(opencode));
 app.use("/api", workspaceRoutes(opencode));
@@ -60,6 +61,7 @@ app.use("/api", notificationRoutes(notificationStore));
 app.use("/api", forgeRoutes());
 app.use("/api", reminderRoutes());
 app.use("/api", appConfigRoutes(publicAppUrl));
+app.use("/api", projectRoutes());
 const opencodePort = Number(new URL(opencode.baseUrl).port || 80);
 app.use("/api", previewRoutes(parseAllowedPorts(process.env.PREVIEW_ALLOWED_PORTS, [PORT, opencodePort])));
 
