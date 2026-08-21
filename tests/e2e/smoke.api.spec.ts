@@ -571,6 +571,7 @@ test.describe("prompting", () => {
     expect(payload.reminders.length).toBeGreaterThan(0);
     expect(payload.reminders[0]).toEqual(expect.objectContaining({
       id: expect.any(String),
+      title: expect.any(String),
       description: expect.any(String),
       triggers: expect.any(Array),
     }));

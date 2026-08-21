@@ -1,5 +1,6 @@
 ---
 name: verify-before-claiming
+title: Verify Before Claiming
 description: Distinguish what was verified from what was inferred; never assert unread behaviour.
 ---
 
