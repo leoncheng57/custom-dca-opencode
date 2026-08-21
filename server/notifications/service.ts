@@ -125,7 +125,7 @@ export class NotificationService {
     if (event.type === "permission.asked" && this.autoPermissionsEnabled(event.directory)) {
       await this.history.append({
         ...common,
-        delivery: { ntfy: "off", browser: "off", suppressed: "auto-permissions" },
+        delivery: { ntfy: "off", desktop: "off", suppressed: "auto-permissions" },
         resolvedBy: "suppressed",
       });
       return;
@@ -145,18 +145,18 @@ export class NotificationService {
     message: NotificationMessage,
   ): Promise<NotificationDelivery> {
     // The BFF has no view of open tabs, so this is the preference, not proof.
-    const browser =
+    const desktop =
       preferences.browser.desktop && preferences.browser.events[message.event] ? "allowed" : "off";
     const wantsNtfy =
       preferences.ntfy.enabled && Boolean(preferences.ntfy.topic) && preferences.ntfy.events[message.event];
-    if (!wantsNtfy) return { ntfy: "off", browser };
+    if (!wantsNtfy) return { ntfy: "off", desktop };
     try {
       await sendNtfy(preferences, message);
-      return { ntfy: "sent", browser };
+      return { ntfy: "sent", desktop };
     } catch (error) {
       const ntfyError = error instanceof Error ? error.message : String(error);
       console.warn("[ntfy]", ntfyError);
-      return { ntfy: "failed", ntfyError, browser };
+      return { ntfy: "failed", ntfyError, desktop };
     }
   }
 
@@ -177,7 +177,6 @@ export class NotificationService {
   async reconcileAll(force = false): Promise<void> {
     const run = this.reconcileQueue.then(async () => {
       const now = Date.now();
-      await this.history.expireStale(now);
       for (const directory of await this.history.activeDirectories()) {
         if (!force && now - (this.reconciledAt.get(directory) ?? 0) < RECONCILE_THROTTLE_MS) continue;
         this.reconciledAt.set(directory, now);
@@ -196,7 +195,9 @@ export class NotificationService {
       // Never let a recorded path send us at an arbitrary host directory.
       canonical = await requireWorkspaceDirectory(directory);
     } catch {
-      await this.history.resolve((record) => record.directory === directory, "stale");
+      // A transient path-resolution failure is not evidence that every
+      // request in this directory was answered. Keep the badge intact and
+      // retry on the next reconnect/history read.
       return;
     }
     const [permissions, questions] = await Promise.all([

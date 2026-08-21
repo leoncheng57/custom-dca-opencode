@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useLocation } from "react-router-dom";
 
 import { api, type NotificationRecord } from "./api.js";
+import { DIRECTORY_STORAGE_KEY, resolvePaletteDirectory } from "./palette.js";
 
 interface NotificationCenter {
   activeCount: number;
@@ -9,7 +11,6 @@ interface NotificationCenter {
   error: string;
   refresh: () => void;
   dismiss: (id: string) => Promise<void>;
-  clearResolved: () => Promise<void>;
 }
 
 const NotificationCenterContext = createContext<NotificationCenter | null>(null);
@@ -34,6 +35,8 @@ export const ACTIVE_SET_EVENTS = new Set([
 const HISTORY_LIMIT = 100;
 
 export function NotificationCenterProvider({ children }: { children: ReactNode }) {
+  const location = useLocation();
+  const directory = resolvePaletteDirectory(location.search, localStorage.getItem(DIRECTORY_STORAGE_KEY));
   const [records, setRecords] = useState<NotificationRecord[]>([]);
   const [activeCount, setActiveCount] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -44,7 +47,7 @@ export function NotificationCenterProvider({ children }: { children: ReactNode }
   const refresh = useCallback(() => {
     const request = ++generation.current;
     return api
-      .notificationHistory({ limit: HISTORY_LIMIT })
+      .notificationHistory({ limit: HISTORY_LIMIT, ...(directory ? { directory } : {}) })
       .then((result) => {
         if (request !== generation.current) return;
         setRecords(result.records);
@@ -58,7 +61,7 @@ export function NotificationCenterProvider({ children }: { children: ReactNode }
       .finally(() => {
         if (request === generation.current) setLoading(false);
       });
-  }, []);
+  }, [directory]);
 
   // Live updates arrive via useNotifyWatcher, which already holds the one
   // app-level EventSource; opening a second stream here would double every
@@ -75,14 +78,9 @@ export function NotificationCenterProvider({ children }: { children: ReactNode }
     [refresh],
   );
 
-  const clearResolved = useCallback(async () => {
-    await api.clearNotificationHistory();
-    await refresh();
-  }, [refresh]);
-
   const value = useMemo(
-    () => ({ activeCount, records, loading, error, refresh: () => void refresh(), dismiss, clearResolved }),
-    [activeCount, records, loading, error, refresh, dismiss, clearResolved],
+    () => ({ activeCount, records, loading, error, refresh: () => void refresh(), dismiss }),
+    [activeCount, records, loading, error, refresh, dismiss],
   );
 
   return <NotificationCenterContext.Provider value={value}>{children}</NotificationCenterContext.Provider>;
@@ -101,7 +99,6 @@ export function useNotificationCenter(): NotificationCenter {
       error: "",
       refresh: () => {},
       dismiss: async () => {},
-      clearResolved: async () => {},
     }
   );
 }

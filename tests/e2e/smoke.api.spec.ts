@@ -871,8 +871,9 @@ test.describe("notification history", () => {
     await expect.poll(async () => record((await history(request)).records, requestID))
       .toMatchObject({ kind: "permission", actionable: true, directory: DIR });
     const asked = record((await history(request)).records, requestID)!;
-    // ntfy is disabled in e2e, and the BFF must never claim a browser rendered it.
-    expect(asked.delivery).toMatchObject({ ntfy: "off" });
+    // ntfy is disabled in e2e, and the BFF must never claim a desktop
+    // notification rendered or infer device-local sound/speech settings.
+    expect(asked.delivery).toMatchObject({ ntfy: "off", desktop: "allowed" });
     expect(asked.resolvedAt).toBeUndefined();
 
     await request.post(`/api/permission-requests/${requestID}/reply?directory=${DIR}`, { data: { reply: "once" } });
@@ -880,7 +881,7 @@ test.describe("notification history", () => {
     expect(record((await history(request)).records, requestID)?.actionable).toBe(true);
   });
 
-  test("dismisses an active record and clears only resolved ones", async ({ request }) => {
+  test("dismisses an active record without deleting its history", async ({ request }) => {
     const requestID = `perm_dismiss_${Date.now()}`;
     await fetch(`${MOCK_URL}/test/permission?directory=${encodeURIComponent(DIR)}`, {
       method: "POST",
@@ -893,16 +894,30 @@ test.describe("notification history", () => {
     const id = record(before.records, requestID)!.id as string;
     const dismissed = await request.post(`/api/notifications/${id}/dismiss`);
     expect(dismissed.status()).toBe(200);
-    expect((await dismissed.json()).activeCount).toBe(before.activeCount - 1);
+    expect((await dismissed.json()).dismissed).toBe(true);
 
     expect((await request.post("/api/notifications/nope/dismiss")).status()).toBe(404);
 
-    await request.post("/api/notifications/history/clear");
     const after = await history(request);
-    // Clearing drops resolved rows only; reconciliation can never recreate an
-    // active one, so removing those would be unrecoverable.
-    expect(record(after.records, requestID)).toBeUndefined();
-    expect(after.records.every((item) => item.resolvedAt === undefined)).toBe(true);
+    expect(record(after.records, requestID)).toMatchObject({ resolvedBy: "dismissed" });
+    expect((await request.post("/api/notifications/history/clear")).status()).toBe(404);
+    await fetch(`${MOCK_URL}/test/permissions/reset?directory=${encodeURIComponent(DIR)}`, { method: "POST" });
+  });
+
+  test("scopes the badge count without filtering the history", async ({ request }) => {
+    const requestID = `perm_scoped_${Date.now()}`;
+    await fetch(`${MOCK_URL}/test/permission?directory=${encodeURIComponent(DIR)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: requestID, sessionID: "ses_mock_done", permission: "bash", patterns: ["npm test"] }),
+    });
+    await expect.poll(async () => record((await history(request)).records, requestID)).toBeTruthy();
+
+    const current = await (await request.get(`/api/notifications/history?directory=${encodeURIComponent(DIR)}`)).json();
+    const other = await (await request.get("/api/notifications/history?directory=/tmp/unrelated-project")).json();
+    expect(current.activeCount).toBeGreaterThan(0);
+    expect(other.activeCount).toBe(0);
+    expect(record(other.records, requestID)).toBeTruthy();
     await fetch(`${MOCK_URL}/test/permissions/reset?directory=${encodeURIComponent(DIR)}`, { method: "POST" });
   });
 });

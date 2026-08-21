@@ -9,9 +9,10 @@
 // the record has to be written somewhere both can read.
 //
 // Two properties that are easy to get wrong:
-//   - `delivery.browser` records the *preference*, not a delivery. The BFF
+//   - `delivery.desktop` records the *preference*, not a delivery. The BFF
 //     cannot observe whether a browser tab was open, so claiming delivery
-//     would be a lie. The UI says "allowed", never "delivered".
+//     would be a lie. Sound and speech are device-local and intentionally not
+//     represented here because the server cannot see those settings at all.
 //   - Only `permission` and `question` records are `actionable`. Those are the
 //     only kinds a human can clear by replying, so they are the only kinds
 //     that may hold the badge above zero.
@@ -27,13 +28,13 @@ export const ACTIONABLE_EVENTS: readonly NotifyEvent[] = ["permission", "questio
 
 export type NtfyDelivery = "sent" | "off" | "failed";
 /** "allowed" is preference intent. The BFF cannot confirm a browser rendered it. */
-export type BrowserDelivery = "allowed" | "off";
-export type ResolutionReason = "replied" | "reconciled" | "dismissed" | "stale" | "suppressed";
+export type DesktopDelivery = "allowed" | "off";
+export type ResolutionReason = "replied" | "reconciled" | "dismissed" | "suppressed";
 
 export interface NotificationDelivery {
   ntfy: NtfyDelivery;
   ntfyError?: string;
-  browser: BrowserDelivery;
+  desktop: DesktopDelivery;
   suppressed?: "auto-permissions";
 }
 
@@ -78,9 +79,6 @@ export interface HistoryQuery {
 
 export const HISTORY_LIMIT = 500;
 const MAX_PAGE = 200;
-/** An actionable record this old can never be reconciled; retire it. */
-export const STALE_AFTER_MS = 24 * 60 * 60 * 1000;
-
 function isNotifyEvent(value: unknown): value is NotifyEvent {
   return typeof value === "string" && (NOTIFY_EVENTS as readonly string[]).includes(value);
 }
@@ -96,7 +94,7 @@ function normalizeDelivery(value: unknown): NotificationDelivery {
   return {
     ntfy,
     ...(optionalString(source.ntfyError) ? { ntfyError: String(source.ntfyError) } : {}),
-    browser: source.browser === "allowed" ? "allowed" : "off",
+    desktop: source.desktop === "allowed" ? "allowed" : "off",
     ...(source.suppressed === "auto-permissions" ? { suppressed: "auto-permissions" as const } : {}),
   };
 }
@@ -166,8 +164,8 @@ export class HistoryStore {
             : [];
         this.records = source
           .map(normalizeRecord)
-          .filter((record): record is NotificationRecord => record !== null)
-          .slice(-this.limit);
+          .filter((record): record is NotificationRecord => record !== null);
+        this.prune();
       })
       .catch(() => {
         // Missing or malformed history starts empty rather than failing the
@@ -193,6 +191,27 @@ export class HistoryStore {
       });
   }
 
+  /**
+   * Keep every active record, then fill the remaining ring capacity with the
+   * newest resolved records. If active work alone exceeds the configured
+   * limit, the file grows temporarily: dropping work awaiting a human reply
+   * would silently zero the badge this store exists to protect.
+   */
+  private prune(): void {
+    const active = this.records.filter(isActive);
+    const resolvedCapacity = Math.max(0, this.limit - active.length);
+    if (this.records.length <= this.limit || resolvedCapacity === 0) {
+      this.records = resolvedCapacity === 0
+        ? active
+        : this.records;
+      return;
+    }
+    const keepResolved = new Set(
+      this.records.filter((record) => !isActive(record)).slice(-resolvedCapacity).map((record) => record.id),
+    );
+    this.records = this.records.filter((record) => isActive(record) || keepResolved.has(record.id));
+  }
+
   /** Resolves once every queued write has drained. Tests and shutdown use this. */
   flush(): Promise<void> {
     return this.queue;
@@ -216,7 +235,7 @@ export class HistoryStore {
       delivery: entry.delivery,
     };
     this.records.push(record);
-    if (this.records.length > this.limit) this.records.splice(0, this.records.length - this.limit);
+    this.prune();
     this.persist();
     return record;
   }
@@ -235,7 +254,10 @@ export class HistoryStore {
       record.resolvedBy = reason;
       changed += 1;
     }
-    if (changed) this.persist();
+    if (changed) {
+      this.prune();
+      this.persist();
+    }
     return changed;
   }
 
@@ -255,14 +277,12 @@ export class HistoryStore {
     return true;
   }
 
-  /** Retire actionable records too old to ever be reconciled. */
-  async expireStale(now = Date.now(), maxAge = STALE_AFTER_MS): Promise<number> {
-    return this.resolve((record) => now - record.at > maxAge, "stale", now);
-  }
-
-  async activeCount(): Promise<number> {
+  async activeCount(directory?: string): Promise<number> {
     await this.load();
-    return this.records.reduce((total, record) => total + (isActive(record) ? 1 : 0), 0);
+    return this.records.reduce(
+      (total, record) => total + (isActive(record) && (!directory || record.directory === directory) ? 1 : 0),
+      0,
+    );
   }
 
   /** Directories holding at least one active record — the reconcile work list. */
@@ -298,16 +318,4 @@ export class HistoryStore {
     return this.records.find((record) => record.id === id);
   }
 
-  /**
-   * Drop resolved records only. Clearing actives would be unrecoverable —
-   * reconciliation can close a record but never recreate one.
-   */
-  async clearResolved(): Promise<number> {
-    await this.load();
-    const before = this.records.length;
-    this.records = this.records.filter(isActive);
-    const removed = before - this.records.length;
-    if (removed) this.persist();
-    return removed;
-  }
 }

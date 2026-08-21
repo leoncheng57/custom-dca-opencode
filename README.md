@@ -95,18 +95,20 @@ permission escalates the record it belongs to instead of adding a second count.
 
 The page also lists every notification the BFF classified, including ones that were never
 delivered, because "why was I never asked?" is the question that log exists to answer.
-`ntfy` reports `sent`, `off` or `failed`; `browser` reports only whether preferences
-**allowed** the notification, since the BFF cannot observe whether a tab was open to render
-it. Auto-approved permissions appear marked `suppressed by auto permissions` and never hold
-the counter.
+`ntfy` reports `sent`, `off` or `failed`; `desktop` reports only whether server-backed
+desktop notifications were **allowed**, since the BFF cannot observe whether a tab rendered
+one. Sound and speech are device-local and therefore absent from the server log.
+Auto-approved permissions appear marked `suppressed by auto permissions` and never hold the
+counter.
 
 Records live in `.state/notification-history.json` (override with
-`NOTIFICATION_HISTORY_FILE`), capped at the newest 500. Because they outlive the process,
+`NOTIFICATION_HISTORY_FILE`). All active records are retained; resolved history fills the
+remaining space in a 500-record ring. Because records outlive the process,
 the BFF reconciles the outstanding set against `GET /permission` and `GET /question` on
 every event-stream reconnect and, throttled, whenever the page loads. That closes requests
-answered while the BFF was down; anything unreconcilable after 24 hours is retired
-automatically, and **Dismiss** clears a single stuck row by hand. **Clear resolved** drops
-resolved rows only — reconciliation can close a record but never recreate one.
+answered while the BFF was down. Lookup failures leave records active, and **Dismiss** is
+the only manual way to clear a stuck row. History is not bulk-clearable because it is the
+evidence used to explain missing or suppressed delivery.
 
 Verification requires no live agent or model credentials:
 

@@ -57,7 +57,7 @@ function deliverySummary(record: NotificationRecord): string {
       : record.delivery.ntfy === "failed"
         ? `ntfy failed: ${record.delivery.ntfyError ?? "unknown error"}`
         : "ntfy off",
-    record.delivery.browser === "allowed" ? "browser allowed" : "browser off",
+    record.delivery.desktop === "allowed" ? "desktop allowed" : "desktop off",
   ];
   return parts.join(" · ");
 }
@@ -128,7 +128,7 @@ export function NotificationsPage() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [historyState, setHistoryState] = useState<NotificationHistoryState>("all");
-  const { activeCount, records, loading, error: historyError, dismiss, clearResolved } = useNotificationCenter();
+  const { activeCount, records, loading, error: historyError, dismiss } = useNotificationCenter();
   const capabilities = notificationCapabilities();
 
   useEffect(() => {
@@ -291,14 +291,6 @@ export function NotificationsPage() {
               {state.label}
             </Button>
           ))}
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => void clearResolved().catch((e: Error) => setError(e.message))}
-            data-testid="opencode-history-clear"
-          >
-            Clear resolved
-          </Button>
         </header>
         {historyError && <Alert variant="danger">{historyError}</Alert>}
         {visible.length === 0 ? (

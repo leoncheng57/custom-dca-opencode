@@ -175,7 +175,7 @@ describe("auto permission notification suppression", () => {
 describe("notification history", () => {
   it("counts only unresolved permission and question records", async () => {
     const history = historyStore();
-    const delivery = { ntfy: "off", browser: "allowed" } as const;
+    const delivery = { ntfy: "off", desktop: "allowed" } as const;
     await history.append({ kind: "idle", title: "idle", body: "", delivery });
     await history.append({ kind: "error", title: "error", body: "", delivery });
     await history.append({ kind: "permission", requestID: "perm_1", title: "perm", body: "", delivery });
@@ -187,21 +187,10 @@ describe("notification history", () => {
     expect((await history.list({ state: "active" })).map((record) => record.requestID)).toEqual(["que_1"]);
   });
 
-  it("keeps active records when resolved ones are cleared", async () => {
-    const history = historyStore();
-    const delivery = { ntfy: "off", browser: "off" } as const;
-    await history.append({ kind: "idle", title: "idle", body: "", delivery });
-    await history.append({ kind: "permission", requestID: "perm_1", title: "perm", body: "", delivery });
-
-    expect(await history.clearResolved()).toBe(1);
-    expect((await history.list()).map((record) => record.kind)).toEqual(["permission"]);
-    expect(await history.activeCount()).toBe(1);
-  });
-
   it("caps the ring buffer and round-trips through disk", async () => {
     const file = path.join(os.tmpdir(), `dca-history-cap-${Date.now()}.json`);
     const history = new HistoryStore(file, 3);
-    const delivery = { ntfy: "off", browser: "off" } as const;
+    const delivery = { ntfy: "off", desktop: "off" } as const;
     for (const index of [1, 2, 3, 4, 5]) {
       await history.append({ kind: "idle", title: `idle ${index}`, body: "", delivery });
     }
@@ -222,13 +211,13 @@ describe("notification history", () => {
     await writeFile(file, "not json");
     const history = new HistoryStore(file);
     expect(await history.list()).toEqual([]);
-    await history.append({ kind: "idle", title: "idle", body: "", delivery: { ntfy: "off", browser: "off" } });
+    await history.append({ kind: "idle", title: "idle", body: "", delivery: { ntfy: "off", desktop: "off" } });
     expect(await history.list()).toHaveLength(1);
   });
 
   it("escalates a parked permission without counting it twice", async () => {
     const history = historyStore();
-    const delivery = { ntfy: "sent", browser: "allowed" } as const;
+    const delivery = { ntfy: "sent", desktop: "allowed" } as const;
     await history.append({
       kind: "permission",
       directory: "/tmp/project",
@@ -254,19 +243,21 @@ describe("notification history", () => {
     expect(permission?.parkedAt).toBeTypeOf("number");
   });
 
-  it("retires actionable records too old to reconcile", async () => {
-    const history = historyStore();
-    await history.append({
-      kind: "permission",
-      requestID: "perm_old",
-      title: "perm",
-      body: "",
-      delivery: { ntfy: "off", browser: "off" },
-    });
-    expect(await history.activeCount()).toBe(1);
-    await history.expireStale(Date.now() + 25 * 60 * 60 * 1000);
-    expect(await history.activeCount()).toBe(0);
-    expect((await history.list())[0].resolvedBy).toBe("stale");
+  it("retains active records beyond the ring limit", async () => {
+    const history = historyStore(3);
+    const delivery = { ntfy: "off", desktop: "off" } as const;
+    for (const requestID of ["perm_1", "perm_2", "perm_3", "perm_4"]) {
+      await history.append({ kind: "permission", requestID, title: requestID, body: "", delivery });
+    }
+    await history.append({ kind: "idle", title: "resolved info", body: "", delivery });
+
+    expect(await history.activeCount()).toBe(4);
+    expect((await history.list()).map((record) => record.requestID)).toEqual([
+      "perm_4",
+      "perm_3",
+      "perm_2",
+      "perm_1",
+    ]);
   });
 });
 
@@ -323,7 +314,7 @@ describe("notification resolution", () => {
 
     const bus = new EventEmitter() as EventBus;
     const history = historyStore();
-    const delivery = { ntfy: "off", browser: "off" } as const;
+    const delivery = { ntfy: "off", desktop: "off" } as const;
     await history.append({ kind: "permission", directory, requestID: "perm_gone", title: "perm", body: "", delivery });
     await history.append({ kind: "question", directory, requestID: "que_gone", title: "question", body: "", delivery });
     expect(await history.activeCount()).toBe(2);
@@ -350,7 +341,7 @@ describe("notification resolution", () => {
       requestID: "perm_unknown",
       title: "perm",
       body: "",
-      delivery: { ntfy: "off", browser: "off" },
+      delivery: { ntfy: "off", desktop: "off" },
     });
     const service = new NotificationService(
       { baseUrl: "http://opencode.test" },
@@ -361,5 +352,27 @@ describe("notification resolution", () => {
     await service.reconcileAll(true);
     expect(await history.activeCount()).toBe(1);
     vi.unstubAllEnvs();
+  });
+
+  it("leaves records alone when directory validation temporarily fails", async () => {
+    const history = historyStore();
+    await history.append({
+      kind: "permission",
+      directory: "/tmp/project-that-is-temporarily-unavailable",
+      requestID: "perm_path",
+      title: "perm",
+      body: "",
+      delivery: { ntfy: "off", desktop: "off" },
+    });
+    const service = new NotificationService(
+      { baseUrl: "http://opencode.test" },
+      new EventEmitter() as EventBus,
+      ntfyPreferences(),
+      history,
+    );
+
+    await service.reconcileAll(true);
+    expect(await history.activeCount()).toBe(1);
+    expect((await history.list())[0].resolvedAt).toBeUndefined();
   });
 });

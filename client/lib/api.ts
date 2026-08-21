@@ -102,13 +102,13 @@ export interface NotificationRecord {
   /** Only permission/question records can hold the badge above zero. */
   actionable: boolean;
   resolvedAt?: number;
-  resolvedBy?: "replied" | "reconciled" | "dismissed" | "stale" | "suppressed";
+  resolvedBy?: "replied" | "reconciled" | "dismissed" | "suppressed";
   parkedAt?: number;
   delivery: {
     ntfy: "sent" | "off" | "failed";
     ntfyError?: string;
-    /** Preference intent. The BFF cannot observe whether a tab rendered it. */
-    browser: "allowed" | "off";
+    /** Desktop-notification preference; sound and speech are device-local. */
+    desktop: "allowed" | "off";
     suppressed?: "auto-permissions";
   };
 }
@@ -370,20 +370,17 @@ export const api = {
     }).then((r) => json<{ preferences: NotificationPreferences; tokenConfigured: boolean }>(r)),
   testNtfy: () =>
     fetch("/api/notifications/test", { method: "POST" }).then((r) => json<{ sent: boolean }>(r)),
-  notificationHistory: (options: { limit?: number; kind?: NotifyEvent; state?: NotificationHistoryState } = {}) => {
+  notificationHistory: (options: { limit?: number; kind?: NotifyEvent; state?: NotificationHistoryState; directory?: string } = {}) => {
     const query = new URLSearchParams();
     if (options.limit) query.set("limit", String(options.limit));
     if (options.kind) query.set("kind", options.kind);
     if (options.state && options.state !== "all") query.set("state", options.state);
+    if (options.directory) query.set("directory", options.directory);
     const suffix = query.size ? `?${query}` : "";
     return fetch(`/api/notifications/history${suffix}`).then((r) =>
       json<{ records: NotificationRecord[]; activeCount: number }>(r),
     );
   },
-  clearNotificationHistory: () =>
-    fetch("/api/notifications/history/clear", { method: "POST" }).then((r) =>
-      json<{ removed: number; activeCount: number }>(r),
-    ),
   dismissNotification: (id: string) =>
     fetch(`/api/notifications/${encodeURIComponent(id)}/dismiss`, { method: "POST" }).then((r) =>
       json<{ dismissed: boolean; activeCount: number }>(r),

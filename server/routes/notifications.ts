@@ -53,26 +53,20 @@ export function notificationRoutes(
     reconcile()
       .then(async () => {
         const limitParam = Number(queryString(req.query.limit));
+        const directory = queryString(req.query.directory);
+        const kind = queryKind(req.query.kind);
         const [records, activeCount] = await Promise.all([
           history.list({
             ...(Number.isFinite(limitParam) ? { limit: limitParam } : {}),
-            ...(queryKind(req.query.kind) ? { kind: queryKind(req.query.kind) as NotifyEvent } : {}),
-            ...(queryString(req.query.directory) ? { directory: queryString(req.query.directory) as string } : {}),
+            ...(kind ? { kind } : {}),
+            // History remains global; directory scopes only the nav/header
+            // counter returned alongside it.
             state: queryState(req.query.state),
           }),
-          history.activeCount(),
+          history.activeCount(directory),
         ]);
         res.json({ records, activeCount });
       })
-      .catch((error: unknown) =>
-        res.status(500).json({ error: error instanceof Error ? error.message : String(error) }),
-      );
-  });
-
-  router.post("/notifications/history/clear", (_req, res) => {
-    history
-      .clearResolved()
-      .then((removed) => history.activeCount().then((activeCount) => res.json({ removed, activeCount })))
       .catch((error: unknown) =>
         res.status(500).json({ error: error instanceof Error ? error.message : String(error) }),
       );
