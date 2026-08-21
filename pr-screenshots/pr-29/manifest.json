@@ -1,8 +1,8 @@
 {
   "schemaVersion": 2,
   "prNumber": 29,
-  "sourceSha": "4b75d74e1e0ef74b0d6570f440685cb1235ffff7",
-  "capturedAt": "2026-08-21T22:09:49.755Z",
+  "sourceSha": "2cd06d84ce0b1b81988222320486ea03e57fcf76",
+  "capturedAt": "2026-08-21T22:15:54.422Z",
   "screenshots": [
     {
       "requestedRoute": "/settings/notifications",
@@ -14,8 +14,8 @@
             "width": 1280,
             "height": 800
           },
-          "bytes": 67101,
-          "sha256": "8be6f15aa9d0596661c1bcd522b69692eebc4a315f502078f08f531d057236ba"
+          "bytes": 67102,
+          "sha256": "89ced23e1f227a39d01d6b8d0df0f05f922634bce25189bde5fa687b56532644"
         },
         "mobile": {
           "filename": "01-settings-notifications-3a26b792--mobile.png",
