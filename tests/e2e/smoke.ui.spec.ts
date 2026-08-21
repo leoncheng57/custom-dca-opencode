@@ -54,6 +54,10 @@ test.describe("hub", () => {
       has: page.getByText("mock-project", { exact: true }),
     });
     await expect(mockProject).toBeVisible();
+    const projectList = page.getByTestId("opencode-project-list");
+    expect(await projectList.evaluate((element) => getComputedStyle(element).overflowY)).toBe("auto");
+    expect(await projectList.evaluate((element) => element.clientHeight)).toBeLessThanOrEqual(288);
+    expect((await mockProject.boundingBox())?.height).toBeLessThanOrEqual(48);
     await page.getByTestId("opencode-project-search").fill("no-project-has-this-name");
     await expect(mockProject).toHaveCount(0);
     await expect(page.getByTestId("opencode-directory-input")).not.toBeVisible();
@@ -393,7 +397,7 @@ test.describe("mobile", () => {
   test("hub is usable on a phone", async ({ page }) => {
     await page.goto(hub);
     await expect(page.getByTestId("opencode-session-list")).toBeVisible();
-    await expect(page.getByTestId("opencode-project-grid")).toBeVisible();
+    await expect(page.getByTestId("opencode-project-list")).toBeVisible();
     await expect(page.getByTestId("opencode-hub-mode")).toBeVisible();
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
