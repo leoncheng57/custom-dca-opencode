@@ -1,4 +1,4 @@
-import { realpath } from "node:fs/promises";
+import { realpath, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
@@ -56,6 +56,10 @@ export async function requireProjectDirectory(
     [canonicalRoot, canonicalDirectory] = await Promise.all([realpath(root), realpath(value)]);
   } catch {
     throw new PathError(400, "'directory' must identify an existing project");
+  }
+  const directoryStat = await stat(canonicalDirectory).catch(() => null);
+  if (!directoryStat?.isDirectory()) {
+    throw new PathError(400, "'directory' must identify an existing project directory");
   }
   const relative = path.relative(canonicalRoot, canonicalDirectory);
   if (!relative) {

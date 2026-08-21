@@ -29,6 +29,7 @@ const fixture = JSON.parse(
 const messages = new Map<string, unknown[]>([["ses_mock_done", fixture]]);
 const promptPayloads: Array<Record<string, unknown> & { sessionID: string }> = [];
 let sessionListRequests = 0;
+const sessionPayloads: Array<Record<string, unknown>> = [];
 const toolIDs = [
   "invalid", "question", "bash", "read", "glob", "grep", "edit", "write", "task",
   "webfetch", "todowrite", "websearch", "skill", "apply_patch", "mcp_dynamic_tool",
@@ -36,10 +37,14 @@ const toolIDs = [
 
 const MOCK_DIRECTORY_INPUT = "/tmp/mock-project";
 const TOOL_FAILURE_DIRECTORY_INPUT = "/tmp/mock-tool-failure";
+const CATALOGUE_FAILURE_DIRECTORY_INPUT = "/tmp/mock-catalogue-failure";
 mkdirSync(MOCK_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(TOOL_FAILURE_DIRECTORY_INPUT, { recursive: true });
+mkdirSync(CATALOGUE_FAILURE_DIRECTORY_INPUT, { recursive: true });
+mkdirSync(path.join(MOCK_DIRECTORY_INPUT, "src"), { recursive: true });
 export const MOCK_DIRECTORY = realpathSync(MOCK_DIRECTORY_INPUT);
 const TOOL_FAILURE_DIRECTORY = realpathSync(TOOL_FAILURE_DIRECTORY_INPUT);
+const CATALOGUE_FAILURE_DIRECTORY = realpathSync(CATALOGUE_FAILURE_DIRECTORY_INPUT);
 if (!existsSync(path.join(MOCK_DIRECTORY, ".git"))) {
   execFileSync("git", ["init", "-q", MOCK_DIRECTORY]);
   writeFileSync(path.join(MOCK_DIRECTORY, "README.md"), "# Mock project\n");
@@ -76,6 +81,16 @@ const SESSIONS: Array<Record<string, any>> = [
     tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
     time: { created: 1786000000000, updated: 1786000000000, archived: 1786500000000 },
   },
+  {
+    id: "ses_mock_unknown_model",
+    title: "Imported unknown model",
+    directory: MOCK_DIRECTORY,
+    agent: "build",
+    model: { providerID: "legacy", id: "removed-model", variant: "old" },
+    cost: 0,
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    time: { created: 1787000300000, updated: 1787000300000 },
+  },
 ];
 
 const TODOS = [
@@ -92,6 +107,49 @@ let mcpServers: Record<string, unknown> = {
 };
 const worktrees = [`${MOCK_DIRECTORY}.worktrees/fixture`];
 let pendingPermissions = [{ id: "perm_mock", sessionID: "ses_mock_done", permission: "bash", patterns: ["npm test"] }];
+const permissionReplies: Array<{ id: string; reply: unknown }> = [];
+const questionFixture = () => [
+  {
+    id: "que_mock",
+    sessionID: "ses_mock_done",
+    questions: [
+      {
+        header: "Deployment",
+        question: "Where should this ship?",
+        options: [{ label: "Staging", description: "Use the staging environment" }, { label: "Production", description: "Use production" }],
+        custom: false,
+      },
+      {
+        header: "Checks",
+        question: "Which checks should run?",
+        options: [{ label: "Unit", description: "Run unit tests" }, { label: "E2E", description: "Run browser tests" }],
+        multiple: true,
+        custom: true,
+      },
+    ],
+  },
+  {
+    id: "que_api",
+    sessionID: "ses_mock_running",
+    questions: [
+      {
+        header: "Deployment",
+        question: "Where should this ship?",
+        options: [{ label: "Staging", description: "Use the staging environment" }, { label: "Production", description: "Use production" }],
+        custom: false,
+      },
+      {
+        header: "Checks",
+        question: "Which checks should run?",
+        options: [{ label: "Unit", description: "Run unit tests" }, { label: "E2E", description: "Run browser tests" }],
+        multiple: true,
+        custom: true,
+      },
+    ],
+  },
+];
+let pendingQuestions = questionFixture();
+const questionReplies: Array<{ id: string; answers?: unknown; rejected?: boolean }> = [];
 mkdirSync(worktrees[0], { recursive: true });
 const eventClients = new Set<ServerResponse>();
 
@@ -174,8 +232,22 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     return json(res, 200, { model: "anthropic/claude-opus-5", permission: { "*": "ask", read: "allow" } });
   }
   if (pathname === "/config/providers") {
+    if (directory === CATALOGUE_FAILURE_DIRECTORY) return json(res, 503, { error: "mock catalogue unavailable" });
     return json(res, 200, {
-      providers: [{ id: "anthropic", models: { "claude-opus-5": { limit: { context: 200000 } } } }],
+      providers: [
+        {
+          id: "anthropic",
+          name: "Anthropic",
+          headers: { Authorization: "Bearer must-not-reach-browser" },
+          options: { apiKey: "must-not-reach-browser", baseURL: "https://private.example" },
+          models: {
+            "claude-opus-5": { name: "Claude Opus 5", attachment: true, reasoning: true, limit: { context: 200000, output: 32000 }, variants: { high: { token: "secret" } } },
+            "claude-text": { name: "Claude Text", status: "active", limit: { context: 100000, output: 16000 } },
+            "claude-retired": { name: "Claude Retired", enabled: false, limit: { context: 1000 } },
+          },
+        },
+        { id: "openai", name: "OpenAI", models: { "gpt-5": { name: "GPT-5", modalities: { input: ["text", "image"] }, limit: { context: 128000, output: 16000 } } } },
+      ],
       default: { anthropic: "claude-opus-5" },
     });
   }
@@ -186,6 +258,41 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
   }
   if (pathname === "/test/prompt-payloads") return json(res, 200, promptPayloads);
   if (pathname === "/test/session-list-requests") return json(res, 200, { count: sessionListRequests });
+  if (pathname === "/test/session-list-requests") return json(res, 200, { count: sessionListRequests });
+  if (pathname === "/test/permission-replies") return json(res, 200, permissionReplies);
+  if (pathname === "/test/permission" && req.method === "POST") {
+    void body(req).then((input) => {
+      const permission = {
+        id: String(input.id),
+        sessionID: String(input.sessionID),
+        permission: String(input.permission),
+        patterns: Array.isArray(input.patterns) ? input.patterns.map(String) : [],
+      };
+      pendingPermissions.push(permission);
+      emit("permission.asked", permission, directory ?? MOCK_DIRECTORY);
+      json(res, 201, permission);
+    });
+    return;
+  }
+  if (pathname === "/test/session-payloads") return json(res, 200, sessionPayloads);
+  if (pathname === "/test/question-replies") {
+    const id = url.searchParams.get("id");
+    return json(res, 200, id ? questionReplies.filter((reply) => reply.id === id) : questionReplies);
+  }
+  if (pathname === "/test/questions/reset" && req.method === "POST") {
+    const scope = url.searchParams.get("scope");
+    const fixtures = questionFixture();
+    const resetIDs = scope === "api" ? new Set(["que_api"]) : scope === "ui" ? new Set(["que_mock"]) : new Set(["que_api", "que_mock"]);
+    pendingQuestions = [...pendingQuestions.filter((item) => !resetIDs.has(item.id)), ...fixtures.filter((item) => resetIDs.has(item.id))];
+    for (let index = questionReplies.length - 1; index >= 0; index -= 1) {
+      if (resetIDs.has(questionReplies[index].id)) questionReplies.splice(index, 1);
+    }
+    return json(res, 200, true);
+  }
+  if (pathname === "/test/permissions/reset" && req.method === "POST") {
+    pendingPermissions = [{ id: "perm_mock", sessionID: "ses_mock_done", permission: "bash", patterns: ["npm test"] }];
+    return json(res, 200, true);
+  }
 
   if (pathname === "/mcp" && req.method === "GET") return json(res, 200, mcpServers);
   const mcpMatch = /^\/mcp\/([^/]+)\/(connect|disconnect)$/.exec(pathname);
@@ -200,10 +307,43 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
   if (pathname === "/permission") return json(res, 200, pendingPermissions);
   const permissionReply = /^\/permission\/([^/]+)\/reply$/.exec(pathname);
   if (permissionReply && req.method === "POST") {
-    pendingPermissions = pendingPermissions.filter((request) => request.id !== decodeURIComponent(permissionReply[1]));
+    const id = decodeURIComponent(permissionReply[1]);
+    const permission = pendingPermissions.find((request) => request.id === id);
+    if (id.startsWith("perm_fail")) return json(res, 500, { error: "mock permission reply failed" });
+    void body(req).then((input) => {
+      permissionReplies.push({ id, reply: input.reply });
+      pendingPermissions = pendingPermissions.filter((request) => request.id !== id);
+      if (permission && id.startsWith("perm_continue_") && input.reply !== "reject") {
+        const now = Date.now();
+        const sessionMessages = messages.get(permission.sessionID) ?? [];
+        sessionMessages.push({
+          info: { id: `msg_permission_${now}`, role: "assistant", agent: "build", time: { created: now, completed: now } },
+          parts: [{ id: `prt_permission_${now}`, messageID: `msg_permission_${now}`, type: "text", text: "Permission approved; continuing the conversation." }],
+        });
+        messages.set(permission.sessionID, sessionMessages);
+      }
+      emit("permission.replied", { sessionID: permission?.sessionID, requestID: id, reply: input.reply }, directory ?? MOCK_DIRECTORY);
+      json(res, 200, true);
+    });
+    return;
+  }
+  if (pathname === "/question" && req.method === "GET") return json(res, 200, pendingQuestions);
+  const questionAction = /^\/question\/([^/]+)\/(reply|reject)$/.exec(pathname);
+  if (questionAction && req.method === "POST") {
+    const id = decodeURIComponent(questionAction[1]);
+    if (!pendingQuestions.some((request) => request.id === id)) return json(res, 200, false);
+    if (questionAction[2] === "reply") {
+      void body(req).then((input) => {
+        questionReplies.push({ id, answers: input.answers });
+        pendingQuestions = pendingQuestions.filter((request) => request.id !== id);
+        json(res, 200, true);
+      });
+      return;
+    }
+    questionReplies.push({ id, rejected: true });
+    pendingQuestions = pendingQuestions.filter((request) => request.id !== id);
     return json(res, 200, true);
   }
-
   if (pathname === "/file") {
     const relative = url.searchParams.get("path") ?? "";
     return json(res, 200, relative === "src"
@@ -254,12 +394,17 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     let raw = "";
     req.on("data", (chunk) => (raw += chunk));
     req.on("end", () => {
-      const body = raw ? (JSON.parse(raw) as { title?: string; agent?: string }) : {};
+      const body = raw ? (JSON.parse(raw) as { title?: string; agent?: string; model?: { providerID?: string; id?: string; modelID?: string; variant?: string } }) : {};
+      sessionPayloads.push(body);
+      if (body.model && (!body.model.providerID || !body.model.id || body.model.modelID)) {
+        return json(res, 400, { error: "session model must use providerID and id" });
+      }
       const created = {
         id: `ses_mock_new_${Date.now()}`,
         title: body.title ?? "Untitled session",
         directory: directory ?? MOCK_DIRECTORY,
         agent: body.agent,
+        model: body.model,
         cost: 0,
         tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
         time: { created: Date.now(), updated: Date.now() },
@@ -279,14 +424,36 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     if (rest === "/prompt_async" && req.method === "POST") {
       if (!session) return unknownError(res);
       void body(req).then((input) => {
+        const promptModel = input.model as { providerID?: string; modelID?: string; id?: string } | undefined;
+        if (promptModel && (!promptModel.providerID || !promptModel.modelID || promptModel.id)) {
+          return json(res, 400, { error: "prompt model must use providerID and modelID" });
+        }
         promptPayloads.push({ ...input, sessionID: id });
+        if (promptModel) session.model = {
+          providerID: promptModel.providerID,
+          id: promptModel.modelID,
+          ...(typeof input.variant === "string" ? { variant: input.variant } : {}),
+        };
         const parts = Array.isArray(input.parts) ? input.parts as Array<Record<string, unknown>> : [];
         const text = parts.find((part) => part.type === "text")?.text;
         if (typeof text === "string") {
           const now = Date.now();
           const sessionMessages = messages.get(id) ?? [];
           sessionMessages.push({
-            info: { id: `msg_user_${now}`, role: "user", agent: input.agent, time: { created: now } },
+            info: {
+              id: `msg_user_${now}`,
+              role: "user",
+              agent: input.agent,
+              model: promptModel ? {
+                ...promptModel,
+                ...(typeof input.variant === "string" ? { variant: input.variant } : {}),
+              } : (session.model && {
+                providerID: session.model.providerID,
+                modelID: session.model.modelID ?? session.model.id,
+                ...(session.model.variant ? { variant: session.model.variant } : {}),
+              }),
+              time: { created: now },
+            },
             parts: [{ id: `prt_user_${now}`, messageID: `msg_user_${now}`, type: "text", text }],
           });
           messages.set(id, sessionMessages);

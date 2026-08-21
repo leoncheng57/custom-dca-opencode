@@ -5,6 +5,7 @@
 
 import type { RawMessage } from "./events.js";
 import type { AgentMode } from "./agentMode.js";
+import type { ModelCatalogue, ModelSelection } from "./models.js";
 
 export interface SessionSummary {
   id: string;
@@ -12,7 +13,7 @@ export interface SessionSummary {
   directory: string;
   parentID?: string;
   agent?: string;
-  model?: { providerID?: string; modelID?: string };
+  model?: ModelSelection;
   cost: number;
   tokens: {
     input: number;
@@ -101,6 +102,12 @@ export interface GitCommit {
 }
 
 export interface Worktree { name: string; branch?: string; directory: string }
+export interface DiscoveredProject {
+  name: string;
+  relativePath: string;
+  directory: string;
+  kind: "repository" | "directory";
+}
 export interface ReviewStatus {
   url: string;
   forge: "github" | "gitlab";
@@ -116,6 +123,18 @@ export interface PermissionRequest {
   sessionID: string;
   permission: string;
   patterns: string[];
+}
+export interface QuestionRequest {
+  id: string;
+  sessionID: string;
+  questions: Array<{
+    question: string;
+    header: string;
+    options: Array<{ label: string; description: string }>;
+    multiple?: boolean;
+    custom?: boolean;
+  }>;
+  tool?: unknown;
 }
 export interface ReminderSummary {
   id: string;
@@ -163,11 +182,22 @@ function scoped(path: string, directory: string, extra: Record<string, string> =
 export const api = {
   health: () => fetch("/api/health").then((r) => json<HealthResponse>(r)),
   appConfig: () => fetch("/api/app-config").then((r) => json<{ publicAppUrl: string | null }>(r)),
+  projects: () => fetch("/api/projects").then((r) => json<{ root: string; projects: DiscoveredProject[] }>(r)),
+  projectPins: () => fetch("/api/project-pins").then((r) => json<{ directories: string[] }>(r)),
+  saveProjectPins: (directories: string[]) =>
+    fetch("/api/project-pins", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ directories }),
+    }).then((r) => json<{ directories: string[] }>(r)),
 
   sessions: (directory: string, limit = 100) =>
     fetch(scoped("/sessions", directory, { limit: String(limit) })).then((r) =>
       json<{ sessions: SessionSummary[] }>(r),
     ),
+
+  models: (directory: string) =>
+    fetch(scoped("/models", directory)).then((r) => json<ModelCatalogue>(r)),
 
   session: (directory: string, id: string) =>
     fetch(scoped(`/sessions/${encodeURIComponent(id)}`, directory)).then((r) =>
@@ -192,7 +222,7 @@ export const api = {
     directory: string;
     title?: string;
     mode?: AgentMode;
-    model?: { providerID: string; modelID: string };
+    model?: ModelSelection;
     prompt?: string;
     isolated?: boolean;
     worktreeName?: string;
@@ -208,7 +238,7 @@ export const api = {
     id: string,
     text: string,
     mode: AgentMode,
-    model?: { providerID: string; modelID: string },
+    model?: ModelSelection,
     attachments?: Array<{ filename: string; mime: string; url: string }>,
     reminder?: string,
   ) =>
@@ -316,6 +346,20 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ reply }),
     }).then((r) => json<{ replied: boolean }>(r)),
+  questionRequests: (directory: string, sessionId: string) =>
+    fetch(scoped(`/sessions/${encodeURIComponent(sessionId)}/questions`, directory)).then((r) =>
+      json<{ requests: QuestionRequest[] }>(r),
+    ),
+  replyQuestion: (directory: string, sessionId: string, requestId: string, answers: string[][]) =>
+    fetch(scoped(`/sessions/${encodeURIComponent(sessionId)}/questions/${encodeURIComponent(requestId)}/reply`, directory), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ answers }),
+    }).then((r) => json<{ replied: boolean }>(r)),
+  rejectQuestion: (directory: string, sessionId: string, requestId: string) =>
+    fetch(scoped(`/sessions/${encodeURIComponent(sessionId)}/questions/${encodeURIComponent(requestId)}/reject`, directory), {
+      method: "POST",
+    }).then((r) => json<{ rejected: boolean }>(r)),
   reminders: () =>
     fetch("/api/reminders").then((r) => json<{ reminders: ReminderSummary[] }>(r)),
 

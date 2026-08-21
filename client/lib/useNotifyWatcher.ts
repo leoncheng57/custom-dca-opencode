@@ -34,6 +34,7 @@ export function notifyBrowser(
   preferences: NotificationPreferences,
   event: NotifyEvent,
   title = `OpenCode: ${event}`,
+  click?: string,
 ): void {
   if (!preferences.browser.events[event]) return;
   if (preferences.browser.sound) play(preferences.browser.volume);
@@ -42,7 +43,8 @@ export function notifyBrowser(
     "Notification" in window &&
     Notification.permission === "granted"
   ) {
-    new Notification(title, { body: "Open the IDE to review the session." });
+    const notification = new Notification(title, { body: "Open the IDE to review the session." });
+    if (click) notification.onclick = () => window.location.assign(click);
   }
 }
 
@@ -58,7 +60,7 @@ export function useNotifyWatcher(): void {
     window.addEventListener("opencode-notification-preferences", refreshPreferences);
     const source = new EventSource(api.eventsUrl());
     source.onmessage = (message) => {
-      let event: { type?: string; properties?: Record<string, unknown> };
+      let event: { type?: string; properties?: Record<string, unknown>; click?: string };
       try {
         event = JSON.parse(message.data) as typeof event;
       } catch {
@@ -77,7 +79,7 @@ export function useNotifyWatcher(): void {
           if (now - timestamp > 60_000) seen.delete(seenKey);
         }
       }
-      notifyBrowser(preferences, kind);
+      notifyBrowser(preferences, kind, undefined, event.click);
     };
     return () => {
       source.close();

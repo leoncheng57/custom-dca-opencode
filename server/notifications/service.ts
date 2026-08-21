@@ -3,6 +3,7 @@ import { request } from "../opencode/client.js";
 import type { EventBus, OpencodeEvent } from "../opencode/events.js";
 import { sendNtfy, type NotificationMessage } from "./ntfy.js";
 import { PreferenceStore, type NotifyEvent } from "./preferences.js";
+import { eventClickUrl } from "../publicAppUrl.js";
 
 export interface PermissionRequest {
   id: string;
@@ -45,6 +46,7 @@ export class NotificationService {
     private readonly config: OpencodeConfig,
     private readonly bus: EventBus,
     private readonly store: PreferenceStore,
+    private readonly publicAppUrl: string | null = null,
   ) {}
 
   start(): void {
@@ -85,6 +87,7 @@ export class NotificationService {
       event: kind,
       title: kind === "permission" ? "OpenCode needs permission" : `OpenCode: ${kind}`,
       body: details ? `${details.permission} requires review` : `Session ${sessionID || "updated"}`,
+      click: eventClickUrl(this.publicAppUrl, event),
     };
     await sendNtfy(preferences, message).catch((error) => console.warn("[ntfy]", String(error)));
     if (kind === "permission" && details && event.directory) {
@@ -109,6 +112,11 @@ export class NotificationService {
               title: "OpenCode is parked",
               body: `${pending.permission} has waited ${seconds}s for a reply`,
               priority: "high",
+              click: eventClickUrl(this.publicAppUrl, {
+                type: "permission.asked",
+                properties: { sessionID: pending.sessionID },
+                directory,
+              }),
             });
             this.bus.emit("event", {
               type: "notification.parked",
