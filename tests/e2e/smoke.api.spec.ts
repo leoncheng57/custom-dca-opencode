@@ -145,6 +145,53 @@ test.describe("transcript", () => {
   });
 });
 
+test.describe("question requests", () => {
+  test.beforeEach(async () => {
+    await fetch(`${MOCK_URL}/test/questions/reset?scope=api`, { method: "POST" });
+  });
+
+  test("returns only the addressed session's questions", async ({ request }) => {
+    const response = await request.get(`/api/sessions/ses_mock_running/questions?directory=${DIR}`);
+    expect(response.ok()).toBe(true);
+    const payload = await response.json();
+    expect(payload.requests.map((item: { id: string }) => item.id)).toEqual(["que_api"]);
+    expect(payload.requests[0].questions).toHaveLength(2);
+  });
+
+  test("preserves ordered answer arrays and rejects cross-session mutations", async ({ request }) => {
+    const crossSession = await request.post(`/api/sessions/ses_mock_running/questions/que_mock/reject?directory=${DIR}`);
+    expect(crossSession.status()).toBe(404);
+
+    const response = await request.post(`/api/sessions/ses_mock_running/questions/que_api/reply?directory=${DIR}`, {
+      data: { answers: [["Staging"], ["Unit", "E2E"]] },
+    });
+    expect(response.ok()).toBe(true);
+    const replies = await (await fetch(`${MOCK_URL}/test/question-replies?id=que_api`)).json() as Array<Record<string, unknown>>;
+    expect(replies).toEqual([{ id: "que_api", answers: [["Staging"], ["Unit", "E2E"]] }]);
+
+    const stale = await request.post(`/api/sessions/ses_mock_running/questions/que_api/reject?directory=${DIR}`);
+    expect(stale.status()).toBe(404);
+  });
+
+  test("validates the answer matrix", async ({ request }) => {
+    const response = await request.post(`/api/sessions/ses_mock_running/questions/que_api/reply?directory=${DIR}`, {
+      data: { answers: [["Staging"]] },
+    });
+    expect(response.status()).toBe(400);
+
+    const multipleForSingle = await request.post(`/api/sessions/ses_mock_running/questions/que_api/reply?directory=${DIR}`, {
+      data: { answers: [["Staging", "Production"], ["Unit"]] },
+    });
+    expect(multipleForSingle.status()).toBe(400);
+  });
+
+  test("rejects an owned question", async ({ request }) => {
+    const response = await request.post(`/api/sessions/ses_mock_running/questions/que_api/reject?directory=${DIR}`);
+    expect(response.ok()).toBe(true);
+    expect(await (await fetch(`${MOCK_URL}/test/question-replies?id=que_api`)).json()).toEqual([{ id: "que_api", rejected: true }]);
+  });
+});
+
 test.describe("prompting", () => {
   test("accepts a prompt asynchronously (202, not a held connection)", async ({ request }) => {
     const res = await request.post(`/api/sessions/ses_mock_done/prompt?directory=${DIR}`, {
@@ -220,6 +267,17 @@ test.describe("prompting", () => {
       data: { text: "inspect", attachments: [{ filename: "secret", mime: "text/plain", url: "file:///etc/passwd" }] },
     });
     expect(res.status()).toBe(400);
+
+    const remote = await request.post(`/api/sessions/ses_mock_done/prompt?directory=${DIR}`, {
+      data: { text: "inspect", attachments: [{ filename: "remote.png", mime: "image/png", url: "https://example.test/image.png" }] },
+    });
+    expect(remote.status()).toBe(400);
+
+    const oversized = Buffer.alloc(3 * 1024 * 1024 + 1).toString("base64");
+    const large = await request.post(`/api/sessions/ses_mock_done/prompt?directory=${DIR}`, {
+      data: { text: "inspect", attachments: [{ filename: "large.png", mime: "image/png", url: `data:image/png;base64,${oversized}` }] },
+    });
+    expect(large.status()).toBe(400);
   });
 
   test("creates a session", async ({ request }) => {
@@ -391,6 +449,7 @@ test.describe("worktrees", () => {
 
 test.describe("permission remote control", () => {
   test("lists and answers a parked permission", async ({ request }) => {
+    await fetch(`${MOCK_URL}/test/permissions/reset`, { method: "POST" });
     const before = await (await request.get(`/api/permission-requests?directory=${DIR}`)).json();
     expect(before.requests).toContainEqual(expect.objectContaining({ id: "perm_mock" }));
     const reply = await request.post(`/api/permission-requests/perm_mock/reply?directory=${DIR}`, { data: { reply: "once" } });

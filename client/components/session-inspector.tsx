@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "../ds/button.js";
 import {
@@ -16,6 +16,8 @@ type InspectorTab = "tasks" | "commands" | "links";
 interface SessionInspectorProps {
   events: TranscriptEvent[];
   todos: Todo[];
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
 }
 
 function exportCommands(commands: CommandEntry[]): void {
@@ -65,31 +67,37 @@ function ReviewLink({ url }: { url: string }) {
   );
 }
 
-export function SessionInspector({ events, todos }: SessionInspectorProps) {
-  const commands = useMemo(() => extractCommands(events), [events]);
-  const links = useMemo(() => extractMrUrls(events), [events]);
-  const [tab, setTab] = useState<InspectorTab>("tasks");
-
+function InspectorContent({
+  commands,
+  links,
+  todos,
+  tab,
+  onTabChange,
+  onJump,
+}: {
+  commands: CommandEntry[];
+  links: string[];
+  todos: Todo[];
+  tab: InspectorTab;
+  onTabChange: (tab: InspectorTab) => void;
+  onJump: (id: string) => void;
+}) {
   return (
-    <aside
-      className="hidden w-80 shrink-0 overflow-y-auto border-l border-[var(--color-border-default)] lg:block"
-      aria-label="Session details"
-      data-testid="opencode-session-inspector"
-    >
+    <>
       <nav className="sticky top-0 z-10 flex border-b border-[var(--color-border-default)] bg-[var(--color-background-surface)] p-1">
         {(["tasks", "commands", "links"] as const).map((name) => (
           <button
             key={name}
             type="button"
-            className={`flex-1 rounded px-2 py-1.5 text-xs capitalize ${
+            className={`min-h-11 flex-1 rounded px-2 py-1.5 text-xs capitalize lg:min-h-0 ${
               tab === name
                 ? "bg-[var(--color-background-surface-neutral-muted)] font-semibold"
                 : "text-[var(--color-text-muted)]"
             }`}
-            onClick={() => setTab(name)}
+            onClick={() => onTabChange(name)}
             data-testid={`opencode-inspector-${name}`}
           >
-            {name}
+            {name === "links" ? "Reviews" : name}
             {name === "tasks" && todos.length ? ` ${todos.length}` : ""}
             {name === "commands" && commands.length ? ` ${commands.length}` : ""}
             {name === "links" && links.length ? ` ${links.length}` : ""}
@@ -97,7 +105,7 @@ export function SessionInspector({ events, todos }: SessionInspectorProps) {
         ))}
       </nav>
 
-      <div className="p-4">
+      <div className="p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
         {tab === "tasks" && (
           <section data-testid="opencode-task-list">
             <h2 className="mb-2 text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]">
@@ -146,8 +154,8 @@ export function SessionInspector({ events, todos }: SessionInspectorProps) {
                   <li key={command.id}>
                     <button
                       type="button"
-                      className="w-full rounded border border-[var(--color-border-default)] p-2 text-left hover:bg-[var(--hh-row-hover)]"
-                      onClick={() => jumpToEvent(command.id)}
+                      className="min-h-11 w-full rounded border border-[var(--color-border-default)] p-2 text-left hover:bg-[var(--hh-row-hover)]"
+                      onClick={() => onJump(command.id)}
                       data-testid="opencode-command-row"
                     >
                       <span className="flex items-center gap-2 text-[10px] uppercase text-[var(--color-text-muted)]">
@@ -188,6 +196,93 @@ export function SessionInspector({ events, todos }: SessionInspectorProps) {
           </section>
         )}
       </div>
-    </aside>
+    </>
+  );
+}
+
+function MobileInspector({ onClose, children }: { onClose: () => void; children: (close: () => void) => React.ReactNode }) {
+  const onCloseRef = useRef(onClose);
+  const dialogRef = useRef<HTMLElement>(null);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    if (!(window.history.state as { opencodeInspector?: boolean } | null)?.opencodeInspector) {
+      window.history.pushState({ opencodeInspector: true }, "");
+    }
+    const onPopState = () => onCloseRef.current();
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  const close = useCallback(() => {
+    if ((window.history.state as { opencodeInspector?: boolean } | null)?.opencodeInspector) window.history.back();
+    else onCloseRef.current();
+  }, []);
+
+  useEffect(() => {
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    dialogRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = previousOverflow;
+      previousFocus?.focus();
+    };
+  }, [close]);
+
+  return (
+    <div className="lg:hidden">
+      <button type="button" className="fixed inset-0 z-50 bg-black/40" aria-label="Close session details" onClick={close} data-testid="opencode-mobile-inspector-scrim" />
+      <section
+        ref={dialogRef}
+        tabIndex={-1}
+        className="fixed inset-x-0 bottom-0 top-[max(0.75rem,env(safe-area-inset-top))] z-50 flex min-w-0 flex-col overflow-hidden rounded-t-2xl border-t border-[var(--color-border-default)] bg-[var(--color-background-surface)] shadow-xl"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Session details"
+        data-testid="opencode-mobile-inspector"
+      >
+        <header className="flex min-h-11 shrink-0 items-center border-b border-[var(--color-border-default)] px-3">
+          <h2 className="text-sm font-semibold">Session details</h2>
+          <button type="button" className="ml-auto flex min-h-11 min-w-11 items-center justify-center rounded text-sm" onClick={close} data-testid="opencode-mobile-inspector-close" aria-label="Close session details">Close</button>
+        </header>
+        <div className="thin-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain">{children(close)}</div>
+      </section>
+    </div>
+  );
+}
+
+export function SessionInspector({ events, todos, mobileOpen = false, onMobileClose }: SessionInspectorProps) {
+  const commands = useMemo(() => extractCommands(events), [events]);
+  const links = useMemo(() => extractMrUrls(events), [events]);
+  const [tab, setTab] = useState<InspectorTab>("tasks");
+
+  const content = (onJump: (id: string) => void) => (
+    <InspectorContent commands={commands} links={links} todos={todos} tab={tab} onTabChange={setTab} onJump={onJump} />
+  );
+
+  return (
+    <>
+      <aside
+        className="hidden w-80 shrink-0 overflow-y-auto border-l border-[var(--color-border-default)] lg:block"
+        aria-label="Session details"
+        data-testid="opencode-session-inspector"
+      >
+        {content(jumpToEvent)}
+      </aside>
+      {mobileOpen && onMobileClose && (
+        <MobileInspector onClose={onMobileClose}>
+          {(close) => content((eventId) => {
+            close();
+            setTimeout(() => jumpToEvent(eventId), 0);
+          })}
+        </MobileInspector>
+      )}
+    </>
   );
 }
