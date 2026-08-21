@@ -14,6 +14,9 @@ test.describe("command palette", () => {
   test("opens globally with accessible keyboard navigation", async ({ page }) => {
     await page.goto(settings);
     const trigger = page.getByTestId("opencode-palette-open");
+    await expect(trigger).toBeVisible();
+    await expect(trigger).toHaveAttribute("title", "Search commands (Cmd/Ctrl+K)");
+    await expect(trigger).toHaveAttribute("aria-keyshortcuts", "Meta+K Control+K");
     await trigger.click();
 
     const input = page.getByRole("combobox", { name: "Search commands and conversations" });

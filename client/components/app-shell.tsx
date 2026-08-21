@@ -82,8 +82,8 @@ export function AppShell() {
       if (paletteOpen) closePalette();
       else openPalette();
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
   });
 
   const commands = buildPaletteCommands({
@@ -131,17 +131,16 @@ export function AppShell() {
           </NavLink>
           <Button
             aria-label="Search commands"
-            className="gap-1.5 px-2"
+            aria-keyshortcuts="Meta+K Control+K"
+            className="w-8 shrink-0 px-0"
             size="sm"
-            variant="ghost"
+            title="Search commands (Cmd/Ctrl+K)"
+            type="button"
+            variant="secondary"
             onClick={openPalette}
             data-testid="opencode-palette-open"
           >
-            <Search aria-hidden="true" size={15} />
-            <span className="hidden md:inline">Search</span>
-            <kbd className="hidden rounded border border-[var(--color-border-default)] px-1 text-[10px] font-normal text-[var(--color-text-muted)] lg:inline">
-              {navigator.platform.includes("Mac") ? "Cmd K" : "Ctrl K"}
-            </kbd>
+            <Search aria-hidden="true" size={16} />
           </Button>
           <Button
             aria-label="Open on phone"
