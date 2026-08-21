@@ -24,6 +24,7 @@ import {
   shareSession,
   unshareSession,
   ModePolicyActivationError,
+  SessionAgentIdentityError,
   type AgentMode,
 } from "../opencode/sessions.js";
 import { createWorktree } from "../opencode/worktrees.js";
@@ -147,6 +148,10 @@ function fail(res: Response, error: unknown, options: { notFoundOn5xx?: boolean 
   }
   if (error instanceof ModePolicyActivationError) {
     res.status(502).json({ error: error.message });
+    return;
+  }
+  if (error instanceof SessionAgentIdentityError) {
+    res.status(409).json({ error: error.message, code: error.code, agent: error.agent });
     return;
   }
   if (error instanceof ModelCatalogueError) {

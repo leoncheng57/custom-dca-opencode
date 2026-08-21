@@ -14,7 +14,7 @@ import { ModelSelect } from "../components/model-select.js";
 import { QuestionRequest } from "../components/question-request.js";
 import { ShareExportDialog } from "../components/share-export-dialog.js";
 import { api, formatCost, type ReminderSummary, type SessionSummary } from "../lib/api.js";
-import { latestModeMessageID, modeFromMessages, type AgentMode } from "../lib/agentMode.js";
+import { latestModeMessageID, modeFromSession, type AgentMode } from "../lib/agentMode.js";
 import { MAX_IMAGE_ATTACHMENTS, readImageAttachment, selectImageFiles, type ImageAttachment } from "../lib/attachments.js";
 import { composerEnterAction } from "../lib/composerKeys.js";
 import { collapseActionGroups, mergeEvents, runningActivity } from "../lib/derive.js";
@@ -60,6 +60,7 @@ export function ConversationPage() {
   const [reminderCatalogue, setReminderCatalogue] = useState<ReminderSummary[]>([]);
   const [selectedReminder, setSelectedReminder] = useState("");
   const [mode, setMode] = useState<AgentMode>("build");
+  const [agentIdentityKnown, setAgentIdentityKnown] = useState(false);
   const derivedModeMessage = useRef<string | undefined>(undefined);
   const modeSelectionDirty = useRef(false);
   const [replyingPermission, setReplyingPermission] = useState<string | null>(null);
@@ -91,14 +92,16 @@ export function ConversationPage() {
 
   useEffect(() => {
     if (!stream.loaded) return;
-    const messageID = latestModeMessageID(stream.messages as RawMessage[]);
-    if (messageID === derivedModeMessage.current) return;
-    derivedModeMessage.current = messageID;
-    const persistedMode = modeFromMessages(stream.messages as RawMessage[]);
+    const marker = `${session?.agent ?? ""}:${latestModeMessageID(stream.messages as RawMessage[]) ?? ""}`;
+    if (marker === derivedModeMessage.current) return;
+    derivedModeMessage.current = marker;
+    const persistedMode = modeFromSession(session?.agent, stream.messages as RawMessage[]);
+    setAgentIdentityKnown(persistedMode !== undefined);
+    if (!persistedMode) return;
     if (modeSelectionDirty.current && persistedMode !== mode) return;
     modeSelectionDirty.current = false;
     setMode(persistedMode);
-  }, [mode, stream.loaded, stream.messages]);
+  }, [mode, session?.agent, stream.loaded, stream.messages]);
 
   const selectMode = (nextMode: AgentMode) => {
     modeSelectionDirty.current = true;
@@ -319,7 +322,7 @@ export function ConversationPage() {
         coarsePointer: window.matchMedia("(pointer: coarse)").matches,
         // `send()` has no re-entry guard and prompt_async returns as soon as
         // the turn is queued, so a fast double Enter would post two turns.
-        canSubmit: !sending && draft.trim().length > 0,
+        canSubmit: agentIdentityKnown && !sending && draft.trim().length > 0,
       },
     );
     if (action.preventDefault) event.preventDefault();
@@ -528,7 +531,7 @@ export function ConversationPage() {
       <footer className="relative z-20 shrink-0 border-t border-[var(--color-border-default)] bg-[var(--color-background-surface)] px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <div className="mx-auto max-w-3xl">
           <div className="mb-2 flex flex-wrap items-center gap-2">
-            <AgentModeToggle mode={mode} onChange={selectMode} testId="opencode-composer-mode" />
+            <AgentModeToggle mode={agentIdentityKnown ? mode : undefined} onChange={selectMode} disabled={!agentIdentityKnown} testId="opencode-composer-mode" />
             <ModelSelect
               catalogue={modelCatalogue}
               value={selectedModel}
@@ -537,7 +540,7 @@ export function ConversationPage() {
               label="Model"
             />
             <span className="basis-full text-[11px] text-[var(--color-text-muted)]" data-testid="opencode-current-model">
-              {mode === "plan" ? "Read-only analysis" : "Can modify files"}
+              {!agentIdentityKnown ? "Agent identity unavailable; continue in the TUI or create a web session" : mode === "plan" ? "Read-only analysis" : "Can modify files"}
               {selectedModel ? ` · ${sameModel(selectedModel, currentModel) ? "current" : "switches next message"}` : ""}
             </span>
           </div>
@@ -611,7 +614,7 @@ export function ConversationPage() {
                 </select>
               )}
               <span className="flex-1" aria-hidden="true" />
-              <Button size="sm" className="min-h-11 shrink-0 sm:min-h-8" onClick={() => void send()} disabled={sending || !draft.trim()} data-testid="opencode-send">
+              <Button size="sm" className="min-h-11 shrink-0 sm:min-h-8" onClick={() => void send()} disabled={!agentIdentityKnown || sending || !draft.trim()} data-testid="opencode-send">
                 {sending ? "Sending…" : "Send"}
               </Button>
             </div>

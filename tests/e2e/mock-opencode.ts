@@ -62,6 +62,9 @@ function mobileMessages(): unknown[] {
 const messages = new Map<string, unknown[]>([
   ["ses_mock_done", fixture],
   ["ses_mock_mobile", mobileMessages()],
+  ["ses_mock_foreign_agent", [
+    { info: { id: "msg_foreign", role: "user", agent: "explore", time: { created: 1787300000000 } }, parts: [], },
+  ]],
 ]);
 const promptPayloads: Array<Record<string, unknown> & { sessionID: string }> = [];
 let sessionListRequests = 0;
@@ -200,6 +203,25 @@ const SESSIONS: Array<Record<string, any>> = [
     cost: 0,
     tokens: {},
     time: { created: 1787200000000, updated: 1787200000000 },
+  },
+  {
+    id: "ses_mock_foreign_agent",
+    title: "Imported Explore session",
+    directory: MOCK_DIRECTORY,
+    agent: "explore",
+    permission: [],
+    cost: 0,
+    tokens: {},
+    time: { created: 1787300000000, updated: 1787300000000, archived: 1787300001000 },
+  },
+  {
+    id: "ses_mock_unknown_agent",
+    title: "Imported session without agent metadata",
+    directory: MOCK_DIRECTORY,
+    permission: [],
+    cost: 0,
+    tokens: {},
+    time: { created: 1787300100000, updated: 1787300100000, archived: 1787300101000 },
   },
   {
     id: "ses_mock_share_failure",
