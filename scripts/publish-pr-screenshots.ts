@@ -13,4 +13,7 @@ const destination = path.resolve(required("--destination"));
 const prNumber = Number(required("--pr-number"));
 const sha = required("--sha");
 const manifest = validateAndPublishBundle(bundle, destination, prNumber, sha);
-console.log(JSON.stringify({ count: manifest.screenshots.length, files: manifest.screenshots.map(({ filename }) => filename) }));
+console.log(JSON.stringify({
+  count: manifest.screenshots.length,
+  files: manifest.screenshots.flatMap(({ captures }) => [captures.desktop.filename, captures.mobile.filename]),
+}));

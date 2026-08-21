@@ -32,6 +32,8 @@ export interface SessionStreamState {
   messages: unknown[];
   running: boolean;
   todos: Array<{ content: string; status: string; priority: string }>;
+  todosLoaded: boolean;
+  todosError: string | null;
   permissions: PermissionRequest[];
   questions: QuestionRequest[];
   error: string | null;
@@ -45,6 +47,8 @@ export function useSessionStream(directory: string, sessionId: string): SessionS
   const [messages, setMessages] = useState<unknown[]>([]);
   const [running, setRunning] = useState(false);
   const [todos, setTodos] = useState<Array<{ content: string; status: string; priority: string }>>([]);
+  const [todosLoaded, setTodosLoaded] = useState(false);
+  const [todosError, setTodosError] = useState<string | null>(null);
   const [permissions, setPermissions] = useState<PermissionRequest[]>([]);
   const [questions, setQuestions] = useState<QuestionRequest[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -84,7 +88,14 @@ export function useSessionStream(directory: string, sessionId: string): SessionS
           setError(reason instanceof Error ? reason.message : String(reason));
         }
         // Todos are supplementary — a failure there must not blank the transcript.
-        if (todoResult.status === "fulfilled") setTodos(todoResult.value.todos);
+        if (todoResult.status === "fulfilled") {
+          setTodos(todoResult.value.todos);
+          setTodosError(null);
+        } else {
+          const reason = todoResult.reason as unknown;
+          setTodosError(reason instanceof Error ? reason.message : String(reason));
+        }
+        setTodosLoaded(true);
         if (permissionResult.status === "fulfilled" && permissionRevisionAtStart === permissionRevision.current) {
           setPermissions(permissionResult.value.requests.filter((request) => request.sessionID === sessionId));
         }
@@ -94,6 +105,12 @@ export function useSessionStream(directory: string, sessionId: string): SessionS
       inFlight.current = false;
       setLoaded(true);
     }
+  }, [directory, sessionId]);
+
+  useEffect(() => {
+    setTodos([]);
+    setTodosLoaded(false);
+    setTodosError(null);
   }, [directory, sessionId]);
 
   // Poll loop. Hidden tabs skip ticks and refresh once on return.
@@ -196,7 +213,7 @@ export function useSessionStream(directory: string, sessionId: string): SessionS
     await poll();
   }, [directory, poll, sessionId]);
 
-  return { messages, running, todos, permissions, questions, error, loaded, refresh, replyPermission };
+  return { messages, running, todos, todosLoaded, todosError, permissions, questions, error, loaded, refresh, replyPermission };
 }
 
 /** True when an error means "stop trying" rather than "retry later". */

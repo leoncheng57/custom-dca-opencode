@@ -9,7 +9,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-[ -f .env ] && set -a && . ./.env && set +a
+env_file="${DCA_ENV_FILE:-./.env}"
+[ -f "$env_file" ] && set -a && . "$env_file" && set +a
 
 OPENCODE_URL="${OPENCODE_URL:-http://127.0.0.1:4096}"
 PORT="${PORT:-3000}"

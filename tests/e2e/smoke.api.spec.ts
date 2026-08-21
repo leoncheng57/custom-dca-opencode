@@ -162,6 +162,50 @@ test.describe("sessions", () => {
   });
 });
 
+test.describe.serial("session sharing", () => {
+  test.beforeEach(async () => {
+    await fetch(`${MOCK_URL}/test/sharing/reset`, { method: "POST" });
+  });
+
+  test("creates, persists, and revokes a safe full-session share URL", async ({ request }) => {
+    const created = await request.post(`/api/sessions/ses_mock_share_api/share?directory=${encodeURIComponent(DIR)}`);
+    expect(created.status()).toBe(200);
+    const createdBody = await created.json();
+    expect(createdBody.session.shareUrl).toBe("https://share.e2e.example.test/s/ses_mock_share_api");
+    expect(JSON.stringify(createdBody)).not.toMatch(/must-not-reach-browser|"share"|permission/);
+
+    const detail = await (await request.get(`/api/sessions/ses_mock_share_api?directory=${encodeURIComponent(DIR)}`)).json();
+    expect(detail.session.shareUrl).toBe(createdBody.session.shareUrl);
+    const list = await (await request.get(`/api/sessions?directory=${encodeURIComponent(DIR)}`)).json();
+    expect(list.sessions.find((session: { id: string }) => session.id === "ses_mock_share_api").shareUrl).toBe(createdBody.session.shareUrl);
+
+    const revoked = await request.delete(`/api/sessions/ses_mock_share_api/share?directory=${encodeURIComponent(DIR)}`);
+    expect(revoked.status()).toBe(200);
+    expect((await revoked.json()).session).not.toHaveProperty("shareUrl");
+    const reloaded = await (await request.get(`/api/sessions/ses_mock_share_api?directory=${encodeURIComponent(DIR)}`)).json();
+    expect(reloaded.session).not.toHaveProperty("shareUrl");
+  });
+
+  test("validates directory scope and session ownership before mutation", async ({ request }) => {
+    expect((await request.post("/api/sessions/ses_mock_done/share")).status()).toBe(400);
+    expect((await request.post(`/api/sessions/ses_mock_other_directory/share?directory=${encodeURIComponent(DIR)}`)).status()).toBe(404);
+    expect((await request.post(`/api/sessions/ses_nope/share?directory=${encodeURIComponent(DIR)}`)).status()).toBe(404);
+    expect((await request.delete(`/api/sessions/ses_nope/share?directory=${encodeURIComponent(DIR)}`)).status()).toBe(404);
+  });
+
+  test("keeps operational and invalid-URL failures honest and retryable", async ({ request }) => {
+    const unavailable = await request.post(`/api/sessions/ses_mock_share_failure/share?directory=${encodeURIComponent(DIR)}`);
+    expect(unavailable.status()).toBe(502);
+    expect((await unavailable.json()).error).toContain("mock share service unavailable");
+
+    const unsafe = await request.post(`/api/sessions/ses_mock_bad_share_url/share?directory=${encodeURIComponent(DIR)}`);
+    expect(unsafe.status()).toBe(502);
+    expect(JSON.stringify(await unsafe.json())).not.toContain("must-not-reach-browser");
+    const detail = await (await request.get(`/api/sessions/ses_mock_bad_share_url?directory=${encodeURIComponent(DIR)}`)).json();
+    expect(detail.session).not.toHaveProperty("shareUrl");
+  });
+});
+
 test.describe("model catalogue", () => {
   test("exposes only safe, bounded model metadata", async ({ request }) => {
     const response = await request.get(`/api/models?directory=${DIR}`);
@@ -662,6 +706,19 @@ test.describe("settings and tools", () => {
     expect(before.servers.docs).toMatchObject({ status: "failed", error: "mock connection refused" });
     const after = await (await request.post(`/api/mcp/docs/connect?directory=${DIR}`)).json();
     expect(after.servers.docs).toEqual({ status: "connected" });
+  });
+
+  test("returns a bounded catalogue without skill or command prompt content", async ({ request }) => {
+    const response = await request.get(`/api/catalog?directory=${DIR}`);
+    expect(response.ok()).toBe(true);
+    const body = await response.json();
+    expect(body.servers).toMatchObject({
+      github: { status: "connected" },
+      registration: { status: "needs_client_registration", error: "register this client first" },
+    });
+    expect(body.skills).toEqual([{ name: "browser-check", description: "Check a page in the browser.", location: "browser-check/SKILL.md" }]);
+    expect(body.commands).toEqual([{ name: "verify", description: "Run project verification.", source: "command", agent: "build", model: "mock/model", subtask: false }]);
+    expect(JSON.stringify(body)).not.toContain("SECRET");
   });
 
   test("returns LSP and read-only effective permissions", async ({ request }) => {

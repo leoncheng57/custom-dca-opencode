@@ -1,6 +1,13 @@
 import { useEffect } from "react";
 
 import { api, type NotificationPreferences, type NotifyEvent } from "./api.js";
+import {
+  initializeDeviceNotificationPreferences,
+  loadDeviceNotificationPreferences,
+  NOTIFICATION_MEDIA_CHANGE_EVENT,
+  type DeviceNotificationPreferences,
+} from "./notificationMedia.js";
+import { playNotificationSound, speakNotification, unlockNotificationAudio } from "./notificationMediaBrowser.js";
 
 function classify(type: string, properties: Record<string, unknown>): NotifyEvent | null {
   if (type === "session.idle") return "idle";
@@ -16,28 +23,16 @@ function classify(type: string, properties: Record<string, unknown>): NotifyEven
   return null;
 }
 
-function play(volume: number): void {
-  const AudioContextClass = window.AudioContext;
-  if (!AudioContextClass) return;
-  const context = new AudioContextClass();
-  const oscillator = context.createOscillator();
-  const gain = context.createGain();
-  oscillator.frequency.value = 660;
-  gain.gain.value = Math.max(0, Math.min(1, volume)) * 0.08;
-  oscillator.connect(gain).connect(context.destination);
-  oscillator.start();
-  oscillator.stop(context.currentTime + 0.12);
-  oscillator.addEventListener("ended", () => void context.close());
-}
-
 export function notifyBrowser(
   preferences: NotificationPreferences,
   event: NotifyEvent,
   title = `OpenCode: ${event}`,
   click?: string,
+  devicePreferences = loadDeviceNotificationPreferences().preferences,
 ): void {
   if (!preferences.browser.events[event]) return;
-  if (preferences.browser.sound) play(preferences.browser.volume);
+  playNotificationSound(devicePreferences, event);
+  speakNotification(devicePreferences, event);
   if (
     preferences.browser.desktop &&
     "Notification" in window &&
@@ -52,12 +47,23 @@ export function notifyBrowser(
 export function useNotifyWatcher(): void {
   useEffect(() => {
     let preferences: NotificationPreferences | null = null;
+    let devicePreferences: DeviceNotificationPreferences = loadDeviceNotificationPreferences().preferences;
     const seen = new Map<string, number>();
     const refreshPreferences = () => void api.notifications().then((result) => {
       preferences = result.preferences;
+      devicePreferences = initializeDeviceNotificationPreferences(result.preferences.browser).preferences;
     }).catch(() => undefined);
     refreshPreferences();
+    const refreshDevicePreferences = (event: Event) => {
+      devicePreferences = event instanceof CustomEvent && event.detail
+        ? event.detail as DeviceNotificationPreferences
+        : loadDeviceNotificationPreferences().preferences;
+    };
     window.addEventListener("opencode-notification-preferences", refreshPreferences);
+    window.addEventListener(NOTIFICATION_MEDIA_CHANGE_EVENT, refreshDevicePreferences);
+    const unlockAudio = () => void unlockNotificationAudio().catch(() => undefined);
+    window.addEventListener("pointerdown", unlockAudio, { once: true });
+    window.addEventListener("keydown", unlockAudio, { once: true });
     const source = new EventSource(api.eventsUrl());
     source.onmessage = (message) => {
       let event: { type?: string; properties?: Record<string, unknown>; click?: string };
@@ -79,11 +85,14 @@ export function useNotifyWatcher(): void {
           if (now - timestamp > 60_000) seen.delete(seenKey);
         }
       }
-      notifyBrowser(preferences, kind, undefined, event.click);
+      notifyBrowser(preferences, kind, undefined, event.click, devicePreferences);
     };
     return () => {
       source.close();
       window.removeEventListener("opencode-notification-preferences", refreshPreferences);
+      window.removeEventListener(NOTIFICATION_MEDIA_CHANGE_EVENT, refreshDevicePreferences);
+      window.removeEventListener("pointerdown", unlockAudio);
+      window.removeEventListener("keydown", unlockAudio);
     };
   }, []);
 }

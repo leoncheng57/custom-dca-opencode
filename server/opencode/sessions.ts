@@ -144,6 +144,7 @@ export interface SessionSummary {
   createdAt: string;
   updatedAt: string;
   archived: boolean;
+  shareUrl?: string;
   /** Derived from GET /session/status. False also means "owned by nobody". */
   running: boolean;
 }
@@ -163,7 +164,19 @@ interface RawSession {
     cache?: { read?: number; write?: number };
   };
   permission?: PermissionRuleset;
+  share?: { url?: unknown };
   time?: { created?: number; updated?: number; archived?: number };
+}
+
+function safeShareUrl(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.length > 2_048) return undefined;
+  try {
+    const url = new URL(value);
+    if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username || url.password) return undefined;
+    return url.href;
+  } catch {
+    return undefined;
+  }
 }
 
 async function activateModePolicy(
@@ -236,6 +249,7 @@ export function toSummary(raw: RawSession, running: boolean): SessionSummary {
     createdAt: new Date(raw.time?.created ?? now).toISOString(),
     updatedAt: new Date(raw.time?.updated ?? raw.time?.created ?? now).toISOString(),
     archived: typeof raw.time?.archived === "number",
+    shareUrl: safeShareUrl(raw.share?.url),
     running,
   };
 }
@@ -389,6 +403,30 @@ export async function deleteSession(
     method: "DELETE",
     directory,
   });
+}
+
+export async function shareSession(
+  config: OpencodeConfig,
+  directory: string,
+  sessionID: string,
+): Promise<SessionSummary> {
+  const raw = await request<RawSession>(config, `/session/${encodeURIComponent(sessionID)}/share`, {
+    method: "POST",
+    directory,
+  });
+  return toSummary(raw ?? {}, false);
+}
+
+export async function unshareSession(
+  config: OpencodeConfig,
+  directory: string,
+  sessionID: string,
+): Promise<SessionSummary> {
+  const raw = await request<RawSession>(config, `/session/${encodeURIComponent(sessionID)}/share`, {
+    method: "DELETE",
+    directory,
+  });
+  return toSummary(raw ?? {}, false);
 }
 
 /** Raw `{ info, parts }` messages — the client-side adapter shapes them. */

@@ -190,12 +190,15 @@ jobs:
             if (manifest.screenshots.length === 0) {
               lines.push('No screenshots requested. Add this to the PR description:', '', '```md', '```screenshots', '/?directory=/tmp/mock-project', 'full:/sessions/ses_mock_done?directory=/tmp/mock-project', '```', '```');
             } else {
-              lines.push('| Route | Preview |', '| --- | --- |');
+              lines.push('| Route | Desktop (dark) | Mobile (dark) |', '| --- | --- | --- |');
               for (const shot of manifest.screenshots) {
-                const url = `${base}/${encodeURIComponent(shot.filename)}?sha=${shortSha}`;
                 const route = escapeHtml(shot.requestedRoute).replaceAll('|', '&#124;');
                 const alt = escapeHtml(shot.requestedRoute);
-                lines.push(`| <code>${route}</code>${shot.fullPage ? ' (full page)' : ''}<br>[Open full size](${url}) | [<img src="${url}" width="640" alt="${alt}">](${url}) |`);
+                const desktopUrl = `${base}/${encodeURIComponent(shot.captures.desktop.filename)}?sha=${shortSha}`;
+                const mobileUrl = `${base}/${encodeURIComponent(shot.captures.mobile.filename)}?sha=${shortSha}`;
+                const desktop = `[<img src="${desktopUrl}" width="500" alt="${alt} desktop">](${desktopUrl})<br>[Open full size](${desktopUrl})`;
+                const mobile = `[<img src="${mobileUrl}" width="220" alt="${alt} mobile">](${mobileUrl})<br>[Open full size](${mobileUrl})`;
+                lines.push(`| <code>${route}</code>${shot.fullPage ? ' (full page)' : ''} | ${desktop} | ${mobile} |`);
               }
               lines.push('', `Source: \`${shortSha}\` | [Download artifact](${artifactUrl})`);
             }

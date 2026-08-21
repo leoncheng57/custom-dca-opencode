@@ -30,6 +30,10 @@ if (parsed.requests.length > 0) {
     stdio: "inherit",
     env: {
       ...process.env,
+      CI: "true",
+      PORT: process.env.PR_SCREENSHOT_APP_PORT ?? "13410",
+      MOCK_OPENCODE_PORT: process.env.PR_SCREENSHOT_OPENCODE_PORT ?? "14599",
+      MOCK_PREVIEW_PORT: process.env.PR_SCREENSHOT_PREVIEW_PORT ?? "14600",
       PR_SCREENSHOT_CAPTURE_REQUIRED: "true",
       PR_SCREENSHOT_REQUEST_FILE: normalizedRequest,
       PR_SCREENSHOT_OUTPUT_DIR: outputDir,

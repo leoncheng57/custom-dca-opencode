@@ -77,6 +77,16 @@ browser; its URL is never sent to an image or QR service. `PUBLIC_APP_URL` must 
 HTTP(S) origin with no path, query, fragment, or credentials. If it is unset, the QR
 uses the current browser origin, which is only useful when that origin is phone-reachable.
 
+### Notifications
+
+Browser sound profiles and optional generic status speech are stored per device. Browser
+and ntfy event delivery toggles remain server-backed and independent. Spoken notifications
+never include prompts, paths, filenames, commands, tool output, or notification bodies.
+
+Constructor-based browser Notifications on iPhone and iPad still require installed-PWA
+and service-worker support. This feature does not add a service worker; ntfy remains the
+reliable phone notification path.
+
 Verification requires no live agent or model credentials:
 
 ```bash
@@ -97,12 +107,14 @@ full:/sessions/ses_mock_done?directory=/tmp/mock-project
 ```
 ````
 
-CI publishes up to 10 validated images on the dedicated `gh-pages` branch, embeds public
-raw links in one sticky PR comment, and also keeps a 30-day Actions artifact. Blank and
-`#` comment lines are ignored. Routes cannot contain whitespace, hosts, schemes, controls,
-backslashes, or traversal. Removing the block removes that PR's published directory;
-closing the PR removes the directory and comment. Capture always uses the deterministic
-Playwright mocks, never a live OpenCode server or real conversations.
+CI accepts up to 10 routes and captures each one in dark mode at desktop (1280x800) and
+mobile (390x740) widths. The sticky PR comment shows `Route`, `Desktop`, and `Mobile`
+columns with public full-size links; a 30-day Actions artifact contains both PNGs per
+route. `full:` captures the full scroll height at both widths. Blank and `#` comment lines
+are ignored. Routes cannot contain whitespace, hosts, schemes, controls, backslashes, or
+traversal. Removing the block removes that PR's published directory; closing the PR
+removes the directory and comment. Capture always uses the deterministic Playwright mocks,
+never a live OpenCode server or real conversations.
 
 Fork runs remain read-only and may need maintainer approval. Fork artifacts are linked in
 the sticky comment but are never copied to `gh-pages`: manifest validation cannot prove
@@ -127,6 +139,23 @@ that the `gh-pages` branch is not protected against the bot. Stale images are ca
 with the source SHA. GitLab MRs can reuse the parser, manifest, and validation model, but
 would need GitLab artifact/Pages publication and MR-note API wiring; that second CI system
 is intentionally not included.
+
+### Share and export
+
+The conversation header shares or exports the full transcript, and each user or readable
+assistant row can export that message. Copy, Markdown download, JSON download for full
+sessions, and device sharing use the normalized visible transcript. Attachment exports are
+limited to filename and MIME metadata. Reminder bodies, provider metadata and signatures,
+raw tool arguments and output, attachment URLs, and file paths are excluded. Device sharing
+is shown only when the browser implements `navigator.share`.
+
+Public OpenCode links are deliberately separate. Creating one publishes the complete raw
+session to OpenCode's configured sharing service, including message parts that local
+exports omit, and continues syncing future updates. Anyone with the URL can view it. The
+UI requires a second explicit confirmation before publication, shows the returned URL,
+and requires another explicit confirmation to revoke it. Revocation disables that URL;
+it cannot recall copies already downloaded or shared by viewers. Whether sharing is
+available and where data is hosted are controlled by the OpenCode server configuration.
 
 ## Architecture
 
