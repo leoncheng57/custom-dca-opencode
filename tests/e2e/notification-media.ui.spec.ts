@@ -1,6 +1,26 @@
 import { expect, test } from "@playwright/test";
 
 const MOCK_URL = `http://127.0.0.1:${process.env.MOCK_OPENCODE_PORT || 4599}`;
+const DEVICE_DEFAULT = JSON.stringify({
+  version: 1,
+  sound: {
+    enabled: false,
+    volume: 0.5,
+    profile: "distinct",
+    events: { idle: true, error: true, abort: false, permission: true, question: true, parked: true },
+  },
+  speech: { enabled: false, rate: 1 },
+});
+
+async function stubLegacySound(page: import("@playwright/test").Page, sound: boolean, volume: number) {
+  await page.route("**/api/notifications", async (route) => {
+    const response = await route.fetch();
+    const body = await response.json() as { preferences: { browser: { sound: boolean; volume: number } } };
+    body.preferences.browser.sound = sound;
+    body.preferences.browser.volume = volume;
+    await route.fulfill({ response, json: body });
+  });
+}
 
 async function installMediaStubs(page: import("@playwright/test").Page, stored?: string) {
   await page.addInitScript(({ stored }) => {
@@ -47,7 +67,7 @@ async function installMediaStubs(page: import("@playwright/test").Page, stored?:
 
 test.describe("notification sound and speech", () => {
   test("disabled media makes no calls and previews unlock after a click", async ({ page }) => {
-    await installMediaStubs(page);
+    await installMediaStubs(page, DEVICE_DEFAULT);
     await page.goto("/settings/notifications");
     await expect(page.getByTestId("opencode-browser-sound")).not.toBeChecked();
     await expect(page.getByTestId("opencode-speech-enabled")).not.toBeChecked();
@@ -65,7 +85,7 @@ test.describe("notification sound and speech", () => {
   });
 
   test("event kinds use distinct tones and safe phrases after saving", async ({ page }) => {
-    await installMediaStubs(page);
+    await installMediaStubs(page, DEVICE_DEFAULT);
     await page.goto("/settings/notifications");
     await page.getByTestId("opencode-browser-sound").check();
     await page.getByTestId("opencode-speech-enabled").check();
@@ -98,10 +118,38 @@ test.describe("notification sound and speech", () => {
 
   test("corrupt storage resets and the controls fit at 390px", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 740 });
+    await stubLegacySound(page, true, 0.9);
     await installMediaStubs(page, "{bad-json");
     await page.goto("/settings/notifications");
     await expect(page.getByTestId("opencode-sound-profile")).toHaveValue("distinct");
-    expect(await page.evaluate(() => JSON.parse(localStorage.getItem("opencode-notification-media-v1") ?? "null").version)).toBe(1);
+    await expect(page.getByTestId("opencode-browser-sound")).not.toBeChecked();
+    const recovered = await page.evaluate(() => JSON.parse(localStorage.getItem("opencode-notification-media-v1") ?? "null"));
+    expect(recovered).toMatchObject({ version: 1, sound: { enabled: false, volume: 0.5 } });
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  });
+
+  test("migrates legacy sound when the device key is absent", async ({ page }) => {
+    await stubLegacySound(page, true, 0.8);
+    await installMediaStubs(page);
+    await page.goto("/settings/notifications");
+
+    await expect(page.getByTestId("opencode-browser-sound")).toBeChecked();
+    await expect(page.getByTestId("opencode-browser-volume")).toHaveValue("0.8");
+    const migrated = await page.evaluate(() => JSON.parse(localStorage.getItem("opencode-notification-media-v1") ?? "null"));
+    expect(migrated.sound).toMatchObject({ enabled: true, volume: 0.8 });
+  });
+
+  test("keeps an existing device key authoritative over legacy sound", async ({ page }) => {
+    const existing = JSON.stringify({
+      ...JSON.parse(DEVICE_DEFAULT),
+      sound: { ...JSON.parse(DEVICE_DEFAULT).sound, enabled: false, volume: 0.25, profile: "minimal" },
+    });
+    await stubLegacySound(page, true, 0.9);
+    await installMediaStubs(page, existing);
+    await page.goto("/settings/notifications");
+
+    await expect(page.getByTestId("opencode-browser-sound")).not.toBeChecked();
+    await expect(page.getByTestId("opencode-browser-volume")).toHaveValue("0.25");
+    await expect(page.getByTestId("opencode-sound-profile")).toHaveValue("minimal");
   });
 });

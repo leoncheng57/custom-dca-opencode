@@ -19,6 +19,17 @@ export interface DeviceNotificationPreferences {
   };
 }
 
+export type DeviceNotificationPreferenceLoadState = "absent" | "present" | "corrupt" | "unavailable";
+
+export interface DeviceNotificationPreferenceLoadResult {
+  state: DeviceNotificationPreferenceLoadState;
+  preferences: DeviceNotificationPreferences;
+}
+
+export interface DeviceNotificationPreferenceInitialization extends DeviceNotificationPreferenceLoadResult {
+  migrated: boolean;
+}
+
 export interface Tone {
   frequency: number;
   offset: number;
@@ -64,22 +75,50 @@ export function normalizeDeviceNotificationPreferences(value: unknown): DeviceNo
   };
 }
 
-export function loadDeviceNotificationPreferences(storage?: Pick<Storage, "getItem" | "setItem">): DeviceNotificationPreferences {
+export function loadDeviceNotificationPreferences(storage?: Pick<Storage, "getItem">): DeviceNotificationPreferenceLoadResult {
   try {
     const target = storage ?? localStorage;
     const raw = target.getItem(NOTIFICATION_MEDIA_STORAGE_KEY);
-    const preferences = normalizeDeviceNotificationPreferences(raw ? JSON.parse(raw) : null);
-    target.setItem(NOTIFICATION_MEDIA_STORAGE_KEY, JSON.stringify(preferences));
-    return preferences;
-  } catch {
-    const preferences = normalizeDeviceNotificationPreferences(null);
-    try {
-      (storage ?? localStorage).setItem(NOTIFICATION_MEDIA_STORAGE_KEY, JSON.stringify(preferences));
-    } catch {
-      // Storage may be unavailable entirely.
+    if (raw === null) {
+      return { state: "absent", preferences: normalizeDeviceNotificationPreferences(null) };
     }
-    return preferences;
+    try {
+      return { state: "present", preferences: normalizeDeviceNotificationPreferences(JSON.parse(raw)) };
+    } catch {
+      return { state: "corrupt", preferences: normalizeDeviceNotificationPreferences(null) };
+    }
+  } catch {
+    return { state: "unavailable", preferences: normalizeDeviceNotificationPreferences(null) };
   }
+}
+
+export function resolveDeviceNotificationPreferences(
+  loaded: DeviceNotificationPreferenceLoadResult,
+  legacy: { sound: boolean; volume: number },
+): DeviceNotificationPreferenceInitialization {
+  if (loaded.state !== "absent") return { ...loaded, migrated: false };
+  return {
+    state: "present",
+    migrated: true,
+    preferences: normalizeDeviceNotificationPreferences({
+      ...loaded.preferences,
+      sound: {
+        ...loaded.preferences.sound,
+        enabled: legacy.sound,
+        volume: legacy.volume,
+      },
+    }),
+  };
+}
+
+export function initializeDeviceNotificationPreferences(
+  legacy: { sound: boolean; volume: number },
+  storage?: Pick<Storage, "getItem" | "setItem">,
+): DeviceNotificationPreferenceInitialization {
+  const loaded = loadDeviceNotificationPreferences(storage);
+  const initialized = resolveDeviceNotificationPreferences(loaded, legacy);
+  if (loaded.state !== "unavailable") saveDeviceNotificationPreferences(initialized.preferences, storage);
+  return initialized;
 }
 
 export function saveDeviceNotificationPreferences(

@@ -8,6 +8,7 @@ import {
   type NotifyEvent,
 } from "../lib/api.js";
 import {
+  initializeDeviceNotificationPreferences,
   loadDeviceNotificationPreferences,
   NOTIFICATION_MEDIA_CHANGE_EVENT,
   saveDeviceNotificationPreferences,
@@ -25,7 +26,7 @@ const EVENTS: NotifyEvent[] = ["idle", "error", "abort", "permission", "question
 
 export function NotificationsPage() {
   const [preferences, setPreferences] = useState<NotificationPreferences | null>(null);
-  const [devicePreferences, setDevicePreferences] = useState<DeviceNotificationPreferences>(() => loadDeviceNotificationPreferences());
+  const [devicePreferences, setDevicePreferences] = useState<DeviceNotificationPreferences>(() => loadDeviceNotificationPreferences().preferences);
   const [tokenConfigured, setTokenConfigured] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -33,6 +34,7 @@ export function NotificationsPage() {
   useEffect(() => {
     void api.notifications().then((result) => {
       setPreferences(result.preferences);
+      setDevicePreferences(initializeDeviceNotificationPreferences(result.preferences.browser).preferences);
       setTokenConfigured(result.tokenConfigured);
     }).catch((e: Error) => setError(e.message));
   }, []);
@@ -80,6 +82,7 @@ export function NotificationsPage() {
             <p className="text-xs text-[var(--color-text-muted)]" data-testid="opencode-notification-capability">
               Desktop notifications: {capabilities.desktop ? capabilities.desktopPermission : "unavailable in this browser"}.
             </p>
+            <p className="text-xs text-[var(--color-text-muted)]">On iPhone and iPad, browser notifications require installed-PWA and service-worker support. ntfy is the reliable phone notification path.</p>
             <label className="block text-sm"><span className="mb-1 block">Parked permission after seconds</span><input type="number" min="5" max="3600" value={preferences.parkedPermissionSeconds} onChange={(e) => setPreferences({ ...preferences, parkedPermissionSeconds: Number(e.target.value) })} className="w-full rounded-md border border-[var(--color-border-default)] bg-transparent p-2" data-testid="opencode-parked-seconds" /></label>
           </section>
 

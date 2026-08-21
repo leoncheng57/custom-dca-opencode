@@ -2,6 +2,7 @@ import { useEffect } from "react";
 
 import { api, type NotificationPreferences, type NotifyEvent } from "./api.js";
 import {
+  initializeDeviceNotificationPreferences,
   loadDeviceNotificationPreferences,
   NOTIFICATION_MEDIA_CHANGE_EVENT,
   type DeviceNotificationPreferences,
@@ -27,7 +28,7 @@ export function notifyBrowser(
   event: NotifyEvent,
   title = `OpenCode: ${event}`,
   click?: string,
-  devicePreferences = loadDeviceNotificationPreferences(),
+  devicePreferences = loadDeviceNotificationPreferences().preferences,
 ): void {
   if (!preferences.browser.events[event]) return;
   playNotificationSound(devicePreferences, event);
@@ -46,16 +47,17 @@ export function notifyBrowser(
 export function useNotifyWatcher(): void {
   useEffect(() => {
     let preferences: NotificationPreferences | null = null;
-    let devicePreferences: DeviceNotificationPreferences = loadDeviceNotificationPreferences();
+    let devicePreferences: DeviceNotificationPreferences = loadDeviceNotificationPreferences().preferences;
     const seen = new Map<string, number>();
     const refreshPreferences = () => void api.notifications().then((result) => {
       preferences = result.preferences;
+      devicePreferences = initializeDeviceNotificationPreferences(result.preferences.browser).preferences;
     }).catch(() => undefined);
     refreshPreferences();
     const refreshDevicePreferences = (event: Event) => {
       devicePreferences = event instanceof CustomEvent && event.detail
         ? event.detail as DeviceNotificationPreferences
-        : loadDeviceNotificationPreferences();
+        : loadDeviceNotificationPreferences().preferences;
     };
     window.addEventListener("opencode-notification-preferences", refreshPreferences);
     window.addEventListener(NOTIFICATION_MEDIA_CHANGE_EVENT, refreshDevicePreferences);
