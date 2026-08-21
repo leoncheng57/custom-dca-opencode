@@ -99,6 +99,13 @@ several decisions below.
    This preserves configured asks and pattern-specific denies without blanket allows.
    Activation must succeed before `prompt_async`, and exact suffix checks make repeated
    same-mode prompts idempotent.
+10. **Auto permissions is volatile and directory-scoped.** The BFF keeps it in memory,
+    defaults it off after every restart, and replies `once` to `permission.asked` for
+    every session in an enabled directory. It never mutates policy, replies `always`,
+    or answers questions; it can only approve requests that upstream emits as asked.
+    It does not change the Plan/Build session-policy activation above. Permission and
+    parked-permission notifications are suppressed while enabled because asked requests
+    are handled immediately.
 
 ## Client conventions (inherited from the OpenHands runner, still enforced)
 

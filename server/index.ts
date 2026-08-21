@@ -18,6 +18,7 @@ import dotenv from "dotenv";
 
 import { readOpencodeConfig, checkHealth, EXPECTED_SERVER_VERSION } from "./opencode/client.js";
 import { EventBus } from "./opencode/events.js";
+import { AutoPermissionService } from "./opencode/autoPermissions.js";
 import { sessionRoutes } from "./routes/sessions.js";
 import { settingsRoutes } from "./routes/settings.js";
 import { mcpRoutes } from "./routes/mcp.js";
@@ -47,12 +48,20 @@ const bus = new EventBus(opencode);
 bus.on("error", (error: unknown) => {
   console.warn("[bus]", error instanceof Error ? error.message : error);
 });
-bus.start();
+const autoPermissions = new AutoPermissionService(opencode, bus);
+autoPermissions.start();
 const notificationStore = new PreferenceStore();
-const notificationService = new NotificationService(opencode, bus, notificationStore, publicAppUrl);
+const notificationService = new NotificationService(
+  opencode,
+  bus,
+  notificationStore,
+  publicAppUrl,
+  (directory) => autoPermissions.isEnabled(directory),
+);
 notificationService.start();
+bus.start();
 
-app.use("/api", sessionRoutes(opencode, bus, publicAppUrl));
+app.use("/api", sessionRoutes(opencode, bus, publicAppUrl, autoPermissions));
 app.use("/api", settingsRoutes(opencode));
 app.use("/api", mcpRoutes(opencode));
 app.use("/api", workspaceRoutes(opencode));

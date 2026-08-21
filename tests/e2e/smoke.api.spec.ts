@@ -4,6 +4,7 @@ import { expect, test, type APIRequestContext } from "@playwright/test";
 // No browser, no agent run.
 
 const DIR = process.platform === "darwin" ? "/private/tmp/mock-project" : "/tmp/mock-project";
+const AUTO_DIR = process.platform === "darwin" ? "/private/tmp/mock-auto-project" : "/tmp/mock-auto-project";
 const TOOL_FAILURE_DIR = process.platform === "darwin" ? "/private/tmp/mock-tool-failure" : "/tmp/mock-tool-failure";
 const CATALOGUE_FAILURE_DIR = process.platform === "darwin" ? "/private/tmp/mock-catalogue-failure" : "/tmp/mock-catalogue-failure";
 const POLICY_FAILURE_DIR = process.platform === "darwin" ? "/private/tmp/mock-policy-failure" : "/tmp/mock-policy-failure";
@@ -328,6 +329,26 @@ test.describe("prompting", () => {
       data: { text: repeatedBuild, mode: "build" },
     })).status()).toBe(202);
     expect((await policyProbe(sessionID)).permission).toHaveLength(restored.permission.length);
+  });
+
+  test("keeps Plan session policy activation independent from auto permissions", async ({ request }) => {
+    const sessionID = await freshSession(request);
+    const text = `plan auto api ${Date.now()}`;
+    await request.patch(`/api/auto-approve?directory=${DIR}`, { data: { enabled: true } });
+    try {
+      const response = await request.post(`/api/sessions/${sessionID}/prompt?directory=${DIR}`, {
+        data: { text, mode: "plan" },
+      });
+      expect(response.status()).toBe(202);
+      expect(await promptPayload(text)).toMatchObject({ agent: "plan" });
+      expect(await promptPayload(text)).not.toHaveProperty("tools");
+      expect((await policyProbe(sessionID)).disabledTools)
+        .toEqual(expect.arrayContaining(["bash", "edit", "write", "apply_patch"]));
+      expect(await (await request.get(`/api/auto-approve?directory=${DIR}`)).json())
+        .toEqual({ enabled: true, error: null });
+    } finally {
+      await request.patch(`/api/auto-approve?directory=${DIR}`, { data: { enabled: false } });
+    }
   });
 
   test("supports Build to Plan on one session", async ({ request }) => {
@@ -711,5 +732,59 @@ test.describe("permission remote control", () => {
     expect(reply.ok()).toBe(true);
     const after = await (await request.get(`/api/permission-requests?directory=${DIR}`)).json();
     expect(after.requests).toEqual([]);
+  });
+
+  test("auto-approves once per directory, reconciles pending requests, and leaves questions alone", async ({ request }) => {
+    await fetch(`${MOCK_URL}/test/permissions/reset?directory=${encodeURIComponent(AUTO_DIR)}`, { method: "POST" });
+    await request.patch(`/api/auto-approve?directory=${AUTO_DIR}`, { data: { enabled: false } });
+    expect(await (await request.get(`/api/auto-approve?directory=${AUTO_DIR}`)).json())
+      .toEqual({ enabled: false, error: null });
+
+    const invalid = await request.patch(`/api/auto-approve?directory=${AUTO_DIR}`, { data: { enabled: "yes" } });
+    expect(invalid.status()).toBe(400);
+    const extra = await request.patch(`/api/auto-approve?directory=${AUTO_DIR}`, { data: { enabled: true, reply: "always" } });
+    expect(extra.status()).toBe(400);
+
+    const existingID = `perm_existing_${Date.now()}`;
+    await fetch(`${MOCK_URL}/test/permission?directory=${encodeURIComponent(AUTO_DIR)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: existingID,
+        sessionID: "ses_mock_done",
+        permission: "bash",
+        patterns: ["npm test"],
+        metadata: { command: "npm test" },
+        always: ["npm *"],
+        tool: { messageID: "msg_auto", callID: "call_auto" },
+      }),
+    });
+    const pending = await (await request.get(`/api/permission-requests?directory=${AUTO_DIR}`)).json();
+    expect(pending.requests).toContainEqual(expect.objectContaining({
+      id: existingID,
+      metadata: { command: "npm test" },
+      always: ["npm *"],
+      tool: { messageID: "msg_auto", callID: "call_auto" },
+    }));
+
+    const enabled = await request.patch(`/api/auto-approve?directory=${AUTO_DIR}`, { data: { enabled: true } });
+    expect(await enabled.json()).toEqual({ enabled: true, error: null });
+    await expect.poll(async () => await (await fetch(`${MOCK_URL}/test/permission-replies`)).json())
+      .toContainEqual({ id: existingID, reply: "once" });
+    expect((await (await request.get(`/api/permission-requests?directory=${AUTO_DIR}`)).json()).requests).toEqual([]);
+    const questions = await (await request.get(`/api/sessions/ses_mock_done/questions?directory=${AUTO_DIR}`)).json();
+    expect(questions.requests).toContainEqual(expect.objectContaining({ id: "que_mock" }));
+    expect((await (await request.get(`/api/auto-approve?directory=${DIR}`)).json()).enabled).toBe(false);
+
+    await request.patch(`/api/auto-approve?directory=${AUTO_DIR}`, { data: { enabled: false } });
+    const manualID = `perm_manual_${Date.now()}`;
+    await fetch(`${MOCK_URL}/test/permission?directory=${encodeURIComponent(AUTO_DIR)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: manualID, sessionID: "ses_mock_done", permission: "read", patterns: ["README.md"] }),
+    });
+    await expect.poll(async () => (await (await request.get(`/api/permission-requests?directory=${AUTO_DIR}`)).json()).requests)
+      .toContainEqual(expect.objectContaining({ id: manualID }));
+    await fetch(`${MOCK_URL}/test/permissions/reset?directory=${encodeURIComponent(AUTO_DIR)}`, { method: "POST" });
   });
 });

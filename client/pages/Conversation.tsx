@@ -9,6 +9,7 @@ import { RunningIndicator, Transcript } from "../components/transcript.js";
 import { SessionInspector } from "../components/session-inspector.js";
 import { WorkspacePanels } from "../components/workspace-panels.js";
 import { AgentModeToggle } from "../components/agent-mode-toggle.js";
+import { AutoPermissionsControl } from "../components/auto-permissions-control.js";
 import { ModelSelect } from "../components/model-select.js";
 import { QuestionRequest } from "../components/question-request.js";
 import { api, formatCost, type ReminderSummary, type SessionSummary } from "../lib/api.js";
@@ -355,6 +356,10 @@ export function ConversationPage() {
         )}
       </header>
 
+      <div className="px-4 pt-3">
+        <AutoPermissionsControl directory={directory} testId="opencode-conversation-auto-permissions" />
+      </div>
+
       {/* R2: OpenCode never persists "running" state, so a crash mid-turn is
           invisible unless derived. We surface it and let the human decide —
           Resume prefills the composer rather than auto-sending, because
@@ -416,7 +421,7 @@ export function ConversationPage() {
         <QuestionRequest key={request.id} directory={directory} sessionID={id} request={request} onResolved={stream.refresh} />
       ))}
 
-      <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
         <div
           ref={transcriptScrollerRef}
           onScroll={updateTranscriptFollow}
@@ -467,7 +472,7 @@ export function ConversationPage() {
         <SessionInspector events={events} todos={stream.todos} mobileOpen={inspectorOpen} onMobileClose={() => setInspectorOpen(false)} />
       </div>
 
-      <footer className="shrink-0 border-t border-[var(--color-border-default)] px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      <footer className="relative z-20 shrink-0 border-t border-[var(--color-border-default)] bg-[var(--color-background-surface)] px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <div className="mx-auto max-w-3xl">
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <AgentModeToggle mode={mode} onChange={selectMode} testId="opencode-composer-mode" />

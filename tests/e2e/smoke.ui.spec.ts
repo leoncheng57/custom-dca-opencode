@@ -36,6 +36,18 @@ test.describe("hub", () => {
     await expect(page.getByTestId("opencode-upstream-badge")).toContainText("1.18.19");
   });
 
+  test("shows a directory-wide auto permissions warning and control", async ({ page }) => {
+    await page.goto(hub);
+    const control = page.getByTestId("opencode-hub-auto-permissions");
+    await expect(control).toContainText("Auto permissions: OFF");
+    await control.getByTestId("opencode-hub-auto-permissions-toggle").click();
+    await expect(control).toContainText("Auto permissions: ON");
+    await expect(control.getByTestId("opencode-hub-auto-permissions-warning")).toContainText("arbitrary shell commands");
+    await expect(control).toContainText("every session using this project directory");
+    await control.getByTestId("opencode-hub-auto-permissions-toggle").click();
+    await expect(control).toContainText("Auto permissions: OFF");
+  });
+
   test("selects the configured model from the safe catalogue", async ({ page }) => {
     await page.goto(hub);
     await expect(page.getByTestId("opencode-hub-model")).toHaveValue("anthropic/claude-opus-5");
@@ -325,7 +337,44 @@ test.describe("interrupted runs", () => {
 });
 
 test.describe("composer", () => {
-  test("approves a permission and continues the conversation", async ({ page }) => {
+  test("auto-approves once, leaves questions visible, and surfaces reply failures", async ({ page, request }) => {
+    await request.patch(`/api/auto-approve?directory=${DIR}`, { data: { enabled: false } });
+    await fetch(`${MOCK_URL}/test/permissions/reset?directory=${encodeURIComponent(DIR)}`, { method: "POST" });
+    await fetch(`${MOCK_URL}/test/questions/reset?scope=api`, { method: "POST" });
+    await page.goto(`/sessions/ses_mock_running?directory=${encodeURIComponent(DIR)}`);
+    const control = page.getByTestId("opencode-conversation-auto-permissions");
+    await expect(control).toContainText("Auto permissions: OFF");
+    await control.getByTestId("opencode-conversation-auto-permissions-toggle").click();
+    await expect(control).toContainText("Auto permissions: ON");
+
+    const id = `perm_auto_${Date.now()}`;
+    await fetch(`${MOCK_URL}/test/permission?directory=${encodeURIComponent(DIR)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, sessionID: "ses_mock_running", permission: "bash", patterns: ["npm test"] }),
+    });
+    await expect.poll(async () => await (await fetch(`${MOCK_URL}/test/permission-replies`)).json())
+      .toContainEqual({ id, reply: "once" });
+    await expect(page.getByTestId("opencode-permission-request").filter({ hasText: "npm test" })).toHaveCount(0);
+    await expect(page.getByTestId("opencode-question-request")).toBeVisible();
+
+    const failedID = `perm_fail_auto_${Date.now()}`;
+    await fetch(`${MOCK_URL}/test/permission?directory=${encodeURIComponent(DIR)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: failedID, sessionID: "ses_mock_running", permission: "external_directory", patterns: ["/tmp/*"] }),
+    });
+    await expect(control.getByTestId("opencode-conversation-auto-permissions-error"))
+      .toContainText("Could not auto-approve external_directory");
+    await expect(page.getByTestId("opencode-permission-request").filter({ hasText: "/tmp/*" })).toBeVisible();
+
+    await control.getByTestId("opencode-conversation-auto-permissions-toggle").click();
+    await expect(control).toContainText("Auto permissions: OFF");
+    await fetch(`${MOCK_URL}/test/permissions/reset?directory=${encodeURIComponent(DIR)}`, { method: "POST" });
+  });
+
+  test("approves a permission and continues the conversation", async ({ page, request: apiRequest }) => {
+    await apiRequest.patch(`/api/auto-approve?directory=${DIR}`, { data: { enabled: false } });
     const id = `perm_continue_${Date.now()}`;
     await fetch(`${MOCK_URL}/test/permission?directory=${encodeURIComponent(DIR)}`, {
       method: "POST",
@@ -342,7 +391,8 @@ test.describe("composer", () => {
     expect(replies).toContainEqual({ id, reply: "once" });
   });
 
-  test("keeps a failed permission reply visible and retryable", async ({ page }) => {
+  test("keeps a failed permission reply visible and retryable", async ({ page, request: apiRequest }) => {
+    await apiRequest.patch(`/api/auto-approve?directory=${DIR}`, { data: { enabled: false } });
     const id = `perm_fail_${Date.now()}`;
     await fetch(`${MOCK_URL}/test/permission?directory=${encodeURIComponent(DIR)}`, {
       method: "POST",
@@ -502,6 +552,9 @@ test.describe("mobile", () => {
     const transcript = page.getByTestId("opencode-transcript");
     await expect(transcript).toBeVisible();
     await expect(page.getByTestId("opencode-composer-mode")).toBeVisible();
+    const autoPermissions = page.getByTestId("opencode-conversation-auto-permissions");
+    await expect(autoPermissions).toContainText("Auto permissions: OFF");
+    expect((await autoPermissions.boundingBox())?.height).toBeLessThanOrEqual(72);
     const containment = await page.evaluate(() => ({
       horizontalOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       bodyOverscroll: getComputedStyle(document.body).overscrollBehaviorY,

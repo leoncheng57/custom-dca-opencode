@@ -7,6 +7,7 @@ import { Badge } from "../ds/badge.js";
 import { Button } from "../ds/button.js";
 import { LoadingIndicator } from "../ds/loading-indicator.js";
 import { AgentModeToggle } from "../components/agent-mode-toggle.js";
+import { AutoPermissionsControl } from "../components/auto-permissions-control.js";
 import { ModelSelect } from "../components/model-select.js";
 import {
   api,
@@ -475,6 +476,11 @@ export function HubPage() {
           <input type="checkbox" checked={isolated} onChange={(event) => setIsolated(event.target.checked)} data-testid="opencode-isolated-workspace" />
           Isolated workspace (creates an OpenCode worktree before the agent starts)
         </label>
+        {directory && (
+          <div className="mt-3">
+            <AutoPermissionsControl directory={directory} testId="opencode-hub-auto-permissions" />
+          </div>
+        )}
       </section>
 
       {directory && worktrees.length > 0 && (

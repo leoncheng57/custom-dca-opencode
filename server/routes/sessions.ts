@@ -9,6 +9,8 @@ import { Router, type Request, type Response } from "express";
 
 import { OpencodeError, request, type OpencodeConfig } from "../opencode/client.js";
 import type { EventBus } from "../opencode/events.js";
+import type { AutoPermissionService } from "../opencode/autoPermissions.js";
+import { listPermissions, replyPermission } from "../opencode/permissions.js";
 import { PathError, requireWorkspaceDirectory } from "../paths.js";
 import {
   abortSession,
@@ -178,7 +180,12 @@ const asyncRoute =
 const sessionRoute = (handler: (req: Request, res: Response) => Promise<void>) =>
   asyncRoute(handler, { notFoundOn5xx: true });
 
-export function sessionRoutes(config: OpencodeConfig, bus: EventBus, publicAppUrl: string | null = null): Router {
+export function sessionRoutes(
+  config: OpencodeConfig,
+  bus: EventBus,
+  publicAppUrl: string | null = null,
+  autoPermissions?: AutoPermissionService,
+): Router {
   const router = Router();
   const pendingQuestions = async (directory: string): Promise<QuestionRequest[]> => {
     try {
@@ -318,10 +325,32 @@ export function sessionRoutes(config: OpencodeConfig, bus: EventBus, publicAppUr
   );
 
   router.get(
+    "/auto-approve",
+    asyncRoute(async (req, res) => {
+      const directory = await directoryOf(req);
+      res.json(autoPermissions?.status(directory) ?? { enabled: false, error: null });
+    }),
+  );
+
+  router.patch(
+    "/auto-approve",
+    asyncRoute(async (req, res) => {
+      const directory = await directoryOf(req);
+      const body = req.body;
+      if (!body || typeof body !== "object" || Array.isArray(body) ||
+          Object.keys(body).length !== 1 || typeof body.enabled !== "boolean") {
+        throw new HttpError(400, "body must be exactly { enabled: boolean }");
+      }
+      if (!autoPermissions) throw new HttpError(503, "auto permissions are unavailable");
+      res.json(await autoPermissions.setEnabled(directory, body.enabled));
+    }),
+  );
+
+  router.get(
     "/permission-requests",
     asyncRoute(async (req, res) => {
       const directory = await directoryOf(req);
-      res.json({ requests: await request<unknown[]>(config, "/permission", { directory }) });
+      res.json({ requests: await listPermissions(config, directory) });
     }),
   );
 
@@ -333,11 +362,13 @@ export function sessionRoutes(config: OpencodeConfig, bus: EventBus, publicAppUr
       if (reply !== "once" && reply !== "always" && reply !== "reject") {
         throw new HttpError(400, "reply must be 'once', 'always' or 'reject'");
       }
-      await request<boolean>(config, `/permission/${encodeURIComponent(paramOf(req, "requestId"))}/reply`, {
-        method: "POST",
+      await replyPermission(
+        config,
         directory,
-        body: { reply, ...(typeof req.body?.message === "string" ? { message: req.body.message } : {}) },
-      });
+        paramOf(req, "requestId"),
+        reply,
+        typeof req.body?.message === "string" ? req.body.message : undefined,
+      );
       res.json({ replied: true });
     }),
   );
@@ -414,6 +445,8 @@ export function sessionRoutes(config: OpencodeConfig, bus: EventBus, publicAppUr
 
     const onEvent = (event: { type: string; properties: unknown; directory?: string }) => {
       if (scope && event.directory && event.directory !== scope) return;
+      if (autoPermissions?.isEnabled(event.directory) &&
+          (event.type === "permission.asked" || event.type === "notification.parked")) return;
       const properties = event.properties && typeof event.properties === "object"
         ? event.properties as Record<string, unknown>
         : {};
