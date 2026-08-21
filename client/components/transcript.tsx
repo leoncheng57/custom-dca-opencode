@@ -85,7 +85,22 @@ function Attachments({ items }: { items: Attachment[] }) {
 
 // ── Rows ────────────────────────────────────────────────────────────────────
 
-function UserBubble({ event }: { event: UserEvent }) {
+function ShareAction({ event, onShare }: { event: UserEvent | AgentEvent; onShare?: (event: UserEvent | AgentEvent) => void }) {
+  if (!onShare || (event.kind === "agent" && !event.text.trim())) return null;
+  return (
+    <button
+      type="button"
+      className="min-h-8 rounded px-2 py-0.5 text-[10px] text-[var(--color-text-muted)] underline-offset-2 hover:underline pointer-coarse:min-h-10"
+      onClick={() => onShare(event)}
+      aria-label={`Share ${event.kind === "user" ? "your" : "assistant"} message`}
+      data-testid={`opencode-${event.kind}-share`}
+    >
+      Share
+    </button>
+  );
+}
+
+function UserBubble({ event, onExport }: { event: UserEvent; onExport?: (event: UserEvent | AgentEvent) => void }) {
   return (
     <div className="flex flex-col items-end gap-1" data-kind="user" data-testid="opencode-user-message">
       {event.reminders.map((reminder, index) => (
@@ -107,16 +122,20 @@ function UserBubble({ event }: { event: UserEvent }) {
           <Attachments items={event.attachments} />
         </div>
       )}
-      <TimeLabel timestamp={event.timestamp} />
+      <div className="flex items-center gap-2">
+        <ShareAction event={event} onShare={onExport} />
+        <TimeLabel timestamp={event.timestamp} />
+      </div>
     </div>
   );
 }
 
-function AgentProse({ event }: { event: AgentEvent }) {
+function AgentProse({ event, onExport }: { event: AgentEvent; onExport?: (event: UserEvent | AgentEvent) => void }) {
   return (
     <div className="min-w-0 text-sm leading-relaxed" data-kind="agent" data-testid="opencode-agent-message">
       <Markdown source={event.text} />
       <div className="mt-1 flex justify-end">
+        <ShareAction event={event} onShare={onExport} />
         <TimeLabel timestamp={event.timestamp} />
       </div>
     </div>
@@ -327,12 +346,12 @@ function ActionGroupRow({
   );
 }
 
-const TranscriptRow = memo(function TranscriptRow({ event, wrap }: { event: TranscriptEvent; wrap: boolean }) {
+const TranscriptRow = memo(function TranscriptRow({ event, wrap, onExport }: { event: TranscriptEvent; wrap: boolean; onExport?: (event: UserEvent | AgentEvent) => void }) {
   switch (event.kind) {
     case "user":
-      return <UserBubble event={event} />;
+      return <UserBubble event={event} onExport={onExport} />;
     case "agent":
-      return <AgentProse event={event} />;
+      return <AgentProse event={event} onExport={onExport} />;
     case "thought":
       return <ThoughtRow text={event.text} durationMs={event.durationMs} />;
     case "tool":
@@ -412,11 +431,13 @@ export const Transcript = memo(function Transcript({
   wrap,
   collapsedGroups,
   onToggleGroup,
+  onExport,
 }: {
   items: DisplayItem[];
   wrap: boolean;
   collapsedGroups: Record<string, boolean>;
   onToggleGroup: (id: string) => void;
+  onExport?: (event: UserEvent | AgentEvent) => void;
 }) {
   return (
     <>
@@ -434,7 +455,7 @@ export const Transcript = memo(function Transcript({
               onToggle={() => onToggleGroup(item.id)}
             />
           ) : (
-            <TranscriptRow event={item.event} wrap={wrap} />
+            <TranscriptRow event={item.event} wrap={wrap} onExport={onExport} />
           )}
         </div>
       ))}

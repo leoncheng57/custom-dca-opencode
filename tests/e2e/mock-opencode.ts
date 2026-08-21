@@ -193,6 +193,38 @@ const SESSIONS: Array<Record<string, any>> = [
     // retaining direct route access for mobile transcript tests.
     time: { created: 1787100000000, updated: 1787100100000, archived: 1787100200000 },
   },
+  {
+    id: "ses_mock_other_directory",
+    title: "Other directory session",
+    directory: AUTO_DIRECTORY,
+    cost: 0,
+    tokens: {},
+    time: { created: 1787200000000, updated: 1787200000000 },
+  },
+  {
+    id: "ses_mock_share_failure",
+    title: "Share service failure",
+    directory: MOCK_DIRECTORY,
+    cost: 0,
+    tokens: {},
+    time: { created: 1787200100000, updated: 1787200100000, archived: 1787200200000 },
+  },
+  {
+    id: "ses_mock_share_api",
+    title: "API share fixture",
+    directory: MOCK_DIRECTORY,
+    cost: 0,
+    tokens: {},
+    time: { created: 1787200250000, updated: 1787200250000 },
+  },
+  {
+    id: "ses_mock_bad_share_url",
+    title: "Unsafe share response",
+    directory: MOCK_DIRECTORY,
+    cost: 0,
+    tokens: {},
+    time: { created: 1787200300000, updated: 1787200300000, archived: 1787200400000 },
+  },
 ];
 
 const TODOS = [
@@ -406,6 +438,10 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     return;
   }
   if (pathname === "/test/session-payloads") return json(res, 200, sessionPayloads);
+  if (pathname === "/test/sharing/reset" && req.method === "POST") {
+    for (const session of SESSIONS) delete session.share;
+    return json(res, 200, true);
+  }
   if (pathname === "/test/mobile/reset" && req.method === "POST") {
     messages.set("ses_mock_mobile", mobileMessages());
     mobileRunning = true;
@@ -650,6 +686,22 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     if (rest === "/abort" && req.method === "POST") {
       if (!session) return unknownError(res);
       return json(res, 200, true);
+    }
+    if (rest === "/share") {
+      if (!session) return unknownError(res);
+      if (req.method === "POST") {
+        if (id === "ses_mock_share_failure") return json(res, 503, { error: "mock share service unavailable" });
+        if (id === "ses_mock_bad_share_url") {
+          session.share = { url: "javascript:alert(1)" };
+          return json(res, 200, { ...session, secret: "must-not-reach-browser" });
+        }
+        session.share = { url: `https://share.e2e.example.test/s/${encodeURIComponent(id)}` };
+        return json(res, 200, { ...session, secret: "must-not-reach-browser" });
+      }
+      if (req.method === "DELETE") {
+        delete session.share;
+        return json(res, 200, session);
+      }
     }
     if (!session) return unknownError(res);
 

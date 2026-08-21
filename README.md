@@ -128,6 +128,23 @@ with the source SHA. GitLab MRs can reuse the parser, manifest, and validation m
 would need GitLab artifact/Pages publication and MR-note API wiring; that second CI system
 is intentionally not included.
 
+### Share and export
+
+The conversation header shares or exports the full transcript, and each user or readable
+assistant row can export that message. Copy, Markdown download, JSON download for full
+sessions, and device sharing use the normalized visible transcript. Attachment exports are
+limited to filename and MIME metadata. Reminder bodies, provider metadata and signatures,
+raw tool arguments and output, attachment URLs, and file paths are excluded. Device sharing
+is shown only when the browser implements `navigator.share`.
+
+Public OpenCode links are deliberately separate. Creating one publishes the complete raw
+session to OpenCode's configured sharing service, including message parts that local
+exports omit, and continues syncing future updates. Anyone with the URL can view it. The
+UI requires a second explicit confirmation before publication, shows the returned URL,
+and requires another explicit confirmation to revoke it. Revocation disables that URL;
+it cannot recall copies already downloaded or shared by viewers. Whether sharing is
+available and where data is hosted are controlled by the OpenCode server configuration.
+
 ## Architecture
 
 ```

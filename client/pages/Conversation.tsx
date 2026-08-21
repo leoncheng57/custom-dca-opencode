@@ -12,6 +12,7 @@ import { AgentModeToggle } from "../components/agent-mode-toggle.js";
 import { AutoPermissionsControl } from "../components/auto-permissions-control.js";
 import { ModelSelect } from "../components/model-select.js";
 import { QuestionRequest } from "../components/question-request.js";
+import { ShareExportDialog } from "../components/share-export-dialog.js";
 import { api, formatCost, type ReminderSummary, type SessionSummary } from "../lib/api.js";
 import { latestModeMessageID, modeFromMessages, type AgentMode } from "../lib/agentMode.js";
 import { MAX_IMAGE_ATTACHMENTS, readImageAttachment, selectImageFiles, type ImageAttachment } from "../lib/attachments.js";
@@ -19,6 +20,7 @@ import { collapseActionGroups, mergeEvents, runningActivity } from "../lib/deriv
 import { normalizeTranscript, type RawMessage } from "../lib/events.js";
 import { useSessionStream } from "../lib/useSessionStream.js";
 import type { TranscriptEvent } from "../lib/transcript.js";
+import type { ShareTarget } from "../lib/sessionSharing.js";
 import { recordRecentSessionOpen } from "../lib/recentSessions.js";
 import {
   catalogueDefault,
@@ -73,6 +75,7 @@ export function ConversationPage() {
   const transcriptScrollInitialized = useRef(false);
   const transcriptHeight = useRef(0);
   const [newActivity, setNewActivity] = useState(false);
+  const [shareTarget, setShareTarget] = useState<ShareTarget | null>(null);
 
   // Keep event identity stable across polls so memoised rows do not churn.
   const [events, setEvents] = useState<TranscriptEvent[]>([]);
@@ -183,6 +186,9 @@ export function ConversationPage() {
 
   const toggleGroup = useCallback((groupId: string) => {
     setCollapsedGroups((state) => ({ ...state, [groupId]: !state[groupId] }));
+  }, []);
+  const exportMessage = useCallback((event: Extract<TranscriptEvent, { kind: "user" | "agent" }>) => {
+    setShareTarget({ kind: "message", messageId: event.messageId, role: event.kind === "user" ? "user" : "assistant" });
   }, []);
 
   const toggleWrap = () => {
@@ -338,6 +344,9 @@ export function ConversationPage() {
         <Button size="sm" variant="secondary" onClick={toggleWrap} data-testid="opencode-wrap-toggle">
           {wrap ? "Wrap: on" : "Wrap: off"}
         </Button>
+        <Button size="sm" variant="secondary" onClick={() => setShareTarget({ kind: "session" })} data-testid="opencode-share-export-open">
+          Share
+        </Button>
         <Button size="sm" variant="secondary" onClick={() => setWorkspaceOpen(true)} data-testid="opencode-workspace-open">
           Workspace
         </Button>
@@ -459,6 +468,7 @@ export function ConversationPage() {
                 wrap={wrap}
                 collapsedGroups={collapsedGroups}
                 onToggleGroup={toggleGroup}
+                onExport={exportMessage}
               />
             )}
             {stream.running && (
@@ -550,6 +560,18 @@ export function ConversationPage() {
         </div>
       </footer>
       {workspaceOpen && <WorkspacePanels directory={directory} onClose={() => setWorkspaceOpen(false)} />}
+      {shareTarget && session && (
+        <ShareExportDialog
+          directory={directory}
+          sessionID={id}
+          title={session?.title ?? "Session"}
+          events={events}
+          target={shareTarget}
+          session={session}
+          onSessionChange={setSession}
+          onClose={() => setShareTarget(null)}
+        />
+      )}
     </main>
   );
 }
