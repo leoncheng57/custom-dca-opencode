@@ -59,12 +59,23 @@ function mobileMessages(): unknown[] {
   return result;
 }
 
+function paginatedMessages(): unknown[] {
+  return Array.from({ length: 225 }, (_, index) => {
+    const number = index + 1;
+    return {
+      info: { id: `msg_page_${number}`, role: number % 2 ? "user" : "assistant", agent: "build", time: { created: 1787300000000 + number, completed: 1787300000000 + number } },
+      parts: [{ id: `prt_page_${number}`, messageID: `msg_page_${number}`, type: "text", text: `Paged message ${number}` }],
+    };
+  });
+}
+
 const messages = new Map<string, unknown[]>([
   ["ses_mock_done", fixture],
   ["ses_mock_mobile", mobileMessages()],
   ["ses_mock_foreign_agent", [
     { info: { id: "msg_foreign", role: "user", agent: "explore", time: { created: 1787300000000 } }, parts: [], },
   ]],
+  ["ses_mock_paginated", paginatedMessages()],
 ]);
 const promptPayloads: Array<Record<string, unknown> & { sessionID: string }> = [];
 let sessionListRequests = 0;
@@ -123,17 +134,23 @@ function policyProbe(session: Record<string, any>): Record<string, unknown> {
 }
 
 const MOCK_DIRECTORY_INPUT = "/tmp/mock-project";
+// A second project with its own sessions, so the cross-project recents panel
+// has something to merge. Kept separate from the auto-permissions fixture
+// directory so adding sessions here cannot perturb those tests.
+const SECOND_DIRECTORY_INPUT = "/tmp/mock-second-project";
 const AUTO_DIRECTORY_INPUT = "/tmp/mock-auto-project";
 const TOOL_FAILURE_DIRECTORY_INPUT = "/tmp/mock-tool-failure";
 const CATALOGUE_FAILURE_DIRECTORY_INPUT = "/tmp/mock-catalogue-failure";
 const POLICY_FAILURE_DIRECTORY_INPUT = "/tmp/mock-policy-failure";
 mkdirSync(MOCK_DIRECTORY_INPUT, { recursive: true });
+mkdirSync(SECOND_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(AUTO_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(TOOL_FAILURE_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(CATALOGUE_FAILURE_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(POLICY_FAILURE_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(path.join(MOCK_DIRECTORY_INPUT, "src"), { recursive: true });
 export const MOCK_DIRECTORY = realpathSync(MOCK_DIRECTORY_INPUT);
+export const SECOND_DIRECTORY = realpathSync(SECOND_DIRECTORY_INPUT);
 const AUTO_DIRECTORY = realpathSync(AUTO_DIRECTORY_INPUT);
 const TOOL_FAILURE_DIRECTORY = realpathSync(TOOL_FAILURE_DIRECTORY_INPUT);
 const CATALOGUE_FAILURE_DIRECTORY = realpathSync(CATALOGUE_FAILURE_DIRECTORY_INPUT);
@@ -185,6 +202,29 @@ const SESSIONS: Array<Record<string, any>> = [
     time: { created: 1787000300000, updated: 1787000300000 },
   },
   {
+    // Newest session anywhere: proves the recents panel merges across projects
+    // rather than ordering within one.
+    id: "ses_second_newest",
+    title: "Second project newest",
+    directory: SECOND_DIRECTORY,
+    agent: "build",
+    model: { providerID: "anthropic", id: "claude-opus-5" },
+    cost: 0,
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    time: { created: 1787000400000, updated: 1787000400000 },
+  },
+  {
+    // Oldest active session anywhere, so it sorts below the first project's.
+    id: "ses_second_oldest",
+    title: "Second project oldest",
+    directory: SECOND_DIRECTORY,
+    agent: "build",
+    model: { providerID: "anthropic", id: "claude-opus-5" },
+    cost: 0,
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    time: { created: 1787000000000, updated: 1787000000000 },
+  },
+  {
     id: "ses_mock_mobile",
     title: "Mobile full session fixture",
     directory: MOCK_DIRECTORY,
@@ -195,6 +235,16 @@ const SESSIONS: Array<Record<string, any>> = [
     // Keep the purpose-built long fixture out of ordinary hub assertions while
     // retaining direct route access for mobile transcript tests.
     time: { created: 1787100000000, updated: 1787100100000, archived: 1787100200000 },
+  },
+  {
+    id: "ses_mock_paginated",
+    title: "Paginated export fixture",
+    directory: MOCK_DIRECTORY,
+    agent: "build",
+    model: { providerID: "anthropic", id: "claude-opus-5" },
+    cost: 0,
+    tokens: {},
+    time: { created: 1787300000000, updated: 1787300000200, archived: 1787300000300 },
   },
   {
     id: "ses_mock_other_directory",
@@ -358,9 +408,9 @@ function emit(type: string, properties: Record<string, unknown>, directory = MOC
   for (const client of eventClients) client.write(frame);
 }
 
-function json(res: ServerResponse, status: number, body: unknown): void {
+function json(res: ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}): void {
   const payload = JSON.stringify(body);
-  res.writeHead(status, { "Content-Type": "application/json" });
+  res.writeHead(status, { "Content-Type": "application/json", ...headers });
   res.end(payload);
 }
 
@@ -435,7 +485,10 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
             "claude-retired": { name: "Claude Retired", enabled: false, limit: { context: 1000 } },
           },
         },
-        { id: "openai", name: "OpenAI", models: { "gpt-5": { name: "GPT-5", modalities: { input: ["text", "image"] }, limit: { context: 128000, output: 16000 } } } },
+        { id: "openai", name: "OpenAI", models: {
+          "gpt-5": { name: "GPT-5", modalities: { input: ["text", "image"] }, limit: { context: 128000, output: 16000 } },
+          "gpt-5.6-sol": { name: "GPT-5.6 Sol", modalities: { input: ["text", "image"] }, limit: { context: 256000, output: 32000 } },
+        } },
       ],
       default: { anthropic: "claude-opus-5" },
     });
@@ -488,7 +541,19 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     const live = sessionMessages.find((message) => message.info?.id === "msg_mobile_live");
     const text = live?.parts?.find((part) => part.type === "text");
     if (text) text.text = `${hostileMarkdown}\n\nNew live activity from the running agent.`;
-    emit("message.part.updated", { sessionID: "ses_mock_mobile", partID: "prt_mobile_live" });
+    emit("message.part.updated", { sessionID: "ses_mock_mobile", part: { id: "prt_mobile_live", messageID: "msg_mobile_live" } });
+    return json(res, 200, true);
+  }
+  if (pathname === "/test/paginated/older-update" && req.method === "POST") {
+    emit("message.part.updated", { sessionID: "ses_mock_paginated", part: { id: "prt_page_50", messageID: "msg_page_50" } });
+    return json(res, 200, true);
+  }
+  if (pathname === "/test/paginated/pending-update" && req.method === "POST") {
+    emit("message.part.updated", { sessionID: "ses_mock_paginated", part: { id: "prt_page_1", messageID: "msg_page_1" } });
+    return json(res, 200, true);
+  }
+  if (pathname === "/test/paginated/newest-update" && req.method === "POST") {
+    emit("message.part.updated", { sessionID: "ses_mock_paginated", part: { id: "prt_page_225", messageID: "msg_page_225" } });
     return json(res, 200, true);
   }
   if (pathname === "/test/session-policy") {
@@ -773,7 +838,16 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
       return json(res, 200, session);
     }
     if (rest === "/message") {
-      return json(res, 200, messages.get(id) ?? []);
+      const all = messages.get(id) ?? [];
+      const requestedLimit = Number(url.searchParams.get("limit") ?? 0);
+      const limit = Number.isInteger(requestedLimit) && requestedLimit > 0 ? requestedLimit : all.length;
+      const requestedBefore = Number(url.searchParams.get("before") ?? all.length);
+      const end = Number.isInteger(requestedBefore) && requestedBefore >= 0
+        ? Math.min(requestedBefore, all.length)
+        : all.length;
+      const start = Math.max(0, end - limit);
+      const nextCursor = start > 0 ? String(start) : null;
+      return json(res, 200, all.slice(start, end), nextCursor ? { "X-Next-Cursor": nextCursor } : {});
     }
     if (rest === "/todo") {
       return json(res, 200, id === "ses_mock_done" ? TODOS : []);

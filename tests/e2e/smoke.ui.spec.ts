@@ -1,11 +1,37 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 // Browser tier — the built SPA against the real BFF against the mock agent.
 
 const DIR = process.platform === "darwin" ? "/private/tmp/mock-project" : "/tmp/mock-project";
+const SECOND_DIR = process.platform === "darwin" ? "/private/tmp/mock-second-project" : "/tmp/mock-second-project";
 const hub = `/?directory=${encodeURIComponent(DIR)}`;
 const MOCK_URL = `http://127.0.0.1:${process.env.MOCK_OPENCODE_PORT || 4599}`;
 const FORGE_URL = `http://127.0.0.1:${process.env.MOCK_PREVIEW_PORT || 4600}`;
+
+/**
+ * Constrain the cross-project recents pool to named fixture sessions.
+ *
+ * The mock's session list is global mutable state: any test that starts an
+ * agent adds a session stamped with Date.now(), which sorts above every
+ * fixture. Ordering assertions have to pin the pool or they depend on which
+ * other tests happen to be running in parallel.
+ */
+async function pinRecentsTo(page: import("@playwright/test").Page, ids: string[]): Promise<void> {
+  await page.route("**/api/recent-sessions?*", async (route) => {
+    const url = new URL(route.request().url());
+    // Request the fixtures by id as well as by recency. Filtering the response
+    // alone is not enough: the BFF returns a newest-N window, and a session
+    // another test just created can push a fixture out of it before the filter
+    // ever runs.
+    for (const id of ids) url.searchParams.append("session", id);
+    const response = await route.fetch({ url: url.toString() });
+    const payload = await response.json() as { sessions: Array<{ id: string }> };
+    await route.fulfill({
+      response,
+      json: { ...payload, sessions: payload.sessions.filter(({ id }) => ids.includes(id)) },
+    });
+  });
+}
 
 async function promptPayload(text: string): Promise<Record<string, unknown> | undefined> {
   const payloads = await (await fetch(`${MOCK_URL}/test/prompt-payloads`)).json() as Array<Record<string, unknown>>;
@@ -13,6 +39,11 @@ async function promptPayload(text: string): Promise<Record<string, unknown> | un
     const parts = item.parts as Array<{ type?: string; text?: string }> | undefined;
     return parts?.some((part) => part.type === "text" && part.text === text);
   });
+}
+
+async function selectModel(page: Page, testId: string, key: string): Promise<void> {
+  await page.getByTestId(testId).click();
+  await page.locator(`[data-testid="${testId}-option"][data-model-key="${key}"]`).getByRole("option").click();
 }
 
 test.describe("hub", () => {
@@ -50,8 +81,40 @@ test.describe("hub", () => {
 
   test("selects the configured model from the safe catalogue", async ({ page }) => {
     await page.goto(hub);
-    await expect(page.getByTestId("opencode-hub-model")).toHaveValue("anthropic/claude-opus-5");
-    await expect(page.getByTestId("opencode-hub-model").locator("option")).toContainText(["Claude Opus 5", "Claude Retired", "GPT-5"]);
+    const picker = page.getByTestId("opencode-hub-model");
+    await expect(picker).toHaveAttribute("value", "anthropic/claude-opus-5");
+    await picker.click();
+    const pinned = page.getByTestId("opencode-hub-model-pinned-group");
+    await expect(pinned).toContainText("GPT-5.6 Sol");
+    await expect(pinned).toContainText("Claude Opus 5");
+    await expect(page.getByTestId("opencode-hub-model-panel")).toContainText("Claude Retired");
+    await expect(page.getByTestId("opencode-hub-model-panel")).toContainText("GPT-5");
+  });
+
+  test("searches models and persists user-managed pins", async ({ page }) => {
+    let pins = [
+      { providerID: "openai", modelID: "gpt-5.6-sol" },
+      { providerID: "anthropic", modelID: "claude-opus-5" },
+    ];
+    await page.route("**/api/model-pins", async (route) => {
+      if (route.request().method() === "PATCH") {
+        pins = (route.request().postDataJSON() as { models: typeof pins }).models;
+      }
+      await route.fulfill({ json: { models: pins } });
+    });
+    await page.goto(hub);
+    await page.getByTestId("opencode-hub-model").click();
+    await page.getByTestId("opencode-hub-model-search").fill("sol");
+    await expect(page.getByTestId("opencode-hub-model-panel")).toContainText("GPT-5.6 Sol");
+    await expect(page.getByTestId("opencode-hub-model-panel")).not.toContainText("Claude Opus 5");
+    const sol = page.locator('[data-testid="opencode-hub-model-option"][data-model-key="openai/gpt-5.6-sol"]');
+    await sol.getByTestId("opencode-hub-model-pin").click();
+    await expect.poll(() => pins).toEqual([{ providerID: "anthropic", modelID: "claude-opus-5" }]);
+    await page.keyboard.press("Escape");
+    await page.reload();
+    await page.getByTestId("opencode-hub-model").click();
+    await expect(page.getByTestId("opencode-hub-model-pinned-group")).not.toContainText("GPT-5.6 Sol");
+    await expect(page.getByTestId("opencode-hub-model-panel")).toContainText("GPT-5.6 Sol");
   });
 
   test("prompts for a directory when none is set", async ({ page }) => {
@@ -118,17 +181,9 @@ test.describe("hub", () => {
   });
 
   test("orders recently opened independently from recently active and persists reloads", async ({ page }) => {
-    await page.route("**/api/sessions?*", async (route) => {
-      const response = await route.fetch();
-      const payload = await response.json() as { sessions: Array<{ id: string }> };
-      await route.fulfill({
-        response,
-        json: {
-          ...payload,
-          sessions: payload.sessions.filter(({ id }) => ["ses_mock_done", "ses_mock_running", "ses_mock_unknown_model"].includes(id)),
-        },
-      });
-    });
+    // Constrain the cross-project pool to this project so the ordering
+    // assertions stay about opened-vs-active, not about project merging.
+    await pinRecentsTo(page, ["ses_mock_done", "ses_mock_running", "ses_mock_unknown_model"]);
     await page.goto(hub);
     const sessions = page.getByTestId("opencode-session-list");
 
@@ -166,16 +221,88 @@ test.describe("hub", () => {
     ]);
   });
 
-  test("keeps recently opened empty when storage only contains another directory", async ({ page }) => {
+  test("shows recents from another project, labelled by project", async ({ page }) => {
+    // Previously this asserted the opposite — that an entry from another
+    // directory stayed hidden. Recents are cross-project now, so the row must
+    // appear, and it must be attributed to the project it came from.
     await page.addInitScript(({ directory }) => {
       localStorage.setItem("opencode.recentSessions.v1", JSON.stringify({
         version: 1,
-        entries: [{ id: "ses_mock_done", directory, openedAt: Date.now() }],
+        entries: [{ id: "ses_second_oldest", directory, openedAt: Date.now() }],
       }));
-    }, { directory: `${DIR}-other` });
+    }, { directory: SECOND_DIR });
+    await page.goto(hub);
+
+    const openedRows = page.getByTestId("opencode-recently-opened-row");
+    await expect(openedRows).toHaveCount(1);
+    await expect(openedRows.first()).toContainText("Second project oldest");
+    await expect(openedRows.first()).toContainText("mock-second-project");
+    await expect(openedRows.first()).toHaveAttribute(
+      "href",
+      new RegExp(`directory=${encodeURIComponent(SECOND_DIR)}`),
+    );
+  });
+
+  test("ignores recents entries pointing outside the projects root", async ({ page }) => {
+    // localStorage outlives renames and moves between machines; a stale path
+    // must be dropped rather than breaking the whole panel.
+    await page.addInitScript(() => {
+      localStorage.setItem("opencode.recentSessions.v1", JSON.stringify({
+        version: 1,
+        entries: [{ id: "ses_mock_done", directory: "/nonexistent/project", openedAt: Date.now() }],
+      }));
+    });
     await page.goto(hub);
     await expect(page.getByTestId("opencode-recently-opened-empty")).toBeVisible();
-    await expect(page.getByTestId("opencode-recently-opened-row")).toHaveCount(0);
+    await expect(page.getByTestId("opencode-recently-active-row").first()).toBeVisible();
+  });
+
+  test("merges recently active across projects newest first", async ({ page }) => {
+    await pinRecentsTo(page, [
+      "ses_second_newest",
+      "ses_mock_unknown_model",
+      "ses_mock_running",
+      "ses_mock_done",
+      "ses_second_oldest",
+    ]);
+    await page.addInitScript(({ directory }) => {
+      localStorage.setItem("opencode.recentSessions.v1", JSON.stringify({
+        version: 1,
+        entries: [{ id: "ses_second_oldest", directory, openedAt: Date.now() }],
+      }));
+    }, { directory: SECOND_DIR });
+    await page.goto(hub);
+
+    const activeRows = page.getByTestId("opencode-recently-active-row");
+    await expect(activeRows).toHaveCount(5);
+    // Interleaved by time, not grouped by project: that is the whole point.
+    expect(await activeRows.allTextContents()).toEqual([
+      expect.stringContaining("Second project newest"),
+      expect.stringContaining("Imported unknown model"),
+      expect.stringContaining("Refactor the parser"),
+      expect.stringContaining("Add a health endpoint"),
+      expect.stringContaining("Second project oldest"),
+    ]);
+    expect(await activeRows.first().textContent()).toContain("mock-second-project");
+  });
+
+  test("shows recents before any project is chosen", async ({ page }) => {
+    await pinRecentsTo(page, ["ses_second_newest", "ses_second_oldest"]);
+    await page.addInitScript(({ directory }) => {
+      localStorage.setItem("opencode.recentSessions.v1", JSON.stringify({
+        version: 1,
+        entries: [{ id: "ses_second_oldest", directory, openedAt: Date.now() }],
+      }));
+    }, { directory: SECOND_DIR });
+    // No ?directory= and no stored selection: the panel must still render.
+    await page.goto("/");
+
+    await expect(page.getByTestId("opencode-recent-sessions")).toBeVisible();
+    await expect(page.getByTestId("opencode-recently-active-row")).toHaveCount(2);
+    await expect(page.getByTestId("opencode-recently-active-row").first())
+      .toContainText("Second project newest");
+    // Still genuinely unscoped: the session list below has no project to show.
+    await expect(page.getByText("Pick a project directory to list its sessions.")).toBeVisible();
   });
 
   test("keeps recent rows usable without overflow at 390px", async ({ page }) => {
@@ -220,7 +347,8 @@ test.describe("hub", () => {
     const text = `initial variant plan ${Date.now()}`;
     await page.goto(hub);
     await page.getByTestId("opencode-hub-mode-plan").click();
-    await page.getByTestId("opencode-hub-model-variant").selectOption("high");
+    await page.getByTestId("opencode-hub-model").click();
+    await page.getByTestId("opencode-hub-model-variant").filter({ hasText: "high" }).click();
     await expect(page.getByTestId("opencode-hub-mode-plan")).toHaveAttribute("aria-pressed", "true");
     await page.getByTestId("opencode-prompt").fill(text);
     await page.getByTestId("opencode-start").click();
@@ -263,6 +391,15 @@ test.describe("phone transfer", () => {
 
 test.describe("transcript", () => {
   const conversation = `/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`;
+  const mobileConversation = `/sessions/ses_mock_mobile?directory=${encodeURIComponent(DIR)}`;
+  const paginatedConversation = `/sessions/ses_mock_paginated?directory=${encodeURIComponent(DIR)}`;
+
+  const navigateInApp = async (page: import("@playwright/test").Page, url: string) => {
+    await page.evaluate((next) => {
+      history.pushState({}, "", next);
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    }, url);
+  };
 
   test("renders every row kind from the fixture", async ({ page }) => {
     await page.goto(conversation);
@@ -271,6 +408,135 @@ test.describe("transcript", () => {
     await expect(page.getByTestId("opencode-agent-message")).toBeVisible();
     await expect(page.getByTestId("opencode-thought")).toHaveCount(1);
     await expect(page.getByTestId("opencode-status-separator").first()).toBeVisible();
+  });
+
+  test("rejects stale poll completions across A to B to A and hides old actionable state immediately", async ({ page }) => {
+    let releaseMessages!: () => void;
+    let releaseTodos!: () => void;
+    let messagesHeld = false;
+    let todosHeld = false;
+    const messageGate = new Promise<void>((resolve) => { releaseMessages = resolve; });
+    const todoGate = new Promise<void>((resolve) => { releaseTodos = resolve; });
+
+    await page.route("**/api/sessions/ses_mock_done/messages?**", async (route) => {
+      if (!messagesHeld) {
+        messagesHeld = true;
+        await messageGate;
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            messages: [{ info: { id: "msg_stale", role: "assistant", time: { created: 1, completed: 1 } }, parts: [{ id: "prt_stale", messageID: "msg_stale", type: "text", text: "STALE A RESPONSE" }] }],
+            running: false,
+            nextCursor: null,
+          }),
+        });
+        return;
+      }
+      await route.continue();
+    });
+    await page.route("**/api/sessions/ses_mock_done/todos?**", async (route) => {
+      if (!todosHeld) {
+        todosHeld = true;
+        await todoGate;
+        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ todos: [{ content: "STALE TODO", status: "pending", priority: "high" }] }) });
+        return;
+      }
+      await route.continue();
+    });
+
+    await page.goto(conversation);
+    await expect.poll(() => messagesHeld && todosHeld).toBe(true);
+    await navigateInApp(page, mobileConversation);
+    await expect(page.getByTestId("opencode-session-title")).toHaveText("Mobile full session fixture");
+    await expect(page.getByTestId("opencode-permission-request")).toHaveCount(0);
+    await expect(page.getByTestId("opencode-question-request")).toHaveCount(0);
+    await navigateInApp(page, conversation);
+    await expect(page.getByText("Add a health endpoint to the server.")).toBeVisible();
+
+    releaseMessages();
+    releaseTodos();
+    await expect(page.getByText("STALE A RESPONSE", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("STALE TODO", { exact: true })).toHaveCount(0);
+    await expect(page.getByTestId("opencode-todo-list")).toContainText("Add the route");
+  });
+
+  test("hides seeded permission and question state on a session transition", async ({ page }) => {
+    await fetch(`${MOCK_URL}/test/permissions/reset?directory=${encodeURIComponent(DIR)}`, { method: "POST" });
+    await fetch(`${MOCK_URL}/test/questions/reset?scope=ui`, { method: "POST" });
+    await page.goto(conversation);
+    await expect(page.getByTestId("opencode-permission-request")).toBeVisible();
+    await expect(page.getByTestId("opencode-question-request")).toBeVisible();
+    await navigateInApp(page, mobileConversation);
+    await expect(page.getByTestId("opencode-permission-request")).toHaveCount(0);
+    await expect(page.getByTestId("opencode-question-request")).toHaveCount(0);
+  });
+
+  test("rejects stale earlier-page completion after revisiting the same session", async ({ page }) => {
+    let releaseBackfill!: () => void;
+    let held = false;
+    const gate = new Promise<void>((resolve) => { releaseBackfill = resolve; });
+    await page.route("**/api/sessions/ses_mock_paginated/messages?**", async (route) => {
+      const requestUrl = new URL(route.request().url());
+      if (requestUrl.searchParams.has("before") && !held) {
+        held = true;
+        await gate;
+      }
+      await route.continue();
+    });
+
+    await page.goto(paginatedConversation);
+    await page.getByTestId("opencode-load-earlier").click({ noWaitAfter: true });
+    await expect.poll(() => held).toBe(true);
+    await navigateInApp(page, mobileConversation);
+    await expect(page.getByTestId("opencode-session-title")).toHaveText("Mobile full session fixture");
+    await navigateInApp(page, paginatedConversation);
+    await expect(page.getByText("Paged message 126", { exact: true })).toBeVisible();
+    releaseBackfill();
+    await expect(page.getByText("Paged message 1", { exact: true })).toHaveCount(0);
+    await expect(page.getByTestId("opencode-load-earlier")).toBeVisible();
+  });
+
+  test("keeps older pages for newest part updates and cancels backfill for older updates", async ({ page }) => {
+    let release!: () => void;
+    let held = false;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    await page.route("**/api/sessions/ses_mock_paginated/messages?**", async (route) => {
+      const url = new URL(route.request().url());
+      if (url.searchParams.get("before") === "25" && !held) { held = true; await gate; }
+      await route.continue();
+    });
+    await page.goto(paginatedConversation);
+    await page.getByTestId("opencode-load-earlier").click();
+    await expect(page.getByText("Paged message 50", { exact: true })).toBeVisible();
+    await fetch(`${MOCK_URL}/test/paginated/newest-update`, { method: "POST" });
+    await expect(page.getByText("Paged message 50", { exact: true })).toBeVisible();
+    await page.getByTestId("opencode-load-earlier").click({ noWaitAfter: true });
+    await expect.poll(() => held).toBe(true);
+    await fetch(`${MOCK_URL}/test/paginated/pending-update`, { method: "POST" });
+    await expect(page.getByText("Paged message 50", { exact: true })).toBeVisible();
+    release();
+    await expect(page.getByText("Paged message 1", { exact: true })).toHaveCount(0);
+  });
+
+  test("cancels complete command export when the inspector unmounts", async ({ page }) => {
+    let newestRequests = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    await page.route("**/api/sessions/ses_mock_paginated/messages?**", async (route) => {
+      const url = new URL(route.request().url());
+      if (!url.searchParams.has("before") && ++newestRequests === 2) await gate;
+      await route.continue();
+    });
+    let downloads = 0;
+    page.on("download", () => { downloads += 1; });
+    await page.goto(paginatedConversation);
+    await page.getByTestId("opencode-inspector-runlog").click();
+    await page.getByTestId("opencode-export-commands").click({ noWaitAfter: true });
+    await page.getByRole("link", { name: "Sessions" }).click();
+    release();
+    await page.waitForTimeout(200);
+    expect(downloads).toBe(0);
   });
 
   test("shows the reasoning duration OpenHands could not", async ({ page }) => {
@@ -292,7 +558,10 @@ test.describe("transcript", () => {
   test("expands a tool call to reveal its output", async ({ page }) => {
     await page.goto(conversation);
     const tool = page.getByTestId("opencode-tool").first();
-    await tool.getByRole("button").click();
+    // The composer/question panel may geometrically overlap this transcript
+    // row at CI's viewport. Keyboard activation tests the same accessible
+    // button behavior without making the assertion depend on pointer layout.
+    await tool.getByRole("button").press("Enter");
     await expect(tool).toContainText("export const app = express()");
   });
 
@@ -491,7 +760,7 @@ test.describe("composer", () => {
   test("switches models once, persists the new current model, and omits unchanged overrides", async ({ page }) => {
     const initial = `model initial ${Date.now()}`;
     await page.goto(hub);
-    await page.getByTestId("opencode-hub-model").selectOption("openai/gpt-5");
+    await selectModel(page, "opencode-hub-model", "openai/gpt-5");
     await page.getByTestId("opencode-prompt").fill(initial);
     await page.getByTestId("opencode-start").click();
     await expect(page).toHaveURL(/\/sessions\/ses_mock_new_/);
@@ -500,8 +769,8 @@ test.describe("composer", () => {
       model: { providerID: "openai", modelID: "gpt-5" },
     });
     const picker = page.getByTestId("opencode-composer-model");
-    await expect(picker).toHaveValue("openai/gpt-5");
-    await expect(page.getByTestId("opencode-current-model")).toContainText("current");
+    await expect(picker).toHaveAttribute("value", "openai/gpt-5");
+    await expect(page.getByTestId("opencode-current-model")).toBeHidden();
 
     const unchanged = `model unchanged ${Date.now()}`;
     await page.getByTestId("opencode-composer").fill(unchanged);
@@ -509,22 +778,22 @@ test.describe("composer", () => {
     await expect.poll(() => promptPayload(unchanged)).not.toHaveProperty("model");
 
     const switched = `model switched ${Date.now()}`;
-    await picker.selectOption("anthropic/claude-opus-5");
+    await selectModel(page, "opencode-composer-model", "anthropic/claude-opus-5");
     await expect(page.getByTestId("opencode-current-model")).toContainText("switches next message");
     await page.getByTestId("opencode-composer").fill(switched);
     await page.getByTestId("opencode-send").click();
     await expect.poll(() => promptPayload(switched)).toMatchObject({
       model: { providerID: "anthropic", modelID: "claude-opus-5" },
     });
-    await expect(page.getByTestId("opencode-current-model")).toContainText("current");
+    await expect(page.getByTestId("opencode-current-model")).toBeHidden();
     await page.reload();
-    await expect(page.getByTestId("opencode-composer-model")).toHaveValue("anthropic/claude-opus-5");
+    await expect(page.getByTestId("opencode-composer-model")).toHaveAttribute("value", "anthropic/claude-opus-5");
   });
 
   test("shows an image capability warning without changing Plan/Build", async ({ page }) => {
     await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
     await page.getByTestId("opencode-composer-mode-plan").click();
-    await page.getByTestId("opencode-composer-model").selectOption("anthropic/claude-text");
+    await selectModel(page, "opencode-composer-model", "anthropic/claude-text");
     await expect(page.getByTestId("opencode-composer-mode-plan")).toHaveAttribute("aria-pressed", "true");
     await page.getByTestId("opencode-attach").setInputFiles({ name: "pixel.png", mimeType: "image/png", buffer: Buffer.from("89504e470d0a1a0a", "hex") });
     await expect(page.getByTestId("opencode-model-image-warning")).toBeVisible();
@@ -533,8 +802,8 @@ test.describe("composer", () => {
   test("keeps an unknown persisted model visible instead of silently replacing it", async ({ page }) => {
     await page.goto(`/sessions/ses_mock_unknown_model?directory=${encodeURIComponent(DIR)}`);
     const picker = page.getByTestId("opencode-composer-model");
-    await expect(picker).toHaveValue("legacy/removed-model");
-    await expect(picker.locator("option:checked")).toContainText("unknown");
+    await expect(picker).toHaveAttribute("value", "legacy/removed-model");
+    await expect(picker).toContainText("unknown");
   });
 
   test("round-trips two imported reminders by ID and resets the picker", async ({ page }) => {
@@ -634,6 +903,20 @@ test.describe("mobile", () => {
     await expect(composer).toHaveAttribute("autocapitalize", "none");
   });
 
+  test("collapses the composer without losing its draft", async ({ page }) => {
+    await page.goto(`/sessions/ses_mock_mobile?directory=${encodeURIComponent(DIR)}`);
+    const composer = page.getByTestId("opencode-composer");
+    await composer.fill("unfinished mobile thought");
+    const expandedHeight = (await page.getByTestId("opencode-conversation").locator("footer").boundingBox())?.height ?? 0;
+    await page.getByTestId("opencode-composer-collapse").click();
+    await expect(composer).toBeHidden();
+    const collapsedHeight = (await page.getByTestId("opencode-conversation").locator("footer").boundingBox())?.height ?? 0;
+    expect(collapsedHeight).toBeLessThan(expandedHeight / 2);
+    await page.getByTestId("opencode-composer-expand").click();
+    await expect(composer).toHaveValue("unfinished mobile thought");
+    await expect(composer).toBeFocused();
+  });
+
   // The Enter-vs-newline decision itself is covered in tests/composer-keys.test.ts:
   // Playwright launches Chromium with a browser-level primaryPointerType of
   // "fine", so `hasTouch` does not move `(pointer: coarse)` and this suite
@@ -706,7 +989,8 @@ test.describe("mobile", () => {
 
   test("stacks the Changes rail above the diff at phone width", async ({ page }) => {
     await page.goto(`/sessions/ses_mock_mobile?directory=${encodeURIComponent(DIR)}`);
-    await page.getByTestId("opencode-workspace-open").click();
+    await page.getByTestId("opencode-mobile-session-menu").locator("summary").click();
+    await page.getByTestId("opencode-mobile-workspace-open").click();
     await page.getByTestId("opencode-workspace-changes").click();
     const rail = page.getByTestId("opencode-changes-rail");
     const diff = page.getByTestId("opencode-diff-viewer");
@@ -719,7 +1003,8 @@ test.describe("mobile", () => {
   test("opens session todo, run log, reviews, and catalog in a dismissible mobile sheet", async ({ page }) => {
     await fetch(`${MOCK_URL}/test/catalog-requests`, { method: "POST" });
     await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
-    await page.getByTestId("opencode-mobile-inspector-open").click();
+    await page.getByTestId("opencode-mobile-session-menu").locator("summary").click();
+    await page.getByTestId("opencode-mobile-inspector-menu-open").click();
     const sheet = page.getByTestId("opencode-mobile-inspector");
     await expect(sheet).toBeVisible();
     await expect(sheet.getByTestId("opencode-todo-list")).toContainText("Add the route");
@@ -739,7 +1024,8 @@ test.describe("mobile", () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
     await sheet.getByTestId("opencode-mobile-inspector-close").click();
     await expect(sheet).toHaveCount(0);
-    await page.getByTestId("opencode-mobile-inspector-open").click();
+    await page.getByTestId("opencode-mobile-session-menu").locator("summary").click();
+    await page.getByTestId("opencode-mobile-inspector-menu-open").click();
     await expect(sheet).toBeVisible();
     expect(await (await fetch(`${MOCK_URL}/test/catalog-requests`)).json()).toEqual({ count: 4 });
     await page.goBack();
@@ -812,6 +1098,43 @@ test.describe("settings and tools UI", () => {
     const ntfyBefore = await ntfy.isChecked();
     await browser.click();
     expect(await ntfy.isChecked()).toBe(ntfyBefore);
+  });
+
+  test("badges unresolved notifications until the user checks them off", async ({ page }) => {
+    const requestID = `perm_badge_${Date.now()}`;
+    await fetch(`${MOCK_URL}/test/permission?directory=${encodeURIComponent(DIR)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: requestID, sessionID: "ses_mock_done", permission: "bash", patterns: ["npm test"] }),
+    });
+
+    await page.goto("/settings/notifications");
+    const badge = page.getByTestId("opencode-nav-notifications-badge");
+    await expect(badge).toBeVisible();
+    // The count lives on the link label so it is announced, not just painted.
+    await expect(page.getByTestId("opencode-nav-notifications")).toHaveAttribute("aria-label", /unresolved/);
+    await page.setViewportSize({ width: 390, height: 740 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth))
+      .toBeLessThanOrEqual(1);
+
+    const row = page.getByTestId("opencode-notification-record").filter({ hasText: "OpenCode needs permission" }).first();
+    await expect(row).toHaveAttribute("data-active", "true");
+    await expect(row).toContainText("ntfy off");
+
+    const resolved = row.getByTestId("opencode-notification-resolved");
+    await expect(resolved).not.toBeChecked();
+    const countBefore = Number(await badge.textContent());
+    await resolved.check();
+    if (countBefore > 1) await expect(badge).toHaveText(String(countBefore - 1));
+    else await expect(badge).toBeHidden();
+
+    await page.reload();
+    await expect(row.getByTestId("opencode-notification-resolved")).toBeChecked();
+    await row.getByTestId("opencode-notification-resolved").uncheck();
+    await expect(badge).toHaveText(String(countBefore));
+    await row.getByTestId("opencode-notification-resolved").check();
+
+    await fetch(`${MOCK_URL}/test/permissions/reset?directory=${encodeURIComponent(DIR)}`, { method: "POST" });
   });
 });
 
@@ -887,7 +1210,8 @@ test.describe("workspace UI", () => {
   test("workspace drawer fits a phone", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 740 });
     await page.goto(conversation);
-    await page.getByTestId("opencode-workspace-open").click();
+    await page.getByTestId("opencode-mobile-session-menu").locator("summary").click();
+    await page.getByTestId("opencode-mobile-workspace-open").click();
     await expect(page.getByTestId("opencode-workspace-panels")).toBeVisible();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(1);

@@ -13,7 +13,7 @@
 //     which is exactly what makes crash detection possible (detectInterrupted).
 
 import { withReminderTag, type ReminderPreset } from "../reminders/reminders.js";
-import { request, type OpencodeConfig } from "./client.js";
+import { request, requestWithResponse, type OpencodeConfig } from "./client.js";
 
 export type AgentMode = "plan" | "build";
 
@@ -325,6 +325,63 @@ export async function listSessions(
     .map((s) => toSummary(s, running.has(s.id ?? "")));
 }
 
+/** Upstream calls in flight during a cross-project fan-out. */
+export const RECENT_FANOUT_CONCURRENCY = 6;
+
+/**
+ * Sessions from many projects at once, newest first.
+ *
+ * There is no cross-project session list upstream: `/session` is
+ * directory-scoped, so "recent across every project" can only be a fan-out.
+ * Two properties matter more than speed here:
+ *
+ *   - A directory that fails must not blank the list. One unreadable or
+ *     renamed project would otherwise take down a panel that is mostly about
+ *     other projects, so per-directory failures are swallowed.
+ *   - Concurrency is capped. The caller's directory list is user-controlled
+ *     (pins plus browser history), and an unbounded Promise.all would let a
+ *     large one open hundreds of upstream sockets at once.
+ *
+ * Each directory still costs two upstream calls (`/session` + `/session/status`)
+ * because status is directory-scoped in 1.18.21. If a later server exposes a
+ * process-global status map, hoist that single call out of the pool.
+ */
+export async function listSessionsAcross(
+  config: OpencodeConfig,
+  directories: string[],
+  options: { perDirectoryLimit?: number } = {},
+): Promise<SessionSummary[]> {
+  const targets = [...new Set(directories.filter((directory) => directory))];
+  const collected: SessionSummary[][] = targets.map(() => []);
+  let cursor = 0;
+
+  const worker = async (): Promise<void> => {
+    while (cursor < targets.length) {
+      const index = cursor;
+      cursor += 1;
+      collected[index] = await listSessions(config, targets[index], {
+        limit: options.perDirectoryLimit ?? 20,
+      }).catch(() => []);
+    }
+  };
+
+  await Promise.all(
+    Array.from({ length: Math.min(RECENT_FANOUT_CONCURRENCY, targets.length) }, worker),
+  );
+
+  // Ties keep fan-out order, which is the caller's directory order, so the
+  // result is stable across polls instead of shuffling on every refresh.
+  return collected
+    .flat()
+    .map((session, index) => ({ session, index, updatedAt: Date.parse(session.updatedAt) }))
+    .sort((left, right) => {
+      const leftTime = Number.isFinite(left.updatedAt) ? left.updatedAt : 0;
+      const rightTime = Number.isFinite(right.updatedAt) ? right.updatedAt : 0;
+      return rightTime - leftTime || left.index - right.index;
+    })
+    .map(({ session }) => session);
+}
+
 export async function getSession(
   config: OpencodeConfig,
   directory: string,
@@ -463,18 +520,52 @@ export async function unshareSession(
   return toSummary(raw ?? {}, false);
 }
 
+export interface MessagePage {
+  messages: unknown[];
+  nextCursor: string | null;
+}
+
+export function messagePageCursor(headers: Headers): string | null {
+  const direct = headers.get("x-next-cursor")?.trim();
+  if (direct) return direct;
+
+  const link = headers.get("link");
+  if (!link) return null;
+  for (const entry of link.split(/,(?=\s*<)/u)) {
+    const match = entry.match(/^\s*<([^>]+)>(.*)$/u);
+    if (!match || !/;\s*rel\s*=\s*"?next"?(?:\s*;|\s*$)/iu.test(match[2])) continue;
+    try {
+      const cursor = new URL(match[1], "http://opencode.invalid").searchParams.get("before")?.trim();
+      if (cursor) return cursor;
+    } catch {
+      // Ignore a malformed Link entry and fall back to end-of-history.
+    }
+  }
+  return null;
+}
+
 /** Raw `{ info, parts }` messages — the client-side adapter shapes them. */
 export async function listMessages(
   config: OpencodeConfig,
   directory: string,
   sessionID: string,
-): Promise<unknown[]> {
-  const data = await request<unknown[]>(
+  options: { limit?: number; before?: string } = {},
+): Promise<MessagePage> {
+  const response = await requestWithResponse<unknown[]>(
     config,
     `/session/${encodeURIComponent(sessionID)}/message`,
-    { directory },
+    {
+      directory,
+      query: {
+        limit: options.limit ?? 100,
+        before: options.before,
+      },
+    },
   );
-  return data ?? [];
+  return {
+    messages: response.data ?? [],
+    nextCursor: messagePageCursor(response.headers),
+  };
 }
 
 export interface Todo {

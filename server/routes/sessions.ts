@@ -304,13 +304,24 @@ export function sessionRoutes(
     "/sessions/:id/messages",
     sessionRoute(async (req, res) => {
       const directory = await directoryOf(req);
+      const requestedLimit = Number(req.query.limit ?? 100);
+      if (!Number.isInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > 100) {
+        throw new HttpError(400, "limit must be an integer between 1 and 100");
+      }
+      const before = req.query.before;
+      if (before !== undefined && (typeof before !== "string" || !before.trim())) {
+        throw new HttpError(400, "before must be a non-empty cursor");
+      }
       // Raw {info, parts} — the client adapter owns the shaping so there is
       // exactly one place that understands OpenCode's wire format.
-      const [messages, session] = await Promise.all([
-        listMessages(config, directory, paramOf(req, "id")),
+      const [page, session] = await Promise.all([
+        listMessages(config, directory, paramOf(req, "id"), {
+          limit: requestedLimit,
+          before: typeof before === "string" ? before : undefined,
+        }),
         getSession(config, directory, paramOf(req, "id")).catch(() => null),
       ]);
-      res.json({ messages, running: session?.running ?? false });
+      res.json({ ...page, running: session?.running ?? false });
     }),
   );
 

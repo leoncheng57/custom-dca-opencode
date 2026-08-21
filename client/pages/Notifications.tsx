@@ -1,12 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Alert } from "../ds/alert.js";
+import { Badge, type BadgeVariant } from "../ds/badge.js";
 import { Button } from "../ds/button.js";
 import {
   api,
+  type NotificationHistoryState,
   type NotificationPreferences,
+  type NotificationRecord,
   type NotifyEvent,
 } from "../lib/api.js";
+import { formatClockTime, formatRelative } from "../lib/derive.js";
 import {
   initializeDeviceNotificationPreferences,
   loadDeviceNotificationPreferences,
@@ -20,9 +24,105 @@ import {
   previewNotificationSound,
   previewNotificationSpeech,
 } from "../lib/notificationMediaBrowser.js";
+import { useNotificationCenter } from "../lib/useNotificationCenter.js";
 import { notifyBrowser } from "../lib/useNotifyWatcher.js";
 
 const EVENTS: NotifyEvent[] = ["idle", "error", "abort", "permission", "question", "parked"];
+
+const KIND_VARIANT: Record<NotifyEvent, BadgeVariant> = {
+  idle: "neutral",
+  error: "danger",
+  abort: "warning",
+  permission: "info",
+  question: "info",
+  parked: "warning",
+};
+
+const STATES: Array<{ value: NotificationHistoryState; label: string }> = [
+  { value: "all", label: "All" },
+  { value: "active", label: "Active" },
+  { value: "resolved", label: "Resolved" },
+];
+
+function projectName(directory?: string): string {
+  return directory?.split("/").filter(Boolean).at(-1) ?? "unknown project";
+}
+
+/** Plain-language delivery summary. Never claims a browser actually rendered it. */
+function deliverySummary(record: NotificationRecord): string {
+  if (record.delivery.suppressed === "auto-permissions") return "suppressed by auto permissions";
+  const parts = [
+    record.delivery.ntfy === "sent"
+      ? "ntfy sent"
+      : record.delivery.ntfy === "failed"
+        ? `ntfy failed: ${record.delivery.ntfyError ?? "unknown error"}`
+        : "ntfy off",
+    record.delivery.desktop === "allowed" ? "desktop allowed" : "desktop off",
+  ];
+  return parts.join(" · ");
+}
+
+function resolutionSummary(record: NotificationRecord): string {
+  if (record.resolvedAt === undefined) return record.parkedAt ? "unresolved · parked" : "unresolved";
+  return `${record.resolvedBy ?? "resolved"}`;
+}
+
+function HistoryRow({
+  record,
+  onResolvedChange,
+}: {
+  record: NotificationRecord;
+  onResolvedChange: (id: string, resolved: boolean) => void;
+}) {
+  const timestamp = new Date(record.at).toISOString();
+  const active = record.resolvedAt === undefined;
+  const resolution = resolutionSummary(record);
+  return (
+    <li
+      className="flex items-start gap-3 border-b border-[var(--color-border-default)] p-3 last:border-0"
+      data-testid="opencode-notification-record"
+      data-kind={record.kind}
+      data-active={active ? "true" : "false"}
+    >
+      <time
+        dateTime={timestamp}
+        title={new Date(record.at).toLocaleString()}
+        className="w-16 shrink-0 pt-0.5 text-[10px] tabular-nums text-[var(--color-text-muted)]"
+      >
+        {formatRelative(timestamp) || formatClockTime(timestamp)}
+      </time>
+      <Badge variant={KIND_VARIANT[record.kind]} className="mt-0.5 shrink-0">
+        {record.kind}
+      </Badge>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm">
+          {record.click ? (
+            <a className="underline underline-offset-2" href={record.click} data-testid="opencode-notification-link">
+              {record.title}
+            </a>
+          ) : (
+            record.title
+          )}
+        </p>
+        <p className="truncate text-xs text-[var(--color-text-muted)]">{record.body}</p>
+        <p className="mt-0.5 truncate text-[11px] text-[var(--color-text-muted)]">
+          {projectName(record.directory)}
+          {record.sessionID ? ` · ${record.sessionID}` : ""} · {deliverySummary(record)}
+          {resolution ? ` · ${resolution}` : ""}
+        </p>
+      </div>
+      <label className="flex shrink-0 items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
+        <input
+          type="checkbox"
+          checked={!active}
+          onChange={(event) => onResolvedChange(record.id, event.target.checked)}
+          data-testid="opencode-notification-resolved"
+        />
+        Resolved
+      </label>
+    </li>
+  );
+}
 
 export function NotificationsPage() {
   const [preferences, setPreferences] = useState<NotificationPreferences | null>(null);
@@ -30,7 +130,10 @@ export function NotificationsPage() {
   const [tokenConfigured, setTokenConfigured] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [historyState, setHistoryState] = useState<NotificationHistoryState>("all");
+  const { activeCount, records, loading, error: historyError, setResolved } = useNotificationCenter();
   const capabilities = notificationCapabilities();
+
   useEffect(() => {
     void api.notifications().then((result) => {
       setPreferences(result.preferences);
@@ -38,6 +141,14 @@ export function NotificationsPage() {
       setTokenConfigured(result.tokenConfigured);
     }).catch((e: Error) => setError(e.message));
   }, []);
+
+  // Filtered client-side: the centre already holds the newest page, so a
+  // round trip per filter click would only add latency.
+  const visible = useMemo(() => {
+    if (historyState === "all") return records;
+    const wantActive = historyState === "active";
+    return records.filter((record) => (record.resolvedAt === undefined) === wantActive);
+  }, [records, historyState]);
 
   const save = async () => {
     if (!preferences) return;
@@ -66,7 +177,14 @@ export function NotificationsPage() {
   return (
     <main className="mx-auto max-w-3xl space-y-5 p-4 sm:p-6" data-testid="opencode-notifications">
       <header>
-        <h1 className="text-xl font-bold">Notifications</h1>
+        <h1 className="flex items-center gap-2 text-xl font-bold">
+          Notifications
+          {activeCount > 0 && (
+            <Badge variant="counter" data-testid="opencode-notifications-active-count">
+              {activeCount}
+            </Badge>
+          )}
+        </h1>
         <p className="text-sm text-[var(--color-text-muted)]">Choose events independently for browser and ntfy delivery.</p>
       </header>
       {error && <Alert variant="danger">{error}</Alert>}
@@ -160,6 +278,40 @@ export function NotificationsPage() {
           </div>
         </>
       )}
+
+      <section className="rounded-lg border border-[var(--color-border-default)]" data-testid="opencode-notification-history">
+        <header className="flex flex-wrap items-center gap-2 border-b border-[var(--color-border-default)] p-3">
+          <h2 className="mr-auto font-semibold">History</h2>
+          {STATES.map((state) => (
+            <Button
+              key={state.value}
+              size="sm"
+              variant={historyState === state.value ? "secondary" : "ghost"}
+              aria-pressed={historyState === state.value}
+              onClick={() => setHistoryState(state.value)}
+              data-testid={`opencode-history-filter-${state.value}`}
+            >
+              {state.label}
+            </Button>
+          ))}
+        </header>
+        {historyError && <Alert variant="danger">{historyError}</Alert>}
+        {visible.length === 0 ? (
+          <p className="p-3 text-sm text-[var(--color-text-muted)]" data-testid="opencode-history-empty">
+            {loading ? "Loading history..." : "No notifications recorded yet."}
+          </p>
+        ) : (
+          <ul>
+            {visible.map((record) => (
+              <HistoryRow
+                key={record.id}
+                record={record}
+                onResolvedChange={(id, resolved) => void setResolved(id, resolved).catch((e: Error) => setError(e.message))}
+              />
+            ))}
+          </ul>
+        )}
+      </section>
     </main>
   );
 }

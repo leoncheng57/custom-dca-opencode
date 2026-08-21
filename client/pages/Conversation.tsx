@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
+import { ChevronDown, Ellipsis, MessageSquareText } from "lucide-react";
 
 import { Alert } from "../ds/alert.js";
 import { Badge } from "../ds/badge.js";
@@ -10,7 +11,7 @@ import { SessionInspector } from "../components/session-inspector.js";
 import { WorkspacePanels } from "../components/workspace-panels.js";
 import { AgentModeToggle } from "../components/agent-mode-toggle.js";
 import { AutoPermissionsControl } from "../components/auto-permissions-control.js";
-import { ModelSelect } from "../components/model-select.js";
+import { ModelPicker } from "../components/model-picker.js";
 import { QuestionRequest } from "../components/question-request.js";
 import { ShareExportDialog } from "../components/share-export-dialog.js";
 import { api, formatCost, type ReminderSummary, type SessionSummary } from "../lib/api.js";
@@ -79,16 +80,25 @@ export function ConversationPage() {
   const transcriptHeight = useRef(0);
   const [newActivity, setNewActivity] = useState(false);
   const [shareTarget, setShareTarget] = useState<ShareTarget | null>(null);
+  const [composerCollapsed, setComposerCollapsed] = useState(false);
 
   // Keep event identity stable across polls so memoised rows do not churn.
   const [events, setEvents] = useState<TranscriptEvent[]>([]);
+  const eventScope = useRef(`${directory}\0${id}`);
   const transcript = useMemo(
     () => normalizeTranscript(stream.messages as RawMessage[], { isRunning: stream.running }),
     [stream.messages, stream.running],
   );
   useEffect(() => {
-    setEvents((previous) => mergeEvents(previous, transcript.events));
-  }, [transcript.events]);
+    const scope = `${directory}\0${id}`;
+    setEvents((previous) => {
+      if (eventScope.current !== scope) {
+        eventScope.current = scope;
+        return transcript.events;
+      }
+      return mergeEvents(previous, transcript.events);
+    });
+  }, [directory, id, transcript.events]);
 
   useEffect(() => {
     if (!stream.loaded) return;
@@ -360,8 +370,8 @@ export function ConversationPage() {
 
   return (
     <main className="flex h-full min-h-0 flex-col overflow-hidden" data-testid="opencode-conversation">
-      <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-[var(--color-border-default)] px-4 py-3">
-        <Link to={`/?directory=${encodeURIComponent(directory)}`} className="text-sm underline">
+      <header className="flex shrink-0 items-center gap-2 border-b border-[var(--color-border-default)] px-3 py-2 sm:flex-wrap sm:gap-3 sm:px-4 sm:py-3">
+        <Link to={`/?directory=${encodeURIComponent(directory)}`} className="shrink-0 text-sm underline">
           ← Sessions
         </Link>
         <h1 className="min-w-0 flex-1 truncate text-sm font-semibold" data-testid="opencode-session-title">
@@ -369,28 +379,30 @@ export function ConversationPage() {
         </h1>
         {stream.running && <Badge variant="info">running</Badge>}
         {session && session.cost > 0 && (
-          <span className="text-xs tabular-nums text-[var(--color-text-muted)]" data-testid="opencode-session-cost">
+          <span className="hidden text-xs tabular-nums text-[var(--color-text-muted)] sm:inline" data-testid="opencode-session-cost">
             {formatCost(session.cost)}
           </span>
         )}
         {contextTokens > 0 && (
-          <span className="text-xs tabular-nums text-[var(--color-text-muted)]" data-testid="opencode-context-tokens" title="Latest turn context tokens">
+          <span className="hidden text-xs tabular-nums text-[var(--color-text-muted)] sm:inline" data-testid="opencode-context-tokens" title="Latest turn context tokens">
             context {Intl.NumberFormat(undefined, { notation: "compact" }).format(contextTokens)}
             {displayedContextLimit ? ` / ${Math.round((contextTokens / displayedContextLimit) * 100)}%` : ""}
           </span>
         )}
-        <Button size="sm" variant="secondary" onClick={toggleWrap} data-testid="opencode-wrap-toggle">
-          {wrap ? "Wrap: on" : "Wrap: off"}
-        </Button>
-        <Button size="sm" variant="secondary" onClick={() => setShareTarget({ kind: "session" })} data-testid="opencode-share-export-open">
-          Share
-        </Button>
-        <Button size="sm" variant="secondary" onClick={() => setWorkspaceOpen(true)} data-testid="opencode-workspace-open">
-          Workspace
-        </Button>
-        <Button className="min-h-11 lg:hidden" size="sm" variant="secondary" onClick={() => setInspectorOpen(true)} data-testid="opencode-mobile-inspector-open">
-          Details
-        </Button>
+        <div className="hidden items-center gap-3 sm:flex">
+          <Button size="sm" variant="secondary" onClick={toggleWrap} data-testid="opencode-wrap-toggle">
+            {wrap ? "Wrap: on" : "Wrap: off"}
+          </Button>
+          <Button size="sm" variant="secondary" onClick={() => setShareTarget({ kind: "session" })} data-testid="opencode-share-export-open">
+            Share
+          </Button>
+          <Button size="sm" variant="secondary" onClick={() => setWorkspaceOpen(true)} data-testid="opencode-workspace-open">
+            Workspace
+          </Button>
+          <Button className="min-h-11 lg:hidden" size="sm" variant="secondary" onClick={() => setInspectorOpen(true)} data-testid="opencode-mobile-inspector-open">
+            Details
+          </Button>
+        </div>
         {stream.running && (
           <Button
             size="sm"
@@ -401,9 +413,20 @@ export function ConversationPage() {
             Stop
           </Button>
         )}
+        <details className="relative sm:hidden" data-testid="opencode-mobile-session-menu">
+          <summary className="flex h-10 w-10 cursor-pointer list-none items-center justify-center rounded-md text-[var(--color-text-muted)] hover:bg-[var(--hh-row-hover)] [&::-webkit-details-marker]:hidden" aria-label="Session actions">
+            <Ellipsis aria-hidden="true" className="h-5 w-5" />
+          </summary>
+          <div className="absolute right-0 z-30 mt-1 grid min-w-40 overflow-hidden rounded-lg border border-[var(--color-border-default)] bg-[var(--color-background-surface)] p-1 shadow-xl">
+            <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); toggleWrap(); }} data-testid="opencode-mobile-wrap-toggle">{wrap ? "Disable wrapping" : "Enable wrapping"}</button>
+            <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setShareTarget({ kind: "session" }); }} data-testid="opencode-mobile-share-export-open">Share</button>
+            <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setWorkspaceOpen(true); }} data-testid="opencode-mobile-workspace-open">Workspace</button>
+            <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setInspectorOpen(true); }} data-testid="opencode-mobile-inspector-menu-open">Details</button>
+          </div>
+        </details>
       </header>
 
-      <div className="px-4 pt-3">
+      <div className="px-3 pt-2 sm:px-4 sm:pt-3">
         <AutoPermissionsControl directory={directory} testId="opencode-conversation-auto-permissions" />
       </div>
 
@@ -494,6 +517,25 @@ export function ConversationPage() {
             </div>
           )}
           <div ref={transcriptContentRef} className="mx-auto min-w-0 max-w-3xl">
+            {stream.loaded && stream.hasEarlier && (
+              <div className="mb-6 flex justify-center">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={stream.loadingEarlier}
+                  onClick={() => void stream.loadEarlier()}
+                  aria-label="Load earlier transcript messages"
+                  data-testid="opencode-load-earlier"
+                >
+                  {stream.loadingEarlier ? "Loading earlier..." : "Load earlier"}
+                </Button>
+              </div>
+            )}
+            {stream.loadEarlierError && (
+              <div className="mb-6" role="alert" data-testid="opencode-load-earlier-error">
+                <Alert variant="danger">Could not load earlier messages: {stream.loadEarlierError}</Alert>
+              </div>
+            )}
             {!stream.loaded ? (
               <LoadingIndicator />
             ) : items.length === 0 ? (
@@ -519,6 +561,7 @@ export function ConversationPage() {
 
         <SessionInspector
           directory={directory}
+          sessionID={id}
           events={events}
           todos={stream.todos}
           todosLoaded={stream.todosLoaded}
@@ -530,18 +573,42 @@ export function ConversationPage() {
 
       <footer className="relative z-20 shrink-0 border-t border-[var(--color-border-default)] bg-[var(--color-background-surface)] px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <div className="mx-auto max-w-3xl">
-          <div className="mb-2 flex flex-wrap items-center gap-2">
+          {composerCollapsed ? (
+            <button
+              type="button"
+              className="flex min-h-11 w-full items-center gap-2 rounded-lg border border-[var(--color-border-default)] px-3 text-left text-sm text-[var(--color-text-muted)] hover:bg-[var(--hh-row-hover)] hover:text-[var(--color-text-default)]"
+              onClick={() => {
+                setComposerCollapsed(false);
+                requestAnimationFrame(() => composerRef.current?.focus());
+              }}
+              data-testid="opencode-composer-expand"
+            >
+              <MessageSquareText aria-hidden="true" className="h-4 w-4" />
+              <span className="min-w-0 flex-1 truncate">{draft.trim() || "Write a follow-up"}</span>
+              {attachments.length > 0 && <span className="text-xs">{attachments.length} attached</span>}
+            </button>
+          ) : <>
+          <div className="mb-2 flex min-w-0 flex-wrap items-center gap-2">
             <AgentModeToggle mode={agentIdentityKnown ? mode : undefined} onChange={selectMode} disabled={!agentIdentityKnown} testId="opencode-composer-mode" />
-            <ModelSelect
+            <ModelPicker
               catalogue={modelCatalogue}
               value={selectedModel}
               onChange={selectModel}
               testId="opencode-composer-model"
               label="Model"
             />
-            <span className="basis-full text-[11px] text-[var(--color-text-muted)]" data-testid="opencode-current-model">
-              {!agentIdentityKnown ? "Agent identity unavailable; continue in the TUI or create a web session" : mode === "plan" ? "Read-only analysis" : "Can modify files"}
-              {selectedModel ? ` · ${sameModel(selectedModel, currentModel) ? "current" : "switches next message"}` : ""}
+            <button
+              type="button"
+              className="ml-auto flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-[var(--color-text-muted)] hover:bg-[var(--hh-row-hover)] hover:text-[var(--color-text-default)]"
+              onClick={() => setComposerCollapsed(true)}
+              aria-label="Collapse composer"
+              title="Collapse composer"
+              data-testid="opencode-composer-collapse"
+            >
+              <ChevronDown aria-hidden="true" className="h-4 w-4" />
+            </button>
+            <span className={`${!agentIdentityKnown || selectedModel && !sameModel(selectedModel, currentModel) ? "block" : "hidden"} basis-full text-[11px] text-[var(--color-text-muted)]`} data-testid="opencode-current-model">
+              {!agentIdentityKnown ? "Agent identity unavailable; continue in the TUI or create a web session" : "switches next message"}
             </span>
           </div>
           {attachments.length > 0 && <div className="mb-2 flex flex-wrap gap-2">{attachments.map((attachment, index) => <button key={`${attachment.filename}-${index}`} type="button" onClick={() => setAttachments((items) => items.filter((_, itemIndex) => itemIndex !== index))} className="rounded border border-[var(--color-border-default)] px-2 py-1 text-xs" data-testid="opencode-attachment-chip">{attachment.filename} x</button>)}</div>}
@@ -619,6 +686,7 @@ export function ConversationPage() {
               </Button>
             </div>
           </div>
+          </>}
         </div>
       </footer>
       {workspaceOpen && <WorkspacePanels directory={directory} onClose={() => setWorkspaceOpen(false)} />}
