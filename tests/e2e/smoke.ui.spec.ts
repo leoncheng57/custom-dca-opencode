@@ -42,6 +42,51 @@ test.describe("hub", () => {
     await expect(page.getByTestId("opencode-start")).toBeDisabled();
   });
 
+  test("searches project cards and keeps manual paths as an advanced fallback", async ({ page }) => {
+    await page.goto(hub);
+    const mockProject = page.getByTestId("opencode-project-card").filter({
+      has: page.getByText("mock-project", { exact: true }),
+    });
+    await expect(mockProject).toBeVisible();
+    await page.getByTestId("opencode-project-search").fill("no-project-has-this-name");
+    await expect(mockProject).toHaveCount(0);
+    await expect(page.getByTestId("opencode-directory-input")).not.toBeVisible();
+    await page.getByTestId("opencode-directory-advanced-toggle").click();
+    await expect(page.getByTestId("opencode-directory-input")).toBeVisible();
+  });
+
+  test("pins a project with the always-visible card action", async ({ page }) => {
+    let directories: string[] = [];
+    await page.route("**/api/project-pins", async (route) => {
+      if (route.request().method() === "PATCH") {
+        directories = (route.request().postDataJSON() as { directories: string[] }).directories;
+      }
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ directories }) });
+    });
+    await page.goto(hub);
+    const mockProject = page.getByTestId("opencode-project-card").filter({
+      has: page.getByText("mock-project", { exact: true }),
+    });
+    const pin = mockProject.getByTestId("opencode-project-pin");
+    await expect(pin).toBeVisible();
+    await pin.click();
+    await expect(pin).toHaveAttribute("aria-pressed", "true");
+  });
+
+  test("shows an advisory running-session warning only outside isolated mode", async ({ page }) => {
+    await page.goto(hub);
+    await expect(page.getByTestId("opencode-session-collision-warning")).toBeVisible();
+    await page.getByTestId("opencode-isolated-workspace").check();
+    await expect(page.getByTestId("opencode-session-collision-warning")).toHaveCount(0);
+  });
+
+  test("keeps an undiscovered URL workspace selected", async ({ page }) => {
+    const other = `${DIR}/src`;
+    await page.goto(`/?directory=${encodeURIComponent(other)}`);
+    await expect(page.getByTestId("opencode-other-workspace")).toContainText("Other workspace");
+    await expect(page.getByTestId("opencode-project-select-other")).toHaveAttribute("aria-pressed", "true");
+  });
+
   test("navigating to a session keeps the directory scope", async ({ page }) => {
     await page.goto(hub);
     await page.getByTestId("opencode-session-row").first().click();
@@ -229,6 +274,7 @@ test.describe("mobile", () => {
   test("hub is usable on a phone", async ({ page }) => {
     await page.goto(hub);
     await expect(page.getByTestId("opencode-session-list")).toBeVisible();
+    await expect(page.getByTestId("opencode-project-grid")).toBeVisible();
     await expect(page.getByTestId("opencode-hub-mode")).toBeVisible();
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
