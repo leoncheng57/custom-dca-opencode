@@ -391,6 +391,15 @@ test.describe("phone transfer", () => {
 
 test.describe("transcript", () => {
   const conversation = `/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`;
+  const mobileConversation = `/sessions/ses_mock_mobile?directory=${encodeURIComponent(DIR)}`;
+  const paginatedConversation = `/sessions/ses_mock_paginated?directory=${encodeURIComponent(DIR)}`;
+
+  const navigateInApp = async (page: import("@playwright/test").Page, url: string) => {
+    await page.evaluate((next) => {
+      history.pushState({}, "", next);
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    }, url);
+  };
 
   test("renders every row kind from the fixture", async ({ page }) => {
     await page.goto(conversation);
@@ -399,6 +408,135 @@ test.describe("transcript", () => {
     await expect(page.getByTestId("opencode-agent-message")).toBeVisible();
     await expect(page.getByTestId("opencode-thought")).toHaveCount(1);
     await expect(page.getByTestId("opencode-status-separator").first()).toBeVisible();
+  });
+
+  test("rejects stale poll completions across A to B to A and hides old actionable state immediately", async ({ page }) => {
+    let releaseMessages!: () => void;
+    let releaseTodos!: () => void;
+    let messagesHeld = false;
+    let todosHeld = false;
+    const messageGate = new Promise<void>((resolve) => { releaseMessages = resolve; });
+    const todoGate = new Promise<void>((resolve) => { releaseTodos = resolve; });
+
+    await page.route("**/api/sessions/ses_mock_done/messages?**", async (route) => {
+      if (!messagesHeld) {
+        messagesHeld = true;
+        await messageGate;
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            messages: [{ info: { id: "msg_stale", role: "assistant", time: { created: 1, completed: 1 } }, parts: [{ id: "prt_stale", messageID: "msg_stale", type: "text", text: "STALE A RESPONSE" }] }],
+            running: false,
+            nextCursor: null,
+          }),
+        });
+        return;
+      }
+      await route.continue();
+    });
+    await page.route("**/api/sessions/ses_mock_done/todos?**", async (route) => {
+      if (!todosHeld) {
+        todosHeld = true;
+        await todoGate;
+        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ todos: [{ content: "STALE TODO", status: "pending", priority: "high" }] }) });
+        return;
+      }
+      await route.continue();
+    });
+
+    await page.goto(conversation);
+    await expect.poll(() => messagesHeld && todosHeld).toBe(true);
+    await navigateInApp(page, mobileConversation);
+    await expect(page.getByTestId("opencode-session-title")).toHaveText("Mobile full session fixture");
+    await expect(page.getByTestId("opencode-permission-request")).toHaveCount(0);
+    await expect(page.getByTestId("opencode-question-request")).toHaveCount(0);
+    await navigateInApp(page, conversation);
+    await expect(page.getByText("Add a health endpoint to the server.")).toBeVisible();
+
+    releaseMessages();
+    releaseTodos();
+    await expect(page.getByText("STALE A RESPONSE", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("STALE TODO", { exact: true })).toHaveCount(0);
+    await expect(page.getByTestId("opencode-todo-list")).toContainText("Add the route");
+  });
+
+  test("hides seeded permission and question state on a session transition", async ({ page }) => {
+    await fetch(`${MOCK_URL}/test/permissions/reset?directory=${encodeURIComponent(DIR)}`, { method: "POST" });
+    await fetch(`${MOCK_URL}/test/questions/reset?scope=ui`, { method: "POST" });
+    await page.goto(conversation);
+    await expect(page.getByTestId("opencode-permission-request")).toBeVisible();
+    await expect(page.getByTestId("opencode-question-request")).toBeVisible();
+    await navigateInApp(page, mobileConversation);
+    await expect(page.getByTestId("opencode-permission-request")).toHaveCount(0);
+    await expect(page.getByTestId("opencode-question-request")).toHaveCount(0);
+  });
+
+  test("rejects stale earlier-page completion after revisiting the same session", async ({ page }) => {
+    let releaseBackfill!: () => void;
+    let held = false;
+    const gate = new Promise<void>((resolve) => { releaseBackfill = resolve; });
+    await page.route("**/api/sessions/ses_mock_paginated/messages?**", async (route) => {
+      const requestUrl = new URL(route.request().url());
+      if (requestUrl.searchParams.has("before") && !held) {
+        held = true;
+        await gate;
+      }
+      await route.continue();
+    });
+
+    await page.goto(paginatedConversation);
+    await page.getByTestId("opencode-load-earlier").click({ noWaitAfter: true });
+    await expect.poll(() => held).toBe(true);
+    await navigateInApp(page, mobileConversation);
+    await expect(page.getByTestId("opencode-session-title")).toHaveText("Mobile full session fixture");
+    await navigateInApp(page, paginatedConversation);
+    await expect(page.getByText("Paged message 126", { exact: true })).toBeVisible();
+    releaseBackfill();
+    await expect(page.getByText("Paged message 1", { exact: true })).toHaveCount(0);
+    await expect(page.getByTestId("opencode-load-earlier")).toBeVisible();
+  });
+
+  test("keeps older pages for newest part updates and cancels backfill for older updates", async ({ page }) => {
+    let release!: () => void;
+    let held = false;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    await page.route("**/api/sessions/ses_mock_paginated/messages?**", async (route) => {
+      const url = new URL(route.request().url());
+      if (url.searchParams.get("before") === "25" && !held) { held = true; await gate; }
+      await route.continue();
+    });
+    await page.goto(paginatedConversation);
+    await page.getByTestId("opencode-load-earlier").click();
+    await expect(page.getByText("Paged message 50", { exact: true })).toBeVisible();
+    await fetch(`${MOCK_URL}/test/paginated/newest-update`, { method: "POST" });
+    await expect(page.getByText("Paged message 50", { exact: true })).toBeVisible();
+    await page.getByTestId("opencode-load-earlier").click({ noWaitAfter: true });
+    await expect.poll(() => held).toBe(true);
+    await fetch(`${MOCK_URL}/test/paginated/pending-update`, { method: "POST" });
+    await expect(page.getByText("Paged message 50", { exact: true })).toBeVisible();
+    release();
+    await expect(page.getByText("Paged message 1", { exact: true })).toHaveCount(0);
+  });
+
+  test("cancels complete command export when the inspector unmounts", async ({ page }) => {
+    let newestRequests = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    await page.route("**/api/sessions/ses_mock_paginated/messages?**", async (route) => {
+      const url = new URL(route.request().url());
+      if (!url.searchParams.has("before") && ++newestRequests === 2) await gate;
+      await route.continue();
+    });
+    let downloads = 0;
+    page.on("download", () => { downloads += 1; });
+    await page.goto(paginatedConversation);
+    await page.getByTestId("opencode-inspector-runlog").click();
+    await page.getByTestId("opencode-export-commands").click({ noWaitAfter: true });
+    await page.getByRole("link", { name: "Sessions" }).click();
+    release();
+    await page.waitForTimeout(200);
+    expect(downloads).toBe(0);
   });
 
   test("shows the reasoning duration OpenHands could not", async ({ page }) => {

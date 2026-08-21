@@ -34,7 +34,19 @@ describe("mergeEvents", () => {
   it("returns the same reference when nothing changed, so memos hold", () => {
     const prev = [agent("a", "hello")];
     expect(mergeEvents(prev, [agent("a", "hello")])).toBe(prev);
-    expect(mergeEvents(prev, [])).toBe(prev);
+    expect(mergeEvents([], [])).toEqual([]);
+  });
+
+  it("removes events absent from the authoritative transcript", () => {
+    const previous = [agent("a", "first"), agent("b", "second", at(2))];
+    expect(mergeEvents(previous, [agent("b", "second", at(2))]).map((event) => event.id)).toEqual(["b"]);
+    expect(mergeEvents(previous, [])).toEqual([]);
+  });
+
+  it("detects a same-length content revert", () => {
+    const previous = [agent("a", "first")];
+    const merged = mergeEvents(previous, [agent("a", "again")]);
+    expect((merged[0] as { text: string }).text).toBe("again");
   });
 
   // The bug this guards against: OpenCode tool parts mutate in place. Treating
@@ -62,7 +74,7 @@ describe("mergeEvents", () => {
   it("sorts chronologically with a stable tiebreak", () => {
     const merged = mergeEvents(
       [agent("b", "second", at(2))],
-      [agent("a", "first", at(1)), agent("c", "same", at(2))],
+      [agent("a", "first", at(1)), agent("b", "second", at(2)), agent("c", "same", at(2))],
     );
     expect(merged.map((e) => e.id)).toEqual(["a", "b", "c"]);
   });

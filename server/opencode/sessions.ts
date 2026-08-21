@@ -13,7 +13,7 @@
 //     which is exactly what makes crash detection possible (detectInterrupted).
 
 import { withReminderTag, type ReminderPreset } from "../reminders/reminders.js";
-import { request, type OpencodeConfig } from "./client.js";
+import { request, requestWithResponse, type OpencodeConfig } from "./client.js";
 
 export type AgentMode = "plan" | "build";
 
@@ -486,18 +486,52 @@ export async function unshareSession(
   return toSummary(raw ?? {}, false);
 }
 
+export interface MessagePage {
+  messages: unknown[];
+  nextCursor: string | null;
+}
+
+export function messagePageCursor(headers: Headers): string | null {
+  const direct = headers.get("x-next-cursor")?.trim();
+  if (direct) return direct;
+
+  const link = headers.get("link");
+  if (!link) return null;
+  for (const entry of link.split(/,(?=\s*<)/u)) {
+    const match = entry.match(/^\s*<([^>]+)>(.*)$/u);
+    if (!match || !/;\s*rel\s*=\s*"?next"?(?:\s*;|\s*$)/iu.test(match[2])) continue;
+    try {
+      const cursor = new URL(match[1], "http://opencode.invalid").searchParams.get("before")?.trim();
+      if (cursor) return cursor;
+    } catch {
+      // Ignore a malformed Link entry and fall back to end-of-history.
+    }
+  }
+  return null;
+}
+
 /** Raw `{ info, parts }` messages — the client-side adapter shapes them. */
 export async function listMessages(
   config: OpencodeConfig,
   directory: string,
   sessionID: string,
-): Promise<unknown[]> {
-  const data = await request<unknown[]>(
+  options: { limit?: number; before?: string } = {},
+): Promise<MessagePage> {
+  const response = await requestWithResponse<unknown[]>(
     config,
     `/session/${encodeURIComponent(sessionID)}/message`,
-    { directory },
+    {
+      directory,
+      query: {
+        limit: options.limit ?? 100,
+        before: options.before,
+      },
+    },
   );
-  return data ?? [];
+  return {
+    messages: response.data ?? [],
+    nextCursor: messagePageCursor(response.headers),
+  };
 }
 
 export interface Todo {

@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 
 const DIR = process.platform === "darwin" ? "/private/tmp/mock-project" : "/tmp/mock-project";
 const conversation = `/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`;
+const paginatedConversation = `/sessions/ses_mock_paginated?directory=${encodeURIComponent(DIR)}`;
 const MOCK_URL = `http://127.0.0.1:${process.env.MOCK_OPENCODE_PORT || 4599}`;
 
 test.describe.serial("share and export", () => {
@@ -69,6 +70,62 @@ test.describe.serial("share and export", () => {
     expect(copied).toContain("I'll add the route now.");
     expect(copied).not.toContain("Add a health endpoint to the server.");
     expect(copied).not.toMatch(/export const app|OPAQUE_SIGNATURE/);
+  });
+
+  test("freshly fetches every page for a complete chronological full-session export", async ({ page, context }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    let newestRequests = 0;
+    let releaseExport!: () => void;
+    const exportGate = new Promise<void>((resolve) => { releaseExport = resolve; });
+    await page.route("**/api/sessions/ses_mock_paginated/messages?**", async (route) => {
+      const requestUrl = new URL(route.request().url());
+      if (!requestUrl.searchParams.has("before") && ++newestRequests === 2) await exportGate;
+      await route.continue();
+    });
+    await page.goto(paginatedConversation);
+    await expect(page.getByText("Paged message 1", { exact: true })).toHaveCount(0);
+
+    await page.getByTestId("opencode-share-export-open").click();
+    const dialog = page.getByTestId("opencode-share-export-dialog");
+    await expect(dialog.getByTestId("opencode-export-loading")).toBeVisible();
+    await expect(dialog.getByTestId("opencode-export-copy")).toBeDisabled();
+    releaseExport();
+    await expect(dialog.getByTestId("opencode-export-copy")).toBeEnabled();
+    await dialog.getByTestId("opencode-export-copy").click();
+
+    const copied = await page.evaluate(() => navigator.clipboard.readText());
+    expect(copied).toContain("Paged message 1");
+    expect(copied).toContain("Paged message 125");
+    expect(copied.indexOf("Paged message 1")).toBeLessThan(copied.indexOf("Paged message 125"));
+  });
+
+  test("loads earlier transcript pages only on deliberate request", async ({ page }) => {
+    await page.goto(paginatedConversation);
+    await expect(page.getByText("Paged message 126", { exact: true })).toBeVisible();
+    await expect(page.getByText("Paged message 1", { exact: true })).toHaveCount(0);
+    await page.getByTestId("opencode-load-earlier").click();
+    await expect(page.getByText("Paged message 26", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("opencode-load-earlier")).toBeVisible();
+  });
+
+  test("refuses a partial full-session export and retries the complete fetch", async ({ page }) => {
+    let newestRequests = 0;
+    await page.route("**/api/sessions/ses_mock_paginated/messages?**", async (route) => {
+      const requestUrl = new URL(route.request().url());
+      if (!requestUrl.searchParams.has("before") && ++newestRequests === 2) {
+        await route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ error: "temporary export failure" }) });
+        return;
+      }
+      await route.continue();
+    });
+
+    await page.goto(paginatedConversation);
+    await page.getByTestId("opencode-share-export-open").click();
+    const dialog = page.getByTestId("opencode-share-export-dialog");
+    await expect(dialog.getByTestId("opencode-export-error")).toContainText("temporary export failure");
+    await expect(dialog.getByTestId("opencode-export-copy")).toBeDisabled();
+    await dialog.getByTestId("opencode-export-retry").click();
+    await expect(dialog.getByTestId("opencode-export-copy")).toBeEnabled();
   });
 
   test("uses native share only when the browser exposes it", async ({ page }) => {
