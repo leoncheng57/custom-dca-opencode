@@ -7,6 +7,7 @@ import { Badge } from "../ds/badge.js";
 import { Button } from "../ds/button.js";
 import { LoadingIndicator } from "../ds/loading-indicator.js";
 import { AgentModeToggle } from "../components/agent-mode-toggle.js";
+import { ModelSelect } from "../components/model-select.js";
 import {
   api,
   formatCost,
@@ -16,6 +17,7 @@ import {
   type Worktree,
 } from "../lib/api.js";
 import type { AgentMode } from "../lib/agentMode.js";
+import { catalogueDefault, sameModel, type ModelCatalogue, type ModelSelection } from "../lib/models.js";
 
 const DIRECTORY_KEY = "opencode.directory.v1";
 const POLL_MS = 10_000;
@@ -52,6 +54,10 @@ export function HubPage() {
   const [isolated, setIsolated] = useState(false);
   const [mode, setMode] = useState<AgentMode>("build");
   const [worktrees, setWorktrees] = useState<Worktree[]>([]);
+  const [modelCatalogue, setModelCatalogue] = useState<ModelCatalogue | null>(null);
+  const [selectedModel, setSelectedModel] = useState<ModelSelection | undefined>();
+  const [initialModel, setInitialModel] = useState<ModelSelection | undefined>();
+  const [modelError, setModelError] = useState<string | null>(null);
   const [projectsRoot, setProjectsRoot] = useState("");
   const [projects, setProjects] = useState<DiscoveredProject[] | null>(null);
   const [pinnedDirectories, setPinnedDirectories] = useState<string[]>([]);
@@ -117,6 +123,28 @@ export function HubPage() {
     void api.worktrees(directory).then((result) => setWorktrees(result.worktrees)).catch(() => setWorktrees([]));
   }, [directory]);
 
+  useEffect(() => {
+    setModelCatalogue(null);
+    setSelectedModel(undefined);
+    setInitialModel(undefined);
+    setModelError(null);
+    if (!directory) return;
+    let cancelled = false;
+    void api.models(directory).then((catalogue) => {
+      if (cancelled) return;
+      const defaultModel = catalogueDefault(catalogue);
+      setModelCatalogue(catalogue);
+      setSelectedModel(defaultModel);
+      setInitialModel(defaultModel);
+      setModelError(defaultModel ? null : "No enabled models are configured for this project.");
+    }).catch((cause: Error) => {
+      if (!cancelled) setModelError(`Model catalogue unavailable: ${cause.message}`);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [directory]);
+
   const selectDirectory = (next: string) => {
     if (!next) return;
     setDirectoryInput(next);
@@ -148,7 +176,8 @@ export function HubPage() {
     setCreating(true);
     setError(null);
     try {
-      const { session } = await api.createSession({ directory, prompt, isolated, mode });
+      const model = selectedModel && !sameModel(selectedModel, initialModel) ? selectedModel : undefined;
+      const { session } = await api.createSession({ directory, prompt, isolated, mode, model });
       navigate(`/sessions/${session.id}?directory=${encodeURIComponent(session.directory)}`);
     } catch (e) {
       setError((e as Error).message);
@@ -228,6 +257,7 @@ export function HubPage() {
         </Alert>
       )}
       {error && <Alert variant="danger">{error}</Alert>}
+      {modelError && <Alert variant="danger" data-testid="opencode-model-error">{modelError}</Alert>}
       {projectError && <Alert variant="warning" data-testid="opencode-projects-error">Project picker: {projectError}</Alert>}
 
       <section className="rounded-xl border border-[var(--color-border-default)] p-4 sm:p-5">
@@ -254,25 +284,28 @@ export function HubPage() {
         {projects === null ? (
           <div className="py-6"><LoadingIndicator /></div>
         ) : (
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" data-testid="opencode-project-grid">
+          <div
+            className="max-h-72 overflow-y-auto overscroll-contain rounded-lg border border-[var(--color-border-default)] divide-y divide-[var(--color-border-default)]"
+            data-testid="opencode-project-list"
+          >
             {showOtherWorkspace && (
               <div
-                className="flex min-w-0 items-stretch rounded-lg border border-[var(--color-border-focus)] bg-[var(--color-background-surface-info-muted)]"
+                className="flex min-w-0 items-stretch bg-[var(--color-background-surface-info-muted)]"
                 data-testid="opencode-other-workspace"
               >
                 <button
                   type="button"
-                  className="min-w-0 flex-1 p-3 text-left"
+                  className="flex min-w-0 flex-1 items-baseline gap-2 px-3 py-2 text-left"
                   onClick={() => selectDirectory(directory)}
                   aria-pressed="true"
                   data-testid="opencode-project-select-other"
                 >
-                  <span className="block truncate text-sm font-semibold">Other workspace</span>
-                  <span className="mt-1 block truncate text-xs text-[var(--color-text-muted)]" title={directory}>{directory}</span>
+                  <span className="max-w-[45%] shrink-0 truncate text-xs font-semibold">Other workspace</span>
+                  <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--color-text-muted)]" title={directory}>{directory}</span>
                 </button>
                 <button
                   type="button"
-                  className="m-1.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-[var(--color-text-muted)] hover:bg-[var(--color-background-action-ghost-hover)] hover:text-[var(--color-text-default)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)] disabled:opacity-40"
+                  className="m-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[var(--color-text-muted)] hover:bg-[var(--color-background-action-ghost-hover)] hover:text-[var(--color-text-default)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)] disabled:opacity-40 pointer-coarse:h-11 pointer-coarse:w-11"
                   onClick={() => void togglePin(directory)}
                   disabled={pinsSaving}
                   aria-label={`${pinOrder.has(directory) ? "Unpin" : "Pin"} other workspace`}
@@ -291,24 +324,24 @@ export function HubPage() {
                   key={project.directory}
                   className={
                     selected
-                      ? "flex min-w-0 items-stretch rounded-lg border border-[var(--color-border-focus)] bg-[var(--color-background-surface-info-muted)]"
-                      : "flex min-w-0 items-stretch rounded-lg border border-[var(--color-border-default)] bg-[var(--color-background-surface)] hover:bg-[var(--hh-row-hover)]"
+                      ? "flex min-w-0 items-stretch bg-[var(--color-background-surface-info-muted)]"
+                      : "flex min-w-0 items-stretch bg-[var(--color-background-surface)] hover:bg-[var(--hh-row-hover)]"
                   }
                   data-testid="opencode-project-card"
                 >
                   <button
                     type="button"
-                    className="min-w-0 flex-1 p-3 text-left"
+                    className="flex min-w-0 flex-1 items-baseline gap-2 px-3 py-2 text-left"
                     onClick={() => selectDirectory(project.directory)}
                     aria-pressed={selected}
                     data-testid="opencode-project-select"
                   >
-                    <span className="block truncate text-sm font-semibold">{project.name}</span>
-                    <span className="mt-1 block truncate text-xs text-[var(--color-text-muted)]" title={project.relativePath}>{project.relativePath}</span>
+                    <span className="max-w-[45%] shrink-0 truncate text-xs font-semibold">{project.name}</span>
+                    <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--color-text-muted)]" title={project.relativePath}>{project.relativePath}</span>
                   </button>
                   <button
                     type="button"
-                    className="m-1.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-[var(--color-text-muted)] hover:bg-[var(--color-background-action-ghost-hover)] hover:text-[var(--color-text-default)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)] disabled:opacity-40"
+                    className="m-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[var(--color-text-muted)] hover:bg-[var(--color-background-action-ghost-hover)] hover:text-[var(--color-text-default)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)] disabled:opacity-40 pointer-coarse:h-11 pointer-coarse:w-11"
                     onClick={() => void togglePin(project.directory)}
                     disabled={pinsSaving}
                     aria-label={`${pinned ? "Unpin" : "Pin"} ${project.name}`}
@@ -374,9 +407,16 @@ export function HubPage() {
         )}
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <AgentModeToggle mode={mode} onChange={setMode} testId="opencode-hub-mode" />
+          <ModelSelect
+            catalogue={modelCatalogue}
+            value={selectedModel}
+            onChange={setSelectedModel}
+            testId="opencode-hub-model"
+            label="Session model"
+          />
           <Button
             onClick={() => void create()}
-            disabled={creating || !prompt.trim() || !directory}
+            disabled={creating || !prompt.trim() || !directory || !selectedModel}
             data-testid="opencode-start"
           >
             {creating ? "Starting…" : "Start agent"}

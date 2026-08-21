@@ -5,6 +5,7 @@
 
 import type { RawMessage } from "./events.js";
 import type { AgentMode } from "./agentMode.js";
+import type { ModelCatalogue, ModelSelection } from "./models.js";
 
 export interface SessionSummary {
   id: string;
@@ -12,7 +13,7 @@ export interface SessionSummary {
   directory: string;
   parentID?: string;
   agent?: string;
-  model?: { providerID?: string; modelID?: string };
+  model?: ModelSelection;
   cost: number;
   tokens: {
     input: number;
@@ -211,6 +212,9 @@ export const api = {
       json<{ sessions: SessionSummary[] }>(r),
     ),
 
+  models: (directory: string) =>
+    fetch(scoped("/models", directory)).then((r) => json<ModelCatalogue>(r)),
+
   session: (directory: string, id: string) =>
     fetch(scoped(`/sessions/${encodeURIComponent(id)}`, directory)).then((r) =>
       json<{ session: SessionSummary }>(r),
@@ -234,7 +238,7 @@ export const api = {
     directory: string;
     title?: string;
     mode?: AgentMode;
-    model?: { providerID: string; modelID: string };
+    model?: ModelSelection;
     prompt?: string;
     isolated?: boolean;
     worktreeName?: string;
@@ -250,7 +254,7 @@ export const api = {
     id: string,
     text: string,
     mode: AgentMode,
-    model?: { providerID: string; modelID: string },
+    model?: ModelSelection,
     attachments?: Array<{ filename: string; mime: string; url: string }>,
     reminder?: string,
   ) =>

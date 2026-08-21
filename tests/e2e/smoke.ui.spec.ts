@@ -36,6 +36,12 @@ test.describe("hub", () => {
     await expect(page.getByTestId("opencode-upstream-badge")).toContainText("1.18.19");
   });
 
+  test("selects the configured model from the safe catalogue", async ({ page }) => {
+    await page.goto(hub);
+    await expect(page.getByTestId("opencode-hub-model")).toHaveValue("anthropic/claude-opus-5");
+    await expect(page.getByTestId("opencode-hub-model").locator("option")).toContainText(["Claude Opus 5", "Claude Retired", "GPT-5"]);
+  });
+
   test("prompts for a directory when none is set", async ({ page }) => {
     await page.goto("/");
     await page.evaluate(() => localStorage.clear());
@@ -49,6 +55,10 @@ test.describe("hub", () => {
       has: page.getByText("mock-project", { exact: true }),
     });
     await expect(mockProject).toBeVisible();
+    const projectList = page.getByTestId("opencode-project-list");
+    expect(await projectList.evaluate((element) => getComputedStyle(element).overflowY)).toBe("auto");
+    expect(await projectList.evaluate((element) => element.clientHeight)).toBeLessThanOrEqual(288);
+    expect((await mockProject.boundingBox())?.height).toBeLessThanOrEqual(48);
     await page.getByTestId("opencode-project-search").fill("no-project-has-this-name");
     await expect(mockProject).toHaveCount(0);
     await expect(page.getByTestId("opencode-directory-input")).not.toBeVisible();
@@ -105,6 +115,21 @@ test.describe("hub", () => {
     await expect(page).toHaveURL(/\/sessions\/ses_mock_new_/);
     await expect.poll(() => promptPayload(text)).toMatchObject({ agent: "plan" });
     await expect(page.getByTestId("opencode-composer-mode-plan")).toHaveAttribute("aria-pressed", "true");
+  });
+
+  test("starts with an explicit variant while keeping Plan independent", async ({ page }) => {
+    const text = `initial variant plan ${Date.now()}`;
+    await page.goto(hub);
+    await page.getByTestId("opencode-hub-mode-plan").click();
+    await page.getByTestId("opencode-hub-model-variant").selectOption("high");
+    await expect(page.getByTestId("opencode-hub-mode-plan")).toHaveAttribute("aria-pressed", "true");
+    await page.getByTestId("opencode-prompt").fill(text);
+    await page.getByTestId("opencode-start").click();
+    await expect.poll(() => promptPayload(text)).toMatchObject({
+      agent: "plan",
+      model: { providerID: "anthropic", modelID: "claude-opus-5" },
+      variant: "high",
+    });
   });
 });
 
@@ -213,6 +238,39 @@ test.describe("interrupted runs", () => {
 });
 
 test.describe("composer", () => {
+  test("approves a permission and continues the conversation", async ({ page }) => {
+    const id = `perm_continue_${Date.now()}`;
+    await fetch(`${MOCK_URL}/test/permission?directory=${encodeURIComponent(DIR)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, sessionID: "ses_mock_running", permission: "external_directory", patterns: [`${DIR}/*`] }),
+    });
+    await page.goto(`/sessions/ses_mock_running?directory=${encodeURIComponent(DIR)}`);
+    const request = page.getByTestId("opencode-permission-request").filter({ hasText: "external_directory" });
+    await expect(request).toBeVisible();
+    await request.getByTestId("opencode-permission-once").click();
+    await expect(request).toHaveCount(0);
+    await expect(page.getByTestId("opencode-agent-message").filter({ hasText: "Permission approved; continuing" })).toBeVisible();
+    const replies = await (await fetch(`${MOCK_URL}/test/permission-replies`)).json() as Array<{ id: string; reply: string }>;
+    expect(replies).toContainEqual({ id, reply: "once" });
+  });
+
+  test("keeps a failed permission reply visible and retryable", async ({ page }) => {
+    const id = `perm_fail_${Date.now()}`;
+    await fetch(`${MOCK_URL}/test/permission?directory=${encodeURIComponent(DIR)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, sessionID: "ses_mock_running", permission: "bash", patterns: ["npm test"] }),
+    });
+    await page.goto(`/sessions/ses_mock_running?directory=${encodeURIComponent(DIR)}`);
+    const request = page.getByTestId("opencode-permission-request").filter({ hasText: "npm test" });
+    await expect(request).toBeVisible();
+    await request.getByTestId("opencode-permission-once").click();
+    await expect(page.getByTestId("opencode-permission-error")).toContainText("mock permission reply failed");
+    await expect(request).toBeVisible();
+    await expect(request.getByTestId("opencode-permission-once")).toBeEnabled();
+  });
+
   test("sends a follow-up", async ({ page }) => {
     await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
     await page.getByTestId("opencode-composer").fill("do the thing");
@@ -262,6 +320,55 @@ test.describe("composer", () => {
     await expect(page.getByTestId("opencode-composer-mode-plan")).toHaveAttribute("aria-pressed", "true");
   });
 
+  test("switches models once, persists the new current model, and omits unchanged overrides", async ({ page }) => {
+    const initial = `model initial ${Date.now()}`;
+    await page.goto(hub);
+    await page.getByTestId("opencode-hub-model").selectOption("openai/gpt-5");
+    await page.getByTestId("opencode-prompt").fill(initial);
+    await page.getByTestId("opencode-start").click();
+    await expect(page).toHaveURL(/\/sessions\/ses_mock_new_/);
+    await expect.poll(() => promptPayload(initial)).toMatchObject({
+      agent: "build",
+      model: { providerID: "openai", modelID: "gpt-5" },
+    });
+    const picker = page.getByTestId("opencode-composer-model");
+    await expect(picker).toHaveValue("openai/gpt-5");
+    await expect(page.getByTestId("opencode-current-model")).toContainText("current");
+
+    const unchanged = `model unchanged ${Date.now()}`;
+    await page.getByTestId("opencode-composer").fill(unchanged);
+    await page.getByTestId("opencode-send").click();
+    await expect.poll(() => promptPayload(unchanged)).not.toHaveProperty("model");
+
+    const switched = `model switched ${Date.now()}`;
+    await picker.selectOption("anthropic/claude-opus-5");
+    await expect(page.getByTestId("opencode-current-model")).toContainText("switches next message");
+    await page.getByTestId("opencode-composer").fill(switched);
+    await page.getByTestId("opencode-send").click();
+    await expect.poll(() => promptPayload(switched)).toMatchObject({
+      model: { providerID: "anthropic", modelID: "claude-opus-5" },
+    });
+    await expect(page.getByTestId("opencode-current-model")).toContainText("current");
+    await page.reload();
+    await expect(page.getByTestId("opencode-composer-model")).toHaveValue("anthropic/claude-opus-5");
+  });
+
+  test("shows an image capability warning without changing Plan/Build", async ({ page }) => {
+    await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
+    await page.getByTestId("opencode-composer-mode-plan").click();
+    await page.getByTestId("opencode-composer-model").selectOption("anthropic/claude-text");
+    await expect(page.getByTestId("opencode-composer-mode-plan")).toHaveAttribute("aria-pressed", "true");
+    await page.getByTestId("opencode-attach").setInputFiles({ name: "pixel.png", mimeType: "image/png", buffer: Buffer.from("89504e470d0a1a0a", "hex") });
+    await expect(page.getByTestId("opencode-model-image-warning")).toBeVisible();
+  });
+
+  test("keeps an unknown persisted model visible instead of silently replacing it", async ({ page }) => {
+    await page.goto(`/sessions/ses_mock_unknown_model?directory=${encodeURIComponent(DIR)}`);
+    const picker = page.getByTestId("opencode-composer-model");
+    await expect(picker).toHaveValue("legacy/removed-model");
+    await expect(picker.locator("option:checked")).toContainText("unknown");
+  });
+
   test("attaches one reminder, round-trips it, and resets the picker", async ({ page }) => {
     const text = `push safely ${Date.now()}`;
     await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
@@ -291,7 +398,7 @@ test.describe("mobile", () => {
   test("hub is usable on a phone", async ({ page }) => {
     await page.goto(hub);
     await expect(page.getByTestId("opencode-session-list")).toBeVisible();
-    await expect(page.getByTestId("opencode-project-grid")).toBeVisible();
+    await expect(page.getByTestId("opencode-project-list")).toBeVisible();
     await expect(page.getByTestId("opencode-hub-mode")).toBeVisible();
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,

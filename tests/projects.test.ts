@@ -51,6 +51,22 @@ describe("project discovery", () => {
       message: expect.stringContaining("PROJECTS_DIR"),
     });
   });
+
+  it("collects later immediate children before nested repositories fill the result limit", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "dca-projects-"));
+    const container = path.join(root, "a-container");
+    const laterProject = path.join(root, "custom-dca-ide-with-openhands");
+    await Promise.all([
+      mkdir(container),
+      mkdir(laterProject),
+      ...Array.from({ length: 500 }, (_, index) =>
+        mkdir(path.join(container, `repo-${String(index).padStart(3, "0")}`, ".git"), { recursive: true })),
+    ]);
+
+    const result = await discoverProjects({ root, excludedWorktreesRoot: path.join(root, "worktrees") });
+    expect(result.projects).toHaveLength(500);
+    expect(result.projects.map((project) => project.relativePath)).toContain("custom-dca-ide-with-openhands");
+  }, 10_000);
 });
 
 describe("project pins", () => {
