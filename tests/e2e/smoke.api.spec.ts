@@ -42,6 +42,34 @@ test.describe("public app config", () => {
   });
 });
 
+test.describe("project discovery and pins", () => {
+  test("discovers local repositories and round-trips canonical ordered pins", async ({ request }) => {
+    const discovery = await request.get("/api/projects");
+    expect(discovery.ok()).toBe(true);
+    const body = await discovery.json();
+    expect(body.root).toBe(process.platform === "darwin" ? "/private/tmp" : "/tmp");
+    expect(body.projects).toContainEqual(expect.objectContaining({
+      name: "mock-project",
+      directory: DIR,
+      kind: "repository",
+    }));
+
+    try {
+      const saved = await request.patch("/api/project-pins", { data: { directories: [DIR, DIR] } });
+      expect(saved.ok()).toBe(true);
+      expect(await saved.json()).toEqual({ directories: [DIR] });
+      expect(await (await request.get("/api/project-pins")).json()).toEqual({ directories: [DIR] });
+    } finally {
+      await request.patch("/api/project-pins", { data: { directories: [] } });
+    }
+  });
+
+  test("rejects pins outside PROJECTS_DIR", async ({ request }) => {
+    const response = await request.patch("/api/project-pins", { data: { directories: ["/usr"] } });
+    expect(response.status()).toBe(403);
+  });
+});
+
 test.describe("directory scoping", () => {
   // One OpenCode server hosts every project. A missing scope would silently
   // target whatever directory the server started in, so it must be rejected.

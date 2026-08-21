@@ -101,6 +101,12 @@ export interface GitCommit {
 }
 
 export interface Worktree { name: string; branch?: string; directory: string }
+export interface DiscoveredProject {
+  name: string;
+  relativePath: string;
+  directory: string;
+  kind: "repository" | "directory";
+}
 export interface ReviewStatus {
   url: string;
   forge: "github" | "gitlab";
@@ -163,6 +169,14 @@ function scoped(path: string, directory: string, extra: Record<string, string> =
 export const api = {
   health: () => fetch("/api/health").then((r) => json<HealthResponse>(r)),
   appConfig: () => fetch("/api/app-config").then((r) => json<{ publicAppUrl: string | null }>(r)),
+  projects: () => fetch("/api/projects").then((r) => json<{ root: string; projects: DiscoveredProject[] }>(r)),
+  projectPins: () => fetch("/api/project-pins").then((r) => json<{ directories: string[] }>(r)),
+  saveProjectPins: (directories: string[]) =>
+    fetch("/api/project-pins", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ directories }),
+    }).then((r) => json<{ directories: string[] }>(r)),
 
   sessions: (directory: string, limit = 100) =>
     fetch(scoped("/sessions", directory, { limit: String(limit) })).then((r) =>
