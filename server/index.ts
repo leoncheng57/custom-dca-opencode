@@ -113,7 +113,10 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const clientDir = path.resolve(here, "../client");
 app.use(express.static(clientDir));
 app.get(/^\/(?!api\/).*/, (_req, res) => {
-  res.sendFile(path.join(clientDir, "index.html"));
+  // Express/send in the current dependency set returns ENOENT for an
+  // absolute sendFile path even when the file exists; the rooted form is the
+  // documented equivalent and keeps client-side routes working.
+  res.sendFile("index.html", { root: clientDir });
 });
 
 app.listen(PORT, "0.0.0.0", () => {
