@@ -77,6 +77,16 @@ browser; its URL is never sent to an image or QR service. `PUBLIC_APP_URL` must 
 HTTP(S) origin with no path, query, fragment, or credentials. If it is unset, the QR
 uses the current browser origin, which is only useful when that origin is phone-reachable.
 
+### Notifications
+
+Browser sound profiles and optional generic status speech are stored per device. Browser
+and ntfy event delivery toggles remain server-backed and independent. Spoken notifications
+never include prompts, paths, filenames, commands, tool output, or notification bodies.
+
+Constructor-based browser Notifications on iPhone and iPad still require installed-PWA
+and service-worker support. This feature does not add a service worker; ntfy remains the
+reliable phone notification path.
+
 Verification requires no live agent or model credentials:
 
 ```bash

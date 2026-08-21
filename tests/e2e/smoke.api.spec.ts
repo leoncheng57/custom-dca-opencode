@@ -708,6 +708,19 @@ test.describe("settings and tools", () => {
     expect(after.servers.docs).toEqual({ status: "connected" });
   });
 
+  test("returns a bounded catalogue without skill or command prompt content", async ({ request }) => {
+    const response = await request.get(`/api/catalog?directory=${DIR}`);
+    expect(response.ok()).toBe(true);
+    const body = await response.json();
+    expect(body.servers).toMatchObject({
+      github: { status: "connected" },
+      registration: { status: "needs_client_registration", error: "register this client first" },
+    });
+    expect(body.skills).toEqual([{ name: "browser-check", description: "Check a page in the browser.", location: "browser-check/SKILL.md" }]);
+    expect(body.commands).toEqual([{ name: "verify", description: "Run project verification.", source: "command", agent: "build", model: "mock/model", subtask: false }]);
+    expect(JSON.stringify(body)).not.toContain("SECRET");
+  });
+
   test("returns LSP and read-only effective permissions", async ({ request }) => {
     expect((await (await request.get(`/api/lsp?directory=${DIR}`)).json()).servers).toHaveProperty("typescript");
     expect((await (await request.get(`/api/permissions?directory=${DIR}`)).json()).permissions).toEqual({ "*": "ask", read: "allow" });

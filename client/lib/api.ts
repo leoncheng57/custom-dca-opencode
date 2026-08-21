@@ -63,6 +63,22 @@ export type McpStatus =
   | { status: "needs_auth" }
   | { status: "needs_client_registration"; error: string };
 
+export interface CatalogSkill { name: string; description: string; location?: string }
+export interface CatalogCommand {
+  name: string;
+  description?: string;
+  source?: string;
+  agent?: string;
+  model?: string;
+  subtask?: boolean;
+}
+export interface CatalogResponse {
+  servers: Record<string, McpStatus>;
+  skills: CatalogSkill[];
+  commands: CatalogCommand[];
+  refreshedAt: string;
+}
+
 export type NotifyEvent = "idle" | "error" | "abort" | "permission" | "question" | "parked";
 export interface NotificationPreferences {
   version: 1;
@@ -305,6 +321,8 @@ export const api = {
 
   mcp: (directory: string) =>
     fetch(scoped("/mcp", directory)).then((r) => json<{ servers: Record<string, McpStatus> }>(r)),
+  catalog: (directory: string, signal?: AbortSignal) =>
+    fetch(scoped("/catalog", directory), { signal }).then((r) => json<CatalogResponse>(r)),
   setMcp: (directory: string, name: string, connected: boolean) =>
     fetch(scoped(`/mcp/${encodeURIComponent(name)}/${connected ? "connect" : "disconnect"}`, directory), {
       method: "POST",
