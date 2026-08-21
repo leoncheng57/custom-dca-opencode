@@ -47,6 +47,7 @@ several decisions below.
 | Permission precedence is **LAST-match-wins** | Put `"*"` first, specifics after — the opposite of most ACLs |
 | Non-empty legacy `prompt_async.tools` entries persist on the session | Never enforce Plan with `tools`; activate mode with append-only session rules before prompting, and restore Build from the resolved `/agent` policy |
 | `PATCH /session/{id}` appends `permission` rules | Compare the current suffix before patching so repeated same-mode prompts do not grow the ruleset |
+| Mode policy and `prompt_async` are one critical section | Serialize them process-locally by directory + session so concurrent opposite-mode prompts cannot run under each other's policy |
 | Classic SSE has no replay cursor | Refetch state on reconnect |
 
 ## Decisions

@@ -50,6 +50,7 @@ interface RawAgent {
 }
 
 const EDIT_TOOL_ALIASES = new Set(["edit", "write", "apply_patch"]);
+const sessionPromptTails = new Map<string, Promise<void>>();
 
 export class ModePolicyActivationError extends Error {
   constructor(mode: AgentMode) {
@@ -102,6 +103,27 @@ function hasPlanDenial(rules: PermissionRuleset, toolIDs: string[]): boolean {
     }
     return false;
   });
+}
+
+async function withSessionPromptLock<T>(
+  directory: string,
+  sessionID: string,
+  work: () => Promise<T>,
+): Promise<T> {
+  const key = `${directory}\0${sessionID}`;
+  const previous = sessionPromptTails.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const tail = previous.catch(() => undefined).then(() => gate);
+  sessionPromptTails.set(key, tail);
+
+  await previous.catch(() => undefined);
+  try {
+    return await work();
+  } finally {
+    release();
+    if (sessionPromptTails.get(key) === tail) sessionPromptTails.delete(key);
+  }
 }
 
 export interface SessionSummary {
@@ -319,29 +341,31 @@ export async function prompt(
   sessionID: string,
   input: PromptInput,
 ): Promise<void> {
-  await activateModePolicy(config, directory, sessionID, input.mode);
-  await request<void>(config, `/session/${encodeURIComponent(sessionID)}/prompt_async`, {
-    method: "POST",
-    directory,
-    body: {
-      agent: input.mode,
-      ...(input.model ? {
-        model: { providerID: input.model.providerID, modelID: input.model.modelID },
-        ...(input.model.variant ? { variant: input.model.variant } : {}),
-      } : {}),
-      parts: [
-        {
-          type: "text",
-          text: input.reminder ? withReminderTag(input.text, input.reminder) : input.text,
-        },
-        ...(input.attachments ?? []).map((attachment) => ({
-          type: "file" as const,
-          mime: attachment.mime,
-          filename: attachment.filename,
-          url: attachment.url,
-        })),
-      ],
-    },
+  await withSessionPromptLock(directory, sessionID, async () => {
+    await activateModePolicy(config, directory, sessionID, input.mode);
+    await request<void>(config, `/session/${encodeURIComponent(sessionID)}/prompt_async`, {
+      method: "POST",
+      directory,
+      body: {
+        agent: input.mode,
+        ...(input.model ? {
+          model: { providerID: input.model.providerID, modelID: input.model.modelID },
+          ...(input.model.variant ? { variant: input.model.variant } : {}),
+        } : {}),
+        parts: [
+          {
+            type: "text",
+            text: input.reminder ? withReminderTag(input.text, input.reminder) : input.text,
+          },
+          ...(input.attachments ?? []).map((attachment) => ({
+            type: "file" as const,
+            mime: attachment.mime,
+            filename: attachment.filename,
+            url: attachment.url,
+          })),
+        ],
+      },
+    });
   });
 }
 

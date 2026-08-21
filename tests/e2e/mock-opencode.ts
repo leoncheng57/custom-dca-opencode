@@ -202,6 +202,8 @@ let pendingQuestions = questionFixture();
 const questionReplies: Array<{ id: string; answers?: unknown; rejected?: boolean }> = [];
 mkdirSync(worktrees[0], { recursive: true });
 const eventClients = new Set<ServerResponse>();
+const holdNextPolicyPatch = new Set<string>();
+let heldPolicyPatch: { sessionID: string; release: () => void } | null = null;
 
 function body(req: IncomingMessage): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
@@ -329,6 +331,20 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
   if (pathname === "/test/session-policy") {
     const session = SESSIONS.find((candidate) => candidate.id === url.searchParams.get("id"));
     return session ? json(res, 200, policyProbe(session)) : unknownError(res);
+  }
+  if (pathname === "/test/hold-next-policy-patch" && req.method === "POST") {
+    void body(req).then((input) => {
+      holdNextPolicyPatch.add(String(input.sessionID));
+      json(res, 200, true);
+    });
+    return;
+  }
+  if (pathname === "/test/policy-patch-pending") {
+    return json(res, 200, { pending: heldPolicyPatch?.sessionID === url.searchParams.get("id") });
+  }
+  if (pathname === "/test/release-policy-patch" && req.method === "POST") {
+    if (heldPolicyPatch?.sessionID === url.searchParams.get("id")) heldPolicyPatch.release();
+    return json(res, 200, true);
   }
   if (pathname === "/test/question-replies") {
     const id = url.searchParams.get("id");
@@ -494,7 +510,7 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
             })),
           ];
         }
-        promptPayloads.push({ ...input, sessionID: id });
+        promptPayloads.push({ ...input, sessionID: id, effectivePolicy: policyProbe(session) });
         if (promptModel) session.model = {
           providerID: promptModel.providerID,
           id: promptModel.modelID,
@@ -538,12 +554,18 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
       if (req.method === "DELETE") return json(res, 200, true);
       if (req.method === "PATCH") {
         if (directory === POLICY_FAILURE_DIRECTORY) return json(res, 503, { error: "mock policy activation failed" });
-        void body(req).then((patch) => {
+        void body(req).then(async (patch) => {
           if (Array.isArray(patch.permission)) {
             session.permission = [
               ...((session.permission as PermissionRule[] | undefined) ?? []),
               ...(patch.permission as PermissionRule[]),
             ];
+          }
+          if (holdNextPolicyPatch.delete(id)) {
+            await new Promise<void>((resolve) => {
+              heldPolicyPatch = { sessionID: id, release: resolve };
+            });
+            heldPolicyPatch = null;
           }
           json(res, 200, session);
         });

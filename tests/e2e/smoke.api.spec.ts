@@ -343,6 +343,45 @@ test.describe("prompting", () => {
     expect((await policyProbe(sessionID)).disabledTools).toEqual(expect.arrayContaining(["bash", "edit", "write", "apply_patch"]));
   });
 
+  test("serializes concurrent opposite-mode policy activation with prompt delivery", async ({ request }) => {
+    const sessionID = await freshSession(request);
+    await fetch(`${MOCK_URL}/test/hold-next-policy-patch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionID }),
+    });
+
+    const planText = `concurrent plan ${Date.now()}`;
+    const planRequest = request.post(`/api/sessions/${sessionID}/prompt?directory=${DIR}`, {
+      data: { text: planText, mode: "plan" },
+    });
+    await expect.poll(async () => {
+      const response = await fetch(`${MOCK_URL}/test/policy-patch-pending?id=${encodeURIComponent(sessionID)}`);
+      return ((await response.json()) as { pending: boolean }).pending;
+    }).toBe(true);
+
+    const buildText = `concurrent build ${Date.now()}`;
+    const buildRequest = request.post(`/api/sessions/${sessionID}/prompt?directory=${DIR}`, {
+      data: { text: buildText, mode: "build" },
+    });
+    const buildState = await Promise.race([
+      buildRequest.then(() => "completed" as const),
+      new Promise<"blocked">((resolve) => setTimeout(() => resolve("blocked"), 200)),
+    ]);
+    await fetch(`${MOCK_URL}/test/release-policy-patch?id=${encodeURIComponent(sessionID)}`, { method: "POST" });
+    expect(buildState).toBe("blocked");
+    const [planResponse, buildResponse] = await Promise.all([planRequest, buildRequest]);
+    expect(planResponse.status()).toBe(202);
+    expect(buildResponse.status()).toBe(202);
+
+    const planPolicy = (await promptPayload(planText)).effectivePolicy as PolicyProbe;
+    expect(planPolicy.disabledTools).toEqual(expect.arrayContaining(["bash", "edit", "write", "apply_patch"]));
+    const buildPolicy = (await promptPayload(buildText)).effectivePolicy as PolicyProbe;
+    for (const tool of ["bash", "edit", "write", "apply_patch"]) {
+      expect(buildPolicy.disabledTools).not.toContain(tool);
+    }
+  });
+
   test("leaves a direct Build session on its resolved agent policy", async ({ request }) => {
     const sessionID = await freshSession(request);
     expect((await request.post(`/api/sessions/${sessionID}/prompt?directory=${DIR}`, {
@@ -426,6 +465,13 @@ test.describe("prompting", () => {
     expect((await response.json()).error).toContain("Plan policy; prompt was not sent");
     const payloads = await (await fetch(`${MOCK_URL}/test/prompt-payloads`)).json() as Array<Record<string, unknown>>;
     expect(payloads.some((item) => JSON.stringify(item).includes(text))).toBe(false);
+
+    const retryText = `build after failure ${Date.now()}`;
+    const retry = await request.post(`/api/sessions/${sessionID}/prompt?directory=${POLICY_FAILURE_DIR}`, {
+      data: { text: retryText, mode: "build" },
+    });
+    expect(retry.status()).toBe(202);
+    expect(await promptPayload(retryText)).toMatchObject({ agent: "build" });
   });
 
   test("rejects an invalid mode", async ({ request }) => {
