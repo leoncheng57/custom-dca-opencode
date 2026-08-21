@@ -23,7 +23,13 @@ import {
   type AgentMode,
 } from "../opencode/sessions.js";
 import { createWorktree } from "../opencode/worktrees.js";
-import { getModelContextLimit } from "../opencode/config.js";
+import {
+  getModelCatalogue,
+  getModelContextLimit,
+  isSelectableModel,
+  ModelCatalogueError,
+  type ModelSelection,
+} from "../opencode/config.js";
 import { reminderCatalogue } from "../reminders/loader.js";
 import { isValidReminderId, type ReminderPreset } from "../reminders/reminders.js";
 import { eventClickUrl } from "../publicAppUrl.js";
@@ -90,6 +96,38 @@ function promptMode(value: unknown): AgentMode {
   return value;
 }
 
+async function selectedModel(
+  config: OpencodeConfig,
+  directory: string,
+  value: unknown,
+): Promise<ModelSelection | undefined> {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new HttpError(400, "model must contain providerID and modelID");
+  }
+  const source = value as Record<string, unknown>;
+  const allowed = new Set(["providerID", "modelID", "variant"]);
+  for (const key of Object.keys(source)) {
+    if (!allowed.has(key)) throw new HttpError(400, `unsupported model field '${key}'`);
+  }
+  if (typeof source.providerID !== "string" || !source.providerID.trim() ||
+      typeof source.modelID !== "string" || !source.modelID.trim()) {
+    throw new HttpError(400, "model must contain providerID and modelID");
+  }
+  if (source.variant !== undefined && (typeof source.variant !== "string" || !source.variant.trim())) {
+    throw new HttpError(400, "model variant must be a non-empty string");
+  }
+  const model: ModelSelection = {
+    providerID: source.providerID.trim(),
+    modelID: source.modelID.trim(),
+    ...(typeof source.variant === "string" ? { variant: source.variant.trim() } : {}),
+  };
+  if (!isSelectableModel(await getModelCatalogue(config, directory), model)) {
+    throw new HttpError(400, `unknown or disabled model or variant "${model.providerID}/${model.modelID}${model.variant ? `/${model.variant}` : ""}"`);
+  }
+  return model;
+}
+
 /**
  * Map thrown errors onto responses without leaking stack traces.
  *
@@ -104,6 +142,10 @@ function fail(res: Response, error: unknown, options: { notFoundOn5xx?: boolean 
     return;
   }
   if (error instanceof PlanToolDiscoveryError) {
+    res.status(502).json({ error: error.message });
+    return;
+  }
+  if (error instanceof ModelCatalogueError) {
     res.status(502).json({ error: error.message });
     return;
   }
@@ -147,6 +189,14 @@ export function sessionRoutes(config: OpencodeConfig, bus: EventBus, publicAppUr
   };
 
   router.get(
+    "/models",
+    asyncRoute(async (req, res) => {
+      const directory = await directoryOf(req);
+      res.json(await getModelCatalogue(config, directory));
+    }),
+  );
+
+  router.get(
     "/sessions",
     asyncRoute(async (req, res) => {
       const directory = await directoryOf(req);
@@ -166,6 +216,8 @@ export function sessionRoutes(config: OpencodeConfig, bus: EventBus, publicAppUr
       const projectDirectory = await directoryOf(req);
       const { title, model, prompt: initialPrompt, isolated, worktreeName } = req.body ?? {};
       const mode = promptMode(req.body?.mode);
+      // Validate before creating an isolated worktree so rejected input has no side effects.
+      const validatedModel = await selectedModel(config, projectDirectory, model);
       const directory = isolated === true
         ? (await createWorktree(
             config,
@@ -174,10 +226,10 @@ export function sessionRoutes(config: OpencodeConfig, bus: EventBus, publicAppUr
             typeof worktreeName === "string" ? worktreeName : undefined,
           )).directory
         : projectDirectory;
-      const session = await createSession(config, { directory, title, agent: mode, model });
+      const session = await createSession(config, { directory, title, agent: mode, model: validatedModel });
       // Fire-and-forget the opening turn so the response is not held for it.
       if (typeof initialPrompt === "string" && initialPrompt.trim()) {
-        await prompt(config, directory, session.id, { text: initialPrompt, mode, model });
+        await prompt(config, directory, session.id, { text: initialPrompt, mode, model: validatedModel });
       }
       res.status(201).json({ session });
     }),
@@ -247,7 +299,7 @@ export function sessionRoutes(config: OpencodeConfig, bus: EventBus, publicAppUr
       await prompt(config, directory, paramOf(req, "id"), {
         text,
         mode: promptMode(req.body?.mode),
-        model,
+        model: await selectedModel(config, directory, model),
         attachments: promptAttachments(attachments),
         reminder: promptReminder(reminder),
       });

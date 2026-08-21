@@ -28,6 +28,7 @@ const fixture = JSON.parse(
 ) as unknown[];
 const messages = new Map<string, unknown[]>([["ses_mock_done", fixture]]);
 const promptPayloads: Array<Record<string, unknown> & { sessionID: string }> = [];
+const sessionPayloads: Array<Record<string, unknown>> = [];
 const toolIDs = [
   "invalid", "question", "bash", "read", "glob", "grep", "edit", "write", "task",
   "webfetch", "todowrite", "websearch", "skill", "apply_patch", "mcp_dynamic_tool",
@@ -35,11 +36,14 @@ const toolIDs = [
 
 const MOCK_DIRECTORY_INPUT = "/tmp/mock-project";
 const TOOL_FAILURE_DIRECTORY_INPUT = "/tmp/mock-tool-failure";
+const CATALOGUE_FAILURE_DIRECTORY_INPUT = "/tmp/mock-catalogue-failure";
 mkdirSync(MOCK_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(TOOL_FAILURE_DIRECTORY_INPUT, { recursive: true });
+mkdirSync(CATALOGUE_FAILURE_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(path.join(MOCK_DIRECTORY_INPUT, "src"), { recursive: true });
 export const MOCK_DIRECTORY = realpathSync(MOCK_DIRECTORY_INPUT);
 const TOOL_FAILURE_DIRECTORY = realpathSync(TOOL_FAILURE_DIRECTORY_INPUT);
+const CATALOGUE_FAILURE_DIRECTORY = realpathSync(CATALOGUE_FAILURE_DIRECTORY_INPUT);
 if (!existsSync(path.join(MOCK_DIRECTORY, ".git"))) {
   execFileSync("git", ["init", "-q", MOCK_DIRECTORY]);
   writeFileSync(path.join(MOCK_DIRECTORY, "README.md"), "# Mock project\n");
@@ -75,6 +79,16 @@ const SESSIONS: Array<Record<string, any>> = [
     cost: 0,
     tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
     time: { created: 1786000000000, updated: 1786000000000, archived: 1786500000000 },
+  },
+  {
+    id: "ses_mock_unknown_model",
+    title: "Imported unknown model",
+    directory: MOCK_DIRECTORY,
+    agent: "build",
+    model: { providerID: "legacy", id: "removed-model", variant: "old" },
+    cost: 0,
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    time: { created: 1787000300000, updated: 1787000300000 },
   },
 ];
 
@@ -216,8 +230,22 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     return json(res, 200, { model: "anthropic/claude-opus-5", permission: { "*": "ask", read: "allow" } });
   }
   if (pathname === "/config/providers") {
+    if (directory === CATALOGUE_FAILURE_DIRECTORY) return json(res, 503, { error: "mock catalogue unavailable" });
     return json(res, 200, {
-      providers: [{ id: "anthropic", models: { "claude-opus-5": { limit: { context: 200000 } } } }],
+      providers: [
+        {
+          id: "anthropic",
+          name: "Anthropic",
+          headers: { Authorization: "Bearer must-not-reach-browser" },
+          options: { apiKey: "must-not-reach-browser", baseURL: "https://private.example" },
+          models: {
+            "claude-opus-5": { name: "Claude Opus 5", attachment: true, reasoning: true, limit: { context: 200000, output: 32000 }, variants: { high: { token: "secret" } } },
+            "claude-text": { name: "Claude Text", status: "active", limit: { context: 100000, output: 16000 } },
+            "claude-retired": { name: "Claude Retired", enabled: false, limit: { context: 1000 } },
+          },
+        },
+        { id: "openai", name: "OpenAI", models: { "gpt-5": { name: "GPT-5", modalities: { input: ["text", "image"] }, limit: { context: 128000, output: 16000 } } } },
+      ],
       default: { anthropic: "claude-opus-5" },
     });
   }
@@ -227,6 +255,7 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
       : json(res, 200, toolIDs);
   }
   if (pathname === "/test/prompt-payloads") return json(res, 200, promptPayloads);
+  if (pathname === "/test/session-payloads") return json(res, 200, sessionPayloads);
   if (pathname === "/test/question-replies") {
     const id = url.searchParams.get("id");
     return json(res, 200, id ? questionReplies.filter((reply) => reply.id === id) : questionReplies);
@@ -328,12 +357,17 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     let raw = "";
     req.on("data", (chunk) => (raw += chunk));
     req.on("end", () => {
-      const body = raw ? (JSON.parse(raw) as { title?: string; agent?: string }) : {};
+      const body = raw ? (JSON.parse(raw) as { title?: string; agent?: string; model?: { providerID?: string; id?: string; modelID?: string; variant?: string } }) : {};
+      sessionPayloads.push(body);
+      if (body.model && (!body.model.providerID || !body.model.id || body.model.modelID)) {
+        return json(res, 400, { error: "session model must use providerID and id" });
+      }
       const created = {
         id: `ses_mock_new_${Date.now()}`,
         title: body.title ?? "Untitled session",
         directory: directory ?? MOCK_DIRECTORY,
         agent: body.agent,
+        model: body.model,
         cost: 0,
         tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
         time: { created: Date.now(), updated: Date.now() },
@@ -353,14 +387,36 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     if (rest === "/prompt_async" && req.method === "POST") {
       if (!session) return unknownError(res);
       void body(req).then((input) => {
+        const promptModel = input.model as { providerID?: string; modelID?: string; id?: string } | undefined;
+        if (promptModel && (!promptModel.providerID || !promptModel.modelID || promptModel.id)) {
+          return json(res, 400, { error: "prompt model must use providerID and modelID" });
+        }
         promptPayloads.push({ ...input, sessionID: id });
+        if (promptModel) session.model = {
+          providerID: promptModel.providerID,
+          id: promptModel.modelID,
+          ...(typeof input.variant === "string" ? { variant: input.variant } : {}),
+        };
         const parts = Array.isArray(input.parts) ? input.parts as Array<Record<string, unknown>> : [];
         const text = parts.find((part) => part.type === "text")?.text;
         if (typeof text === "string") {
           const now = Date.now();
           const sessionMessages = messages.get(id) ?? [];
           sessionMessages.push({
-            info: { id: `msg_user_${now}`, role: "user", agent: input.agent, time: { created: now } },
+            info: {
+              id: `msg_user_${now}`,
+              role: "user",
+              agent: input.agent,
+              model: promptModel ? {
+                ...promptModel,
+                ...(typeof input.variant === "string" ? { variant: input.variant } : {}),
+              } : (session.model && {
+                providerID: session.model.providerID,
+                modelID: session.model.modelID ?? session.model.id,
+                ...(session.model.variant ? { variant: session.model.variant } : {}),
+              }),
+              time: { created: now },
+            },
             parts: [{ id: `prt_user_${now}`, messageID: `msg_user_${now}`, type: "text", text }],
           });
           messages.set(id, sessionMessages);

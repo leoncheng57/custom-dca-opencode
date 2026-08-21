@@ -9,6 +9,7 @@ import { RunningIndicator, Transcript } from "../components/transcript.js";
 import { SessionInspector } from "../components/session-inspector.js";
 import { WorkspacePanels } from "../components/workspace-panels.js";
 import { AgentModeToggle } from "../components/agent-mode-toggle.js";
+import { ModelSelect } from "../components/model-select.js";
 import { QuestionRequest } from "../components/question-request.js";
 import { api, formatCost, type ReminderSummary, type SessionSummary } from "../lib/api.js";
 import { latestModeMessageID, modeFromMessages, type AgentMode } from "../lib/agentMode.js";
@@ -17,6 +18,16 @@ import { collapseActionGroups, mergeEvents, runningActivity } from "../lib/deriv
 import { normalizeTranscript, type RawMessage } from "../lib/events.js";
 import { useSessionStream } from "../lib/useSessionStream.js";
 import type { TranscriptEvent } from "../lib/transcript.js";
+import {
+  catalogueDefault,
+  currentModelFromMessages,
+  latestModelMessageID,
+  modelKey,
+  sameModel,
+  sameModelID,
+  type ModelCatalogue,
+  type ModelSelection,
+} from "../lib/models.js";
 
 const WRAP_KEY = "opencode.wrapOutput.v1";
 
@@ -27,6 +38,7 @@ export function ConversationPage() {
 
   const stream = useSessionStream(directory, id);
   const [session, setSession] = useState<SessionSummary | null>(null);
+  const [sessionLoaded, setSessionLoaded] = useState(false);
   const [wrap, setWrap] = useState(() => localStorage.getItem(WRAP_KEY) !== "off");
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [draft, setDraft] = useState("");
@@ -41,6 +53,12 @@ export function ConversationPage() {
   const [mode, setMode] = useState<AgentMode>("build");
   const derivedModeMessage = useRef<string | undefined>(undefined);
   const modeSelectionDirty = useRef(false);
+  const [modelCatalogue, setModelCatalogue] = useState<ModelCatalogue | null>(null);
+  const [currentModel, setCurrentModel] = useState<ModelSelection | undefined>();
+  const [selectedModel, setSelectedModel] = useState<ModelSelection | undefined>();
+  const [modelError, setModelError] = useState<string | null>(null);
+  const derivedModelMarker = useRef<string | undefined>(undefined);
+  const modelSelectionDirty = useRef(false);
 
   // Keep event identity stable across polls so memoised rows do not churn.
   const [events, setEvents] = useState<TranscriptEvent[]>([]);
@@ -69,12 +87,30 @@ export function ConversationPage() {
   };
 
   useEffect(() => {
+    if (!stream.loaded) return;
+    const persisted = currentModelFromMessages(stream.messages as RawMessage[], session?.model);
+    const marker = `${latestModelMessageID(stream.messages as RawMessage[]) ?? "session"}:${persisted ? `${modelKey(persisted)}:${persisted.variant ?? ""}` : ""}`;
+    if (marker === derivedModelMarker.current) return;
+    derivedModelMarker.current = marker;
+    setCurrentModel(persisted);
+    if (modelSelectionDirty.current && !sameModel(persisted, selectedModel)) return;
+    modelSelectionDirty.current = false;
+    setSelectedModel(persisted);
+  }, [selectedModel, session?.model, stream.loaded, stream.messages]);
+
+  const selectModel = (model: ModelSelection) => {
+    modelSelectionDirty.current = true;
+    setSelectedModel(model);
+  };
+
+  useEffect(() => {
     if (!directory || !id) return;
     let cancelled = false;
     api
       .session(directory, id)
       .then((r) => !cancelled && setSession(r.session))
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => !cancelled && setSessionLoaded(true));
     return () => {
       cancelled = true;
     };
@@ -84,6 +120,31 @@ export function ConversationPage() {
     if (!directory || !id) return;
     void api.modelLimit(directory, id).then((result) => setContextLimit(result.context)).catch(() => setContextLimit(null));
   }, [directory, id]);
+
+  useEffect(() => {
+    if (!directory) return;
+    let cancelled = false;
+    void api.models(directory).then((catalogue) => {
+      if (cancelled) return;
+      setModelCatalogue(catalogue);
+      setModelError(null);
+    }).catch((cause: Error) => {
+      if (!cancelled) setModelError(`Model catalogue unavailable: ${cause.message}`);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [directory]);
+
+  useEffect(() => {
+    if (!modelCatalogue || !stream.loaded || !sessionLoaded || currentModel || selectedModel) return;
+    if (currentModelFromMessages(stream.messages as RawMessage[], session?.model)) return;
+    const fallback = catalogueDefault(modelCatalogue);
+    if (fallback) {
+      setCurrentModel(fallback);
+      setSelectedModel(fallback);
+    }
+  }, [currentModel, modelCatalogue, selectedModel, session?.model, sessionLoaded, stream.loaded, stream.messages]);
 
   useEffect(() => {
     let cancelled = false;
@@ -103,6 +164,8 @@ export function ConversationPage() {
   const contextTokens = latestUsage
     ? latestUsage.tokens.input + latestUsage.tokens.output + latestUsage.tokens.reasoning + latestUsage.tokens.cacheRead + latestUsage.tokens.cacheWrite
     : 0;
+  const selectedModelDetails = modelCatalogue?.models.find((model) => sameModelID(model, selectedModel));
+  const displayedContextLimit = selectedModelDetails?.limits.context ?? contextLimit;
 
   const toggleGroup = useCallback((groupId: string) => {
     setCollapsedGroups((state) => ({ ...state, [groupId]: !state[groupId] }));
@@ -126,12 +189,13 @@ export function ConversationPage() {
     if (!text) return;
     setSending(true);
     try {
+      const modelOverride = selectedModel && !sameModel(selectedModel, currentModel) ? selectedModel : undefined;
       await api.prompt(
         directory,
         id,
         text,
         mode,
-        undefined,
+        modelOverride,
         attachments,
         selectedReminder || undefined,
       );
@@ -139,6 +203,10 @@ export function ConversationPage() {
       setAttachments([]);
       // Per-message choice: never let a reminder silently ride on later turns.
       setSelectedReminder("");
+      if (modelOverride) {
+        setCurrentModel(modelOverride);
+        modelSelectionDirty.current = false;
+      }
       stream.refresh();
     } finally {
       setSending(false);
@@ -180,7 +248,7 @@ export function ConversationPage() {
         {contextTokens > 0 && (
           <span className="text-xs tabular-nums text-[var(--color-text-muted)]" data-testid="opencode-context-tokens" title="Latest turn context tokens">
             context {Intl.NumberFormat(undefined, { notation: "compact" }).format(contextTokens)}
-            {contextLimit ? ` / ${Math.round((contextTokens / contextLimit) * 100)}%` : ""}
+            {displayedContextLimit ? ` / ${Math.round((contextTokens / displayedContextLimit) * 100)}%` : ""}
           </span>
         )}
         <Button size="sm" variant="secondary" onClick={toggleWrap} data-testid="opencode-wrap-toggle">
@@ -237,6 +305,11 @@ export function ConversationPage() {
           </Alert>
         </div>
       )}
+      {modelError && (
+        <div className="px-4 pt-3">
+          <Alert variant="warning" data-testid="opencode-model-error">{modelError}</Alert>
+        </div>
+      )}
 
       {stream.permissions.map((permission) => (
         <div className="px-4 pt-3" key={permission.id} data-testid="opencode-permission-request">
@@ -289,13 +362,26 @@ export function ConversationPage() {
 
       <footer className="border-t border-[var(--color-border-default)] p-3">
         <div className="mx-auto max-w-3xl">
-          <div className="mb-2 flex items-center justify-between gap-2">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
             <AgentModeToggle mode={mode} onChange={selectMode} testId="opencode-composer-mode" />
-            <span className="min-w-0 truncate text-[11px] text-[var(--color-text-muted)]">
+            <ModelSelect
+              catalogue={modelCatalogue}
+              value={selectedModel}
+              onChange={selectModel}
+              testId="opencode-composer-model"
+              label="Model"
+            />
+            <span className="min-w-0 flex-1 truncate text-right text-[11px] text-[var(--color-text-muted)]" data-testid="opencode-current-model">
               {mode === "plan" ? "Read-only analysis" : "Can modify files"}
+              {selectedModel ? ` · ${sameModel(selectedModel, currentModel) ? "current" : "switches next message"}` : ""}
             </span>
           </div>
           {attachments.length > 0 && <div className="mb-2 flex flex-wrap gap-2">{attachments.map((attachment, index) => <button key={`${attachment.filename}-${index}`} type="button" onClick={() => setAttachments((items) => items.filter((_, itemIndex) => itemIndex !== index))} className="rounded border border-[var(--color-border-default)] px-2 py-1 text-xs" data-testid="opencode-attachment-chip">{attachment.filename} x</button>)}</div>}
+          {attachments.length > 0 && selectedModelDetails && !selectedModelDetails.capabilities.image && (
+            <p className="mb-2 text-xs text-[var(--color-text-warning)]" data-testid="opencode-model-image-warning">
+              The selected model does not advertise image support.
+            </p>
+          )}
           {attachmentError && <p className="mb-2 text-xs text-[var(--color-text-danger)]" role="alert" data-testid="opencode-attachment-error">{attachmentError}</p>}
           <div className="flex min-w-0 gap-2">
           <label className="inline-flex cursor-pointer items-center rounded-md border border-[var(--color-border-default)] px-3 text-xs font-semibold" data-testid="opencode-attach-label">
