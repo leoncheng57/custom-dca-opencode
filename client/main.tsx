@@ -9,11 +9,13 @@ import { SettingsPage } from "./pages/Settings.js";
 import { NotificationsPage } from "./pages/Notifications.js";
 import { ToolsPage } from "./pages/Tools.js";
 import { AppShell } from "./components/app-shell.js";
+import { ThemeEffects } from "./components/theme-effects.js";
 import "./styles.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+    <ThemeProvider attribute="class" defaultTheme="system" enableSystem enableColorScheme>
+      <ThemeEffects />
       <BrowserRouter>
         <Routes>
           <Route element={<AppShell />}>
