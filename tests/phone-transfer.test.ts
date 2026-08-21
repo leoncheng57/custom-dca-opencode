@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { selectPhoneUrl } from "../client/lib/phoneTransfer.js";
-import { parsePublicAppUrl } from "../server/publicAppUrl.js";
+import { conversationUrl, eventClickUrl, parsePublicAppUrl } from "../server/publicAppUrl.js";
 
 describe("phone transfer URL", () => {
   it("normalizes a configured HTTP(S) origin", () => {
@@ -27,5 +27,18 @@ describe("phone transfer URL", () => {
 
   it("prefers the configured public origin", () => {
     expect(selectPhoneUrl("https://ide.example.test", "http://localhost:3410")).toBe("https://ide.example.test");
+  });
+});
+
+describe("notification links", () => {
+  it("builds an encoded conversation link from the trusted origin", () => {
+    expect(conversationUrl("https://ide.example.test", "ses/a", "/tmp/project one")).toBe(
+      "https://ide.example.test/sessions/ses%2Fa?directory=%2Ftmp%2Fproject+one",
+    );
+  });
+
+  it("falls back to the configured origin and ignores unrelated events", () => {
+    expect(eventClickUrl("https://ide.example.test", { type: "session.idle", properties: {} })).toBe("https://ide.example.test");
+    expect(eventClickUrl("https://ide.example.test", { type: "message.updated", properties: {} })).toBeUndefined();
   });
 });

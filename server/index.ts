@@ -48,10 +48,10 @@ bus.on("error", (error: unknown) => {
 });
 bus.start();
 const notificationStore = new PreferenceStore();
-const notificationService = new NotificationService(opencode, bus, notificationStore);
+const notificationService = new NotificationService(opencode, bus, notificationStore, publicAppUrl);
 notificationService.start();
 
-app.use("/api", sessionRoutes(opencode, bus));
+app.use("/api", sessionRoutes(opencode, bus, publicAppUrl));
 app.use("/api", settingsRoutes(opencode));
 app.use("/api", mcpRoutes(opencode));
 app.use("/api", workspaceRoutes(opencode));
