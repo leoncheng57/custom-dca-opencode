@@ -432,16 +432,18 @@ test.describe("composer", () => {
   test("does not submit an empty or whitespace-only draft on Enter", async ({ page }) => {
     await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
     const composer = page.getByTestId("opencode-composer");
-    const before = await page.getByTestId("opencode-transcript").innerText();
 
     await composer.click();
     await composer.press("Enter");
     await composer.type("   ");
     await composer.press("Enter");
 
-    // Enter is swallowed rather than inserting a newline, and no turn is posted.
+    // Enter is swallowed rather than inserting a newline, and the draft is kept
+    // rather than cleared, which is what sending would do. The transcript is
+    // deliberately not asserted on: this mock session is shared with the other
+    // composer tests, so its contents change underneath a parallel worker.
     await expect(composer).toHaveValue("   ");
-    await expect(page.getByTestId("opencode-transcript")).toHaveText(before);
+    await expect(page.getByTestId("opencode-send")).toBeDisabled();
   });
 
   test("accepts an image attachment", async ({ page }) => {

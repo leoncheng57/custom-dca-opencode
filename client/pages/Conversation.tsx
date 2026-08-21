@@ -556,11 +556,15 @@ export function ConversationPage() {
               autoCorrect="off"
               spellCheck={false}
               placeholder="Send a follow-up…"
-              className="thin-scrollbar block max-h-64 min-h-24 w-full resize-none border-0 bg-transparent p-3 text-base text-[var(--color-text-default)] outline-none placeholder:text-[var(--color-text-muted)] sm:text-sm"
+              className="thin-scrollbar block max-h-64 min-h-24 w-full resize-none border-0 bg-transparent p-3 text-base text-[var(--color-text-default)] outline-none placeholder:text-[var(--color-text-muted)] sm:min-h-16 sm:p-2.5 sm:text-sm"
               data-testid="opencode-composer"
             />
-            <div className="flex min-w-0 items-center gap-2 border-t border-[var(--color-border-default)] px-2 py-2">
-              <label className="inline-flex min-h-11 shrink-0 cursor-pointer items-center rounded-md px-2.5 text-xs font-semibold text-[var(--color-text-muted)] hover:bg-[var(--hh-row-hover)] hover:text-[var(--color-text-default)] sm:min-h-9" data-testid="opencode-attach-label">
+            {/* Kept deliberately short: a session showing the auto-permission,
+                interrupted, permission and question banners at once leaves the
+                transcript only a sliver of a 720px viewport, so every pixel the
+                footer takes comes straight out of readable transcript. */}
+            <div className="flex min-w-0 items-center gap-2 border-t border-[var(--color-border-default)] px-2 py-2 sm:py-1">
+              <label className="inline-flex min-h-11 shrink-0 cursor-pointer items-center rounded-md px-2.5 text-xs font-semibold text-[var(--color-text-muted)] hover:bg-[var(--hh-row-hover)] hover:text-[var(--color-text-default)] sm:min-h-8" data-testid="opencode-attach-label">
                 Attach
                 <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple className="sr-only" data-testid="opencode-attach" onChange={(event) => {
                   addAttachments(event.target.files ?? []);
@@ -571,7 +575,7 @@ export function ConversationPage() {
                 <select
                   value={selectedReminder}
                   onChange={(event) => setSelectedReminder(event.target.value)}
-                  className={`min-h-11 min-w-0 max-w-36 shrink rounded-md border px-2 text-base sm:min-h-9 sm:max-w-40 sm:text-xs ${
+                  className={`min-h-11 min-w-0 max-w-36 shrink rounded-md border px-2 text-base sm:min-h-8 sm:max-w-40 sm:text-xs ${
                     selectedReminder
                       ? "border-[var(--color-border-focus)] bg-[var(--color-background-surface)] text-[var(--color-text-default)]"
                       : "border-transparent bg-transparent text-[var(--color-text-muted)] hover:border-[var(--color-border-default)]"
@@ -589,7 +593,7 @@ export function ConversationPage() {
                 </select>
               )}
               <span className="flex-1" aria-hidden="true" />
-              <Button className="min-h-11 shrink-0 sm:min-h-9" onClick={() => void send()} disabled={sending || !draft.trim()} data-testid="opencode-send">
+              <Button size="sm" className="min-h-11 shrink-0 sm:min-h-8" onClick={() => void send()} disabled={sending || !draft.trim()} data-testid="opencode-send">
                 {sending ? "Sending…" : "Send"}
               </Button>
             </div>
