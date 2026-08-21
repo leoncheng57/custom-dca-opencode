@@ -25,10 +25,15 @@
 // Deliberately NOT used here: the `/api/**` v2 surface. It is newer,
 // event-sourced, contractually 401-gated and still moving. Everything this app
 // needs exists on the classic surface. Revisit per decision #6 in AGENTS.md.
+//
+// Also deliberately NOT used: @opencode-ai/sdk. Its bundled v1 query types are
+// narrower than the live server (e.g. session.list accepts only `directory`,
+// while the server also takes limit/roots/search/start/scope) and its event
+// names are stale. Depending on it means casting around it constantly, which
+// defeats the point of types. We own a thin typed layer over fetch instead and
+// treat the live `GET /doc` as the source of truth.
 
-import { createOpencodeClient } from "@opencode-ai/sdk";
-
-/** Pinned server version this client is generated against. */
+/** Pinned server version these types were written against. */
 export const EXPECTED_SERVER_VERSION = "1.18.19";
 
 export interface OpencodeConfig {
@@ -75,21 +80,64 @@ export function eventStreamUrl(config: OpencodeConfig): string {
   return url.toString();
 }
 
-export type OpencodeClient = ReturnType<typeof createOpencodeClient>;
+/** Thrown for any non-2xx from the OpenCode server, with the body attached. */
+export class OpencodeError extends Error {
+  constructor(
+    readonly status: number,
+    readonly path: string,
+    readonly body: string,
+  ) {
+    super(`opencode ${path} -> HTTP ${status}${body ? `: ${body.slice(0, 300)}` : ""}`);
+    this.name = "OpencodeError";
+  }
+}
+
+export interface RequestOptions {
+  method?: "GET" | "POST" | "PATCH" | "DELETE";
+  /** Project scope. Required for anything session/file/vcs/mcp related. */
+  directory?: string;
+  query?: Record<string, string | number | boolean | undefined>;
+  body?: unknown;
+  signal?: AbortSignal;
+}
 
 /**
- * Build a client scoped to a project directory.
+ * One typed request against the OpenCode server.
  *
- * Pass `directory` for anything project-specific (sessions, files, vcs, mcp).
- * Omit it only for genuinely global reads (/global/health, /project).
+ * `directory` is threaded as a query param rather than a header because the
+ * server rewrites the header form to a query param on GET/HEAD anyway, and the
+ * query form is what shows up in logs — much easier to debug.
  */
-export function createClient(config: OpencodeConfig, directory?: string): OpencodeClient {
+export async function request<T>(
+  config: OpencodeConfig,
+  path: string,
+  options: RequestOptions = {},
+): Promise<T> {
+  const url = new URL(path, config.baseUrl);
+  if (options.directory) url.searchParams.set("directory", options.directory);
+  for (const [key, value] of Object.entries(options.query ?? {})) {
+    if (value !== undefined) url.searchParams.set(key, String(value));
+  }
+
+  const headers: Record<string, string> = { Accept: "application/json" };
   const auth = basicAuthHeader(config);
-  return createOpencodeClient({
-    baseUrl: config.baseUrl,
-    ...(directory ? { directory } : {}),
-    ...(auth ? { headers: { Authorization: auth } } : {}),
+  if (auth) headers.Authorization = auth;
+  if (options.body !== undefined) headers["Content-Type"] = "application/json";
+
+  const res = await fetch(url, {
+    method: options.method ?? "GET",
+    headers,
+    ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
+    ...(options.signal ? { signal: options.signal } : {}),
   });
+
+  if (!res.ok) {
+    throw new OpencodeError(res.status, path, await res.text().catch(() => ""));
+  }
+  // 204 No Content is the success case for /prompt_async.
+  if (res.status === 204) return undefined as T;
+  const text = await res.text();
+  return (text ? JSON.parse(text) : undefined) as T;
 }
 
 export interface ServerHealth {

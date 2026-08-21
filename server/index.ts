@@ -17,6 +17,8 @@ import express from "express";
 import dotenv from "dotenv";
 
 import { readOpencodeConfig, checkHealth, EXPECTED_SERVER_VERSION } from "./opencode/client.js";
+import { EventBus } from "./opencode/events.js";
+import { sessionRoutes } from "./routes/sessions.js";
 
 dotenv.config();
 
@@ -25,6 +27,15 @@ const PORT = Number(process.env.PORT || 3000);
 const opencode = readOpencodeConfig();
 
 app.use(express.json({ limit: "20mb" }));
+
+// One upstream SSE subscription, fanned out to every browser client.
+const bus = new EventBus(opencode);
+bus.on("error", (error: unknown) => {
+  console.warn("[bus]", error instanceof Error ? error.message : error);
+});
+bus.start();
+
+app.use("/api", sessionRoutes(opencode, bus));
 
 /**
  * Liveness for this BFF plus reachability of the OpenCode server behind it.
@@ -43,6 +54,7 @@ app.get("/api/health", async (_req, res) => {
         expected: EXPECTED_SERVER_VERSION,
         versionMatches: upstream.versionMatches,
       },
+      events: { connected: bus.isConnected() },
     });
   } catch (error) {
     res.status(503).json({

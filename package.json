@@ -22,11 +22,10 @@
     "start": "node dist/server/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit",
     "test": "vitest run",
-    "test:e2e": "playwright test --grep-invert @shots",
+    "test:e2e": "playwright test",
     "screenshots": "playwright test --grep @shots --pass-with-no-tests"
   },
   "dependencies": {
-    "@opencode-ai/sdk": "1.18.19",
     "clsx": "^2.1.1",
     "dotenv": "^17.3.1",
     "express": "^5.0.0",

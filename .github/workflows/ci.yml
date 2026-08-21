@@ -33,6 +33,21 @@ jobs:
       - name: Build
         run: npm run build
 
+      # e2e runs against a mock OpenCode server (tests/e2e/mock-opencode.ts),
+      # so CI needs no agent, no API keys and no network.
+      - name: Install Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E
+        run: npm run test:e2e
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
   # This repo is public and talks to a server that runs shell commands on the
   # host. A leaked token is a direct path to code execution, so scan every PR.
   secrets:
