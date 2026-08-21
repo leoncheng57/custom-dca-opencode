@@ -20,6 +20,7 @@ export class AutoPermissionService {
   private readonly states = new Map<string, DirectoryState>();
   private readonly onEvent = (event: OpencodeEvent) => {
     if (event.type === "permission.asked") void this.handleAsked(event);
+    if (event.type === "permission.replied") void this.handleReplied(event);
   };
   private readonly onConnected = () => {
     for (const [directory, state] of this.states) {
@@ -111,6 +112,23 @@ export class AutoPermissionService {
     });
   }
 
+  private async handleReplied(event: OpencodeEvent): Promise<void> {
+    const requestID = event.properties.requestID;
+    if (!event.directory || typeof requestID !== "string") return;
+    let directory: string;
+    try {
+      directory = await requireWorkspaceDirectory(event.directory);
+    } catch {
+      return;
+    }
+    const state = this.states.get(directory);
+    if (!state) return;
+    await this.enqueue(directory, async (current) => {
+      current.failures.delete(requestID);
+      current.completed.delete(requestID);
+    });
+  }
+
   private reconcile(directory: string, generation: number): Promise<void> {
     return this.enqueue(directory, async (state) => {
       if (!state.enabled || state.generation !== generation) return;
@@ -121,6 +139,13 @@ export class AutoPermissionService {
       } catch (error) {
         state.failures.set("reconcile", `Could not list pending permissions: ${this.message(error)}`);
         return;
+      }
+      const pendingIDs = new Set(pending.map((permission) => permission.id));
+      for (const requestID of state.failures.keys()) {
+        if (requestID !== "reconcile" && !pendingIDs.has(requestID)) state.failures.delete(requestID);
+      }
+      for (const requestID of state.completed) {
+        if (!pendingIDs.has(requestID)) state.completed.delete(requestID);
       }
       for (const permission of pending) {
         if (!state.enabled || state.generation !== generation) return;

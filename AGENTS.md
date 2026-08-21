@@ -96,9 +96,10 @@ several decisions below.
 10. **Auto permissions is volatile and directory-scoped.** The BFF keeps it in memory,
     defaults it off after every restart, and replies `once` to `permission.asked` for
     every session in an enabled directory. It never mutates policy, replies `always`,
-    or answers questions, so explicit upstream denies and Plan's per-prompt tool map
-    remain authoritative. Permission and parked-permission notifications are suppressed
-    while enabled because asked requests are handled immediately.
+    or answers questions; it can only approve requests that upstream emits as asked.
+    It does not change Plan/Build tool policy; issue #15 tracks the known persistence
+    of Plan's tool map separately. Permission and parked-permission notifications are
+    suppressed while enabled because asked requests are handled immediately.
 
 ## Client conventions (inherited from the OpenHands runner, still enforced)
 

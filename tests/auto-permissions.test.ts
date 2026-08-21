@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AutoPermissionService } from "../server/opencode/autoPermissions.js";
 import type { EventBus } from "../server/opencode/events.js";
@@ -7,6 +8,7 @@ import { parsePermissionRequest } from "../server/opencode/permissions.js";
 
 const directory = process.cwd();
 const config = { baseUrl: "http://opencode.test" };
+const previousProjectsDirectory = process.env.PROJECTS_DIR;
 
 function permission(id = "perm_test") {
   return {
@@ -27,7 +29,15 @@ function service() {
   return { bus, instance };
 }
 
-afterEach(() => vi.unstubAllGlobals());
+beforeEach(() => {
+  process.env.PROJECTS_DIR = path.dirname(directory);
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  if (previousProjectsDirectory === undefined) delete process.env.PROJECTS_DIR;
+  else process.env.PROJECTS_DIR = previousProjectsDirectory;
+});
 
 describe("permission request parsing", () => {
   it("preserves the complete upstream shape and tolerates older fixtures", () => {
@@ -121,5 +131,25 @@ describe("AutoPermissionService", () => {
     bus.emit("event", { type: "permission.asked", directory, properties: permission("perm_fail") });
     await vi.waitFor(() => expect(instance.status(directory).error).toContain("Could not auto-approve bash"));
     expect(instance.status(directory).enabled).toBe(true);
+  });
+
+  it("clears a durable failure when the request is manually resolved", async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/permission" && init?.method === "GET") return Response.json([]);
+      return new Response("reply failed", { status: 500 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { bus, instance } = service();
+    await instance.setEnabled(directory, true);
+
+    bus.emit("event", { type: "permission.asked", directory, properties: permission("perm_manual") });
+    await vi.waitFor(() => expect(instance.status(directory).error).toContain("Could not auto-approve bash"));
+    bus.emit("event", {
+      type: "permission.replied",
+      directory,
+      properties: { requestID: "perm_manual", sessionID: "ses_test", reply: "reject" },
+    });
+    await vi.waitFor(() => expect(instance.status(directory).error).toBeNull());
   });
 });

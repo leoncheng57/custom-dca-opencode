@@ -48,15 +48,17 @@ export function AutoPermissionsControl({ directory, testId }: { directory: strin
   const enabled = status?.enabled ?? false;
   return (
     <div data-testid={testId}>
-      <Alert variant={enabled ? "danger" : "info"} className="border border-current">
-        <div className="flex items-start gap-3">
-          <ShieldAlert aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0" />
+      <Alert variant={enabled ? "danger" : "info"} className={`border border-current ${enabled ? "p-4" : "p-2"}`}>
+        <div className={`flex gap-3 ${enabled ? "items-start" : "items-center"}`}>
+          <ShieldAlert aria-hidden="true" className={`${enabled ? "mt-0.5 h-5 w-5" : "h-4 w-4"} shrink-0`} />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-3">
               <div className="min-w-0 flex-1">
                 <strong>Auto permissions: {status ? (enabled ? "ON" : "OFF") : "loading"}</strong>
-                <p className="mt-1 text-xs">
-                  This setting affects every session using this project directory and resets to off when the BFF restarts.
+                <p className={`${enabled ? "mt-1" : "ml-2 inline"} text-xs`}>
+                  {enabled
+                    ? "This affects every session using this project directory and resets to off when the BFF restarts."
+                    : "Every session in this directory asks normally."}
                 </p>
               </div>
               <button
@@ -65,7 +67,7 @@ export function AutoPermissionsControl({ directory, testId }: { directory: strin
                 aria-checked={enabled}
                 disabled={!status || saving || !directory}
                 onClick={() => void toggle()}
-                className="min-h-10 rounded-md border border-current px-3 text-xs font-semibold disabled:opacity-50"
+                className={`${enabled ? "min-h-10" : "min-h-8"} rounded-md border border-current px-3 text-xs font-semibold disabled:opacity-50`}
                 data-testid={`${testId}-toggle`}
               >
                 {saving ? "Updating..." : enabled ? "Turn off" : "Turn on"}

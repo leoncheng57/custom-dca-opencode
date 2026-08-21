@@ -460,6 +460,9 @@ test.describe("mobile", () => {
     await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
     await expect(page.getByTestId("opencode-transcript")).toBeVisible();
     await expect(page.getByTestId("opencode-composer-mode")).toBeVisible();
+    const autoPermissions = page.getByTestId("opencode-conversation-auto-permissions");
+    await expect(autoPermissions).toContainText("Auto permissions: OFF");
+    expect((await autoPermissions.boundingBox())?.height).toBeLessThanOrEqual(72);
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
     );
