@@ -23,7 +23,7 @@ several decisions below.
   OpenAPI 3.1 with 162 paths / 188 operations; the published docs show ~60. When in
   doubt, curl `/doc`, not the website.
 - **The live `GET /doc` is the contract.** The SDK's classic query types are narrower
-  than the 1.18.19 server and its event union is stale, so `server/opencode/client.ts`
+  than the 1.18.21 server and its event union is stale, so `server/opencode/client.ts`
   owns a small typed fetch seam instead of casting around the SDK.
 - Tests: `npm test` (vitest, `tests/*.test.ts`, node environment, import with `.js`
   suffixes). `npm run typecheck` runs the client, server, and screenshot-tool tsconfigs.
@@ -49,7 +49,7 @@ several decisions below.
 | `GET /find/symbol` returns `[]` unconditionally | No symbol search; don't build on it |
 | `GET /find` silently caps at 10 results | Narrow the query or shell out |
 | No git commit/log/blame route exists anywhere | Run `git log` locally in the BFF |
-| `Todo` has **no `id`** in 1.18.19 | Key task-list rows by index/content |
+| `Todo` has **no `id`** in 1.18.21 | Key task-list rows by index/content |
 | Permission precedence is **LAST-match-wins** | Put `"*"` first, specifics after — the opposite of most ACLs |
 | Non-empty legacy `prompt_async.tools` entries persist on the session | Never enforce Plan with `tools`; activate mode with append-only session rules before prompting, and restore Build from the resolved `/agent` policy |
 | `PATCH /session/{id}` appends `permission` rules | Compare the current suffix before patching so repeated same-mode prompts do not grow the ruleset |

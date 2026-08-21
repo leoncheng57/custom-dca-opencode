@@ -33,7 +33,7 @@ test.describe("hub", () => {
 
   test("reports the upstream agent version", async ({ page }) => {
     await page.goto(hub);
-    await expect(page.getByTestId("opencode-upstream-badge")).toContainText("1.18.19");
+    await expect(page.getByTestId("opencode-upstream-badge")).toContainText("1.18.21");
   });
 
   test("shows a directory-wide auto permissions warning and control", async ({ page }) => {
@@ -506,25 +506,44 @@ test.describe("composer", () => {
     await expect(picker.locator("option:checked")).toContainText("unknown");
   });
 
-  test("attaches one reminder, round-trips it, and resets the picker", async ({ page }) => {
-    const text = `push safely ${Date.now()}`;
+  test("round-trips two imported reminders by ID and resets the picker", async ({ page }) => {
+    const sent: Array<Record<string, unknown>> = [];
+    await page.route("**/api/sessions/*/prompt?*", async (route) => {
+      sent.push(route.request().postDataJSON() as Record<string, unknown>);
+      await route.continue();
+    });
     await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
     const picker = page.getByTestId("composer-reminder-select");
     await expect(picker).toBeVisible();
-    await picker.selectOption("no-force-push");
-    await page.getByTestId("opencode-composer").fill(text);
-    await page.getByTestId("opencode-send").click();
-    await expect(picker).toHaveValue("");
+    await expect(picker.locator('option[value="human-verification-steps"]')).toHaveText("Write Human Verification Steps");
 
-    const user = page.getByTestId("opencode-user-message").filter({ hasText: text });
-    await expect(user).toBeVisible();
-    await expect(user.getByTestId("opencode-user-message-body")).toHaveText(text);
-    const reminder = user.getByTestId("opencode-manual-reminder");
-    await expect(reminder).toBeVisible();
-    await expect(reminder).toHaveAttribute("open", "");
-    await expect(reminder).toContainText("no-force-push");
-    await expect(reminder).toContainText("Do not force-push");
-    await expect(user).not.toContainText("<reminder");
+    const cases = [
+      { id: "red-team-this", text: `red team ${Date.now()}`, body: "Explicitly switch from author" },
+      { id: "human-verification-steps", text: `manual QA ${Date.now()}`, body: "Run the repository's relevant automated checks" },
+    ];
+    for (const reminderCase of cases) {
+      await picker.selectOption(reminderCase.id);
+      await page.getByTestId("opencode-composer").fill(reminderCase.text);
+      await page.getByTestId("opencode-send").click();
+      await expect(picker).toHaveValue("");
+
+      const user = page.getByTestId("opencode-user-message").filter({ hasText: reminderCase.text });
+      await expect(user).toBeVisible();
+      await expect(user.getByTestId("opencode-user-message-body")).toHaveText(reminderCase.text);
+      const reminder = user.getByTestId("opencode-manual-reminder");
+      await expect(reminder).toHaveAttribute("open", "");
+      await expect(reminder).toContainText(reminderCase.id);
+      await expect(reminder).toContainText(reminderCase.body);
+      await expect(user).not.toContainText("<reminder");
+    }
+
+    expect(sent).toHaveLength(2);
+    expect(sent.map(({ reminder }) => reminder)).toEqual(cases.map(({ id }) => id));
+    for (const payload of sent) {
+      expect(Object.keys(payload).sort()).toEqual(["mode", "reminder", "text"]);
+      expect(payload).not.toHaveProperty("reminderBody");
+      expect(JSON.stringify(payload)).not.toContain("source_commit");
+    }
   });
 });
 

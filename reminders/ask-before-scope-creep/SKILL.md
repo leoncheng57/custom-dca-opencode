@@ -1,5 +1,6 @@
 ---
 name: ask-before-scope-creep
+title: Ask Before Scope Creep
 description: Confirm before large refactors, new dependencies, or work beyond what was asked.
 ---
 

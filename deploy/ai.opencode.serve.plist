@@ -1,24 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  launchd unit for the OpenCode server this app depends on.
+  MANUAL TEMPLATE ONLY. Read deploy/README.md and replace every sentinel value
+  in a working copy before installing it. Never overwrite
+  an existing ~/Library/LaunchAgents/ai.opencode.serve.plist automatically.
 
-  Install:
-    cp deploy/ai.opencode.serve.plist ~/Library/LaunchAgents/
-    # edit the paths + password below first
-    launchctl load ~/Library/LaunchAgents/ai.opencode.serve.plist
-
-  Why each env var is here (all learned during the migration audit):
-    OPENCODE_SERVER_PASSWORD  - `serve` is UNSECURED by default and prints a
-                                warning. Basic auth covers the SSE streams too.
-    OPENCODE_DISABLE_AUTOUPDATE - a background self-upgrade would swap the
-                                binary under a long-lived daemon mid-session.
-    NO_PROXY                  - required if any proxy is set, else localhost
-                                requests loop back through it.
-    OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS - detach blocking subagents so a
-                                parent session keeps working.
-    HOME                      - so ~/.local/share/opencode resolves correctly.
-
-  --port is pinned deliberately: `opencode serve` defaults to port 0 (random).
+  This direct-binary unit intentionally does not contain a password or load the
+  repo .env. It is suitable only for an unsecured OpenCode server bound to
+  loopback. Keep authenticated OpenCode under its existing supervisor instead.
 -->
 <plist version="1.0">
 <dict>
@@ -27,29 +15,26 @@
 
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/bsjl/.opencode/bin/opencode</string>
+    <string>REPLACE_WITH_ABSOLUTE_OPENCODE_BINARY</string>
     <string>serve</string>
     <string>--hostname</string>
     <string>127.0.0.1</string>
     <string>--port</string>
-    <string>4096</string>
+    <string>REPLACE_WITH_OPENCODE_PORT</string>
   </array>
 
   <key>EnvironmentVariables</key>
   <dict>
     <key>HOME</key>
-    <string>/Users/bsjl</string>
+    <string>REPLACE_WITH_HOME_DIRECTORY</string>
     <key>PATH</key>
-    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <string>REPLACE_WITH_LAUNCHD_PATH</string>
     <key>NO_PROXY</key>
     <string>localhost,127.0.0.1</string>
     <key>OPENCODE_DISABLE_AUTOUPDATE</key>
     <string>1</string>
     <key>OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS</key>
     <string>true</string>
-    <!-- Set a real value before loading. Without it the server is unsecured. -->
-    <key>OPENCODE_SERVER_PASSWORD</key>
-    <string>CHANGE_ME</string>
   </dict>
 
   <key>RunAtLoad</key>
@@ -60,8 +45,8 @@
   <!-- The log is append-only with no built-in rotation; rotate it yourself
        (newsyslog/logrotate). It reached 117 MB on the author's machine. -->
   <key>StandardOutPath</key>
-  <string>/Users/bsjl/.local/share/opencode/log/launchd.out.log</string>
+  <string>REPLACE_WITH_LOG_DIRECTORY/opencode.launchd.out.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/bsjl/.local/share/opencode/log/launchd.err.log</string>
+  <string>REPLACE_WITH_LOG_DIRECTORY/opencode.launchd.err.log</string>
 </dict>
 </plist>

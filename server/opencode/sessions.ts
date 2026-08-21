@@ -411,7 +411,7 @@ export interface Todo {
   priority: string;
 }
 
-/** NB: Todo has no `id` in 1.18.19 — the UI keys on index/content. */
+/** NB: Todo has no `id` in 1.18.21 — the UI keys on index/content. */
 export async function listTodos(
   config: OpencodeConfig,
   directory: string,
