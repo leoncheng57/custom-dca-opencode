@@ -385,10 +385,30 @@ test.describe("transcript", () => {
     await expect(page.getByText("Paged message 50", { exact: true })).toBeVisible();
     await page.getByTestId("opencode-load-earlier").click({ noWaitAfter: true });
     await expect.poll(() => held).toBe(true);
-    await fetch(`${MOCK_URL}/test/paginated/older-update`, { method: "POST" });
-    await expect(page.getByText("Paged message 50", { exact: true })).toHaveCount(0);
+    await fetch(`${MOCK_URL}/test/paginated/pending-update`, { method: "POST" });
+    await expect(page.getByText("Paged message 50", { exact: true })).toBeVisible();
     release();
     await expect(page.getByText("Paged message 1", { exact: true })).toHaveCount(0);
+  });
+
+  test("cancels complete command export when the inspector unmounts", async ({ page }) => {
+    let newestRequests = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    await page.route("**/api/sessions/ses_mock_paginated/messages?**", async (route) => {
+      const url = new URL(route.request().url());
+      if (!url.searchParams.has("before") && ++newestRequests === 2) await gate;
+      await route.continue();
+    });
+    let downloads = 0;
+    page.on("download", () => { downloads += 1; });
+    await page.goto(paginatedConversation);
+    await page.getByTestId("opencode-inspector-runlog").click();
+    await page.getByTestId("opencode-export-commands").click({ noWaitAfter: true });
+    await page.getByRole("link", { name: "Sessions" }).click();
+    release();
+    await page.waitForTimeout(200);
+    expect(downloads).toBe(0);
   });
 
   test("shows the reasoning duration OpenHands could not", async ({ page }) => {

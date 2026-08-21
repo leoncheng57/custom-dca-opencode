@@ -494,6 +494,10 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     emit("message.part.updated", { sessionID: "ses_mock_paginated", part: { id: "prt_page_50", messageID: "msg_page_50" } });
     return json(res, 200, true);
   }
+  if (pathname === "/test/paginated/pending-update" && req.method === "POST") {
+    emit("message.part.updated", { sessionID: "ses_mock_paginated", part: { id: "prt_page_1", messageID: "msg_page_1" } });
+    return json(res, 200, true);
+  }
   if (pathname === "/test/paginated/newest-update" && req.method === "POST") {
     emit("message.part.updated", { sessionID: "ses_mock_paginated", part: { id: "prt_page_225", messageID: "msg_page_225" } });
     return json(res, 200, true);

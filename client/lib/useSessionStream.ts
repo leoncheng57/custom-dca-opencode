@@ -25,6 +25,8 @@ import {
   emptyTranscriptPages,
   invalidateOlderPages,
   nextRevertState,
+  mutationMessageID,
+  pageHasMessage,
   refreshNewestPage,
   transcriptMessages,
   type TranscriptPages,
@@ -81,6 +83,8 @@ export function useSessionStream(directory: string, sessionId: string): SessionS
   const generation = generationRef.current;
 
   const [pages, setPages] = useState<TranscriptPages>(emptyTranscriptPages);
+  const pagesRef = useRef(pages);
+  pagesRef.current = pages;
   const [running, setRunning] = useState(false);
   const [todos, setTodos] = useState<Array<{ content: string; status: string; priority: string }>>([]);
   const [todosLoaded, setTodosLoaded] = useState(false);
@@ -219,7 +223,7 @@ export function useSessionStream(directory: string, sessionId: string): SessionS
       source = new EventSource(api.eventsUrl(directory));
       source.onmessage = (message) => {
         try {
-          const event = JSON.parse(message.data) as { type?: string; properties?: { sessionID?: string; part?: { messageID?: string }; info?: { id?: string; revert?: unknown } } };
+          const event = JSON.parse(message.data) as { type?: string; properties?: { sessionID?: string; messageID?: string; part?: { messageID?: string }; info?: { id?: string; revert?: unknown } } };
           if (!event.type) return;
           const eventType = event.type;
           // A valid application frame proves more than a TCP open. Reset here
@@ -241,23 +245,23 @@ export function useSessionStream(directory: string, sessionId: string): SessionS
           // Only react to events about this session; the bus is global.
           const target = event.properties?.sessionID;
           if (target && target !== sessionId) return;
-          let invalidatedMessage: string | undefined;
+          let invalidatedMessage = mutationMessageID(eventType, event.properties ?? {});
           let invalidateAll = false;
-          if (["message.updated", "message.removed"].includes(eventType)) invalidatedMessage = event.properties?.info?.id;
-          if (["message.part.updated", "message.part.removed"].includes(eventType)) invalidatedMessage = event.properties?.part?.messageID;
           if (eventType === "session.updated") {
             const transition = nextRevertState(revertState.current, event.properties?.info?.revert);
             revertState.current = transition.state;
             invalidateAll = transition.changed;
           }
           if (invalidatedMessage || invalidateAll) {
+            if (invalidateAll || !invalidatedMessage || !pageHasMessage(pagesRef.current.newest, invalidatedMessage)) {
+              historyGeneration.current += 1;
+              backfillRequest.current = null;
+              setLoadingEarlier(false);
+            }
             setPages((pages) => {
               const next = invalidateOlderPages(pages, invalidateAll ? undefined : invalidatedMessage);
               if (next !== pages) {
                 backfillStarted.current = false;
-                historyGeneration.current += 1;
-                backfillRequest.current = null;
-                setLoadingEarlier(false);
                 earlierCursor.current = newestCursor.current;
                 setHasEarlier(newestCursor.current !== null);
               }

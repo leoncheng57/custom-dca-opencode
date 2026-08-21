@@ -389,6 +389,7 @@ export function SessionInspector({ directory, sessionID, events, todos, todosLoa
     setCommandExporting(false);
     setCommandExportError(null);
   }, [commandScope]);
+  useEffect(() => () => { commandExportGeneration.current += 1; }, []);
 
   const loadCatalogue = useCallback((force = false) => {
     if (!directory || (!force && catalogueRef.current?.directory === directory)) return;

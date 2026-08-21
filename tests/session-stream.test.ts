@@ -7,6 +7,7 @@ import {
   fetchAllMessagePages,
   invalidateOlderPages,
   nextRevertState,
+  mutationMessageID,
   mergeMessagePages,
   refreshNewestPage,
   transcriptMessages,
@@ -119,5 +120,17 @@ describe("transcript page merging", () => {
     expect(reverted.changed).toBe(true);
     expect(nextRevertState(reverted.state, { messageID: "msg_old", partID: "prt_old" }).changed).toBe(false);
     expect(nextRevertState(reverted.state, undefined)).toEqual({ state: null, changed: true });
+  });
+
+  it("uses real top-level removal contracts and nested part update contracts", () => {
+    expect(mutationMessageID("message.removed", { messageID: "msg_old" })).toBe("msg_old");
+    expect(mutationMessageID("message.part.removed", { messageID: "msg_old" })).toBe("msg_old");
+    expect(mutationMessageID("message.part.updated", { part: { messageID: "msg_old" } })).toBe("msg_old");
+    expect(mutationMessageID("message.part.updated", { messageID: "wrong" })).toBeUndefined();
+    const pages = { newest: [message("new", 2)], older: [message("msg_old", 1)] };
+    for (const type of ["message.removed", "message.part.removed"]) {
+      const target = mutationMessageID(type, { messageID: "msg_old" });
+      expect(transcriptMessages(invalidateOlderPages(pages, target))).toEqual([pages.newest[0]]);
+    }
   });
 });

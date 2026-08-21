@@ -16,6 +16,17 @@ function messageIdentity(message: RawMessage): string {
   return `unknown:${JSON.stringify(message)}`;
 }
 
+export function pageHasMessage(messages: RawMessage[], messageID: string): boolean {
+  return messages.some((message) => message.info?.id === messageID || message.parts?.some((part) => part.messageID === messageID));
+}
+
+export function mutationMessageID(type: string, properties: { messageID?: string; part?: { messageID?: string }; info?: { id?: string } }): string | undefined {
+  if (type === "message.updated") return properties.info?.id;
+  if (type === "message.removed" || type === "message.part.removed") return properties.messageID;
+  if (type === "message.part.updated") return properties.part?.messageID;
+  return undefined;
+}
+
 function compareMessages(left: RawMessage, right: RawMessage): number {
   const created = (left.info?.time?.created ?? 0) - (right.info?.time?.created ?? 0);
   return created || messageIdentity(left).localeCompare(messageIdentity(right));
@@ -63,7 +74,7 @@ export function transcriptMessages(pages: TranscriptPages): RawMessage[] {
 
 export function invalidateOlderPages(pages: TranscriptPages, messageID?: string): TranscriptPages {
   if (pages.older.length === 0) return pages;
-  if (messageID && !pages.older.some((message) => message.info?.id === messageID || message.parts?.some((part) => part.messageID === messageID))) return pages;
+  if (messageID && !pageHasMessage(pages.older, messageID)) return pages;
   return { newest: pages.newest, older: [] };
 }
 
