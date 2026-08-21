@@ -28,6 +28,7 @@ const fixture = JSON.parse(
 ) as unknown[];
 const messages = new Map<string, unknown[]>([["ses_mock_done", fixture]]);
 const promptPayloads: Array<Record<string, unknown> & { sessionID: string }> = [];
+let sessionListRequests = 0;
 const sessionPayloads: Array<Record<string, unknown>> = [];
 const toolIDs = [
   "invalid", "question", "bash", "read", "glob", "grep", "edit", "write", "task",
@@ -256,6 +257,8 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
       : json(res, 200, toolIDs);
   }
   if (pathname === "/test/prompt-payloads") return json(res, 200, promptPayloads);
+  if (pathname === "/test/session-list-requests") return json(res, 200, { count: sessionListRequests });
+  if (pathname === "/test/session-list-requests") return json(res, 200, { count: sessionListRequests });
   if (pathname === "/test/permission-replies") return json(res, 200, permissionReplies);
   if (pathname === "/test/permission" && req.method === "POST") {
     void body(req).then((input) => {
@@ -382,6 +385,7 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
   }
 
   if (pathname === "/session" && req.method === "GET") {
+    sessionListRequests += 1;
     if (!directory) return json(res, 400, { error: "directory required" });
     return json(res, 200, SESSIONS.filter((s) => s.directory === directory));
   }
