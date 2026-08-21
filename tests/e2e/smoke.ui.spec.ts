@@ -285,6 +285,10 @@ test.describe("workspace UI", () => {
     await page.getByTestId("opencode-inspector-links").click();
     await expect(page.getByTestId("opencode-merge-request-link")).toContainText("Mock pull request");
     await expect(page.getByTestId("opencode-merge-request-link")).toContainText("pipeline passed");
+    await page.getByTestId("opencode-review-details-toggle").click();
+    await expect(page.getByTestId("opencode-review-details")).toContainText("Ready to ship.");
+    await expect(page.getByTestId("opencode-review-comment")).toContainText("Looks good.");
+    await expect(page.getByTestId("opencode-review-stage")).toContainText("test: success");
     await page.getByTestId("opencode-workspace-open").click();
     await page.getByTestId("opencode-file-node").filter({ hasText: "README.md" }).click();
     await expect(page.getByTestId("opencode-file-viewer")).toContainText("Mock project");

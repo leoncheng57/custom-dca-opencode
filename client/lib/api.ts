@@ -110,6 +110,18 @@ export interface ReviewStatus {
   pipeline: string | null;
   mergeable: boolean | null;
   headSha: string;
+  description: string;
+  number: number;
+  project: string;
+}
+export interface ReviewComment { id: string; author: string; body: string; createdAt: string; resolved: boolean }
+export interface ReviewJob { name: string; status: string; webUrl: string; duration: number | null }
+export interface ReviewStage { name: string; status: string; jobs: ReviewJob[] }
+export interface ReviewPipeline { status: string; webUrl: string; stages: ReviewStage[] }
+export interface ReviewDetails {
+  comments: { value: ReviewComment[]; error: string | null };
+  pipeline: { value: ReviewPipeline | null; error: string | null };
+  partial: boolean;
 }
 export interface PermissionRequest {
   id: string;
@@ -300,6 +312,8 @@ export const api = {
     }).then((r) => json<void>(r)),
   review: (url: string) =>
     fetch(`/api/forge/review?${new URLSearchParams({ url })}`).then((r) => json<{ review: ReviewStatus }>(r)),
+  reviewDetails: (url: string) =>
+    fetch(`/api/forge/review/details?${new URLSearchParams({ url })}`).then((r) => json<{ details: ReviewDetails }>(r)),
   mergeReview: (url: string, expectedSha: string) =>
     fetch("/api/forge/review/merge", {
       method: "POST",
