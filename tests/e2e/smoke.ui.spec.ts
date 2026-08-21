@@ -817,7 +817,7 @@ test.describe("settings and tools UI", () => {
     expect(await ntfy.isChecked()).toBe(ntfyBefore);
   });
 
-  test("badges an outstanding permission and logs it in history", async ({ page }) => {
+  test("badges unresolved notifications until the user checks them off", async ({ page }) => {
     const requestID = `perm_badge_${Date.now()}`;
     await fetch(`${MOCK_URL}/test/permission?directory=${encodeURIComponent(DIR)}`, {
       method: "POST",
@@ -829,7 +829,7 @@ test.describe("settings and tools UI", () => {
     const badge = page.getByTestId("opencode-nav-notifications-badge");
     await expect(badge).toBeVisible();
     // The count lives on the link label so it is announced, not just painted.
-    await expect(page.getByTestId("opencode-nav-notifications")).toHaveAttribute("aria-label", /awaiting reply/);
+    await expect(page.getByTestId("opencode-nav-notifications")).toHaveAttribute("aria-label", /unresolved/);
     await page.setViewportSize({ width: 390, height: 740 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth))
       .toBeLessThanOrEqual(1);
@@ -838,11 +838,18 @@ test.describe("settings and tools UI", () => {
     await expect(row).toHaveAttribute("data-active", "true");
     await expect(row).toContainText("ntfy off");
 
-    // Dismissing is the escape hatch for a request the badge cannot reconcile.
+    const resolved = row.getByTestId("opencode-notification-resolved");
+    await expect(resolved).not.toBeChecked();
     const countBefore = Number(await badge.textContent());
-    await row.getByTestId("opencode-notification-dismiss").click();
+    await resolved.check();
     if (countBefore > 1) await expect(badge).toHaveText(String(countBefore - 1));
     else await expect(badge).toBeHidden();
+
+    await page.reload();
+    await expect(row.getByTestId("opencode-notification-resolved")).toBeChecked();
+    await row.getByTestId("opencode-notification-resolved").uncheck();
+    await expect(badge).toHaveText(String(countBefore));
+    await row.getByTestId("opencode-notification-resolved").check();
 
     await fetch(`${MOCK_URL}/test/permissions/reset?directory=${encodeURIComponent(DIR)}`, { method: "POST" });
   });

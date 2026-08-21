@@ -62,15 +62,20 @@ function deliverySummary(record: NotificationRecord): string {
   return parts.join(" · ");
 }
 
-function resolutionSummary(record: NotificationRecord): string | null {
-  if (!record.actionable) return null;
-  if (record.resolvedAt === undefined) return record.parkedAt ? "awaiting reply · parked" : "awaiting reply";
+function resolutionSummary(record: NotificationRecord): string {
+  if (record.resolvedAt === undefined) return record.parkedAt ? "unresolved · parked" : "unresolved";
   return `${record.resolvedBy ?? "resolved"}`;
 }
 
-function HistoryRow({ record, onDismiss }: { record: NotificationRecord; onDismiss: (id: string) => void }) {
+function HistoryRow({
+  record,
+  onResolvedChange,
+}: {
+  record: NotificationRecord;
+  onResolvedChange: (id: string, resolved: boolean) => void;
+}) {
   const timestamp = new Date(record.at).toISOString();
-  const active = record.actionable && record.resolvedAt === undefined;
+  const active = record.resolvedAt === undefined;
   const resolution = resolutionSummary(record);
   return (
     <li
@@ -106,17 +111,15 @@ function HistoryRow({ record, onDismiss }: { record: NotificationRecord; onDismi
           {resolution ? ` · ${resolution}` : ""}
         </p>
       </div>
-      {active && (
-        <Button
-          size="sm"
-          variant="ghost"
-          aria-label={`Dismiss ${record.title}`}
-          onClick={() => onDismiss(record.id)}
-          data-testid="opencode-notification-dismiss"
-        >
-          Dismiss
-        </Button>
-      )}
+      <label className="flex shrink-0 items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
+        <input
+          type="checkbox"
+          checked={!active}
+          onChange={(event) => onResolvedChange(record.id, event.target.checked)}
+          data-testid="opencode-notification-resolved"
+        />
+        Resolved
+      </label>
     </li>
   );
 }
@@ -128,7 +131,7 @@ export function NotificationsPage() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [historyState, setHistoryState] = useState<NotificationHistoryState>("all");
-  const { activeCount, records, loading, error: historyError, dismiss } = useNotificationCenter();
+  const { activeCount, records, loading, error: historyError, setResolved } = useNotificationCenter();
   const capabilities = notificationCapabilities();
 
   useEffect(() => {
@@ -144,7 +147,7 @@ export function NotificationsPage() {
   const visible = useMemo(() => {
     if (historyState === "all") return records;
     const wantActive = historyState === "active";
-    return records.filter((record) => (record.actionable && record.resolvedAt === undefined) === wantActive);
+    return records.filter((record) => (record.resolvedAt === undefined) === wantActive);
   }, [records, historyState]);
 
   const save = async () => {
@@ -303,7 +306,7 @@ export function NotificationsPage() {
               <HistoryRow
                 key={record.id}
                 record={record}
-                onDismiss={(id) => void dismiss(id).catch((e: Error) => setError(e.message))}
+                onResolvedChange={(id, resolved) => void setResolved(id, resolved).catch((e: Error) => setError(e.message))}
               />
             ))}
           </ul>

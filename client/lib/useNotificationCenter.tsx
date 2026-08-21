@@ -10,7 +10,7 @@ interface NotificationCenter {
   loading: boolean;
   error: string;
   refresh: () => void;
-  dismiss: (id: string) => Promise<void>;
+  setResolved: (id: string, resolved: boolean) => Promise<void>;
 }
 
 const NotificationCenterContext = createContext<NotificationCenter | null>(null);
@@ -24,12 +24,7 @@ const NotificationCenterContext = createContext<NotificationCenter | null>(null)
  * Consumed by useNotifyWatcher, which owns the single app-level EventSource.
  */
 export const ACTIVE_SET_EVENTS = new Set([
-  "permission.asked",
-  "permission.replied",
-  "question.asked",
-  "question.replied",
-  "question.rejected",
-  "notification.parked",
+  "notification.recorded",
 ]);
 
 const HISTORY_LIMIT = 100;
@@ -70,17 +65,34 @@ export function NotificationCenterProvider({ children }: { children: ReactNode }
     void refresh();
   }, [refresh]);
 
-  const dismiss = useCallback(
-    async (id: string) => {
-      await api.dismissNotification(id);
-      await refresh();
+  const setResolved = useCallback(
+    async (id: string, resolved: boolean) => {
+      const target = records.find((record) => record.id === id);
+      if (target && (target.resolvedAt !== undefined) !== resolved) {
+        setRecords((current) => current.map((record) => {
+          if (record.id !== id) return record;
+          if (resolved) return { ...record, resolvedAt: Date.now(), resolvedBy: "checked" };
+          const { resolvedAt: _resolvedAt, resolvedBy: _resolvedBy, ...unresolved } = record;
+          return unresolved;
+        }));
+        if (!directory || target.directory === directory) {
+          setActiveCount((count) => Math.max(0, count + (resolved ? -1 : 1)));
+        }
+      }
+      try {
+        await api.setNotificationResolved(id, resolved);
+      } finally {
+        // Confirm the optimistic state, or roll it back to the server value if
+        // the mutation failed.
+        await refresh();
+      }
     },
-    [refresh],
+    [directory, records, refresh],
   );
 
   const value = useMemo(
-    () => ({ activeCount, records, loading, error, refresh: () => void refresh(), dismiss }),
-    [activeCount, records, loading, error, refresh, dismiss],
+    () => ({ activeCount, records, loading, error, refresh: () => void refresh(), setResolved }),
+    [activeCount, records, loading, error, refresh, setResolved],
   );
 
   return <NotificationCenterContext.Provider value={value}>{children}</NotificationCenterContext.Provider>;
@@ -98,7 +110,7 @@ export function useNotificationCenter(): NotificationCenter {
       loading: false,
       error: "",
       refresh: () => {},
-      dismiss: async () => {},
+      setResolved: async () => {},
     }
   );
 }

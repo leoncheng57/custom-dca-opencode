@@ -69,7 +69,7 @@ app.use("/api", settingsRoutes(opencode));
 app.use("/api", mcpRoutes(opencode));
 app.use("/api", workspaceRoutes(opencode));
 app.use("/api", worktreeRoutes(opencode, bus));
-app.use("/api", notificationRoutes(notificationStore, notificationHistory, () => notificationService.reconcileAll()));
+app.use("/api", notificationRoutes(notificationStore, notificationHistory));
 app.use("/api", forgeRoutes());
 app.use("/api", reminderRoutes());
 app.use("/api", appConfigRoutes(publicAppUrl));

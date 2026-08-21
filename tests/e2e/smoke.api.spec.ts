@@ -860,7 +860,7 @@ test.describe("notification history", () => {
     return await (await request.get("/api/notifications/history?limit=200")).json();
   }
 
-  test("records an ask, clears it on reply and keeps the delivery outcome", async ({ request }) => {
+  test("records an ask and keeps it unresolved after the permission reply", async ({ request }) => {
     const requestID = `perm_history_${Date.now()}`;
     await fetch(`${MOCK_URL}/test/permission?directory=${encodeURIComponent(DIR)}`, {
       method: "POST",
@@ -869,7 +869,7 @@ test.describe("notification history", () => {
     });
 
     await expect.poll(async () => record((await history(request)).records, requestID))
-      .toMatchObject({ kind: "permission", actionable: true, directory: DIR });
+      .toMatchObject({ kind: "permission", directory: DIR });
     const asked = record((await history(request)).records, requestID)!;
     // ntfy is disabled in e2e, and the BFF must never claim a desktop
     // notification rendered or infer device-local sound/speech settings.
@@ -877,11 +877,11 @@ test.describe("notification history", () => {
     expect(asked.resolvedAt).toBeUndefined();
 
     await request.post(`/api/permission-requests/${requestID}/reply?directory=${DIR}`, { data: { reply: "once" } });
-    await expect.poll(async () => record((await history(request)).records, requestID)?.resolvedBy).toBe("replied");
-    expect(record((await history(request)).records, requestID)?.actionable).toBe(true);
+    expect(record((await history(request)).records, requestID)?.resolvedAt).toBeUndefined();
+    await request.patch(`/api/notifications/${asked.id}`, { data: { resolved: true } });
   });
 
-  test("dismisses an active record without deleting its history", async ({ request }) => {
+  test("persists a reversible user-only resolved checkbox", async ({ request }) => {
     const requestID = `perm_dismiss_${Date.now()}`;
     await fetch(`${MOCK_URL}/test/permission?directory=${encodeURIComponent(DIR)}`, {
       method: "POST",
@@ -892,15 +892,18 @@ test.describe("notification history", () => {
 
     const before = await history(request);
     const id = record(before.records, requestID)!.id as string;
-    const dismissed = await request.post(`/api/notifications/${id}/dismiss`);
-    expect(dismissed.status()).toBe(200);
-    expect((await dismissed.json()).dismissed).toBe(true);
-
-    expect((await request.post("/api/notifications/nope/dismiss")).status()).toBe(404);
+    const resolved = await request.patch(`/api/notifications/${id}`, { data: { resolved: true } });
+    expect(resolved.status()).toBe(200);
+    expect((await resolved.json()).record).toMatchObject({ id, resolvedBy: "checked" });
 
     const after = await history(request);
-    expect(record(after.records, requestID)).toMatchObject({ resolvedBy: "dismissed" });
-    expect((await request.post("/api/notifications/history/clear")).status()).toBe(404);
+    expect(record(after.records, requestID)).toMatchObject({ resolvedBy: "checked" });
+
+    const reopened = await request.patch(`/api/notifications/${id}`, { data: { resolved: false } });
+    expect((await reopened.json()).record.resolvedAt).toBeUndefined();
+    expect((await request.patch("/api/notifications/nope", { data: { resolved: true } })).status()).toBe(404);
+    expect((await request.patch(`/api/notifications/${id}`, { data: { resolved: "yes" } })).status()).toBe(400);
+    await request.patch(`/api/notifications/${id}`, { data: { resolved: true } });
     await fetch(`${MOCK_URL}/test/permissions/reset?directory=${encodeURIComponent(DIR)}`, { method: "POST" });
   });
 
@@ -918,6 +921,7 @@ test.describe("notification history", () => {
     expect(current.activeCount).toBeGreaterThan(0);
     expect(other.activeCount).toBe(0);
     expect(record(other.records, requestID)).toBeTruthy();
-    await request.post(`/api/permission-requests/${requestID}/reply?directory=${DIR}`, { data: { reply: "once" } });
+    const item = record(current.records, requestID)!;
+    await request.patch(`/api/notifications/${item.id}`, { data: { resolved: true } });
   });
 });
