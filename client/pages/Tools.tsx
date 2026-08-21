@@ -27,6 +27,9 @@ export function ToolsPage() {
         <h1 className="text-xl font-bold">MCP tools</h1>
         <p className="text-sm text-[var(--color-text-muted)]">Connect and disconnect affect this running OpenCode instance only.</p>
       </header>
+      <Alert variant="info" className="py-3" data-testid="screenshot-demo-tools">
+        Screenshot demo: tool health is ready for visual review.
+      </Alert>
       {!directory && <Alert variant="warning">Open a project on the home page first.</Alert>}
       {error && <Alert variant="danger">{error}</Alert>}
       <ul className="divide-y divide-[var(--color-border-default)] rounded-lg border border-[var(--color-border-default)]">
