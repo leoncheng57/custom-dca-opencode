@@ -7,18 +7,34 @@ import {
   type NotificationPreferences,
   type NotifyEvent,
 } from "../lib/api.js";
+import {
+  initializeDeviceNotificationPreferences,
+  loadDeviceNotificationPreferences,
+  NOTIFICATION_MEDIA_CHANGE_EVENT,
+  saveDeviceNotificationPreferences,
+  SOUND_PROFILES,
+  type DeviceNotificationPreferences,
+} from "../lib/notificationMedia.js";
+import {
+  notificationCapabilities,
+  previewNotificationSound,
+  previewNotificationSpeech,
+} from "../lib/notificationMediaBrowser.js";
 import { notifyBrowser } from "../lib/useNotifyWatcher.js";
 
 const EVENTS: NotifyEvent[] = ["idle", "error", "abort", "permission", "question", "parked"];
 
 export function NotificationsPage() {
   const [preferences, setPreferences] = useState<NotificationPreferences | null>(null);
+  const [devicePreferences, setDevicePreferences] = useState<DeviceNotificationPreferences>(() => loadDeviceNotificationPreferences().preferences);
   const [tokenConfigured, setTokenConfigured] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const capabilities = notificationCapabilities();
   useEffect(() => {
     void api.notifications().then((result) => {
       setPreferences(result.preferences);
+      setDevicePreferences(initializeDeviceNotificationPreferences(result.preferences.browser).preferences);
       setTokenConfigured(result.tokenConfigured);
     }).catch((e: Error) => setError(e.message));
   }, []);
@@ -28,7 +44,10 @@ export function NotificationsPage() {
     try {
       const result = await api.saveNotifications(preferences);
       setPreferences(result.preferences);
+      const savedDevicePreferences = saveDeviceNotificationPreferences(devicePreferences);
+      setDevicePreferences(savedDevicePreferences);
       window.dispatchEvent(new Event("opencode-notification-preferences"));
+      window.dispatchEvent(new CustomEvent(NOTIFICATION_MEDIA_CHANGE_EVENT, { detail: savedDevicePreferences }));
       setMessage("Saved");
     } catch (e) {
       setError((e as Error).message);
@@ -40,12 +59,12 @@ export function NotificationsPage() {
     if ("Notification" in window && Notification.permission === "default") {
       await Notification.requestPermission();
     }
-    notifyBrowser(preferences, "idle", "OpenCode notification test");
+    notifyBrowser(preferences, "idle", "OpenCode notification test", undefined, devicePreferences);
     setMessage("Browser test triggered");
   };
 
   return (
-    <main className="mx-auto max-w-3xl space-y-5 p-6" data-testid="opencode-notifications">
+    <main className="mx-auto max-w-3xl space-y-5 p-4 sm:p-6" data-testid="opencode-notifications">
       <header>
         <h1 className="text-xl font-bold">Notifications</h1>
         <p className="text-sm text-[var(--color-text-muted)]">Choose events independently for browser and ntfy delivery.</p>
@@ -60,9 +79,64 @@ export function NotificationsPage() {
             <label className="block text-sm"><span className="mb-1 block">Topic</span><input value={preferences.ntfy.topic} onChange={(e) => setPreferences({ ...preferences, ntfy: { ...preferences.ntfy, topic: e.target.value } })} className="w-full rounded-md border border-[var(--color-border-default)] bg-transparent p-2" data-testid="opencode-ntfy-topic" /></label>
             <p className="text-xs text-[var(--color-text-muted)]">Token: {tokenConfigured ? "configured in the environment" : "not configured"}</p>
             <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={preferences.browser.desktop} onChange={(e) => setPreferences({ ...preferences, browser: { ...preferences.browser, desktop: e.target.checked } })} data-testid="opencode-browser-desktop" />Desktop notifications</label>
-            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={preferences.browser.sound} onChange={(e) => setPreferences({ ...preferences, browser: { ...preferences.browser, sound: e.target.checked } })} data-testid="opencode-browser-sound" />Sound</label>
-            <label className="block text-sm">Volume <input type="range" min="0" max="1" step="0.05" value={preferences.browser.volume} onChange={(e) => setPreferences({ ...preferences, browser: { ...preferences.browser, volume: Number(e.target.value) } })} className="w-full" data-testid="opencode-browser-volume" /></label>
+            <p className="text-xs text-[var(--color-text-muted)]" data-testid="opencode-notification-capability">
+              Desktop notifications: {capabilities.desktop ? capabilities.desktopPermission : "unavailable in this browser"}.
+            </p>
+            <p className="text-xs text-[var(--color-text-muted)]">On iPhone and iPad, browser notifications require installed-PWA and service-worker support. ntfy is the reliable phone notification path.</p>
             <label className="block text-sm"><span className="mb-1 block">Parked permission after seconds</span><input type="number" min="5" max="3600" value={preferences.parkedPermissionSeconds} onChange={(e) => setPreferences({ ...preferences, parkedPermissionSeconds: Number(e.target.value) })} className="w-full rounded-md border border-[var(--color-border-default)] bg-transparent p-2" data-testid="opencode-parked-seconds" /></label>
+          </section>
+
+          <section className="space-y-4 rounded-lg border border-[var(--color-border-default)] p-4" data-testid="opencode-notification-media">
+            <div>
+              <h2 className="font-semibold">Notification sound &amp; speech</h2>
+              <p className="text-xs text-[var(--color-text-muted)]">These settings stay on this device. Spoken alerts use only generic status phrases.</p>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-3 rounded-md bg-[var(--color-background-surface-neutral-muted)] p-3">
+                <label className="flex items-center justify-between gap-3 text-sm font-medium">
+                  Sound
+                  <input type="checkbox" checked={devicePreferences.sound.enabled} disabled={!capabilities.audio} onChange={(e) => setDevicePreferences({ ...devicePreferences, sound: { ...devicePreferences.sound, enabled: e.target.checked } })} data-testid="opencode-browser-sound" />
+                </label>
+                <label className="block text-xs">
+                  <span className="mb-1 flex justify-between"><span>Volume</span><span>{Math.round(devicePreferences.sound.volume * 100)}%</span></span>
+                  <input type="range" min="0" max="1" step="0.05" value={devicePreferences.sound.volume} disabled={!capabilities.audio} onChange={(e) => setDevicePreferences({ ...devicePreferences, sound: { ...devicePreferences.sound, volume: Number(e.target.value) } })} className="w-full" data-testid="opencode-browser-volume" />
+                </label>
+                <label className="block text-xs">
+                  <span className="mb-1 block">Profile</span>
+                  <select value={devicePreferences.sound.profile} disabled={!capabilities.audio} onChange={(e) => setDevicePreferences({ ...devicePreferences, sound: { ...devicePreferences.sound, profile: e.target.value as DeviceNotificationPreferences["sound"]["profile"] } })} className="w-full rounded-md border border-[var(--color-border-default)] bg-[var(--color-background-surface)] p-2 capitalize" data-testid="opencode-sound-profile">
+                    {SOUND_PROFILES.map((profile) => <option key={profile} value={profile}>{profile}</option>)}
+                  </select>
+                </label>
+                <Button size="sm" variant="secondary" disabled={!capabilities.audio} onClick={() => void previewNotificationSound(devicePreferences).then((played) => setMessage(played ? "Sound preview played" : "Sound preview unavailable")).catch(() => setMessage("Sound preview unavailable"))} data-testid="opencode-preview-sound">Preview sound</Button>
+                <p className="text-xs text-[var(--color-text-muted)]">{capabilities.audio ? "Audio starts after you interact with this page." : "WebAudio is unavailable in this browser."}</p>
+              </div>
+
+              <div className="space-y-3 rounded-md bg-[var(--color-background-surface-neutral-muted)] p-3">
+                <label className="flex items-center justify-between gap-3 text-sm font-medium">
+                  Speak session status
+                  <input type="checkbox" checked={devicePreferences.speech.enabled} disabled={!capabilities.speech} onChange={(e) => setDevicePreferences({ ...devicePreferences, speech: { ...devicePreferences.speech, enabled: e.target.checked } })} data-testid="opencode-speech-enabled" />
+                </label>
+                <label className="block text-xs">
+                  <span className="mb-1 flex justify-between"><span>Speech rate</span><span>{devicePreferences.speech.rate.toFixed(1)}x</span></span>
+                  <input type="range" min="0.7" max="1.3" step="0.1" value={devicePreferences.speech.rate} disabled={!capabilities.speech} onChange={(e) => setDevicePreferences({ ...devicePreferences, speech: { ...devicePreferences.speech, rate: Number(e.target.value) } })} className="w-full" data-testid="opencode-speech-rate" />
+                </label>
+                <Button size="sm" variant="secondary" disabled={!capabilities.speech} onClick={() => setMessage(previewNotificationSpeech(devicePreferences) ? "Speech preview played" : "Speech preview unavailable")} data-testid="opencode-preview-speech">Preview speech</Button>
+                <p className="text-xs text-[var(--color-text-muted)]">{capabilities.speech ? "New speech replaces any status still being spoken." : "Speech synthesis is unavailable in this browser."}</p>
+              </div>
+            </div>
+
+            <fieldset className="space-y-2">
+              <legend className="text-sm font-medium">Sound by event</legend>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
+                {EVENTS.map((event) => (
+                  <label key={event} className="flex min-w-0 items-center gap-2 text-sm capitalize">
+                    <input type="checkbox" checked={devicePreferences.sound.events[event]} disabled={!capabilities.audio} onChange={(e) => setDevicePreferences({ ...devicePreferences, sound: { ...devicePreferences.sound, events: { ...devicePreferences.sound.events, [event]: e.target.checked } } })} data-testid={`opencode-sound-event-${event}`} />
+                    <span className="truncate">{event}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
           </section>
 
           <section className="overflow-x-auto rounded-lg border border-[var(--color-border-default)]">
