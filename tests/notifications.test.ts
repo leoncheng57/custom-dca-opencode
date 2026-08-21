@@ -1,9 +1,11 @@
 import { readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { classifyEvent } from "../server/notifications/service.js";
+import { classifyEvent, NotificationService } from "../server/notifications/service.js";
+import type { EventBus } from "../server/opencode/events.js";
 import {
   normalizePreferences,
   PreferenceStore,
@@ -75,5 +77,65 @@ describe("notification event classification", () => {
 
   it("ignores unknown events", () => {
     expect(classifyEvent({ type: "server.heartbeat", properties: {} })).toBeNull();
+  });
+});
+
+describe("auto permission notification suppression", () => {
+  const asked = {
+    type: "permission.asked",
+    directory: "/tmp/enabled",
+    properties: {
+      id: "perm_test",
+      sessionID: "ses_test",
+      permission: "bash",
+      patterns: ["npm test"],
+      metadata: {},
+      always: [],
+    },
+  };
+
+  it("suppresses permission notifications only in enabled directories", async () => {
+    const fetchMock = vi.fn(async () => new Response("ok", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const bus = new EventEmitter() as EventBus;
+    const store = {
+      read: async () => normalizePreferences({ ntfy: { enabled: true, server: "https://ntfy.sh", topic: "team" } }),
+    } as PreferenceStore;
+    const service = new NotificationService(
+      { baseUrl: "http://opencode.test" },
+      bus,
+      store,
+      null,
+      (directory) => directory === "/tmp/enabled",
+    );
+    service.start();
+
+    bus.emit("event", asked);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    bus.emit("event", { ...asked, directory: "/tmp/disabled", properties: { ...asked.properties, id: "perm_other" } });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    service.stop();
+  });
+
+  it("does not suppress questions in an auto-enabled directory", async () => {
+    const fetchMock = vi.fn(async () => new Response("ok", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const bus = new EventEmitter() as EventBus;
+    const store = {
+      read: async () => normalizePreferences({ ntfy: { enabled: true, server: "https://ntfy.sh", topic: "team" } }),
+    } as PreferenceStore;
+    const service = new NotificationService(
+      { baseUrl: "http://opencode.test" },
+      bus,
+      store,
+      null,
+      () => true,
+    );
+    service.start();
+    bus.emit("event", { type: "question.asked", directory: "/tmp/enabled", properties: { id: "que_test", sessionID: "ses_test" } });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    service.stop();
   });
 });

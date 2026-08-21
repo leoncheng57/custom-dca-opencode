@@ -1,16 +1,9 @@
 import type { OpencodeConfig } from "../opencode/client.js";
-import { request } from "../opencode/client.js";
 import type { EventBus, OpencodeEvent } from "../opencode/events.js";
+import { listPermissions, parsePermissionRequest, type PermissionRequest } from "../opencode/permissions.js";
 import { sendNtfy, type NotificationMessage } from "./ntfy.js";
 import { PreferenceStore, type NotifyEvent } from "./preferences.js";
 import { eventClickUrl } from "../publicAppUrl.js";
-
-export interface PermissionRequest {
-  id: string;
-  sessionID: string;
-  permission: string;
-  patterns: string[];
-}
 
 export function classifyEvent(event: OpencodeEvent): NotifyEvent | null {
   if (event.type === "session.idle") return "idle";
@@ -26,15 +19,7 @@ export function classifyEvent(event: OpencodeEvent): NotifyEvent | null {
 }
 
 function permission(event: OpencodeEvent): PermissionRequest | null {
-  const source = event.properties;
-  return typeof source.id === "string" && typeof source.sessionID === "string"
-    ? {
-        id: source.id,
-        sessionID: source.sessionID,
-        permission: typeof source.permission === "string" ? source.permission : "permission",
-        patterns: Array.isArray(source.patterns) ? source.patterns.map(String) : [],
-      }
-    : null;
+  return parsePermissionRequest(event.properties);
 }
 
 export class NotificationService {
@@ -47,6 +32,7 @@ export class NotificationService {
     private readonly bus: EventBus,
     private readonly store: PreferenceStore,
     private readonly publicAppUrl: string | null = null,
+    private readonly autoPermissionsEnabled: (directory: string | undefined) => boolean = () => false,
   ) {}
 
   start(): void {
@@ -68,6 +54,7 @@ export class NotificationService {
       this.timers.delete(key);
       return;
     }
+    if (event.type === "permission.asked" && this.autoPermissionsEnabled(event.directory)) return;
     const kind = classifyEvent(event);
     if (!kind) return;
     const identity = String(event.properties.id ?? event.properties.requestID ?? event.properties.sessionID ?? "");
@@ -103,7 +90,8 @@ export class NotificationService {
       key,
       setTimeout(() => {
         this.timers.delete(key);
-        void request<PermissionRequest[]>(this.config, "/permission", { directory })
+        if (this.autoPermissionsEnabled(directory)) return;
+        void listPermissions(this.config, directory)
           .then(async (requests) => {
             if (!requests.some((item) => item.id === pending.id)) return;
             const preferences = await this.store.read();

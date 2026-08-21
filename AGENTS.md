@@ -93,6 +93,12 @@ several decisions below.
    deny-by-default tool map because project permissions can override agent denials
    under last-match-wins precedence. This is deterministic read-only mode, not an
    OpenHands-style per-action risk score.
+10. **Auto permissions is volatile and directory-scoped.** The BFF keeps it in memory,
+    defaults it off after every restart, and replies `once` to `permission.asked` for
+    every session in an enabled directory. It never mutates policy, replies `always`,
+    or answers questions, so explicit upstream denies and Plan's per-prompt tool map
+    remain authoritative. Permission and parked-permission notifications are suppressed
+    while enabled because asked requests are handled immediately.
 
 ## Client conventions (inherited from the OpenHands runner, still enforced)
 

@@ -139,7 +139,11 @@ export interface PermissionRequest {
   sessionID: string;
   permission: string;
   patterns: string[];
+  metadata: Record<string, unknown>;
+  always: string[];
+  tool?: { messageID: string; callID: string };
 }
+export interface AutoPermissionStatus { enabled: boolean; error: string | null }
 export interface QuestionRequest {
   id: string;
   sessionID: string;
@@ -311,6 +315,15 @@ export const api = {
     }).then((r) => json<{ preferences: NotificationPreferences; tokenConfigured: boolean }>(r)),
   testNtfy: () =>
     fetch("/api/notifications/test", { method: "POST" }).then((r) => json<{ sent: boolean }>(r)),
+
+  autoPermissions: (directory: string) =>
+    fetch(scoped("/auto-approve", directory)).then((r) => json<AutoPermissionStatus>(r)),
+  setAutoPermissions: (directory: string, enabled: boolean) =>
+    fetch(scoped("/auto-approve", directory), {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled }),
+    }).then((r) => json<AutoPermissionStatus>(r)),
 
   workspaceTree: (directory: string, path = "") =>
     fetch(scoped("/workspace/tree", directory, { path })).then((r) =>

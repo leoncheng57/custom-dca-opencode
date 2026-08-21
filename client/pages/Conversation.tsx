@@ -9,6 +9,7 @@ import { RunningIndicator, Transcript } from "../components/transcript.js";
 import { SessionInspector } from "../components/session-inspector.js";
 import { WorkspacePanels } from "../components/workspace-panels.js";
 import { AgentModeToggle } from "../components/agent-mode-toggle.js";
+import { AutoPermissionsControl } from "../components/auto-permissions-control.js";
 import { ModelSelect } from "../components/model-select.js";
 import { QuestionRequest } from "../components/question-request.js";
 import { api, formatCost, type ReminderSummary, type SessionSummary } from "../lib/api.js";
@@ -285,6 +286,10 @@ export function ConversationPage() {
           </Button>
         )}
       </header>
+
+      <div className="px-4 pt-3">
+        <AutoPermissionsControl directory={directory} testId="opencode-conversation-auto-permissions" />
+      </div>
 
       {/* R2: OpenCode never persists "running" state, so a crash mid-turn is
           invisible unless derived. We surface it and let the human decide —

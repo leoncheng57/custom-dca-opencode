@@ -36,13 +36,16 @@ const toolIDs = [
 ];
 
 const MOCK_DIRECTORY_INPUT = "/tmp/mock-project";
+const AUTO_DIRECTORY_INPUT = "/tmp/mock-auto-project";
 const TOOL_FAILURE_DIRECTORY_INPUT = "/tmp/mock-tool-failure";
 const CATALOGUE_FAILURE_DIRECTORY_INPUT = "/tmp/mock-catalogue-failure";
 mkdirSync(MOCK_DIRECTORY_INPUT, { recursive: true });
+mkdirSync(AUTO_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(TOOL_FAILURE_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(CATALOGUE_FAILURE_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(path.join(MOCK_DIRECTORY_INPUT, "src"), { recursive: true });
 export const MOCK_DIRECTORY = realpathSync(MOCK_DIRECTORY_INPUT);
+const AUTO_DIRECTORY = realpathSync(AUTO_DIRECTORY_INPUT);
 const TOOL_FAILURE_DIRECTORY = realpathSync(TOOL_FAILURE_DIRECTORY_INPUT);
 const CATALOGUE_FAILURE_DIRECTORY = realpathSync(CATALOGUE_FAILURE_DIRECTORY_INPUT);
 if (!existsSync(path.join(MOCK_DIRECTORY, ".git"))) {
@@ -106,7 +109,29 @@ let mcpServers: Record<string, unknown> = {
   auth: { status: "needs_auth" },
 };
 const worktrees = [`${MOCK_DIRECTORY}.worktrees/fixture`];
-let pendingPermissions = [{ id: "perm_mock", sessionID: "ses_mock_done", permission: "bash", patterns: ["npm test"] }];
+interface MockPermission {
+  id: string;
+  sessionID: string;
+  permission: string;
+  patterns: string[];
+  metadata: Record<string, unknown>;
+  always: string[];
+  tool?: { messageID: string; callID: string };
+}
+
+const permissionFixture = (): MockPermission => ({
+  id: "perm_mock",
+  sessionID: "ses_mock_done",
+  permission: "bash",
+  patterns: ["npm test"],
+  metadata: { command: "npm test" },
+  always: ["npm *"],
+  tool: { messageID: "msg_mock", callID: "call_mock" },
+});
+const pendingPermissions = new Map<string, MockPermission[]>([
+  [MOCK_DIRECTORY, [permissionFixture()]],
+  [AUTO_DIRECTORY, []],
+]);
 const permissionReplies: Array<{ id: string; reply: unknown }> = [];
 const questionFixture = () => [
   {
@@ -267,9 +292,13 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
         sessionID: String(input.sessionID),
         permission: String(input.permission),
         patterns: Array.isArray(input.patterns) ? input.patterns.map(String) : [],
+        metadata: input.metadata && typeof input.metadata === "object" ? input.metadata as Record<string, unknown> : {},
+        always: Array.isArray(input.always) ? input.always.map(String) : [],
+        ...(input.tool && typeof input.tool === "object" ? { tool: input.tool as { messageID: string; callID: string } } : {}),
       };
-      pendingPermissions.push(permission);
-      emit("permission.asked", permission, directory ?? MOCK_DIRECTORY);
+      const scope = directory ?? MOCK_DIRECTORY;
+      pendingPermissions.set(scope, [...(pendingPermissions.get(scope) ?? []), permission]);
+      emit("permission.asked", permission, scope);
       json(res, 201, permission);
     });
     return;
@@ -290,7 +319,8 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     return json(res, 200, true);
   }
   if (pathname === "/test/permissions/reset" && req.method === "POST") {
-    pendingPermissions = [{ id: "perm_mock", sessionID: "ses_mock_done", permission: "bash", patterns: ["npm test"] }];
+    const scope = directory ?? MOCK_DIRECTORY;
+    pendingPermissions.set(scope, scope === MOCK_DIRECTORY ? [permissionFixture()] : []);
     return json(res, 200, true);
   }
 
@@ -304,15 +334,18 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
   }
 
   if (pathname === "/lsp") return json(res, 200, { typescript: { status: "connected" } });
-  if (pathname === "/permission") return json(res, 200, pendingPermissions);
+  if (pathname === "/permission") return json(res, 200, pendingPermissions.get(directory ?? MOCK_DIRECTORY) ?? []);
   const permissionReply = /^\/permission\/([^/]+)\/reply$/.exec(pathname);
   if (permissionReply && req.method === "POST") {
     const id = decodeURIComponent(permissionReply[1]);
-    const permission = pendingPermissions.find((request) => request.id === id);
+    const scope = directory ?? MOCK_DIRECTORY;
+    const scopedPermissions = pendingPermissions.get(scope) ?? [];
+    const permission = scopedPermissions.find((request) => request.id === id);
     if (id.startsWith("perm_fail")) return json(res, 500, { error: "mock permission reply failed" });
+    if (!permission) return json(res, 404, { error: "permission request not found" });
     void body(req).then((input) => {
       permissionReplies.push({ id, reply: input.reply });
-      pendingPermissions = pendingPermissions.filter((request) => request.id !== id);
+      pendingPermissions.set(scope, scopedPermissions.filter((request) => request.id !== id));
       if (permission && id.startsWith("perm_continue_") && input.reply !== "reject") {
         const now = Date.now();
         const sessionMessages = messages.get(permission.sessionID) ?? [];
