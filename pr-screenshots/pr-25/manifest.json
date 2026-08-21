@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "prNumber": 25,
-  "sourceSha": "83f4d6bf2da23041c966eb8a7262d091f843f0fc",
-  "capturedAt": "2026-08-21T20:11:56.125Z",
+  "sourceSha": "b33dec50d4ff73837e87c9a0970fb5b6a8923168",
+  "capturedAt": "2026-08-21T20:23:52.601Z",
   "screenshots": [
     {
       "requestedRoute": "/settings/notifications",
@@ -12,8 +12,8 @@
         "width": 1280,
         "height": 800
       },
-      "bytes": 64136,
-      "sha256": "389cb469f5c5b0546bda27eddc6938c0531e9002315dee7027fddeb6be77d327"
+      "bytes": 67141,
+      "sha256": "0b74d224311ce1e0fd37fd0041ff3062356562b329d941f3d653fd060166b75c"
     }
   ]
 }
