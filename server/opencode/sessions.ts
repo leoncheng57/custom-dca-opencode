@@ -15,6 +15,36 @@
 import { withReminderTag, type ReminderPreset } from "../reminders/reminders.js";
 import { request, type OpencodeConfig } from "./client.js";
 
+export type AgentMode = "plan" | "build";
+
+const PLAN_TOOL_ALLOWLIST = new Set([
+  "read",
+  "glob",
+  "grep",
+  "webfetch",
+  "websearch",
+  "question",
+  "todowrite",
+  "skill",
+]);
+
+export class PlanToolDiscoveryError extends Error {
+  constructor() {
+    super("Could not discover OpenCode tools; Plan prompt was not sent");
+    this.name = "PlanToolDiscoveryError";
+  }
+}
+
+async function planTools(config: OpencodeConfig, directory: string): Promise<Record<string, boolean>> {
+  const toolIDs = await request<unknown>(config, "/experimental/tool/ids", { directory }).catch(() => {
+    throw new PlanToolDiscoveryError();
+  });
+  if (!Array.isArray(toolIDs) || toolIDs.length === 0 || toolIDs.some((id) => typeof id !== "string" || !id)) {
+    throw new PlanToolDiscoveryError();
+  }
+  return Object.fromEntries(toolIDs.map((id) => [id, PLAN_TOOL_ALLOWLIST.has(id)]));
+}
+
 export interface SessionSummary {
   id: string;
   title: string;
@@ -156,7 +186,7 @@ export async function createSession(
 
 export interface PromptInput {
   text: string;
-  agent?: string;
+  mode: AgentMode;
   model?: { providerID: string; modelID: string };
   attachments?: Array<{ filename: string; mime: string; url: string }>;
   reminder?: Pick<ReminderPreset, "id" | "body">;
@@ -175,11 +205,13 @@ export async function prompt(
   sessionID: string,
   input: PromptInput,
 ): Promise<void> {
+  const tools = input.mode === "plan" ? await planTools(config, directory) : undefined;
   await request<void>(config, `/session/${encodeURIComponent(sessionID)}/prompt_async`, {
     method: "POST",
     directory,
     body: {
-      ...(input.agent ? { agent: input.agent } : {}),
+      agent: input.mode,
+      ...(tools ? { tools } : {}),
       ...(input.model ? { model: input.model } : {}),
       parts: [
         {

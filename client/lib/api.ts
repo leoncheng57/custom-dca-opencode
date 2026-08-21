@@ -4,6 +4,7 @@
 // browser never sees it.
 
 import type { RawMessage } from "./events.js";
+import type { AgentMode } from "./agentMode.js";
 
 export interface SessionSummary {
   id: string;
@@ -190,7 +191,7 @@ export const api = {
   createSession: (input: {
     directory: string;
     title?: string;
-    agent?: string;
+    mode?: AgentMode;
     model?: { providerID: string; modelID: string };
     prompt?: string;
     isolated?: boolean;
@@ -206,6 +207,7 @@ export const api = {
     directory: string,
     id: string,
     text: string,
+    mode: AgentMode,
     model?: { providerID: string; modelID: string },
     attachments?: Array<{ filename: string; mime: string; url: string }>,
     reminder?: string,
@@ -215,6 +217,7 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         text,
+        mode,
         ...(model ? { model } : {}),
         ...(attachments?.length ? { attachments } : {}),
         ...(reminder ? { reminder } : {}),

@@ -8,7 +8,9 @@ import { LoadingIndicator } from "../ds/loading-indicator.js";
 import { RunningIndicator, Transcript } from "../components/transcript.js";
 import { SessionInspector } from "../components/session-inspector.js";
 import { WorkspacePanels } from "../components/workspace-panels.js";
+import { AgentModeToggle } from "../components/agent-mode-toggle.js";
 import { api, formatCost, type ReminderSummary, type SessionSummary } from "../lib/api.js";
+import { latestModeMessageID, modeFromMessages, type AgentMode } from "../lib/agentMode.js";
 import { collapseActionGroups, mergeEvents, runningActivity } from "../lib/derive.js";
 import { normalizeTranscript, type RawMessage } from "../lib/events.js";
 import { useSessionStream } from "../lib/useSessionStream.js";
@@ -32,6 +34,9 @@ export function ConversationPage() {
   const [attachments, setAttachments] = useState<Array<{ filename: string; mime: string; url: string }>>([]);
   const [reminderCatalogue, setReminderCatalogue] = useState<ReminderSummary[]>([]);
   const [selectedReminder, setSelectedReminder] = useState("");
+  const [mode, setMode] = useState<AgentMode>("build");
+  const derivedModeMessage = useRef<string | undefined>(undefined);
+  const modeSelectionDirty = useRef(false);
 
   // Keep event identity stable across polls so memoised rows do not churn.
   const [events, setEvents] = useState<TranscriptEvent[]>([]);
@@ -42,6 +47,22 @@ export function ConversationPage() {
   useEffect(() => {
     setEvents((previous) => mergeEvents(previous, transcript.events));
   }, [transcript.events]);
+
+  useEffect(() => {
+    if (!stream.loaded) return;
+    const messageID = latestModeMessageID(stream.messages as RawMessage[]);
+    if (messageID === derivedModeMessage.current) return;
+    derivedModeMessage.current = messageID;
+    const persistedMode = modeFromMessages(stream.messages as RawMessage[]);
+    if (modeSelectionDirty.current && persistedMode !== mode) return;
+    modeSelectionDirty.current = false;
+    setMode(persistedMode);
+  }, [mode, stream.loaded, stream.messages]);
+
+  const selectMode = (nextMode: AgentMode) => {
+    modeSelectionDirty.current = true;
+    setMode(nextMode);
+  };
 
   useEffect(() => {
     if (!directory || !id) return;
@@ -105,6 +126,7 @@ export function ConversationPage() {
         directory,
         id,
         text,
+        mode,
         undefined,
         attachments,
         selectedReminder || undefined,
@@ -247,8 +269,14 @@ export function ConversationPage() {
 
       <footer className="border-t border-[var(--color-border-default)] p-3">
         <div className="mx-auto max-w-3xl">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <AgentModeToggle mode={mode} onChange={selectMode} testId="opencode-composer-mode" />
+            <span className="min-w-0 truncate text-[11px] text-[var(--color-text-muted)]">
+              {mode === "plan" ? "Read-only analysis" : "Can modify files"}
+            </span>
+          </div>
           {attachments.length > 0 && <div className="mb-2 flex flex-wrap gap-2">{attachments.map((attachment, index) => <button key={`${attachment.filename}-${index}`} type="button" onClick={() => setAttachments((items) => items.filter((_, itemIndex) => itemIndex !== index))} className="rounded border border-[var(--color-border-default)] px-2 py-1 text-xs" data-testid="opencode-attachment-chip">{attachment.filename} x</button>)}</div>}
-          <div className="flex gap-2">
+          <div className="flex min-w-0 gap-2">
           <label className="inline-flex cursor-pointer items-center rounded-md border border-[var(--color-border-default)] px-3 text-xs font-semibold" data-testid="opencode-attach-label">
             Attach
             <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple className="sr-only" data-testid="opencode-attach" onChange={(event) => {

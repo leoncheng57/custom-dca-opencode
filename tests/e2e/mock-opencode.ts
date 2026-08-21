@@ -26,10 +26,19 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const fixture = JSON.parse(
   readFileSync(path.resolve(here, "../fixtures/session-messages.json"), "utf8"),
 ) as unknown[];
+const messages = new Map<string, unknown[]>([["ses_mock_done", fixture]]);
+const promptPayloads: Array<Record<string, unknown> & { sessionID: string }> = [];
+const toolIDs = [
+  "invalid", "question", "bash", "read", "glob", "grep", "edit", "write", "task",
+  "webfetch", "todowrite", "websearch", "skill", "apply_patch", "mcp_dynamic_tool",
+];
 
 const MOCK_DIRECTORY_INPUT = "/tmp/mock-project";
+const TOOL_FAILURE_DIRECTORY_INPUT = "/tmp/mock-tool-failure";
 mkdirSync(MOCK_DIRECTORY_INPUT, { recursive: true });
+mkdirSync(TOOL_FAILURE_DIRECTORY_INPUT, { recursive: true });
 export const MOCK_DIRECTORY = realpathSync(MOCK_DIRECTORY_INPUT);
+const TOOL_FAILURE_DIRECTORY = realpathSync(TOOL_FAILURE_DIRECTORY_INPUT);
 if (!existsSync(path.join(MOCK_DIRECTORY, ".git"))) {
   execFileSync("git", ["init", "-q", MOCK_DIRECTORY]);
   writeFileSync(path.join(MOCK_DIRECTORY, "README.md"), "# Mock project\n");
@@ -169,6 +178,12 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
       default: { anthropic: "claude-opus-5" },
     });
   }
+  if (pathname === "/experimental/tool/ids") {
+    return directory === TOOL_FAILURE_DIRECTORY
+      ? json(res, 503, { error: "mock discovery unavailable" })
+      : json(res, 200, toolIDs);
+  }
+  if (pathname === "/test/prompt-payloads") return json(res, 200, promptPayloads);
 
   if (pathname === "/mcp" && req.method === "GET") return json(res, 200, mcpServers);
   const mcpMatch = /^\/mcp\/([^/]+)\/(connect|disconnect)$/.exec(pathname);
@@ -236,11 +251,12 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     let raw = "";
     req.on("data", (chunk) => (raw += chunk));
     req.on("end", () => {
-      const body = raw ? (JSON.parse(raw) as { title?: string }) : {};
+      const body = raw ? (JSON.parse(raw) as { title?: string; agent?: string }) : {};
       const created = {
         id: `ses_mock_new_${Date.now()}`,
         title: body.title ?? "Untitled session",
         directory: directory ?? MOCK_DIRECTORY,
+        agent: body.agent,
         cost: 0,
         tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
         time: { created: Date.now(), updated: Date.now() },
@@ -260,14 +276,17 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     if (rest === "/prompt_async" && req.method === "POST") {
       if (!session) return unknownError(res);
       void body(req).then((input) => {
+        promptPayloads.push({ ...input, sessionID: id });
         const parts = Array.isArray(input.parts) ? input.parts as Array<Record<string, unknown>> : [];
         const text = parts.find((part) => part.type === "text")?.text;
         if (typeof text === "string") {
           const now = Date.now();
-          fixture.push({
-            info: { id: `msg_user_${now}`, role: "user", time: { created: now } },
+          const sessionMessages = messages.get(id) ?? [];
+          sessionMessages.push({
+            info: { id: `msg_user_${now}`, role: "user", agent: input.agent, time: { created: now } },
             parts: [{ id: `prt_user_${now}`, messageID: `msg_user_${now}`, type: "text", text }],
           });
+          messages.set(id, sessionMessages);
         }
         res.writeHead(204).end(); // 204, no body — the real contract.
       });
@@ -284,7 +303,7 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
       return json(res, 200, session);
     }
     if (rest === "/message") {
-      return json(res, 200, id === "ses_mock_done" ? fixture : []);
+      return json(res, 200, messages.get(id) ?? []);
     }
     if (rest === "/todo") {
       return json(res, 200, id === "ses_mock_done" ? TODOS : []);

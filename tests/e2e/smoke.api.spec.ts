@@ -4,6 +4,18 @@ import { expect, test } from "@playwright/test";
 // No browser, no agent run.
 
 const DIR = process.platform === "darwin" ? "/private/tmp/mock-project" : "/tmp/mock-project";
+const TOOL_FAILURE_DIR = process.platform === "darwin" ? "/private/tmp/mock-tool-failure" : "/tmp/mock-tool-failure";
+const MOCK_URL = `http://127.0.0.1:${process.env.MOCK_OPENCODE_PORT || 4599}`;
+
+async function promptPayload(text: string): Promise<Record<string, unknown>> {
+  const payloads = await (await fetch(`${MOCK_URL}/test/prompt-payloads`)).json() as Array<Record<string, unknown>>;
+  const payload = payloads.find((item) => {
+    const parts = item.parts as Array<{ type?: string; text?: string }> | undefined;
+    return parts?.some((part) => part.type === "text" && part.text === text);
+  });
+  expect(payload).toBeDefined();
+  return payload!;
+}
 
 test.describe("health", () => {
   test("reports upstream reachability and version", async ({ request }) => {
@@ -119,6 +131,60 @@ test.describe("prompting", () => {
       data: { text: "   " },
     });
     expect(res.status()).toBe(400);
+  });
+
+  test("gates Plan with a discovered deny-by-default tool map", async ({ request }) => {
+    const text = `plan api ${Date.now()}`;
+    const res = await request.post(`/api/sessions/ses_mock_done/prompt?directory=${DIR}`, {
+      data: { text, mode: "plan" },
+    });
+    expect(res.status()).toBe(202);
+    const payload = await promptPayload(text);
+    expect(payload.agent).toBe("plan");
+    expect(payload.tools).toMatchObject({
+      read: true,
+      glob: true,
+      grep: true,
+      question: true,
+      bash: false,
+      edit: false,
+      write: false,
+      apply_patch: false,
+      mcp_dynamic_tool: false,
+    });
+  });
+
+  test("sends Build without a restrictive tool override", async ({ request }) => {
+    const text = `build api ${Date.now()}`;
+    const res = await request.post(`/api/sessions/ses_mock_done/prompt?directory=${DIR}`, {
+      data: { text, mode: "build" },
+    });
+    expect(res.status()).toBe(202);
+    const payload = await promptPayload(text);
+    expect(payload.agent).toBe("build");
+    expect(payload).not.toHaveProperty("tools");
+  });
+
+  test("fails closed when Plan tool discovery is unavailable", async ({ request }) => {
+    const text = `blocked plan ${Date.now()}`;
+    const res = await request.post(`/api/sessions/ses_mock_done/prompt?directory=${TOOL_FAILURE_DIR}`, {
+      data: { text, mode: "plan" },
+    });
+    expect(res.status()).toBe(502);
+    expect((await res.json()).error).toContain("Plan prompt was not sent");
+    const payloads = await (await fetch(`${MOCK_URL}/test/prompt-payloads`)).json() as Array<Record<string, unknown>>;
+    expect(payloads.some((item) => JSON.stringify(item).includes(text))).toBe(false);
+  });
+
+  test("rejects an invalid mode", async ({ request }) => {
+    const res = await request.post(`/api/sessions/ses_mock_done/prompt?directory=${DIR}`, {
+      data: { text: "unsafe", mode: "review" },
+    });
+    expect(res.status()).toBe(400);
+    const create = await request.post("/api/sessions", {
+      data: { directory: DIR, prompt: "unsafe", mode: "review" },
+    });
+    expect(create.status()).toBe(400);
   });
 
   test("rejects unsafe image attachments", async ({ request }) => {
