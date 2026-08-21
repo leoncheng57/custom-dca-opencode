@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type APIRequestContext } from "@playwright/test";
 
 // API tier — exercises the real BFF against the mock OpenCode server.
 // No browser, no agent run.
@@ -6,6 +6,7 @@ import { expect, test } from "@playwright/test";
 const DIR = process.platform === "darwin" ? "/private/tmp/mock-project" : "/tmp/mock-project";
 const TOOL_FAILURE_DIR = process.platform === "darwin" ? "/private/tmp/mock-tool-failure" : "/tmp/mock-tool-failure";
 const CATALOGUE_FAILURE_DIR = process.platform === "darwin" ? "/private/tmp/mock-catalogue-failure" : "/tmp/mock-catalogue-failure";
+const POLICY_FAILURE_DIR = process.platform === "darwin" ? "/private/tmp/mock-policy-failure" : "/tmp/mock-policy-failure";
 const MOCK_URL = `http://127.0.0.1:${process.env.MOCK_OPENCODE_PORT || 4599}`;
 const PREVIEW_PORT = process.env.MOCK_PREVIEW_PORT || "4600";
 
@@ -23,6 +24,29 @@ async function latestSessionPayload(): Promise<Record<string, unknown>> {
   const payloads = await (await fetch(`${MOCK_URL}/test/session-payloads`)).json() as Array<Record<string, unknown>>;
   expect(payloads.length).toBeGreaterThan(0);
   return payloads.at(-1)!;
+}
+
+interface PolicyProbe {
+  permission: Array<{ permission: string; pattern: string; action: "allow" | "ask" | "deny" }>;
+  disabledTools: string[];
+  probes: {
+    bashDefault: string;
+    bashDestructive: string;
+    readEnv: string;
+    editEnv: string;
+    externalDirectory: string;
+    unconfiguredTool: string;
+  };
+}
+
+async function freshSession(request: APIRequestContext, directory = DIR): Promise<string> {
+  const response = await request.post("/api/sessions", { data: { directory, title: `policy ${Date.now()}` } });
+  expect(response.status()).toBe(201);
+  return (await response.json()).session.id as string;
+}
+
+async function policyProbe(sessionID: string): Promise<PolicyProbe> {
+  return await (await fetch(`${MOCK_URL}/test/session-policy?id=${encodeURIComponent(sessionID)}`)).json() as PolicyProbe;
 }
 
 test.describe("health", () => {
@@ -248,36 +272,85 @@ test.describe("prompting", () => {
     expect(res.status()).toBe(400);
   });
 
-  test("gates Plan with a discovered deny-by-default tool map", async ({ request }) => {
-    const text = `plan api ${Date.now()}`;
-    const res = await request.post(`/api/sessions/ses_mock_done/prompt?directory=${DIR}`, {
-      data: { text, mode: "plan" },
+  test("recovers Build tools in the same session after Plan without weakening configured policy", async ({ request }) => {
+    const sessionID = await freshSession(request);
+    const planText = `plan api ${Date.now()}`;
+    const res = await request.post(`/api/sessions/${sessionID}/prompt?directory=${DIR}`, {
+      data: { text: planText, mode: "plan" },
     });
     expect(res.status()).toBe(202);
-    const payload = await promptPayload(text);
+    const payload = await promptPayload(planText);
     expect(payload.agent).toBe("plan");
-    expect(payload.tools).toMatchObject({
-      read: true,
-      glob: true,
-      grep: true,
-      question: true,
-      bash: false,
-      edit: false,
-      write: false,
-      apply_patch: false,
-      mcp_dynamic_tool: false,
+    expect(payload).not.toHaveProperty("tools");
+    const planned = await policyProbe(sessionID);
+    expect(planned.disabledTools).toEqual(expect.arrayContaining(["bash", "edit", "write", "apply_patch"]));
+
+    const repeatedPlan = `plan repeated ${Date.now()}`;
+    expect((await request.post(`/api/sessions/${sessionID}/prompt?directory=${DIR}`, {
+      data: { text: repeatedPlan, mode: "plan" },
+    })).status()).toBe(202);
+    expect((await policyProbe(sessionID)).permission).toHaveLength(planned.permission.length);
+
+    const legacy = await fetch(`${MOCK_URL}/session/${sessionID}/prompt_async?directory=${encodeURIComponent(DIR)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        agent: "plan",
+        tools: { read: true, bash: false, edit: false, write: false, apply_patch: false },
+        parts: [{ type: "text", text: `legacy plan ${Date.now()}` }],
+      }),
     });
+    expect(legacy.status).toBe(204);
+    expect((await policyProbe(sessionID)).probes.readEnv).toBe("allow");
+
+    const buildText = `build api ${Date.now()}`;
+    const build = await request.post(`/api/sessions/${sessionID}/prompt?directory=${DIR}`, {
+      data: { text: buildText, mode: "build" },
+    });
+    expect(build.status()).toBe(202);
+    expect(await promptPayload(buildText)).toMatchObject({ agent: "build" });
+    const restored = await policyProbe(sessionID);
+    for (const tool of ["bash", "edit", "write", "apply_patch"]) {
+      expect(restored.disabledTools).not.toContain(tool);
+    }
+    expect(restored.probes).toEqual({
+      bashDefault: "ask",
+      bashDestructive: "deny",
+      readEnv: "deny",
+      editEnv: "deny",
+      externalDirectory: "ask",
+      unconfiguredTool: "ask",
+    });
+    expect(restored.permission).not.toContainEqual({ permission: "*", pattern: "*", action: "allow" });
+
+    const repeatedBuild = `build repeated ${Date.now()}`;
+    expect((await request.post(`/api/sessions/${sessionID}/prompt?directory=${DIR}`, {
+      data: { text: repeatedBuild, mode: "build" },
+    })).status()).toBe(202);
+    expect((await policyProbe(sessionID)).permission).toHaveLength(restored.permission.length);
   });
 
-  test("sends Build without a restrictive tool override", async ({ request }) => {
-    const text = `build api ${Date.now()}`;
-    const res = await request.post(`/api/sessions/ses_mock_done/prompt?directory=${DIR}`, {
-      data: { text, mode: "build" },
-    });
-    expect(res.status()).toBe(202);
-    const payload = await promptPayload(text);
-    expect(payload.agent).toBe("build");
-    expect(payload).not.toHaveProperty("tools");
+  test("supports Build to Plan on one session", async ({ request }) => {
+    const sessionID = await freshSession(request);
+    expect((await request.post(`/api/sessions/${sessionID}/prompt?directory=${DIR}`, {
+      data: { text: `build first ${Date.now()}`, mode: "build" },
+    })).status()).toBe(202);
+    expect((await policyProbe(sessionID)).permission).toEqual([]);
+
+    expect((await request.post(`/api/sessions/${sessionID}/prompt?directory=${DIR}`, {
+      data: { text: `plan second ${Date.now()}`, mode: "plan" },
+    })).status()).toBe(202);
+    expect((await policyProbe(sessionID)).disabledTools).toEqual(expect.arrayContaining(["bash", "edit", "write", "apply_patch"]));
+  });
+
+  test("leaves a direct Build session on its resolved agent policy", async ({ request }) => {
+    const sessionID = await freshSession(request);
+    expect((await request.post(`/api/sessions/${sessionID}/prompt?directory=${DIR}`, {
+      data: { text: `direct build ${Date.now()}`, mode: "build" },
+    })).status()).toBe(202);
+    const policy = await policyProbe(sessionID);
+    expect(policy.permission).toEqual([]);
+    expect(policy.probes).toMatchObject({ bashDefault: "ask", bashDestructive: "deny", editEnv: "deny" });
   });
 
   test("validates model switches and preserves the prompt_async model shape", async ({ request }) => {
@@ -288,7 +361,7 @@ test.describe("prompting", () => {
     expect(response.status()).toBe(202);
     const payload = await promptPayload(text);
     expect(payload).toMatchObject({ agent: "plan", model: { providerID: "openai", modelID: "gpt-5" } });
-    expect(payload.tools).toBeDefined();
+    expect(payload).not.toHaveProperty("tools");
 
     for (const model of [
       { providerID: "openai", modelID: "guessed" },
@@ -318,7 +391,7 @@ test.describe("prompting", () => {
       model: { providerID: "anthropic", modelID: "claude-opus-5" },
       variant: "high",
     });
-    expect(payload.tools).toMatchObject({ read: true, bash: false, apply_patch: false });
+    expect(payload).not.toHaveProperty("tools");
 
     for (const model of [
       { providerID: "anthropic", modelID: "claude-opus-5", variant: "invented" },
@@ -338,7 +411,19 @@ test.describe("prompting", () => {
       data: { text, mode: "plan" },
     });
     expect(res.status()).toBe(502);
-    expect((await res.json()).error).toContain("Plan prompt was not sent");
+    expect((await res.json()).error).toContain("Plan policy; prompt was not sent");
+    const payloads = await (await fetch(`${MOCK_URL}/test/prompt-payloads`)).json() as Array<Record<string, unknown>>;
+    expect(payloads.some((item) => JSON.stringify(item).includes(text))).toBe(false);
+  });
+
+  test("surfaces policy activation failure without calling prompt_async", async ({ request }) => {
+    const sessionID = await freshSession(request, POLICY_FAILURE_DIR);
+    const text = `policy failure ${Date.now()}`;
+    const response = await request.post(`/api/sessions/${sessionID}/prompt?directory=${POLICY_FAILURE_DIR}`, {
+      data: { text, mode: "plan" },
+    });
+    expect(response.status()).toBe(502);
+    expect((await response.json()).error).toContain("Plan policy; prompt was not sent");
     const payloads = await (await fetch(`${MOCK_URL}/test/prompt-payloads`)).json() as Array<Record<string, unknown>>;
     expect(payloads.some((item) => JSON.stringify(item).includes(text))).toBe(false);
   });

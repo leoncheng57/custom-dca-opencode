@@ -34,21 +34,74 @@ const PLAN_TOOL_ALLOWLIST = new Set([
   "skill",
 ]);
 
-export class PlanToolDiscoveryError extends Error {
-  constructor() {
-    super("Could not discover OpenCode tools; Plan prompt was not sent");
-    this.name = "PlanToolDiscoveryError";
+type PermissionAction = "allow" | "ask" | "deny";
+
+interface PermissionRule {
+  permission: string;
+  pattern: string;
+  action: PermissionAction;
+}
+
+type PermissionRuleset = PermissionRule[];
+
+interface RawAgent {
+  name?: string;
+  permission?: PermissionRuleset;
+}
+
+const EDIT_TOOL_ALIASES = new Set(["edit", "write", "apply_patch"]);
+
+export class ModePolicyActivationError extends Error {
+  constructor(mode: AgentMode) {
+    super(`Could not activate OpenCode ${mode === "plan" ? "Plan" : "Build"} policy; prompt was not sent`);
+    this.name = "ModePolicyActivationError";
   }
 }
 
-async function planTools(config: OpencodeConfig, directory: string): Promise<Record<string, boolean>> {
-  const toolIDs = await request<unknown>(config, "/experimental/tool/ids", { directory }).catch(() => {
-    throw new PlanToolDiscoveryError();
+function validRuleset(value: unknown): value is PermissionRuleset {
+  return Array.isArray(value) && value.every((rule) => {
+    if (!rule || typeof rule !== "object") return false;
+    const source = rule as Partial<PermissionRule>;
+    return typeof source.permission === "string"
+      && typeof source.pattern === "string"
+      && (source.action === "allow" || source.action === "ask" || source.action === "deny");
   });
-  if (!Array.isArray(toolIDs) || toolIDs.length === 0 || toolIDs.some((id) => typeof id !== "string" || !id)) {
-    throw new PlanToolDiscoveryError();
-  }
-  return Object.fromEntries(toolIDs.map((id) => [id, PLAN_TOOL_ALLOWLIST.has(id)]));
+}
+
+function rulesEndWith(rules: PermissionRuleset, suffix: PermissionRuleset): boolean {
+  if (suffix.length === 0 || suffix.length > rules.length) return false;
+  return suffix.every((rule, index) => {
+    const existing = rules[rules.length - suffix.length + index];
+    return existing.permission === rule.permission
+      && existing.pattern === rule.pattern
+      && existing.action === rule.action;
+  });
+}
+
+function permissionNames(tool: string): Set<string> {
+  return EDIT_TOOL_ALIASES.has(tool) ? new Set(["*", "edit", tool]) : new Set(["*", tool]);
+}
+
+function buildRulesForTools(agentRules: PermissionRuleset, toolIDs: string[]): PermissionRuleset {
+  return toolIDs.flatMap((tool) => {
+    const names = permissionNames(tool);
+    return agentRules
+      .filter((rule) => names.has(rule.permission))
+      .map((rule) => ({ ...rule, permission: tool }));
+  });
+}
+
+function hasPlanDenial(rules: PermissionRuleset, toolIDs: string[]): boolean {
+  return toolIDs.some((tool) => {
+    const names = permissionNames(tool);
+    for (let index = rules.length - 1; index >= 0; index -= 1) {
+      const rule = rules[index];
+      if (rule.pattern === "*" && rule.permission !== "*" && names.has(rule.permission)) {
+        return rule.action === "deny";
+      }
+    }
+    return false;
+  });
 }
 
 export interface SessionSummary {
@@ -87,7 +140,56 @@ interface RawSession {
     reasoning?: number;
     cache?: { read?: number; write?: number };
   };
+  permission?: PermissionRuleset;
   time?: { created?: number; updated?: number; archived?: number };
+}
+
+async function activateModePolicy(
+  config: OpencodeConfig,
+  directory: string,
+  sessionID: string,
+  mode: AgentMode,
+): Promise<void> {
+  try {
+    const [toolIDs, session, agents] = await Promise.all([
+      request<unknown>(config, "/experimental/tool/ids", { directory }),
+      request<RawSession>(config, `/session/${encodeURIComponent(sessionID)}`, { directory }),
+      request<unknown>(config, "/agent", { directory }),
+    ]);
+    if (!Array.isArray(toolIDs) || toolIDs.length === 0 || toolIDs.some((id) => typeof id !== "string" || !id)) {
+      throw new Error("invalid tool catalogue");
+    }
+    if (session.permission !== undefined && !validRuleset(session.permission)) {
+      throw new Error("invalid session permission rules");
+    }
+    if (!Array.isArray(agents)) throw new Error("invalid agent catalogue");
+    const agent = (agents as RawAgent[]).find((candidate) => candidate?.name === mode);
+    const agentRules = agent?.permission;
+    if (!validRuleset(agentRules)) throw new Error(`missing resolved ${mode} agent policy`);
+
+    const restrictedTools = toolIDs.filter((id): id is string => typeof id === "string" && !PLAN_TOOL_ALLOWLIST.has(id));
+    if (restrictedTools.length === 0) throw new Error("tool catalogue has no restricted tools");
+    const currentRules = session.permission ?? [];
+    const desiredRules = mode === "plan"
+      ? restrictedTools.map((permission) => ({ permission, pattern: "*", action: "deny" as const }))
+      : buildRulesForTools(agentRules, toolIDs);
+    if (mode === "build" && toolIDs.some((tool) => {
+      const names = permissionNames(tool);
+      return !agentRules.some((rule) => names.has(rule.permission));
+    })) {
+      throw new Error("Build agent policy does not cover every discovered tool");
+    }
+    if (rulesEndWith(currentRules, desiredRules)) return;
+    if (mode === "build" && !hasPlanDenial(currentRules, restrictedTools)) return;
+
+    await request<RawSession>(config, `/session/${encodeURIComponent(sessionID)}`, {
+      method: "PATCH",
+      directory,
+      body: { permission: desiredRules },
+    });
+  } catch {
+    throw new ModePolicyActivationError(mode);
+  }
 }
 
 export function toSummary(raw: RawSession, running: boolean): SessionSummary {
@@ -217,13 +319,12 @@ export async function prompt(
   sessionID: string,
   input: PromptInput,
 ): Promise<void> {
-  const tools = input.mode === "plan" ? await planTools(config, directory) : undefined;
+  await activateModePolicy(config, directory, sessionID, input.mode);
   await request<void>(config, `/session/${encodeURIComponent(sessionID)}/prompt_async`, {
     method: "POST",
     directory,
     body: {
       agent: input.mode,
-      ...(tools ? { tools } : {}),
       ...(input.model ? {
         model: { providerID: input.model.providerID, modelID: input.model.modelID },
         ...(input.model.variant ? { variant: input.model.variant } : {}),

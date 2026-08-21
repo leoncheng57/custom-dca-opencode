@@ -19,7 +19,7 @@ import {
   listSessions,
   listTodos,
   prompt,
-  PlanToolDiscoveryError,
+  ModePolicyActivationError,
   type AgentMode,
 } from "../opencode/sessions.js";
 import { createWorktree } from "../opencode/worktrees.js";
@@ -141,7 +141,7 @@ function fail(res: Response, error: unknown, options: { notFoundOn5xx?: boolean 
     res.status(error.status).json({ error: error.message });
     return;
   }
-  if (error instanceof PlanToolDiscoveryError) {
+  if (error instanceof ModePolicyActivationError) {
     res.status(502).json({ error: error.message });
     return;
   }
