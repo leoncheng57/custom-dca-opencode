@@ -1,6 +1,35 @@
 import { describe, expect, it } from "vitest";
 
-import { MAX_ROUTE_LENGTH, MAX_SCREENSHOTS, parseScreenshotBlock, screenshotFilename } from "../scripts/pr-screenshots.js";
+import { decidePublication, MAX_ROUTE_LENGTH, MAX_SCREENSHOTS, parseScreenshotBlock, resolveCaptureConfig, screenshotFilename } from "../scripts/pr-screenshots.js";
+
+describe("screenshot E2E discovery", () => {
+  it("skips ordinary E2E discovery but fails when capture config is required", () => {
+    expect(resolveCaptureConfig({})).toBeNull();
+    expect(() => resolveCaptureConfig({ PR_SCREENSHOT_REQUEST_FILE: "/tmp/request.json" }, true))
+      .toThrow("requires PR_SCREENSHOT_REQUEST_FILE and PR_SCREENSHOT_OUTPUT_DIR");
+    expect(resolveCaptureConfig({
+      PR_SCREENSHOT_REQUEST_FILE: "/tmp/request.json",
+      PR_SCREENSHOT_OUTPUT_DIR: "/tmp/output",
+    }, true)).toEqual({ requestFile: "/tmp/request.json", outputDir: "/tmp/output" });
+  });
+});
+
+describe("trusted screenshot publication", () => {
+  const sameRepository = {
+    repository: "owner/repository",
+    runHeadSha: "a".repeat(40),
+    prHeadSha: "a".repeat(40),
+    prHeadRepository: "owner/repository",
+  };
+
+  it("publishes only a same-repository head bound to the workflow run SHA", () => {
+    expect(decidePublication(sameRepository)).toEqual({ publish: true, reason: "same-repository" });
+    expect(decidePublication({ ...sameRepository, prHeadRepository: "contributor/fork" }))
+      .toEqual({ publish: false, reason: "fork" });
+    expect(decidePublication({ ...sameRepository, prHeadSha: "b".repeat(40) }))
+      .toEqual({ publish: false, reason: "sha-mismatch" });
+  });
+});
 
 describe("PR screenshot requests", () => {
   it("parses routes, full-page mode, comments, and blank lines", () => {

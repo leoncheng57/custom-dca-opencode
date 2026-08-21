@@ -28,7 +28,12 @@ writeFileSync(normalizedRequest, `${JSON.stringify(parsed.requests, null, 2)}\n`
 if (parsed.requests.length > 0) {
   const result = spawnSync(process.platform === "win32" ? "npx.cmd" : "npx", ["playwright", "test", "tests/e2e/screenshots.ui.spec.ts", "--workers=1"], {
     stdio: "inherit",
-    env: { ...process.env, PR_SCREENSHOT_REQUEST_FILE: normalizedRequest, PR_SCREENSHOT_OUTPUT_DIR: outputDir },
+    env: {
+      ...process.env,
+      PR_SCREENSHOT_CAPTURE_REQUIRED: "true",
+      PR_SCREENSHOT_REQUEST_FILE: normalizedRequest,
+      PR_SCREENSHOT_OUTPUT_DIR: outputDir,
+    },
   });
   if (result.error) throw result.error;
   if (result.status !== 0) process.exit(result.status ?? 1);

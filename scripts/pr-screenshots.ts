@@ -28,6 +28,28 @@ export type ScreenshotManifest = {
   }>;
 };
 
+export function resolveCaptureConfig(
+  env: NodeJS.ProcessEnv,
+  required = false,
+): { requestFile: string; outputDir: string } | null {
+  const requestFile = env.PR_SCREENSHOT_REQUEST_FILE;
+  const outputDir = env.PR_SCREENSHOT_OUTPUT_DIR;
+  if (requestFile && outputDir) return { requestFile, outputDir };
+  if (required) throw new Error("screenshot capture requires PR_SCREENSHOT_REQUEST_FILE and PR_SCREENSHOT_OUTPUT_DIR");
+  return null;
+}
+
+export function decidePublication(input: {
+  repository: string;
+  runHeadSha: string;
+  prHeadSha: string;
+  prHeadRepository: string;
+}): { publish: boolean; reason: "same-repository" | "fork" | "sha-mismatch" } {
+  if (input.prHeadSha !== input.runHeadSha) return { publish: false, reason: "sha-mismatch" };
+  if (input.prHeadRepository !== input.repository) return { publish: false, reason: "fork" };
+  return { publish: true, reason: "same-repository" };
+}
+
 function assertRecord(value: unknown, context: string): asserts value is Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${context} must be an object`);
 }

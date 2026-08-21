@@ -3,14 +3,18 @@ import path from "node:path";
 
 import { expect, test } from "@playwright/test";
 
-import { VIEWPORT, type ScreenshotRequest } from "../../scripts/pr-screenshots.js";
+import { resolveCaptureConfig, VIEWPORT, type ScreenshotRequest } from "../../scripts/pr-screenshots.js";
 
-const requestFile = process.env.PR_SCREENSHOT_REQUEST_FILE;
-const outputDir = process.env.PR_SCREENSHOT_OUTPUT_DIR;
-if (!requestFile || !outputDir) throw new Error("run screenshots through npm run screenshots");
-const requests = JSON.parse(readFileSync(requestFile, "utf8")) as ScreenshotRequest[];
+const config = resolveCaptureConfig(process.env, process.env.PR_SCREENSHOT_CAPTURE_REQUIRED === "true");
+const requests = config
+  ? JSON.parse(readFileSync(config.requestFile, "utf8")) as ScreenshotRequest[]
+  : [];
 
 test.describe("requested PR screenshots", () => {
+  if (!config) {
+    test.skip("@shots requires the screenshot runner", () => {});
+    return;
+  }
   for (const request of requests) {
     test(`${request.requestedRoute} @shots`, async ({ page }) => {
       await page.setViewportSize(VIEWPORT);
@@ -33,7 +37,7 @@ test.describe("requested PR screenshots", () => {
       await page.addStyleTag({ content: "*, *::before, *::after { animation: none !important; transition: none !important; caret-color: transparent !important; }" });
       await page.evaluate(async () => await document.fonts.ready);
       await expect(page.getByTestId("opencode-error")).toHaveCount(0);
-      await page.screenshot({ path: path.join(outputDir, request.filename), fullPage: request.fullPage });
+      await page.screenshot({ path: path.join(config.outputDir, request.filename), fullPage: request.fullPage });
     });
   }
 });

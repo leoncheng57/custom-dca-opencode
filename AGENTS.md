@@ -150,7 +150,9 @@ publisher treats the artifact as untrusted, validates its manifest and PNGs, wri
 `gh-pages:pr-screenshots/pr-<number>/`, and maintains one `<!-- pr-screenshots -->`
 comment with public raw links and an artifact fallback. The close workflow uses
 `pull_request_target` only for trusted GitHub API cleanup; it never checks out or runs PR
-code. Never combine write permissions with execution of a fork checkout.
+code. The publisher also requires the PR head repository to equal this repository and
+binds the artifact to the workflow run SHA. Fork artifacts may be linked but their bytes
+are never published. Never combine write permissions with execution of a fork checkout.
 
 Fork capture is safe but may require a maintainer to approve the read-only Actions run.
 If Actions are unavailable, capture locally and attach images manually. Local capture:
