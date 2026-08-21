@@ -79,8 +79,8 @@ export function WorkspacePanels({ directory, onClose }: { directory: string; onC
           <div className="flex gap-2 border-b border-[var(--color-border-default)] p-2">
             {(["git", "branch"] as const).map((value) => <Button key={value} size="sm" variant={mode === value ? "primary" : "secondary"} onClick={() => setMode(value)} data-testid={`opencode-changes-${value}`}>{value === "git" ? "Working tree" : "Branch"}</Button>)}
           </div>
-          <div className="flex min-h-0 flex-1">
-            <div className="w-52 shrink-0 overflow-y-auto border-r border-[var(--color-border-default)] p-2">
+          <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
+            <div className="h-44 w-full shrink-0 overflow-y-auto border-b border-[var(--color-border-default)] p-2 sm:h-auto sm:w-52 sm:border-b-0 sm:border-r" data-testid="opencode-changes-rail">
               {changes.map((change, index) => <button key={change.file} type="button" onClick={() => setSelectedChange(index)} className="block w-full truncate rounded p-2 text-left text-xs hover:bg-[var(--hh-row-hover)]" data-testid="opencode-change-file">{change.file}<span className="ml-1 text-[var(--color-text-muted)]">+{change.additions} -{change.deletions}</span></button>)}
               <h3 className="mb-1 mt-4 text-[10px] uppercase text-[var(--color-text-muted)]">Recent commits</h3>
               {commits.map((commit) => <div key={commit.sha} className="mb-2 text-xs"><code>{commit.shortSha}</code> {commit.subject}</div>)}

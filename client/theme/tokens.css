@@ -119,6 +119,8 @@
 .prose-markdown {
   color: var(--color-text-default);
   line-height: 1.6;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .prose-markdown :where(h1, h2, h3, h4) {
   font-weight: 600;
@@ -135,6 +137,7 @@
   color: var(--color-text-info);
   text-decoration: underline;
   text-underline-offset: 2px;
+  overflow-wrap: anywhere;
 }
 .prose-markdown :where(code) {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
@@ -143,6 +146,37 @@
   border: 1px solid var(--color-border-default);
   border-radius: 4px;
   padding: 0.1em 0.35em;
+}
+.prose-markdown :where(pre, table) {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+.prose-markdown :where(pre) {
+  margin: 0.8em 0;
+  padding: 0.75em;
+  background: var(--color-background-surface-neutral-muted);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--border-radius-8);
+  white-space: pre;
+}
+.prose-markdown :where(pre code) {
+  display: inline;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  white-space: inherit;
+}
+.prose-markdown :where(table) {
+  margin: 0.8em 0;
+  border-collapse: collapse;
+  white-space: nowrap;
+}
+.prose-markdown :where(th, td) {
+  padding: 0.4em 0.6em;
+  border: 1px solid var(--color-border-default);
+  text-align: left;
 }
 .prose-markdown :where(hr) {
   border: 0;

@@ -52,8 +52,10 @@ export function mergeEvents(
   let changed = false;
   for (const event of incoming) {
     const existing = byId.get(event.id);
-    if (!existing || fingerprint(existing) !== fingerprint(event)) changed = true;
-    byId.set(event.id, event);
+    if (!existing || fingerprint(existing) !== fingerprint(event)) {
+      changed = true;
+      byId.set(event.id, event);
+    }
   }
   if (!changed) return previous;
 

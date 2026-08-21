@@ -14,7 +14,7 @@
 // reach for `react-markdown` + `remark-gfm` rather than extending
 // this regex chain.
 
-import { Fragment } from "react";
+import { Fragment, memo, useMemo } from "react";
 
 import { cn } from "./utils.js";
 
@@ -201,15 +201,16 @@ interface MarkdownProps {
   untrusted?: boolean;
 }
 
-export function Markdown({ source, className, untrusted }: MarkdownProps) {
+export const Markdown = memo(function Markdown({ source, className, untrusted }: MarkdownProps) {
+  const html = useMemo(() => markdownToHtml(source, { untrusted }), [source, untrusted]);
   if (!source || !source.trim()) return null;
   return (
     <div
       className={cn("prose-markdown", className)}
-      dangerouslySetInnerHTML={{ __html: markdownToHtml(source, { untrusted }) }}
+      dangerouslySetInnerHTML={{ __html: html }}
     />
   );
-}
+});
 
 /**
  * Render plain text with bare http(s) URLs turned into clickable links.

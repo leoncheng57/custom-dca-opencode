@@ -379,10 +379,10 @@ test.describe("composer", () => {
     await fetch(`${MOCK_URL}/test/permission?directory=${encodeURIComponent(DIR)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, sessionID: "ses_mock_running", permission: "external_directory", patterns: [`${DIR}/*`] }),
+      body: JSON.stringify({ id, sessionID: "ses_mock_running", permission: "external_directory", patterns: [`${DIR}/${id}/*`] }),
     });
     await page.goto(`/sessions/ses_mock_running?directory=${encodeURIComponent(DIR)}`);
-    const request = page.getByTestId("opencode-permission-request").filter({ hasText: "external_directory" });
+    const request = page.getByTestId("opencode-permission-request").filter({ hasText: id });
     await expect(request).toBeVisible();
     await request.getByTestId("opencode-permission-once").click();
     await expect(request).toHaveCount(0);
@@ -397,10 +397,10 @@ test.describe("composer", () => {
     await fetch(`${MOCK_URL}/test/permission?directory=${encodeURIComponent(DIR)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, sessionID: "ses_mock_running", permission: "bash", patterns: ["npm test"] }),
+      body: JSON.stringify({ id, sessionID: "ses_mock_running", permission: "bash", patterns: [`npm test ${id}`] }),
     });
     await page.goto(`/sessions/ses_mock_running?directory=${encodeURIComponent(DIR)}`);
-    const request = page.getByTestId("opencode-permission-request").filter({ hasText: "npm test" });
+    const request = page.getByTestId("opencode-permission-request").filter({ hasText: id });
     await expect(request).toBeVisible();
     await request.getByTestId("opencode-permission-once").click();
     await expect(page.getByTestId("opencode-permission-error")).toContainText("mock permission reply failed");
@@ -530,7 +530,11 @@ test.describe("composer", () => {
 
 test.describe("mobile", () => {
   // Mobile over Tailscale is a first-class surface, not an afterthought.
-  test.use({ viewport: { width: 390, height: 740 } });
+  test.use({ viewport: { width: 390, height: 740 }, hasTouch: true });
+
+  test.beforeEach(async () => {
+    await fetch(`${MOCK_URL}/test/mobile/reset`, { method: "POST" });
+  });
 
   test("hub is usable on a phone", async ({ page }) => {
     await page.goto(hub);
@@ -545,15 +549,108 @@ test.describe("mobile", () => {
 
   test("transcript is the only scrolling region", async ({ page }) => {
     await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
-    await expect(page.getByTestId("opencode-transcript")).toBeVisible();
+    const transcript = page.getByTestId("opencode-transcript");
+    await expect(transcript).toBeVisible();
     await expect(page.getByTestId("opencode-composer-mode")).toBeVisible();
     const autoPermissions = page.getByTestId("opencode-conversation-auto-permissions");
     await expect(autoPermissions).toContainText("Auto permissions: OFF");
     expect((await autoPermissions.boundingBox())?.height).toBeLessThanOrEqual(72);
-    const overflow = await page.evaluate(
-      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
-    );
-    expect(overflow).toBeLessThanOrEqual(1);
+    const containment = await page.evaluate(() => ({
+      horizontalOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      bodyOverscroll: getComputedStyle(document.body).overscrollBehaviorY,
+      documentScrollTop: document.scrollingElement?.scrollTop ?? 0,
+    }));
+    expect(containment.horizontalOverflow).toBeLessThanOrEqual(1);
+    expect(containment.bodyOverscroll).toBe("none");
+    expect(containment.documentScrollTop).toBe(0);
+    expect(await transcript.evaluate((element) => getComputedStyle(element).overscrollBehaviorY)).toBe("contain");
+  });
+
+  test("gives the composer useful typing space and keeps controls reachable", async ({ page }) => {
+    await page.goto(`/sessions/ses_mock_mobile?directory=${encodeURIComponent(DIR)}`);
+    const composer = page.getByTestId("opencode-composer");
+    const reminder = page.getByTestId("composer-reminder-select");
+    const [composerBox, reminderBox, attachBox, sendBox] = await Promise.all([
+      composer.boundingBox(),
+      reminder.boundingBox(),
+      page.getByTestId("opencode-attach-label").boundingBox(),
+      page.getByTestId("opencode-send").boundingBox(),
+    ]);
+    expect(composerBox?.width).toBeGreaterThan((reminderBox?.width ?? 0) * 2);
+    expect(composerBox?.height).toBeGreaterThanOrEqual(96);
+    expect(attachBox?.height).toBeGreaterThanOrEqual(44);
+    expect(sendBox?.height).toBeGreaterThanOrEqual(44);
+    await expect(composer).toHaveAttribute("enterkeyhint", "enter");
+    await expect(composer).toHaveAttribute("autocapitalize", "none");
+  });
+
+  test("contains hostile markdown width inside local code and table scrollers", async ({ page }) => {
+    await page.goto(`/sessions/ses_mock_mobile?directory=${encodeURIComponent(DIR)}`);
+    const transcript = page.getByTestId("opencode-transcript");
+    await expect(transcript.getByText("Mobile width containment fixture.")).toBeVisible();
+    const containment = await transcript.evaluate((element) => {
+      const code = element.querySelector(".prose-markdown pre") as HTMLElement;
+      const table = element.querySelector(".prose-markdown table") as HTMLElement;
+      const prose = element.querySelector(".prose-markdown") as HTMLElement;
+      return {
+        transcriptOverflow: element.scrollWidth - element.clientWidth,
+        proseOverflow: prose.scrollWidth - prose.clientWidth,
+        codeScrollsLocally: code.scrollWidth > code.clientWidth,
+        tableScrollsLocally: table.scrollWidth > table.clientWidth,
+      };
+    });
+    expect(containment.transcriptOverflow).toBeLessThanOrEqual(1);
+    expect(containment.proseOverflow).toBeLessThanOrEqual(1);
+    expect(containment.codeScrollsLocally).toBe(true);
+    expect(containment.tableScrollsLocally).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+  });
+
+  test("does not yank a scrolled-up reader and offers jump to latest for a growing live row", async ({ page }) => {
+    await page.goto(`/sessions/ses_mock_mobile?directory=${encodeURIComponent(DIR)}`);
+    const transcript = page.getByTestId("opencode-transcript");
+    await expect.poll(() => transcript.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)).toBeLessThanOrEqual(2);
+    await transcript.evaluate((element) => {
+      element.scrollTop = 240;
+      element.dispatchEvent(new Event("scroll", { bubbles: true }));
+    });
+    const before = await transcript.evaluate((element) => element.scrollTop);
+
+    await fetch(`${MOCK_URL}/test/mobile/grow`, { method: "POST" });
+    await expect(transcript.getByText("New live activity from the running agent.")).toBeAttached();
+    await expect(page.getByTestId("opencode-jump-to-latest")).toBeVisible();
+    expect(await transcript.evaluate((element) => element.scrollTop)).toBeCloseTo(before, 0);
+
+    await page.getByTestId("opencode-jump-to-latest").click();
+    await expect.poll(() => transcript.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)).toBeLessThanOrEqual(2);
+    await expect(page.getByTestId("opencode-jump-to-latest")).toHaveCount(0);
+  });
+
+  test("does not show Jump to latest merely because a scrolled-up run goes idle", async ({ page }) => {
+    await page.goto(`/sessions/ses_mock_mobile?directory=${encodeURIComponent(DIR)}`);
+    const transcript = page.getByTestId("opencode-transcript");
+    await expect(page.getByText("running", { exact: true })).toBeVisible();
+    await transcript.evaluate((element) => {
+      element.scrollTop = 240;
+      element.dispatchEvent(new Event("scroll", { bubbles: true }));
+    });
+    await expect(page.getByTestId("opencode-jump-to-latest")).toHaveCount(0);
+
+    await fetch(`${MOCK_URL}/test/mobile/idle`, { method: "POST" });
+    await expect(page.getByText("running", { exact: true })).toHaveCount(0);
+    await expect(page.getByTestId("opencode-jump-to-latest")).toHaveCount(0);
+  });
+
+  test("stacks the Changes rail above the diff at phone width", async ({ page }) => {
+    await page.goto(`/sessions/ses_mock_mobile?directory=${encodeURIComponent(DIR)}`);
+    await page.getByTestId("opencode-workspace-open").click();
+    await page.getByTestId("opencode-workspace-changes").click();
+    const rail = page.getByTestId("opencode-changes-rail");
+    const diff = page.getByTestId("opencode-diff-viewer");
+    await expect(rail).toBeVisible();
+    const [railBox, diffBox] = await Promise.all([rail.boundingBox(), diff.boundingBox()]);
+    expect(diffBox?.y).toBeGreaterThanOrEqual((railBox?.y ?? 0) + (railBox?.height ?? 0) - 1);
+    expect(railBox?.width).toBeCloseTo(diffBox?.width ?? 0, 0);
   });
 
   test("opens session tasks, commands, and reviews in a dismissible mobile sheet", async ({ page }) => {
