@@ -259,7 +259,18 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
 
     if (rest === "/prompt_async" && req.method === "POST") {
       if (!session) return unknownError(res);
-      res.writeHead(204).end(); // 204, no body — the real contract.
+      void body(req).then((input) => {
+        const parts = Array.isArray(input.parts) ? input.parts as Array<Record<string, unknown>> : [];
+        const text = parts.find((part) => part.type === "text")?.text;
+        if (typeof text === "string") {
+          const now = Date.now();
+          fixture.push({
+            info: { id: `msg_user_${now}`, role: "user", time: { created: now } },
+            parts: [{ id: `prt_user_${now}`, messageID: `msg_user_${now}`, type: "text", text }],
+          });
+        }
+        res.writeHead(204).end(); // 204, no body — the real contract.
+      });
       return;
     }
     if (rest === "/abort" && req.method === "POST") {

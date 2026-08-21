@@ -22,6 +22,8 @@ import {
 } from "../opencode/sessions.js";
 import { createWorktree } from "../opencode/worktrees.js";
 import { getModelContextLimit } from "../opencode/config.js";
+import { reminderCatalogue } from "../reminders/loader.js";
+import { isValidReminderId, type ReminderPreset } from "../reminders/reminders.js";
 
 /** Resolve and validate the project scope for a request. */
 async function directoryOf(req: Request): Promise<string> {
@@ -64,6 +66,14 @@ function promptAttachments(value: unknown): Array<{ filename: string; mime: stri
     }
     return { filename, mime, url };
   });
+}
+
+function promptReminder(value: unknown): ReminderPreset | undefined {
+  if (value === undefined) return undefined;
+  if (!isValidReminderId(value)) throw new HttpError(400, "reminder must be a valid preset id");
+  const preset = reminderCatalogue().find((item) => item.id === value);
+  if (!preset) throw new HttpError(400, `unknown reminder "${value}"`);
+  return preset;
 }
 
 /**
@@ -204,7 +214,7 @@ export function sessionRoutes(config: OpencodeConfig, bus: EventBus): Router {
     "/sessions/:id/prompt",
     sessionRoute(async (req, res) => {
       const directory = await directoryOf(req);
-      const { text, agent, model, attachments } = req.body ?? {};
+      const { text, agent, model, attachments, reminder } = req.body ?? {};
       if (typeof text !== "string" || !text.trim()) {
         throw new HttpError(400, "'text' is required");
       }
@@ -213,6 +223,7 @@ export function sessionRoutes(config: OpencodeConfig, bus: EventBus): Router {
         agent,
         model,
         attachments: promptAttachments(attachments),
+        reminder: promptReminder(reminder),
       });
       // 202: accepted, running server-side. Progress arrives over SSE.
       res.status(202).json({ accepted: true });

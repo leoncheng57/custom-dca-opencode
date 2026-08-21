@@ -47,7 +47,7 @@ test.describe("transcript", () => {
   test("renders every row kind from the fixture", async ({ page }) => {
     await page.goto(conversation);
     await expect(page.getByTestId("opencode-transcript")).toBeVisible();
-    await expect(page.getByTestId("opencode-user-message")).toBeVisible();
+    await expect(page.getByTestId("opencode-user-message").first()).toBeVisible();
     await expect(page.getByTestId("opencode-agent-message")).toBeVisible();
     await expect(page.getByTestId("opencode-thought")).toHaveCount(1);
     await expect(page.getByTestId("opencode-status-separator").first()).toBeVisible();
@@ -136,6 +136,27 @@ test.describe("composer", () => {
   test("disables send when empty", async ({ page }) => {
     await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
     await expect(page.getByTestId("opencode-send")).toBeDisabled();
+  });
+
+  test("attaches one reminder, round-trips it, and resets the picker", async ({ page }) => {
+    const text = `push safely ${Date.now()}`;
+    await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
+    const picker = page.getByTestId("composer-reminder-select");
+    await expect(picker).toBeVisible();
+    await picker.selectOption("no-force-push");
+    await page.getByTestId("opencode-composer").fill(text);
+    await page.getByTestId("opencode-send").click();
+    await expect(picker).toHaveValue("");
+
+    const user = page.getByTestId("opencode-user-message").filter({ hasText: text });
+    await expect(user).toBeVisible();
+    await expect(user.getByTestId("opencode-user-message-body")).toHaveText(text);
+    const reminder = user.getByTestId("opencode-manual-reminder");
+    await expect(reminder).toBeVisible();
+    await expect(reminder).toHaveAttribute("open", "");
+    await expect(reminder).toContainText("no-force-push");
+    await expect(reminder).toContainText("Do not force-push");
+    await expect(user).not.toContainText("<reminder");
   });
 });
 

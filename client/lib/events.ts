@@ -25,6 +25,7 @@ import type {
   TranscriptEvent,
   UsageSnapshot,
 } from "./transcript.js";
+import { splitReminderTags } from "./reminders.js";
 
 // ── Minimal structural types for what we consume ────────────────────────────
 // Intentionally not imported from the SDK: the client bundle should not depend
@@ -181,9 +182,20 @@ function normalizePart(
     case "text": {
       const text = part.text?.trim();
       if (!text) return null;
-      return isUser
-        ? { kind: "user", id, messageId, timestamp: iso(created, created), text, attachments: [] }
-        : { kind: "agent", id, messageId, timestamp: iso(created, created), text };
+      if (isUser) {
+        const split = splitReminderTags(text);
+        if (!split.text && split.reminders.length === 0) return null;
+        return {
+          kind: "user",
+          id,
+          messageId,
+          timestamp: iso(created, created),
+          text: split.text,
+          reminders: split.reminders,
+          attachments: [],
+        };
+      }
+      return { kind: "agent", id, messageId, timestamp: iso(created, created), text };
     }
 
     case "reasoning": {

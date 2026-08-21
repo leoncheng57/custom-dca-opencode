@@ -35,6 +35,8 @@ interface TranscriptBase {
 export interface UserEvent extends TranscriptBase {
   kind: "user";
   text: string;
+  /** Per-message reminder blocks split from the persisted text sentinel. */
+  reminders: Array<{ name: string; body: string }>;
   /** Files the user referenced or attached, if any. */
   attachments: Attachment[];
 }

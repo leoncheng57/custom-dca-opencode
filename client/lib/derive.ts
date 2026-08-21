@@ -23,6 +23,7 @@ function fingerprint(event: TranscriptEvent): string {
     case "tool":
       return `${event.status}|${event.output?.length ?? 0}|${event.error ?? ""}|${event.durationMs ?? ""}`;
     case "user":
+      return `${event.text.length}|${event.reminders.map((reminder) => `${reminder.name}:${reminder.body}`).join("|")}`;
     case "agent":
     case "thought":
       return String(event.text.length);

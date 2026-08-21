@@ -28,6 +28,7 @@ import { notificationRoutes } from "./routes/notifications.js";
 import { PreferenceStore } from "./notifications/preferences.js";
 import { NotificationService } from "./notifications/service.js";
 import { forgeRoutes } from "./routes/forge.js";
+import { reminderRoutes } from "./routes/reminders.js";
 
 dotenv.config();
 
@@ -54,6 +55,7 @@ app.use("/api", workspaceRoutes(opencode));
 app.use("/api", worktreeRoutes(opencode, bus));
 app.use("/api", notificationRoutes(notificationStore));
 app.use("/api", forgeRoutes());
+app.use("/api", reminderRoutes());
 const opencodePort = Number(new URL(opencode.baseUrl).port || 80);
 app.use("/api", previewRoutes(parseAllowedPorts(process.env.PREVIEW_ALLOWED_PORTS, [PORT, opencodePort])));
 

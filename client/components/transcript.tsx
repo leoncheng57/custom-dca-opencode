@@ -88,10 +88,25 @@ function Attachments({ items }: { items: Attachment[] }) {
 function UserBubble({ event }: { event: UserEvent }) {
   return (
     <div className="flex flex-col items-end gap-1" data-kind="user" data-testid="opencode-user-message">
-      <div className="max-w-[90%] rounded-2xl bg-[var(--color-background-muted)] px-4 py-2.5 text-sm sm:max-w-[75%]">
-        <pre className="whitespace-pre-wrap break-words font-sans leading-relaxed">{event.text}</pre>
-        <Attachments items={event.attachments} />
-      </div>
+      {event.reminders.map((reminder, index) => (
+        <details
+          open
+          key={`${reminder.name}-${index}`}
+          className="max-w-[90%] rounded-lg border border-[var(--color-border-default)] p-2 text-left text-[11px] text-[var(--color-text-muted)] sm:max-w-[75%]"
+          data-testid="opencode-manual-reminder"
+        >
+          <summary className="cursor-pointer font-medium" data-testid="opencode-manual-reminder-toggle">
+            reminder attached - {reminder.name}
+          </summary>
+          <pre className="mt-1 whitespace-pre-wrap break-words font-sans leading-relaxed">{reminder.body}</pre>
+        </details>
+      ))}
+      {(event.text || event.attachments.length > 0) && (
+        <div className="max-w-[90%] rounded-2xl bg-[var(--color-background-muted)] px-4 py-2.5 text-sm sm:max-w-[75%]" data-testid="opencode-user-message-body">
+          {event.text && <pre className="whitespace-pre-wrap break-words font-sans leading-relaxed">{event.text}</pre>}
+          <Attachments items={event.attachments} />
+        </div>
+      )}
       <TimeLabel timestamp={event.timestamp} />
     </div>
   );
