@@ -1,0 +1,428 @@
+// client/components/transcript.tsx
+//
+// Transcript row components. Every one of these consumes ONLY the frozen
+// TranscriptEvent contract — none of them imports an SDK type or touches a raw
+// OpenCode Part. That wall is what made this migration a small adapter rewrite
+// instead of a rebuild; see client/lib/transcript.ts.
+
+import { useEffect, useState } from "react";
+
+import { Markdown } from "../ds/markdown.js";
+import { cn } from "../ds/utils.js";
+import { formatClockTime, formatDurationMs, formatRelative, type DisplayItem, type RunningActivity } from "../lib/derive.js";
+import type {
+  Attachment,
+  AgentEvent,
+  ErrorEvent,
+  StatusEvent,
+  ThoughtEvent,
+  ToolEvent,
+  ToolStatus,
+  TranscriptEvent,
+  UserEvent,
+} from "../lib/transcript.js";
+
+// ── Shared bits ─────────────────────────────────────────────────────────────
+
+function TimeLabel({ timestamp, className }: { timestamp: string; className?: string }) {
+  if (!timestamp) return null;
+  const display = formatRelative(timestamp) || formatClockTime(timestamp);
+  if (!display) return null;
+  return (
+    <time
+      dateTime={timestamp}
+      title={new Date(timestamp).toLocaleString()}
+      className={cn(
+        "shrink-0 whitespace-nowrap text-[10px] tabular-nums text-[var(--color-text-muted)] opacity-70",
+        className,
+      )}
+      data-testid="opencode-event-time"
+    >
+      {display}
+    </time>
+  );
+}
+
+/**
+ * Attachments render as filename chips, never as <img src={url}>.
+ *
+ * `Attachment.url` is explicitly "not necessarily an http URL" and can point
+ * anywhere the agent referenced. Inlining it would turn a transcript into an
+ * SSRF / tracking-pixel surface. Only a self-contained data: image is safe to
+ * display, and even then we gate on the mime type.
+ */
+function Attachments({ items }: { items: Attachment[] }) {
+  if (items.length === 0) return null;
+  return (
+    <div className="mt-2 flex flex-wrap gap-2" data-testid="opencode-attachments">
+      {items.map((item, index) => {
+        const inlineable =
+          item.mime?.startsWith("image/") && item.url?.startsWith("data:image/");
+        if (inlineable) {
+          return (
+            <img
+              key={`${item.filename}-${index}`}
+              src={item.url}
+              alt={item.filename}
+              className="max-h-64 max-w-full rounded-lg border border-[var(--color-border-default)] object-contain"
+            />
+          );
+        }
+        return (
+          <span
+            key={`${item.filename}-${index}`}
+            title={item.path ?? item.filename}
+            className="inline-flex items-center gap-1 rounded-full border border-[var(--color-border-default)] px-2 py-0.5 text-[11px] text-[var(--color-text-muted)]"
+          >
+            <span aria-hidden>📎</span>
+            <span className="max-w-48 truncate">{item.filename}</span>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Rows ────────────────────────────────────────────────────────────────────
+
+function UserBubble({ event }: { event: UserEvent }) {
+  return (
+    <div className="flex flex-col items-end gap-1" data-kind="user" data-testid="opencode-user-message">
+      <div className="max-w-[90%] rounded-2xl bg-[var(--color-background-muted)] px-4 py-2.5 text-sm sm:max-w-[75%]">
+        <pre className="whitespace-pre-wrap break-words font-sans leading-relaxed">{event.text}</pre>
+        <Attachments items={event.attachments} />
+      </div>
+      <TimeLabel timestamp={event.timestamp} />
+    </div>
+  );
+}
+
+function AgentProse({ event }: { event: AgentEvent }) {
+  return (
+    <div className="text-sm leading-relaxed" data-kind="agent" data-testid="opencode-agent-message">
+      <Markdown source={event.text} />
+      <div className="mt-1 flex justify-end">
+        <TimeLabel timestamp={event.timestamp} />
+      </div>
+    </div>
+  );
+}
+
+export function ThoughtRow({
+  text,
+  durationMs,
+  live = false,
+}: {
+  text: string;
+  durationMs?: number;
+  live?: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const firstLine = text.split("\n").find((line) => line.trim().length > 0)?.trim() ?? "";
+  const hasMore = text.trim() !== firstLine;
+  const duration = formatDurationMs(durationMs);
+
+  return (
+    <div data-kind="thought" data-testid={live ? "opencode-thought-live" : "opencode-thought"}>
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
+        className="inline-flex max-w-full items-center gap-1.5 rounded px-1 py-0.5 text-[11px] italic text-[var(--color-text-muted)] hover:text-[var(--color-text-default)]"
+      >
+        <span aria-hidden>{expanded ? "▾" : "▸"}</span>
+        <span className="shrink-0 font-medium not-italic">Thought</span>
+        {/* The predecessor could not show this: OpenHands persisted only a
+            completion timestamp, so any figure would have been invented.
+            OpenCode reports both bounds. */}
+        {duration && (
+          <span className="shrink-0 tabular-nums opacity-70 not-italic">{duration}</span>
+        )}
+        {!expanded && firstLine && (
+          <span className="truncate opacity-80">
+            {firstLine}
+            {hasMore ? "…" : ""}
+          </span>
+        )}
+        {live && <span className="shrink-0 not-italic opacity-60">▍</span>}
+      </button>
+      {expanded && (
+        <div className="mt-1 whitespace-pre-wrap break-words border-l border-[var(--color-border-default)] pl-3 text-[11px] italic leading-relaxed text-[var(--color-text-muted)]">
+          {text}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const TOOL_BULLET: Record<ToolStatus, string> = {
+  pending: "text-[var(--color-text-muted)]",
+  running: "text-[var(--color-text-info)] animate-pulse",
+  completed: "text-[var(--color-text-success)]",
+  error: "text-[var(--color-text-danger)]",
+};
+
+export function ToolCallRow({ event, wrap }: { event: ToolEvent; wrap: boolean }) {
+  const [expanded, setExpanded] = useState(false);
+  const failed = event.status === "error";
+  const duration = formatDurationMs(event.durationMs);
+  const preClass = wrap ? "whitespace-pre-wrap break-words" : "thin-scrollbar overflow-x-auto";
+
+  return (
+    <div data-kind="tool" data-testid="opencode-tool" data-status={event.status}>
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
+        className={cn(
+          "inline-flex max-w-full items-center gap-1.5 rounded bg-[var(--color-background-muted)] px-2 py-0.5 text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-text-default)]",
+          failed && "border border-[var(--color-border-danger)]",
+        )}
+      >
+        <span aria-hidden>{expanded ? "▾" : "▸"}</span>
+        <span className={TOOL_BULLET[event.status]} aria-hidden>
+          ●
+        </span>
+        <span className="shrink-0 font-medium">{event.name}</span>
+        {event.title ? (
+          <span className="min-w-0 truncate" data-testid="opencode-tool-summary">
+            {event.title}
+          </span>
+        ) : event.detail ? (
+          <span className="min-w-0 truncate font-mono" data-testid="opencode-tool-detail">
+            {event.detail}
+          </span>
+        ) : null}
+        {duration && (
+          <span
+            className="shrink-0 tabular-nums opacity-70"
+            title="Execution time"
+            data-testid="opencode-tool-duration"
+          >
+            {duration}
+          </span>
+        )}
+        <TimeLabel timestamp={event.timestamp} />
+      </button>
+
+      {expanded && (
+        <div className="mt-1 space-y-1">
+          {event.detail && event.title && (
+            <pre
+              className={cn(
+                "rounded bg-[var(--color-background-muted)] p-2 font-mono text-[11px]",
+                preClass,
+              )}
+            >
+              <code>{event.detail}</code>
+            </pre>
+          )}
+          <pre
+            className={cn(
+              "rounded p-2 font-mono text-[11px]",
+              preClass,
+              failed
+                ? "bg-[var(--color-background-surface-danger-muted)]"
+                : "bg-[var(--color-background-muted)] opacity-90",
+            )}
+          >
+            <code>{event.error ?? event.output ?? "(no output)"}</code>
+          </pre>
+          <Attachments items={event.attachments} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StatusSeparator({ event }: { event: StatusEvent }) {
+  return (
+    <div
+      className="flex items-center gap-3 text-[10px] uppercase tracking-wide text-[var(--color-text-muted)] opacity-70"
+      data-kind="status"
+      data-testid="opencode-status-separator"
+    >
+      <span className="h-px flex-1 bg-[var(--color-border-default)]" aria-hidden />
+      <span>
+        {event.label}
+        {event.detail && <span className="opacity-70"> · {event.detail}</span>}
+        {event.timestamp && (
+          <>
+            {" · "}
+            <time dateTime={event.timestamp}>{formatClockTime(event.timestamp)}</time>
+          </>
+        )}
+      </span>
+      <span className="h-px flex-1 bg-[var(--color-border-default)]" aria-hidden />
+    </div>
+  );
+}
+
+function ErrorCard({ event }: { event: ErrorEvent }) {
+  return (
+    <div
+      className="rounded-xl border border-[var(--color-border-danger)] bg-[var(--color-background-surface-danger-muted)] p-3 text-sm"
+      data-kind="error"
+      data-testid="opencode-error"
+    >
+      <div className="mb-1 flex items-center justify-between gap-2 text-[10px] font-medium uppercase tracking-wide text-[var(--color-text-danger)]">
+        <span>Error</span>
+        <TimeLabel timestamp={event.timestamp} className="text-[var(--color-text-danger)]" />
+      </div>
+      <pre className="whitespace-pre-wrap break-words font-sans leading-relaxed">{event.message}</pre>
+    </div>
+  );
+}
+
+function ActionGroupRow({
+  calls,
+  wrap,
+  expanded,
+  onToggle,
+}: {
+  calls: ToolEvent[];
+  wrap: boolean;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const last = calls[calls.length - 1];
+  return (
+    <div data-kind="action-group" data-testid="opencode-action-group">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={expanded}
+        data-testid="opencode-action-group-toggle"
+        className="inline-flex max-w-full items-center gap-1.5 rounded px-1 py-0.5 text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-text-default)]"
+      >
+        <span aria-hidden>{expanded ? "▾" : "▸"}</span>
+        <span>{calls.length} actions completed</span>
+        <TimeLabel timestamp={last.timestamp} />
+      </button>
+      {expanded && (
+        <div className="mt-1.5 space-y-1.5 border-l border-[var(--color-border-default)] pl-3">
+          {calls.map((call) => (
+            <div key={call.id} data-event-id={call.id}>
+              <ToolCallRow event={call} wrap={wrap} />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TranscriptRow({ event, wrap }: { event: TranscriptEvent; wrap: boolean }) {
+  switch (event.kind) {
+    case "user":
+      return <UserBubble event={event} />;
+    case "agent":
+      return <AgentProse event={event} />;
+    case "thought":
+      return <ThoughtRow text={event.text} durationMs={event.durationMs} />;
+    case "tool":
+      return <ToolCallRow event={event} wrap={wrap} />;
+    case "status":
+      return <StatusSeparator event={event} />;
+    case "error":
+      return <ErrorCard event={event} />;
+    default:
+      // Forward compatibility: an unknown kind renders nothing rather than
+      // crashing the transcript.
+      return null;
+  }
+}
+
+export function RunningIndicator({ activity }: { activity: RunningActivity }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const elapsed = activity.since ? formatDurationMs(now - Date.parse(activity.since)) : null;
+  const detail =
+    activity.kind === "tool" ? activity.detail.replace(/\s+/g, " ").trim() : "";
+
+  return (
+    <div className="text-xs text-[var(--color-text-muted)]" data-testid="opencode-running">
+      <div className="flex items-center gap-2">
+        <svg
+          className="shrink-0 animate-spin"
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          aria-hidden
+        >
+          <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+        </svg>
+        {activity.kind === "tool" ? (
+          <span className="min-w-0 truncate" data-testid="opencode-running-tool">
+            Running {activity.name}
+            {detail && (
+              <>
+                : <code className="font-mono text-[11px]">{detail.length > 90 ? `${detail.slice(0, 90)}…` : detail}</code>
+              </>
+            )}
+            {elapsed && <span className="opacity-70"> ({elapsed})</span>}
+          </span>
+        ) : (
+          <span data-testid="opencode-running-thinking">
+            Thinking…
+            {elapsed && <span className="opacity-70"> no new events for {elapsed}</span>}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Vertical rhythm: related actions sit tight, turns get room to breathe. */
+function rowSpacing(previous: DisplayItem | undefined, item: DisplayItem): string {
+  if (!previous) return "";
+  const isAction = (candidate: DisplayItem) =>
+    candidate.type === "actionGroup" ||
+    (candidate.type === "event" && candidate.event.kind === "tool");
+  if (isAction(previous) && isAction(item)) return "mt-1.5";
+  if (item.type === "event" && item.event.kind === "status") return "mt-5";
+  return "mt-6";
+}
+
+export function Transcript({
+  items,
+  wrap,
+  collapsedGroups,
+  onToggleGroup,
+}: {
+  items: DisplayItem[];
+  wrap: boolean;
+  collapsedGroups: Record<string, boolean>;
+  onToggleGroup: (id: string) => void;
+}) {
+  return (
+    <>
+      {items.map((item, index) => (
+        <div
+          key={item.id}
+          data-event-id={item.type === "actionGroup" ? undefined : item.id}
+          className={rowSpacing(items[index - 1], item)}
+        >
+          {item.type === "actionGroup" ? (
+            <ActionGroupRow
+              calls={item.calls}
+              wrap={wrap}
+              expanded={collapsedGroups[item.id] !== true}
+              onToggle={() => onToggleGroup(item.id)}
+            />
+          ) : (
+            <TranscriptRow event={item.event} wrap={wrap} />
+          )}
+        </div>
+      ))}
+    </>
+  );
+}

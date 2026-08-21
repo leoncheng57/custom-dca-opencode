@@ -1,0 +1,221 @@
+[
+  {
+    "info": {
+      "id": "msg_user_001",
+      "sessionID": "ses_fixture",
+      "role": "user",
+      "time": { "created": 1787000000000 },
+      "summary": { "diffs": [] },
+      "agent": "build",
+      "model": { "providerID": "anthropic", "modelID": "claude-opus-5" }
+    },
+    "parts": [
+      {
+        "id": "prt_text_001",
+        "sessionID": "ses_fixture",
+        "messageID": "msg_user_001",
+        "type": "text",
+        "text": "Add a health endpoint to the server."
+      },
+      {
+        "id": "prt_file_001",
+        "sessionID": "ses_fixture",
+        "messageID": "msg_user_001",
+        "type": "file",
+        "mime": "text/plain",
+        "filename": "notes.md",
+        "url": "file:///workspace/notes.md",
+        "source": {
+          "type": "file",
+          "path": "/workspace/notes.md",
+          "text": { "value": "context excerpt", "start": 0, "end": 15 }
+        }
+      }
+    ]
+  },
+  {
+    "info": {
+      "id": "msg_asst_001",
+      "sessionID": "ses_fixture",
+      "role": "assistant",
+      "time": { "created": 1787000001000, "completed": 1787000009000 },
+      "parentID": "msg_user_001",
+      "modelID": "claude-opus-5",
+      "providerID": "anthropic",
+      "mode": "build",
+      "agent": "build",
+      "path": { "cwd": "/workspace", "root": "/workspace" },
+      "cost": 0.0421,
+      "tokens": {
+        "total": 12000,
+        "input": 100,
+        "output": 900,
+        "reasoning": 250,
+        "cache": { "read": 10000, "write": 750 }
+      },
+      "finish": "stop"
+    },
+    "parts": [
+      {
+        "id": "prt_stepstart_001",
+        "sessionID": "ses_fixture",
+        "messageID": "msg_asst_001",
+        "type": "step-start",
+        "snapshot": "abc123"
+      },
+      {
+        "id": "prt_reason_001",
+        "sessionID": "ses_fixture",
+        "messageID": "msg_asst_001",
+        "type": "reasoning",
+        "text": "The server has no health route yet, so I will add one.",
+        "metadata": { "anthropic": { "signature": "OPAQUE_SIGNATURE_MUST_NOT_RENDER" } },
+        "time": { "start": 1787000001500, "end": 1787000003500 }
+      },
+      {
+        "id": "prt_reason_002",
+        "sessionID": "ses_fixture",
+        "messageID": "msg_asst_001",
+        "type": "reasoning",
+        "text": "   ",
+        "metadata": { "anthropic": { "signature": "ENCRYPTED_ONLY_NO_TEXT" } },
+        "time": { "start": 1787000003600, "end": 1787000003700 }
+      },
+      {
+        "id": "prt_tool_001",
+        "sessionID": "ses_fixture",
+        "messageID": "msg_asst_001",
+        "type": "tool",
+        "callID": "call_001",
+        "tool": "read",
+        "state": {
+          "status": "completed",
+          "input": { "filePath": "/workspace/server/index.ts" },
+          "output": "export const app = express();",
+          "title": "server/index.ts",
+          "metadata": { "truncated": false },
+          "time": { "start": 1787000004000, "end": 1787000004250 }
+        },
+        "metadata": { "anthropic": { "caller": { "type": "assistant" } } }
+      },
+      {
+        "id": "prt_text_002",
+        "sessionID": "ses_fixture",
+        "messageID": "msg_asst_001",
+        "type": "text",
+        "text": "I'll add the route now."
+      },
+      {
+        "id": "prt_patch_001",
+        "sessionID": "ses_fixture",
+        "messageID": "msg_asst_001",
+        "type": "patch",
+        "hash": "def456",
+        "files": ["server/index.ts", "tests/health.test.ts"]
+      },
+      {
+        "id": "prt_stepfinish_001",
+        "sessionID": "ses_fixture",
+        "messageID": "msg_asst_001",
+        "type": "step-finish",
+        "reason": "stop",
+        "snapshot": "abc124",
+        "cost": 0.0421,
+        "tokens": {
+          "total": 12000,
+          "input": 100,
+          "output": 900,
+          "reasoning": 250,
+          "cache": { "read": 10000, "write": 750 }
+        }
+      }
+    ]
+  },
+  {
+    "info": {
+      "id": "msg_asst_002",
+      "sessionID": "ses_fixture",
+      "role": "assistant",
+      "time": { "created": 1787000010000, "completed": 1787000012000 },
+      "modelID": "claude-opus-5",
+      "providerID": "anthropic",
+      "agent": "build",
+      "cost": 0.001,
+      "tokens": {
+        "total": 500,
+        "input": 10,
+        "output": 40,
+        "reasoning": 0,
+        "cache": { "read": 400, "write": 50 }
+      },
+      "finish": "stop"
+    },
+    "parts": [
+      {
+        "id": "prt_tool_002",
+        "sessionID": "ses_fixture",
+        "messageID": "msg_asst_002",
+        "type": "tool",
+        "callID": "call_002",
+        "tool": "webfetch",
+        "state": {
+          "status": "error",
+          "input": { "url": "https://example.invalid/spec" },
+          "error": "getaddrinfo ENOTFOUND example.invalid",
+          "time": { "start": 1787000010500, "end": 1787000011000 }
+        },
+        "metadata": { "anthropic": { "caller": { "type": "assistant" } } }
+      },
+      {
+        "id": "prt_compaction_001",
+        "sessionID": "ses_fixture",
+        "messageID": "msg_asst_002",
+        "type": "compaction",
+        "auto": true
+      },
+      {
+        "id": "prt_unknown_001",
+        "sessionID": "ses_fixture",
+        "messageID": "msg_asst_002",
+        "type": "some-future-part-type",
+        "text": "must not break the transcript"
+      }
+    ]
+  },
+  {
+    "info": {
+      "id": "msg_asst_003",
+      "sessionID": "ses_fixture",
+      "role": "assistant",
+      "time": { "created": 1787000020000 },
+      "modelID": "claude-opus-5",
+      "providerID": "anthropic",
+      "agent": "build",
+      "cost": 0,
+      "tokens": {
+        "total": 0,
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache": { "read": 0, "write": 0 }
+      }
+    },
+    "parts": [
+      {
+        "id": "prt_tool_003",
+        "sessionID": "ses_fixture",
+        "messageID": "msg_asst_003",
+        "type": "tool",
+        "callID": "call_003",
+        "tool": "bash",
+        "state": {
+          "status": "running",
+          "input": { "command": "npm test", "timeout": 120000 },
+          "metadata": { "output": "partial output so far" },
+          "time": { "start": 1787000020500 }
+        },
+        "metadata": { "anthropic": { "caller": { "type": "assistant" } } }
+      }
+    ]
+  }
+]
