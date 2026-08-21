@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "prNumber": 25,
+  "sourceSha": "83f4d6bf2da23041c966eb8a7262d091f843f0fc",
+  "capturedAt": "2026-08-21T20:11:56.125Z",
+  "screenshots": [
+    {
+      "requestedRoute": "/settings/notifications",
+      "fullPage": false,
+      "filename": "01-settings-notifications-d0234b59.png",
+      "dimensions": {
+        "width": 1280,
+        "height": 800
+      },
+      "bytes": 64136,
+      "sha256": "389cb469f5c5b0546bda27eddc6938c0531e9002315dee7027fddeb6be77d327"
+    }
+  ]
+}
