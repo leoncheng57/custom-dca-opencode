@@ -71,17 +71,67 @@ const toolIDs = [
   "invalid", "question", "bash", "read", "glob", "grep", "edit", "write", "task",
   "webfetch", "todowrite", "websearch", "skill", "apply_patch", "mcp_dynamic_tool",
 ];
+type PermissionAction = "allow" | "ask" | "deny";
+type PermissionRule = { permission: string; pattern: string; action: PermissionAction };
+const editAliases = new Set(["edit", "write", "apply_patch"]);
+const buildPermission: PermissionRule[] = [
+  { permission: "*", pattern: "*", action: "ask" },
+  { permission: "bash", pattern: "*", action: "ask" },
+  { permission: "bash", pattern: "git *", action: "allow" },
+  { permission: "bash", pattern: "rm -rf *", action: "deny" },
+  { permission: "read", pattern: "*", action: "allow" },
+  { permission: "read", pattern: "**/.env", action: "deny" },
+  { permission: "edit", pattern: "*", action: "allow" },
+  { permission: "edit", pattern: "**/.env", action: "deny" },
+  { permission: "external_directory", pattern: "*", action: "ask" },
+];
+const agents = [
+  { name: "build", mode: "primary", options: {}, permission: buildPermission },
+  { name: "plan", mode: "primary", options: {}, permission: [...buildPermission, { permission: "edit", pattern: "*", action: "deny" as const }] },
+];
+
+function globMatches(pattern: string, value: string): boolean {
+  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replaceAll("**", "\0").replaceAll("*", ".*").replaceAll("\0", ".*");
+  return new RegExp(`^${escaped}$`).test(value);
+}
+
+function effectiveAction(session: Record<string, any>, permission: string, pattern: string): PermissionAction {
+  const names = editAliases.has(permission) ? new Set(["*", ...editAliases]) : new Set(["*", permission]);
+  let action: PermissionAction = "ask";
+  for (const rule of [...buildPermission, ...((session.permission as PermissionRule[] | undefined) ?? [])]) {
+    if (names.has(rule.permission) && globMatches(rule.pattern, pattern)) action = rule.action;
+  }
+  return action;
+}
+
+function policyProbe(session: Record<string, any>): Record<string, unknown> {
+  return {
+    permission: (session.permission as PermissionRule[] | undefined) ?? [],
+    disabledTools: toolIDs.filter((tool) => effectiveAction(session, tool, "*") === "deny"),
+    probes: {
+      bashDefault: effectiveAction(session, "bash", "npm test"),
+      bashDestructive: effectiveAction(session, "bash", "rm -rf /tmp/project"),
+      readEnv: effectiveAction(session, "read", "src/.env"),
+      editEnv: effectiveAction(session, "edit", "src/.env"),
+      externalDirectory: effectiveAction(session, "external_directory", "/tmp/outside"),
+      unconfiguredTool: effectiveAction(session, "task", "*"),
+    },
+  };
+}
 
 const MOCK_DIRECTORY_INPUT = "/tmp/mock-project";
 const TOOL_FAILURE_DIRECTORY_INPUT = "/tmp/mock-tool-failure";
 const CATALOGUE_FAILURE_DIRECTORY_INPUT = "/tmp/mock-catalogue-failure";
+const POLICY_FAILURE_DIRECTORY_INPUT = "/tmp/mock-policy-failure";
 mkdirSync(MOCK_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(TOOL_FAILURE_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(CATALOGUE_FAILURE_DIRECTORY_INPUT, { recursive: true });
+mkdirSync(POLICY_FAILURE_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(path.join(MOCK_DIRECTORY_INPUT, "src"), { recursive: true });
 export const MOCK_DIRECTORY = realpathSync(MOCK_DIRECTORY_INPUT);
 const TOOL_FAILURE_DIRECTORY = realpathSync(TOOL_FAILURE_DIRECTORY_INPUT);
 const CATALOGUE_FAILURE_DIRECTORY = realpathSync(CATALOGUE_FAILURE_DIRECTORY_INPUT);
+const POLICY_FAILURE_DIRECTORY = realpathSync(POLICY_FAILURE_DIRECTORY_INPUT);
 if (!existsSync(path.join(MOCK_DIRECTORY, ".git"))) {
   execFileSync("git", ["init", "-q", MOCK_DIRECTORY]);
   writeFileSync(path.join(MOCK_DIRECTORY, "README.md"), "# Mock project\n");
@@ -201,6 +251,8 @@ let pendingQuestions = questionFixture();
 const questionReplies: Array<{ id: string; answers?: unknown; rejected?: boolean }> = [];
 mkdirSync(worktrees[0], { recursive: true });
 const eventClients = new Set<ServerResponse>();
+const holdNextPolicyPatch = new Set<string>();
+let heldPolicyPatch: { sessionID: string; release: () => void } | null = null;
 
 function body(req: IncomingMessage): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
@@ -305,6 +357,7 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
       ? json(res, 503, { error: "mock discovery unavailable" })
       : json(res, 200, toolIDs);
   }
+  if (pathname === "/agent") return json(res, 200, agents);
   if (pathname === "/test/prompt-payloads") return json(res, 200, promptPayloads);
   if (pathname === "/test/session-list-requests") return json(res, 200, { count: sessionListRequests });
   if (pathname === "/test/session-list-requests") return json(res, 200, { count: sessionListRequests });
@@ -340,6 +393,24 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     const text = live?.parts?.find((part) => part.type === "text");
     if (text) text.text = `${hostileMarkdown}\n\nNew live activity from the running agent.`;
     emit("message.part.updated", { sessionID: "ses_mock_mobile", partID: "prt_mobile_live" });
+    return json(res, 200, true);
+  }
+  if (pathname === "/test/session-policy") {
+    const session = SESSIONS.find((candidate) => candidate.id === url.searchParams.get("id"));
+    return session ? json(res, 200, policyProbe(session)) : unknownError(res);
+  }
+  if (pathname === "/test/hold-next-policy-patch" && req.method === "POST") {
+    void body(req).then((input) => {
+      holdNextPolicyPatch.add(String(input.sessionID));
+      json(res, 200, true);
+    });
+    return;
+  }
+  if (pathname === "/test/policy-patch-pending") {
+    return json(res, 200, { pending: heldPolicyPatch?.sessionID === url.searchParams.get("id") });
+  }
+  if (pathname === "/test/release-policy-patch" && req.method === "POST") {
+    if (heldPolicyPatch?.sessionID === url.searchParams.get("id")) heldPolicyPatch.release();
     return json(res, 200, true);
   }
   if (pathname === "/test/question-replies") {
@@ -475,6 +546,7 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
         directory: directory ?? MOCK_DIRECTORY,
         agent: body.agent,
         model: body.model,
+        permission: [],
         cost: 0,
         tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
         time: { created: Date.now(), updated: Date.now() },
@@ -498,7 +570,17 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
         if (promptModel && (!promptModel.providerID || !promptModel.modelID || promptModel.id)) {
           return json(res, 400, { error: "prompt model must use providerID and modelID" });
         }
-        promptPayloads.push({ ...input, sessionID: id });
+        if (input.tools && typeof input.tools === "object" && Object.keys(input.tools).length > 0) {
+          session.permission = [
+            ...((session.permission as PermissionRule[] | undefined) ?? []),
+            ...Object.entries(input.tools).map(([permission, enabled]) => ({
+              permission,
+              pattern: "*",
+              action: enabled === true ? "allow" : "deny",
+            })),
+          ];
+        }
+        promptPayloads.push({ ...input, sessionID: id, effectivePolicy: policyProbe(session) });
         if (promptModel) session.model = {
           providerID: promptModel.providerID,
           id: promptModel.modelID,
@@ -540,6 +622,25 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
 
     if (rest === "") {
       if (req.method === "DELETE") return json(res, 200, true);
+      if (req.method === "PATCH") {
+        if (directory === POLICY_FAILURE_DIRECTORY) return json(res, 503, { error: "mock policy activation failed" });
+        void body(req).then(async (patch) => {
+          if (Array.isArray(patch.permission)) {
+            session.permission = [
+              ...((session.permission as PermissionRule[] | undefined) ?? []),
+              ...(patch.permission as PermissionRule[]),
+            ];
+          }
+          if (holdNextPolicyPatch.delete(id)) {
+            await new Promise<void>((resolve) => {
+              heldPolicyPatch = { sessionID: id, release: resolve };
+            });
+            heldPolicyPatch = null;
+          }
+          json(res, 200, session);
+        });
+        return;
+      }
       return json(res, 200, session);
     }
     if (rest === "/message") {

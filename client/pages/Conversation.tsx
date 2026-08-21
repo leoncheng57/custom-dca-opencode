@@ -18,6 +18,7 @@ import { collapseActionGroups, mergeEvents, runningActivity } from "../lib/deriv
 import { normalizeTranscript, type RawMessage } from "../lib/events.js";
 import { useSessionStream } from "../lib/useSessionStream.js";
 import type { TranscriptEvent } from "../lib/transcript.js";
+import { recordRecentSessionOpen } from "../lib/recentSessions.js";
 import {
   catalogueDefault,
   currentModelFromMessages,
@@ -35,6 +36,10 @@ export function ConversationPage() {
   const { id = "" } = useParams();
   const [params] = useSearchParams();
   const directory = params.get("directory") ?? "";
+
+  useEffect(() => {
+    if (directory && id) recordRecentSessionOpen(localStorage, directory, id);
+  }, [directory, id]);
 
   const stream = useSessionStream(directory, id);
   const [session, setSession] = useState<SessionSummary | null>(null);

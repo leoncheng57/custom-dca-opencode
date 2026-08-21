@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { Alert } from "../ds/alert.js";
 import { Button } from "../ds/button.js";
+import { AppearanceControl } from "../components/appearance-control.js";
 import { api, type AppSettings } from "../lib/api.js";
 
 export function SettingsPage() {
@@ -42,6 +43,7 @@ export function SettingsPage() {
         <h1 className="text-xl font-bold">Agent settings</h1>
         <p className="text-sm text-[var(--color-text-muted)]">Global defaults used by OpenCode projects.</p>
       </header>
+      <AppearanceControl />
       <Alert variant="warning">Saving global settings restarts OpenCode project instances. Avoid saving during an active run.</Alert>
       {error && <Alert variant="danger">{error}</Alert>}
       {settings && (
