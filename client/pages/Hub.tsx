@@ -291,6 +291,19 @@ export function HubPage() {
       {modelError && <Alert variant="danger" data-testid="opencode-model-error">{modelError}</Alert>}
       {projectError && <Alert variant="warning" data-testid="opencode-projects-error">Project picker: {projectError}</Alert>}
 
+      {directory && sessions !== null && (
+        <section className="grid overflow-hidden rounded-xl border border-[var(--color-border-default)] sm:grid-cols-2" data-testid="opencode-recent-sessions">
+          <div className="min-w-0 sm:border-r sm:border-[var(--color-border-default)]">
+            <h2 className="border-b border-[var(--color-border-default)] px-4 py-2 text-sm font-semibold">Recently opened</h2>
+            {recentList(recentlyOpened, "Open a session to keep it handy here.", "opencode-recently-opened")}
+          </div>
+          <div className="min-w-0 border-t border-[var(--color-border-default)] sm:border-t-0">
+            <h2 className="border-b border-[var(--color-border-default)] px-4 py-2 text-sm font-semibold">Recently active</h2>
+            {recentList(recentlyActive, "No active session history in this directory.", "opencode-recently-active")}
+          </div>
+        </section>
+      )}
+
       <section className="rounded-xl border border-[var(--color-border-default)] p-4 sm:p-5">
         <div className="mb-3 flex flex-wrap items-center gap-3">
           <div>
@@ -416,7 +429,7 @@ export function HubPage() {
         </details>
       </section>
 
-      <section className="rounded-xl border border-[var(--color-border-default)] p-4 sm:p-5">
+      <section className="rounded-xl border border-[var(--color-border-default)] p-4 sm:p-5" data-testid="opencode-new-task">
         <h2 className="mb-3 text-sm font-semibold">New task</h2>
         {directory && (
           <p className="mb-3 truncate text-xs text-[var(--color-text-muted)]" title={directory} data-testid="opencode-selected-directory">
@@ -476,19 +489,6 @@ export function HubPage() {
               </li>
             ))}
           </ul>
-        </section>
-      )}
-
-      {directory && sessions !== null && (
-        <section className="grid overflow-hidden rounded-xl border border-[var(--color-border-default)] sm:grid-cols-2" data-testid="opencode-recent-sessions">
-          <div className="min-w-0 sm:border-r sm:border-[var(--color-border-default)]">
-            <h2 className="border-b border-[var(--color-border-default)] px-4 py-2 text-sm font-semibold">Recently opened</h2>
-            {recentList(recentlyOpened, "Open a session to keep it handy here.", "opencode-recently-opened")}
-          </div>
-          <div className="min-w-0 border-t border-[var(--color-border-default)] sm:border-t-0">
-            <h2 className="border-b border-[var(--color-border-default)] px-4 py-2 text-sm font-semibold">Recently active</h2>
-            {recentList(recentlyActive, "No active session history in this directory.", "opencode-recently-active")}
-          </div>
         </section>
       )}
 

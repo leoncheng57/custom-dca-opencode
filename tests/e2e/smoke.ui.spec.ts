@@ -179,9 +179,13 @@ test.describe("hub", () => {
     }, { directory: DIR });
     await page.goto(hub);
     const recent = page.getByTestId("opencode-recent-sessions");
+    const newTask = page.getByTestId("opencode-new-task");
     await expect(recent).toBeVisible();
+    expect(await recent.evaluate((element, task) => Boolean(element.compareDocumentPosition(task) & Node.DOCUMENT_POSITION_FOLLOWING), await newTask.elementHandle())).toBe(true);
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
     const componentBox = await recent.boundingBox();
+    const newTaskBox = await newTask.boundingBox();
+    expect(componentBox?.y).toBeLessThan(newTaskBox?.y ?? 0);
     expect(componentBox?.width).toBeLessThanOrEqual(358);
     for (const row of await page.getByTestId("opencode-recently-opened-row").all()) {
       expect((await row.boundingBox())?.height).toBeGreaterThanOrEqual(44);
