@@ -1,7 +1,7 @@
 import * as React from "react";
 import { cn } from "./utils.js";
 
-type BadgeVariant = "neutral" | "info" | "success" | "warning" | "danger" | "pro" | "beta";
+type BadgeVariant = "neutral" | "info" | "success" | "warning" | "danger" | "pro" | "beta" | "counter";
 
 interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
   variant?: BadgeVariant;
@@ -23,6 +23,10 @@ const variantClasses: Record<BadgeVariant, string> = {
     "bg-[var(--color-background-surface-danger-muted)] text-[var(--color-text-danger)] border border-red-500/40",
   pro: "bg-[var(--color-purple-100)] text-[var(--color-purple-700)]",
   beta: "bg-[var(--color-blue-100)] text-[var(--color-blue-700)]",
+  // Numeric counter: solid fill so it reads as "unanswered" at nav size, and
+  // tabular digits so the pill does not jitter as the count changes.
+  counter:
+    "bg-[var(--color-background-surface-danger)] text-[var(--color-text-on-danger)] justify-center min-w-5 px-1.5 tabular-nums",
 };
 
 const Badge = React.forwardRef<HTMLSpanElement, BadgeProps>(

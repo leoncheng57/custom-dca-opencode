@@ -3,9 +3,11 @@ import { Search, Smartphone } from "lucide-react";
 import { useTheme } from "next-themes";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 
+import { Badge } from "../ds/badge.js";
 import { Button } from "../ds/button.js";
 import { CommandPalette } from "../ds/command-palette.js";
 import { api, type SessionSummary } from "../lib/api.js";
+import { useNotificationCenter } from "../lib/useNotificationCenter.js";
 import {
   DIRECTORY_STORAGE_KEY,
   buildPaletteCommands,
@@ -18,7 +20,8 @@ import { useNotifyWatcher } from "../lib/useNotifyWatcher.js";
 import { PhoneTransferDialog } from "./phone-transfer-dialog.js";
 
 export function AppShell() {
-  useNotifyWatcher();
+  const { activeCount, refresh } = useNotificationCenter();
+  useNotifyWatcher(refresh);
   const location = useLocation();
   const navigate = useNavigate();
   const { setTheme } = useTheme();
@@ -90,7 +93,12 @@ export function AppShell() {
     navigation: [
       { id: "home", title: "Home", to: scopedPath("/"), keywords: ["sessions"] },
       { id: "tools", title: "Tools", to: scopedPath("/tools"), keywords: ["mcp", "lsp", "permissions"] },
-      { id: "notifications", title: "Notifications", to: scopedPath("/settings/notifications") },
+      {
+        id: "notifications",
+        title: "Notifications",
+        to: scopedPath("/settings/notifications"),
+        ...(activeCount > 0 ? { subtitle: `${activeCount} awaiting reply` } : {}),
+      },
       { id: "settings", title: "Settings", to: scopedPath("/settings") },
     ],
     actions: [
@@ -157,18 +165,34 @@ export function AppShell() {
             ["/tools", "Tools"],
             ["/settings/notifications", "Notifications"],
             ["/settings", "Settings"],
-          ].map(([to, label]) => (
-            <NavLink
-              key={to}
-              to={scopedPath(to)}
-              className={({ isActive }) =>
-                `rounded px-2 py-1 text-xs ${isActive ? "bg-[var(--color-background-surface-neutral-muted)] font-semibold" : "text-[var(--color-text-muted)]"}`
-              }
-              data-testid={`opencode-nav-${label.toLowerCase()}`}
-            >
-              {label}
-            </NavLink>
-          ))}
+          ].map(([to, label]) => {
+            const badged = label === "Notifications" && activeCount > 0;
+            return (
+              <NavLink
+                key={to}
+                to={scopedPath(to)}
+                // The count is in the label so screen readers announce it; the
+                // badge itself is decorative.
+                aria-label={badged ? `${label}, ${activeCount} awaiting reply` : undefined}
+                className={({ isActive }) =>
+                  `relative flex items-center rounded px-2 py-1 text-xs ${isActive ? "bg-[var(--color-background-surface-neutral-muted)] font-semibold" : "text-[var(--color-text-muted)]"}`
+                }
+                data-testid={`opencode-nav-${label.toLowerCase()}`}
+              >
+                {label}
+                {badged && (
+                  <Badge
+                    variant="counter"
+                    className="absolute -top-1 left-full -translate-x-1/2"
+                    aria-hidden="true"
+                    data-testid="opencode-nav-notifications-badge"
+                  >
+                    {activeCount}
+                  </Badge>
+                )}
+              </NavLink>
+            );
+          })}
         </nav>
         <div className="min-h-0 flex-1">
           <Outlet />

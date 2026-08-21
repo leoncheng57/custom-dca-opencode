@@ -27,6 +27,7 @@ import { parseAllowedPorts, previewRoutes } from "./routes/preview.js";
 import { worktreeRoutes } from "./routes/worktrees.js";
 import { notificationRoutes } from "./routes/notifications.js";
 import { PreferenceStore } from "./notifications/preferences.js";
+import { HistoryStore } from "./notifications/history.js";
 import { NotificationService } from "./notifications/service.js";
 import { forgeRoutes } from "./routes/forge.js";
 import { reminderRoutes } from "./routes/reminders.js";
@@ -51,10 +52,12 @@ bus.on("error", (error: unknown) => {
 const autoPermissions = new AutoPermissionService(opencode, bus);
 autoPermissions.start();
 const notificationStore = new PreferenceStore();
+const notificationHistory = new HistoryStore();
 const notificationService = new NotificationService(
   opencode,
   bus,
   notificationStore,
+  notificationHistory,
   publicAppUrl,
   (directory) => autoPermissions.isEnabled(directory),
 );
@@ -66,7 +69,7 @@ app.use("/api", settingsRoutes(opencode));
 app.use("/api", mcpRoutes(opencode));
 app.use("/api", workspaceRoutes(opencode));
 app.use("/api", worktreeRoutes(opencode, bus));
-app.use("/api", notificationRoutes(notificationStore));
+app.use("/api", notificationRoutes(notificationStore, notificationHistory, () => notificationService.reconcileAll()));
 app.use("/api", forgeRoutes());
 app.use("/api", reminderRoutes());
 app.use("/api", appConfigRoutes(publicAppUrl));
@@ -110,7 +113,10 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const clientDir = path.resolve(here, "../client");
 app.use(express.static(clientDir));
 app.get(/^\/(?!api\/).*/, (_req, res) => {
-  res.sendFile(path.join(clientDir, "index.html"));
+  // Express/send in the current dependency set returns ENOENT for an
+  // absolute sendFile path even when the file exists; the rooted form is the
+  // documented equivalent and keeps client-side routes working.
+  res.sendFile("index.html", { root: clientDir });
 });
 
 app.listen(PORT, "0.0.0.0", () => {

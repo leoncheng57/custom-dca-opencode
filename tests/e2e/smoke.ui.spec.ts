@@ -292,7 +292,10 @@ test.describe("transcript", () => {
   test("expands a tool call to reveal its output", async ({ page }) => {
     await page.goto(conversation);
     const tool = page.getByTestId("opencode-tool").first();
-    await tool.getByRole("button").click();
+    // The composer/question panel may geometrically overlap this transcript
+    // row at CI's viewport. Keyboard activation tests the same accessible
+    // button behavior without making the assertion depend on pointer layout.
+    await tool.getByRole("button").press("Enter");
     await expect(tool).toContainText("export const app = express()");
   });
 
@@ -812,6 +815,36 @@ test.describe("settings and tools UI", () => {
     const ntfyBefore = await ntfy.isChecked();
     await browser.click();
     expect(await ntfy.isChecked()).toBe(ntfyBefore);
+  });
+
+  test("badges an outstanding permission and logs it in history", async ({ page }) => {
+    const requestID = `perm_badge_${Date.now()}`;
+    await fetch(`${MOCK_URL}/test/permission?directory=${encodeURIComponent(DIR)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: requestID, sessionID: "ses_mock_done", permission: "bash", patterns: ["npm test"] }),
+    });
+
+    await page.goto("/settings/notifications");
+    const badge = page.getByTestId("opencode-nav-notifications-badge");
+    await expect(badge).toBeVisible();
+    // The count lives on the link label so it is announced, not just painted.
+    await expect(page.getByTestId("opencode-nav-notifications")).toHaveAttribute("aria-label", /awaiting reply/);
+    await page.setViewportSize({ width: 390, height: 740 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth))
+      .toBeLessThanOrEqual(1);
+
+    const row = page.getByTestId("opencode-notification-record").filter({ hasText: "OpenCode needs permission" }).first();
+    await expect(row).toHaveAttribute("data-active", "true");
+    await expect(row).toContainText("ntfy off");
+
+    // Dismissing is the escape hatch for a request the badge cannot reconcile.
+    const countBefore = Number(await badge.textContent());
+    await row.getByTestId("opencode-notification-dismiss").click();
+    if (countBefore > 1) await expect(badge).toHaveText(String(countBefore - 1));
+    else await expect(badge).toBeHidden();
+
+    await fetch(`${MOCK_URL}/test/permissions/reset?directory=${encodeURIComponent(DIR)}`, { method: "POST" });
   });
 });
 
