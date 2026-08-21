@@ -42,7 +42,7 @@ interface RawSession {
   directory?: string;
   parentID?: string;
   agent?: string;
-  model?: { providerID?: string; modelID?: string };
+  model?: { providerID?: string; modelID?: string; id?: string };
   cost?: number;
   tokens?: {
     input?: number;
@@ -61,7 +61,9 @@ export function toSummary(raw: RawSession, running: boolean): SessionSummary {
     directory: raw.directory ?? "",
     parentID: raw.parentID,
     agent: raw.agent,
-    model: raw.model,
+    model: raw.model
+      ? { providerID: raw.model.providerID, modelID: raw.model.modelID ?? raw.model.id }
+      : undefined,
     cost: raw.cost ?? 0,
     tokens: {
       input: raw.tokens?.input ?? 0,
@@ -155,6 +157,7 @@ export interface PromptInput {
   text: string;
   agent?: string;
   model?: { providerID: string; modelID: string };
+  attachments?: Array<{ filename: string; mime: string; url: string }>;
 }
 
 /**
@@ -176,7 +179,15 @@ export async function prompt(
     body: {
       ...(input.agent ? { agent: input.agent } : {}),
       ...(input.model ? { model: input.model } : {}),
-      parts: [{ type: "text", text: input.text }],
+      parts: [
+        { type: "text", text: input.text },
+        ...(input.attachments ?? []).map((attachment) => ({
+          type: "file" as const,
+          mime: attachment.mime,
+          filename: attachment.filename,
+          url: attachment.url,
+        })),
+      ],
     },
   });
 }

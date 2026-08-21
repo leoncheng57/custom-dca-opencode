@@ -6,6 +6,8 @@ import { Badge } from "../ds/badge.js";
 import { Button } from "../ds/button.js";
 import { LoadingIndicator } from "../ds/loading-indicator.js";
 import { RunningIndicator, Transcript } from "../components/transcript.js";
+import { SessionInspector } from "../components/session-inspector.js";
+import { WorkspacePanels } from "../components/workspace-panels.js";
 import { api, formatCost, type SessionSummary } from "../lib/api.js";
 import { collapseActionGroups, mergeEvents, runningActivity } from "../lib/derive.js";
 import { normalizeTranscript, type RawMessage } from "../lib/events.js";
@@ -25,6 +27,9 @@ export function ConversationPage() {
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [contextLimit, setContextLimit] = useState<number | null>(null);
+  const [attachments, setAttachments] = useState<Array<{ filename: string; mime: string; url: string }>>([]);
 
   // Keep event identity stable across polls so memoised rows do not churn.
   const [events, setEvents] = useState<TranscriptEvent[]>([]);
@@ -48,8 +53,17 @@ export function ConversationPage() {
     };
   }, [directory, id, stream.running]);
 
+  useEffect(() => {
+    if (!directory || !id) return;
+    void api.modelLimit(directory, id).then((result) => setContextLimit(result.context)).catch(() => setContextLimit(null));
+  }, [directory, id]);
+
   const items = useMemo(() => collapseActionGroups(events), [events]);
   const activity = useMemo(() => runningActivity(events), [events]);
+  const latestUsage = transcript.usage.at(-1);
+  const contextTokens = latestUsage
+    ? latestUsage.tokens.input + latestUsage.tokens.output + latestUsage.tokens.reasoning + latestUsage.tokens.cacheRead + latestUsage.tokens.cacheWrite
+    : 0;
 
   const toggleGroup = useCallback((groupId: string) => {
     setCollapsedGroups((state) => ({ ...state, [groupId]: !state[groupId] }));
@@ -73,8 +87,9 @@ export function ConversationPage() {
     if (!text) return;
     setSending(true);
     try {
-      await api.prompt(directory, id, text);
+      await api.prompt(directory, id, text, undefined, attachments);
       setDraft("");
+      setAttachments([]);
       stream.refresh();
     } finally {
       setSending(false);
@@ -104,8 +119,17 @@ export function ConversationPage() {
             {formatCost(session.cost)}
           </span>
         )}
+        {contextTokens > 0 && (
+          <span className="text-xs tabular-nums text-[var(--color-text-muted)]" data-testid="opencode-context-tokens" title="Latest turn context tokens">
+            context {Intl.NumberFormat(undefined, { notation: "compact" }).format(contextTokens)}
+            {contextLimit ? ` / ${Math.round((contextTokens / contextLimit) * 100)}%` : ""}
+          </span>
+        )}
         <Button size="sm" variant="secondary" onClick={toggleWrap} data-testid="opencode-wrap-toggle">
           {wrap ? "Wrap: on" : "Wrap: off"}
+        </Button>
+        <Button size="sm" variant="secondary" onClick={() => setWorkspaceOpen(true)} data-testid="opencode-workspace-open">
+          Workspace
         </Button>
         {stream.running && (
           <Button
@@ -153,6 +177,19 @@ export function ConversationPage() {
         </div>
       )}
 
+      {stream.permissions.map((permission) => (
+        <div className="px-4 pt-3" key={permission.id} data-testid="opencode-permission-request">
+          <Alert variant="warning">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="min-w-0 flex-1 text-sm"><strong>{permission.permission}</strong> needs approval{permission.patterns.length ? `: ${permission.patterns.join(", ")}` : ""}</span>
+              <Button size="sm" onClick={() => void api.replyPermission(directory, permission.id, "once").then(stream.refresh)} data-testid="opencode-permission-once">Allow once</Button>
+              <Button size="sm" variant="secondary" onClick={() => void api.replyPermission(directory, permission.id, "always").then(stream.refresh)} data-testid="opencode-permission-always">Always</Button>
+              <Button size="sm" variant="danger" onClick={() => void api.replyPermission(directory, permission.id, "reject").then(stream.refresh)} data-testid="opencode-permission-reject">Reject</Button>
+            </div>
+          </Alert>
+        </div>
+      ))}
+
       <div className="flex min-h-0 flex-1">
         <div
           className="thin-scrollbar min-w-0 flex-1 overflow-y-auto px-3 py-6 sm:px-6 sm:py-8"
@@ -182,35 +219,26 @@ export function ConversationPage() {
           </div>
         </div>
 
-        {stream.todos.length > 0 && (
-          <aside
-            className="hidden w-72 shrink-0 overflow-y-auto border-l border-[var(--color-border-default)] p-4 lg:block"
-            aria-label="Task list"
-            data-testid="opencode-task-list"
-          >
-            <h2 className="mb-2 text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]">
-              Task list · {stream.todos.filter((t) => t.status === "completed").length}/
-              {stream.todos.length} done
-            </h2>
-            <ul className="space-y-1.5">
-              {/* Todo has no id in 1.18.19 — index is the only stable key. */}
-              {stream.todos.map((todo, index) => (
-                <li key={index} className="flex items-start gap-2 text-sm" data-status={todo.status}>
-                  <span aria-hidden className="mt-0.5 shrink-0">
-                    {todo.status === "completed" ? "✓" : todo.status === "in_progress" ? "◐" : "○"}
-                  </span>
-                  <span className={todo.status === "completed" ? "text-[var(--color-text-muted)] line-through" : ""}>
-                    {todo.content}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </aside>
-        )}
+        <SessionInspector events={events} todos={stream.todos} />
       </div>
 
       <footer className="border-t border-[var(--color-border-default)] p-3">
-        <div className="mx-auto flex max-w-3xl gap-2">
+        <div className="mx-auto max-w-3xl">
+          {attachments.length > 0 && <div className="mb-2 flex flex-wrap gap-2">{attachments.map((attachment, index) => <button key={`${attachment.filename}-${index}`} type="button" onClick={() => setAttachments((items) => items.filter((_, itemIndex) => itemIndex !== index))} className="rounded border border-[var(--color-border-default)] px-2 py-1 text-xs" data-testid="opencode-attachment-chip">{attachment.filename} x</button>)}</div>}
+          <div className="flex gap-2">
+          <label className="inline-flex cursor-pointer items-center rounded-md border border-[var(--color-border-default)] px-3 text-xs font-semibold" data-testid="opencode-attach-label">
+            Attach
+            <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple className="sr-only" data-testid="opencode-attach" onChange={(event) => {
+              const files = [...(event.target.files ?? [])].slice(0, Math.max(0, 4 - attachments.length)).filter((file) => file.size <= 3 * 1024 * 1024);
+              void Promise.all(files.map((file) => new Promise<{ filename: string; mime: string; url: string }>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve({ filename: file.name, mime: file.type, url: String(reader.result) });
+                reader.onerror = () => reject(reader.error);
+                reader.readAsDataURL(file);
+              }))).then((next) => setAttachments((items) => [...items, ...next]));
+              event.target.value = "";
+            }} />
+          </label>
           <textarea
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
@@ -222,8 +250,10 @@ export function ConversationPage() {
           <Button onClick={() => void send()} disabled={sending || !draft.trim()} data-testid="opencode-send">
             {sending ? "Sending…" : "Send"}
           </Button>
+          </div>
         </div>
       </footer>
+      {workspaceOpen && <WorkspacePanels directory={directory} onClose={() => setWorkspaceOpen(false)} />}
     </main>
   );
 }

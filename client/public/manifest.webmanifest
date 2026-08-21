@@ -1,0 +1,17 @@
+{
+  "name": "Custom DCA OpenCode",
+  "short_name": "OpenCode",
+  "description": "A local coding-agent IDE backed by OpenCode.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#101418",
+  "theme_color": "#24b47e",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

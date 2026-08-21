@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 // API tier — exercises the real BFF against the mock OpenCode server.
 // No browser, no agent run.
 
-const DIR = "/tmp/mock-project";
+const DIR = process.platform === "darwin" ? "/private/tmp/mock-project" : "/tmp/mock-project";
 
 test.describe("health", () => {
   test("reports upstream reachability and version", async ({ request }) => {
@@ -43,10 +43,9 @@ test.describe("directory scoping", () => {
     for (const session of body.sessions) expect(session.directory).toBe(DIR);
   });
 
-  test("an unknown directory yields no sessions rather than an error", async ({ request }) => {
+  test("rejects a nonexistent directory before forwarding it", async ({ request }) => {
     const res = await request.get("/api/sessions?directory=/tmp/nope");
-    expect(res.ok()).toBe(true);
-    expect((await res.json()).sessions).toEqual([]);
+    expect(res.status()).toBe(400);
   });
 });
 
@@ -114,6 +113,13 @@ test.describe("prompting", () => {
     expect(res.status()).toBe(400);
   });
 
+  test("rejects unsafe image attachments", async ({ request }) => {
+    const res = await request.post(`/api/sessions/ses_mock_done/prompt?directory=${DIR}`, {
+      data: { text: "inspect", attachments: [{ filename: "secret", mime: "text/plain", url: "file:///etc/passwd" }] },
+    });
+    expect(res.status()).toBe(400);
+  });
+
   test("creates a session", async ({ request }) => {
     const res = await request.post("/api/sessions", {
       data: { directory: DIR, title: "e2e created" },
@@ -170,5 +176,97 @@ test.describe("event stream", () => {
     ]);
     controller.abort();
     expect(["data", "still-open"]).toContain(second);
+  });
+});
+
+test.describe("settings and tools", () => {
+  test("global settings round-trip only public fields", async ({ request }) => {
+    const saved = await request.patch("/api/settings", {
+      data: { model: "anthropic/claude-opus-5", compaction: { auto: true, reserved: 4096 } },
+    });
+    expect(saved.ok()).toBe(true);
+    expect((await saved.json()).settings).toEqual({
+      model: "anthropic/claude-opus-5",
+      compaction: { auto: true, reserved: 4096 },
+    });
+    const rejected = await request.patch("/api/settings", { data: { provider: { token: "secret" } } });
+    expect(rejected.status()).toBe(400);
+  });
+
+  test("MCP action refetches resulting status", async ({ request }) => {
+    const before = await (await request.get(`/api/mcp?directory=${DIR}`)).json();
+    expect(before.servers.docs).toMatchObject({ status: "failed", error: "mock connection refused" });
+    const after = await (await request.post(`/api/mcp/docs/connect?directory=${DIR}`)).json();
+    expect(after.servers.docs).toEqual({ status: "connected" });
+  });
+
+  test("returns LSP and read-only effective permissions", async ({ request }) => {
+    expect((await (await request.get(`/api/lsp?directory=${DIR}`)).json()).servers).toHaveProperty("typescript");
+    expect((await (await request.get(`/api/permissions?directory=${DIR}`)).json()).permissions).toEqual({ "*": "ask", read: "allow" });
+  });
+});
+
+test.describe("workspace", () => {
+  test("lists directories first and reads a file", async ({ request }) => {
+    const tree = await (await request.get(`/api/workspace/tree?directory=${DIR}&path=`)).json();
+    expect(tree.dirs).toContainEqual(expect.objectContaining({ name: "src", type: "directory" }));
+    expect(tree.files[0]).toMatchObject({ name: "README.md", type: "file" });
+    const file = await (await request.get(`/api/workspace/file?directory=${DIR}&path=README.md`)).json();
+    expect(file).toMatchObject({ type: "text", content: "# Mock project" });
+  });
+
+  test("rejects traversal before it reaches OpenCode", async ({ request }) => {
+    const res = await request.get(`/api/workspace/file?directory=${DIR}&path=../secret`);
+    expect(res.status()).toBe(400);
+  });
+
+  test("returns diffs and local git history", async ({ request }) => {
+    const changes = await (await request.get(`/api/workspace/changes?directory=${DIR}&mode=git`)).json();
+    expect(changes.changes[0].file).toBe("src/index.ts");
+    const commits = await (await request.get(`/api/workspace/commits?directory=${DIR}`)).json();
+    expect(commits.commits[0].subject).toBe("fixture");
+  });
+});
+
+test.describe("preview security", () => {
+  test("allows only configured ports and strips credentials", async ({ request }) => {
+    const denied = await request.get("/api/preview/9999/");
+    expect(denied.status()).toBe(403);
+    const proxied = await request.get("/api/preview/4600/hello?q=1", {
+      headers: { Authorization: "Bearer must-not-forward", Cookie: "secret=yes" },
+    });
+    const body = await proxied.json();
+    expect(body.path).toBe("/hello?q=1");
+    expect(body.authorization).toBeNull();
+    expect(body.cookie).toBeNull();
+    expect(proxied.headers()["x-unsafe"]).toBeUndefined();
+    expect(proxied.headers()["content-security-policy"]).toContain("sandbox");
+  });
+
+  test("rewrites root-relative redirects under the proxy mount", async ({ request }) => {
+    const res = await request.get("/api/preview/4600/redirect", { maxRedirects: 0 });
+    expect(res.status()).toBe(302);
+    expect(res.headers().location).toBe("/api/preview/4600/target");
+  });
+});
+
+test.describe("worktrees", () => {
+  test("lists and creates a ready isolated worktree", async ({ request }) => {
+    const listed = await (await request.get(`/api/worktrees?directory=${DIR}`)).json();
+    expect(listed.worktrees.length).toBeGreaterThan(0);
+    const created = await request.post(`/api/worktrees?directory=${DIR}`, { data: { name: "e2e-isolated" } });
+    expect(created.status()).toBe(201);
+    expect((await created.json()).worktree.directory).toContain("e2e-isolated");
+  });
+});
+
+test.describe("permission remote control", () => {
+  test("lists and answers a parked permission", async ({ request }) => {
+    const before = await (await request.get(`/api/permission-requests?directory=${DIR}`)).json();
+    expect(before.requests).toContainEqual(expect.objectContaining({ id: "perm_mock" }));
+    const reply = await request.post(`/api/permission-requests/perm_mock/reply?directory=${DIR}`, { data: { reply: "once" } });
+    expect(reply.ok()).toBe(true);
+    const after = await (await request.get(`/api/permission-requests?directory=${DIR}`)).json();
+    expect(after.requests).toEqual([]);
   });
 });

@@ -35,7 +35,9 @@ describe("normalizeTranscript", () => {
 
   it("maps assistant text to an agent row", () => {
     const agent = events.filter((e) => e.kind === "agent");
-    expect(agent.map((e) => (e as { text: string }).text)).toEqual(["I'll add the route now."]);
+    expect(agent.map((e) => (e as { text: string }).text)).toEqual([
+      "I'll add the route now. Review: https://github.com/acme/demo/pull/7",
+    ]);
   });
 
   it("emits step-start and step-finish as bookkeeping, never as rows", () => {

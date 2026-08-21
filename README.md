@@ -21,17 +21,18 @@ the same server and can be attached at the same time, watching the same sessions
 
 ## Status
 
-Early. Built in phases — see [`docs/research/opencode-build-plan.html`](docs/research/).
+The planned migration waves are implemented. The deterministic verification suite runs
+against the production SPA and real BFF with only OpenCode and preview targets mocked.
 
 | Phase | | |
 |---|---|---|
 | 0 | Foundation — scaffold, permission policy, launchd unit | ✅ |
-| 1 | The seam — SDK wrapper + event adapter | 🚧 |
-| 2 | Session lifecycle + interrupted-run detection | |
-| 3 | Panels — MR, commands, files, changes, preview proxy | |
-| 4 | Derived — task list, status bar, tools & health | |
-| 5 | Settings, resilience, worktrees | |
-| 6 | Mobile polish + cutover | |
+| 1 | The seam — typed fetch wrapper + event adapter | ✅ |
+| 2 | Session lifecycle + interrupted-run detection | ✅ |
+| 3 | Panels — MR links, commands, files, changes, preview proxy | ✅ |
+| 4 | Derived — task list, status bar, tools & health | ✅ |
+| 5 | Settings, notifications, resilience, worktrees | ✅ |
+| 6 | Mobile/PWA polish + deterministic E2E | ✅ |
 
 ## Requirements
 
@@ -45,6 +46,14 @@ Early. Built in phases — see [`docs/research/opencode-build-plan.html`](docs/r
 npm install
 cp .env.example .env        # point OPENCODE_URL at your server
 npm run dev
+```
+
+Verification requires no live agent or model credentials:
+
+```bash
+npm run typecheck
+npm test
+npm run test:e2e
 ```
 
 ## Architecture
@@ -70,6 +79,11 @@ OpenCode API doesn't expose (git history, forge APIs, notification transport).
 container. The guardrail is the `permission` block in `opencode.json`: per-tool and
 per-command-pattern `allow` / `ask` / `deny`, with `~/.ssh`, `~/.aws` and `.env` files
 denied outright.
+
+The BFF additionally canonicalizes every browser-provided workspace path beneath
+`PROJECTS_DIR` or `OPENCODE_WORKTREE_ROOT`. The preview tunnel is disabled unless
+`PREVIEW_ALLOWED_PORTS` explicitly allows a localhost port, and it never forwards
+cookies, authorization, host headers or OpenCode credentials.
 
 Note that permission precedence is **last-match-wins**, the opposite of most ACL
 systems. Broad rules first, specific overrides after.

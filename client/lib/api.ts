@@ -45,6 +45,78 @@ export interface HealthResponse {
   events?: { connected: boolean };
 }
 
+export interface AppSettings {
+  model?: string;
+  small_model?: string;
+  default_agent?: string;
+  subagent_depth?: number;
+  compaction?: { auto?: boolean; prune?: boolean; reserved?: number };
+}
+
+export type McpStatus =
+  | { status: "connected" }
+  | { status: "disabled" }
+  | { status: "failed"; error: string }
+  | { status: "needs_auth" }
+  | { status: "needs_client_registration"; error: string };
+
+export type NotifyEvent = "idle" | "error" | "abort" | "permission" | "question" | "parked";
+export interface NotificationPreferences {
+  version: 1;
+  ntfy: { enabled: boolean; server: string; topic: string; events: Record<NotifyEvent, boolean> };
+  browser: { desktop: boolean; sound: boolean; volume: number; events: Record<NotifyEvent, boolean> };
+  parkedPermissionSeconds: number;
+}
+
+export interface WorkspaceNode {
+  name: string;
+  path: string;
+  type: "file" | "directory";
+  ignored: boolean;
+}
+
+export interface WorkspaceFile {
+  path: string;
+  type: "text" | "binary";
+  content: string;
+  encoding?: "base64";
+  mimeType?: string;
+}
+
+export interface VcsFileDiff {
+  file: string;
+  patch?: string;
+  additions: number;
+  deletions: number;
+  status?: "added" | "deleted" | "modified";
+}
+
+export interface GitCommit {
+  sha: string;
+  shortSha: string;
+  subject: string;
+  author: string;
+  authoredAt: string;
+}
+
+export interface Worktree { name: string; branch?: string; directory: string }
+export interface ReviewStatus {
+  url: string;
+  forge: "github" | "gitlab";
+  title: string;
+  state: string;
+  author: string;
+  pipeline: string | null;
+  mergeable: boolean | null;
+  headSha: string;
+}
+export interface PermissionRequest {
+  id: string;
+  sessionID: string;
+  permission: string;
+  patterns: string[];
+}
+
 /**
  * Unwrap a response, surfacing the BFF's `{ error }` body when present.
  *
@@ -104,6 +176,10 @@ export const api = {
     fetch(scoped(`/sessions/${encodeURIComponent(id)}/todos`, directory)).then((r) =>
       json<{ todos: Todo[] }>(r),
     ),
+  modelLimit: (directory: string, id: string) =>
+    fetch(scoped(`/sessions/${encodeURIComponent(id)}/model-limit`, directory)).then((r) =>
+      json<{ context: number | null }>(r),
+    ),
 
   createSession: (input: {
     directory: string;
@@ -111,6 +187,8 @@ export const api = {
     agent?: string;
     model?: { providerID: string; modelID: string };
     prompt?: string;
+    isolated?: boolean;
+    worktreeName?: string;
   }) =>
     fetch("/api/sessions", {
       method: "POST",
@@ -118,11 +196,17 @@ export const api = {
       body: JSON.stringify(input),
     }).then((r) => json<{ session: SessionSummary }>(r)),
 
-  prompt: (directory: string, id: string, text: string, model?: { providerID: string; modelID: string }) =>
+  prompt: (
+    directory: string,
+    id: string,
+    text: string,
+    model?: { providerID: string; modelID: string },
+    attachments?: Array<{ filename: string; mime: string; url: string }>,
+  ) =>
     fetch(scoped(`/sessions/${encodeURIComponent(id)}/prompt`, directory), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, ...(model ? { model } : {}) }),
+      body: JSON.stringify({ text, ...(model ? { model } : {}), ...(attachments?.length ? { attachments } : {}) }),
     }).then((r) => json<{ accepted: boolean }>(r)),
 
   abort: (directory: string, id: string) =>
@@ -134,6 +218,89 @@ export const api = {
     fetch(scoped(`/sessions/${encodeURIComponent(id)}`, directory), { method: "DELETE" }).then((r) =>
       json<void>(r),
     ),
+
+  settings: () => fetch("/api/settings").then((r) => json<{ settings: AppSettings }>(r)),
+  saveSettings: (settings: AppSettings) =>
+    fetch("/api/settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(settings),
+    }).then((r) => json<{ settings: AppSettings }>(r)),
+
+  mcp: (directory: string) =>
+    fetch(scoped("/mcp", directory)).then((r) => json<{ servers: Record<string, McpStatus> }>(r)),
+  setMcp: (directory: string, name: string, connected: boolean) =>
+    fetch(scoped(`/mcp/${encodeURIComponent(name)}/${connected ? "connect" : "disconnect"}`, directory), {
+      method: "POST",
+    }).then((r) => json<{ servers: Record<string, McpStatus> }>(r)),
+  permissions: (directory: string) =>
+    fetch(scoped("/permissions", directory)).then((r) => json<{ permissions: unknown }>(r)),
+  lsp: (directory: string) =>
+    fetch(scoped("/lsp", directory)).then((r) => json<{ servers: unknown }>(r)),
+
+  notifications: () =>
+    fetch("/api/notifications").then((r) =>
+      json<{ preferences: NotificationPreferences; tokenConfigured: boolean }>(r),
+    ),
+  saveNotifications: (preferences: NotificationPreferences) =>
+    fetch("/api/notifications", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(preferences),
+    }).then((r) => json<{ preferences: NotificationPreferences; tokenConfigured: boolean }>(r)),
+  testNtfy: () =>
+    fetch("/api/notifications/test", { method: "POST" }).then((r) => json<{ sent: boolean }>(r)),
+
+  workspaceTree: (directory: string, path = "") =>
+    fetch(scoped("/workspace/tree", directory, { path })).then((r) =>
+      json<{ path: string; dirs: WorkspaceNode[]; files: WorkspaceNode[] }>(r),
+    ),
+  workspaceFile: (directory: string, path: string) =>
+    fetch(scoped("/workspace/file", directory, { path })).then((r) => json<WorkspaceFile>(r)),
+  changes: (directory: string, mode: "git" | "branch") =>
+    fetch(scoped("/workspace/changes", directory, { mode })).then((r) =>
+      json<{ changes: VcsFileDiff[] }>(r),
+    ),
+  commits: (directory: string) =>
+    fetch(scoped("/workspace/commits", directory)).then((r) => json<{ commits: GitCommit[] }>(r)),
+  worktrees: (directory: string) =>
+    fetch(scoped("/worktrees", directory)).then((r) => json<{ worktrees: Worktree[] }>(r)),
+  createWorktree: (directory: string, name?: string) =>
+    fetch(scoped("/worktrees", directory), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(name ? { name } : {}),
+    }).then((r) => json<{ worktree: Worktree }>(r)),
+  resetWorktree: (directory: string, worktreeDirectory: string) =>
+    fetch(scoped("/worktrees/reset", directory), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ worktreeDirectory }),
+    }).then((r) => json<{ reset: boolean }>(r)),
+  deleteWorktree: (directory: string, worktreeDirectory: string) =>
+    fetch(scoped("/worktrees", directory), {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ worktreeDirectory }),
+    }).then((r) => json<void>(r)),
+  review: (url: string) =>
+    fetch(`/api/forge/review?${new URLSearchParams({ url })}`).then((r) => json<{ review: ReviewStatus }>(r)),
+  mergeReview: (url: string, expectedSha: string) =>
+    fetch("/api/forge/review/merge", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url, expectedSha }),
+    }).then((r) => json<{ merged: boolean }>(r)),
+  permissionRequests: (directory: string) =>
+    fetch(scoped("/permission-requests", directory)).then((r) =>
+      json<{ requests: PermissionRequest[] }>(r),
+    ),
+  replyPermission: (directory: string, requestId: string, reply: "once" | "always" | "reject") =>
+    fetch(scoped(`/permission-requests/${encodeURIComponent(requestId)}/reply`, directory), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reply }),
+    }).then((r) => json<{ replied: boolean }>(r)),
 
   /** SSE endpoint URL — consumed by EventSource, not fetch. */
   eventsUrl: (directory?: string) =>
