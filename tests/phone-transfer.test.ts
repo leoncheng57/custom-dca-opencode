@@ -14,6 +14,21 @@ describe("phone transfer URL", () => {
     expect(selectPhoneUrl(null, "http://localhost:5173/path")).toBe("http://localhost:5173");
   });
 
+  it("targets the active conversation and directory", () => {
+    expect(
+      selectPhoneUrl(
+        "https://ide.example.test",
+        "http://localhost:3410/sessions/ses%2Fone?directory=%2Ftmp%2Fproject+one",
+      ),
+    ).toBe("https://ide.example.test/sessions/ses%2Fone?directory=%2Ftmp%2Fproject+one");
+  });
+
+  it("keeps non-conversation transfers at the app root", () => {
+    expect(selectPhoneUrl("https://ide.example.test", "http://localhost:3410/settings?directory=%2Ftmp%2Fproject")).toBe(
+      "https://ide.example.test",
+    );
+  });
+
   it.each([
     "ftp://ide.example.test",
     "https://user:secret@ide.example.test",
