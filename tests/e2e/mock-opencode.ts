@@ -206,7 +206,16 @@ let mcpServers: Record<string, unknown> = {
   github: { status: "connected" },
   docs: { status: "failed", error: "mock connection refused" },
   auth: { status: "needs_auth" },
+  local: { status: "disabled" },
+  registration: { status: "needs_client_registration", error: "register this client first" },
 };
+const skills = [
+  { name: "browser-check", description: "Check a page in the browser.", location: "/Users/mock/.config/opencode/skills/browser-check/SKILL.md", content: "SECRET SKILL CONTENT" },
+];
+const customCommands = [
+  { name: "verify", description: "Run project verification.", source: "command", agent: "build", model: "mock/model", subtask: false, template: "SECRET COMMAND TEMPLATE" },
+];
+let catalogRequests = 0;
 const worktrees = [`${MOCK_DIRECTORY}.worktrees/fixture`];
 interface MockPermission {
   id: string;
@@ -462,7 +471,20 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     return json(res, 200, true);
   }
 
+  if (pathname === "/test/catalog-requests" && req.method === "POST") {
+    catalogRequests = 0;
+    return json(res, 200, true);
+  }
+  if (pathname === "/test/catalog-requests") return json(res, 200, { count: catalogRequests });
   if (pathname === "/mcp" && req.method === "GET") return json(res, 200, mcpServers);
+  if (pathname === "/skill" && req.method === "GET") {
+    catalogRequests += 1;
+    return json(res, 200, skills);
+  }
+  if (pathname === "/command" && req.method === "GET") {
+    catalogRequests += 1;
+    return json(res, 200, customCommands);
+  }
   const mcpMatch = /^\/mcp\/([^/]+)\/(connect|disconnect)$/.exec(pathname);
   if (mcpMatch && req.method === "POST") {
     const name = decodeURIComponent(mcpMatch[1]);
