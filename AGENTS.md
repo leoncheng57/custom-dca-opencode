@@ -98,6 +98,10 @@ several decisions below.
   only. **Never raw hex.**
 - Every interactive element carries a `data-testid`.
 - No new runtime dependencies without a reason recorded here.
+- `qrcode-generator@2.0.4` is the sole QR runtime dependency: it creates the
+  phone-transfer matrix entirely in the browser, avoiding URL disclosure to an
+  external image service. The app reads its matrix API and renders a React SVG
+  path rather than injecting the package's generated markup.
 - The transcript renderer consumes a backend-neutral `TranscriptEvent`. Row components
   must never touch raw OpenCode `Part` shapes — that mapping lives in exactly one place
   (`client/lib/events.ts`), which is what made this migration a ~363-line adapter

@@ -161,6 +161,7 @@ function scoped(path: string, directory: string, extra: Record<string, string> =
 
 export const api = {
   health: () => fetch("/api/health").then((r) => json<HealthResponse>(r)),
+  appConfig: () => fetch("/api/app-config").then((r) => json<{ publicAppUrl: string | null }>(r)),
 
   sessions: (directory: string, limit = 100) =>
     fetch(scoped("/sessions", directory, { limit: String(limit) })).then((r) =>

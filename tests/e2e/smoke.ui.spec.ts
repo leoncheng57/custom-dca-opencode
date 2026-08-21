@@ -41,6 +41,35 @@ test.describe("hub", () => {
   });
 });
 
+test.describe("phone transfer", () => {
+  test("opens with the configured URL, copies it, and closes", async ({ page, context }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await page.goto(hub);
+    await page.getByTestId("opencode-phone-transfer-open").click();
+
+    const dialog = page.getByTestId("opencode-phone-transfer-dialog");
+    await expect(dialog).toBeVisible();
+    await expect(page.getByTestId("opencode-phone-transfer-url")).toHaveText("https://ide.e2e.example.test:8443");
+    await expect(dialog.getByRole("img")).toBeVisible();
+
+    await page.getByTestId("opencode-phone-transfer-copy").click();
+    await expect(page.getByTestId("opencode-phone-transfer-copy-status")).toHaveText("Copied");
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("https://ide.e2e.example.test:8443");
+
+    await page.getByTestId("opencode-phone-transfer-close").click();
+    await expect(dialog).toHaveCount(0);
+  });
+
+  test("dialog fits without horizontal overflow at 390px", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 740 });
+    await page.goto(hub);
+    await page.getByTestId("opencode-phone-transfer-open").click();
+    await expect(page.getByTestId("opencode-phone-transfer-dialog")).toBeVisible();
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
+  });
+});
+
 test.describe("transcript", () => {
   const conversation = `/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`;
 
