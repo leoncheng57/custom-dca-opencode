@@ -77,6 +77,37 @@ browser; its URL is never sent to an image or QR service. `PUBLIC_APP_URL` must 
 HTTP(S) origin with no path, query, fragment, or credentials. If it is unset, the QR
 uses the current browser origin, which is only useful when that origin is phone-reachable.
 
+### Notifications
+
+Browser sound profiles and optional generic status speech are stored per device. Browser
+and ntfy event delivery toggles remain server-backed and independent. Spoken notifications
+never include prompts, paths, filenames, commands, tool output, or notification bodies.
+
+Constructor-based browser Notifications on iPhone and iPad still require installed-PWA
+and service-worker support. This feature does not add a service worker; ntfy remains the
+reliable phone notification path.
+
+A red counter appears on the nav link and the page header while work is outstanding. It is
+**not** an unread count: it counts permission and question requests still awaiting a reply,
+so it goes to zero by answering the agent, not by visiting the page. `idle`, `error` and
+`abort` are logged but never counted — nothing about them is actionable. A parked
+permission escalates the record it belongs to instead of adding a second count.
+
+The page also lists every notification the BFF classified, including ones that were never
+delivered, because "why was I never asked?" is the question that log exists to answer.
+`ntfy` reports `sent`, `off` or `failed`; `browser` reports only whether preferences
+**allowed** the notification, since the BFF cannot observe whether a tab was open to render
+it. Auto-approved permissions appear marked `suppressed by auto permissions` and never hold
+the counter.
+
+Records live in `.state/notification-history.json` (override with
+`NOTIFICATION_HISTORY_FILE`), capped at the newest 500. Because they outlive the process,
+the BFF reconciles the outstanding set against `GET /permission` and `GET /question` on
+every event-stream reconnect and, throttled, whenever the page loads. That closes requests
+answered while the BFF was down; anything unreconcilable after 24 hours is retired
+automatically, and **Dismiss** clears a single stuck row by hand. **Clear resolved** drops
+resolved rows only — reconciliation can close a record but never recreate one.
+
 Verification requires no live agent or model credentials:
 
 ```bash
@@ -128,31 +159,22 @@ with the source SHA. GitLab MRs can reuse the parser, manifest, and validation m
 would need GitLab artifact/Pages publication and MR-note API wiring; that second CI system
 is intentionally not included.
 
-## Notifications
+### Share and export
 
-The **Notifications** page configures browser and ntfy delivery per event, and shows a
-history of every notification the BFF classified. A red counter appears on the nav link
-and the page header while work is outstanding.
+The conversation header shares or exports the full transcript, and each user or readable
+assistant row can export that message. Copy, Markdown download, JSON download for full
+sessions, and device sharing use the normalized visible transcript. Attachment exports are
+limited to filename and MIME metadata. Reminder bodies, provider metadata and signatures,
+raw tool arguments and output, attachment URLs, and file paths are excluded. Device sharing
+is shown only when the browser implements `navigator.share`.
 
-The counter is **not** an unread count. It counts permission and question requests that
-are still awaiting a reply, so it goes to zero by answering the agent, not by visiting the
-page. `idle`, `error` and `abort` are logged but never counted — nothing about them is
-actionable. A parked permission escalates the record it belongs to instead of adding a
-second count.
-
-The log records events even when delivery was suppressed, because "why was I never asked?"
-is the question it exists to answer. `ntfy` reports `sent`, `off` or `failed`; `browser`
-reports only whether preferences **allowed** the notification, since the BFF cannot observe
-whether a tab was open to render it. Auto-approved permissions appear marked
-`suppressed by auto permissions` and never hold the counter.
-
-Records live in `.state/notification-history.json` (override with
-`NOTIFICATION_HISTORY_FILE`), capped at the newest 500. Because they outlive the process,
-the BFF reconciles the outstanding set against `GET /permission` and `GET /question` on
-every event-stream reconnect and, throttled, whenever the page loads. That closes requests
-answered while the BFF was down; anything unreconcilable after 24 hours is retired
-automatically, and **Dismiss** clears a single stuck row by hand. **Clear resolved** drops
-resolved rows only — reconciliation can close a record but never recreate one.
+Public OpenCode links are deliberately separate. Creating one publishes the complete raw
+session to OpenCode's configured sharing service, including message parts that local
+exports omit, and continues syncing future updates. Anyone with the URL can view it. The
+UI requires a second explicit confirmation before publication, shows the returned URL,
+and requires another explicit confirmation to revoke it. Revocation disables that URL;
+it cannot recall copies already downloaded or shared by viewers. Whether sharing is
+available and where data is hosted are controlled by the OpenCode server configuration.
 
 ## Architecture
 

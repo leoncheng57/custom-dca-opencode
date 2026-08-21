@@ -21,6 +21,8 @@ import {
   listSessions,
   listTodos,
   prompt,
+  shareSession,
+  unshareSession,
   ModePolicyActivationError,
   type AgentMode,
 } from "../opencode/sessions.js";
@@ -256,6 +258,40 @@ export function sessionRoutes(
       const directory = await directoryOf(req);
       await deleteSession(config, directory, paramOf(req, "id"));
       res.status(204).end();
+    }),
+  );
+
+  const ownedSession = async (directory: string, sessionID: string) => {
+    let session;
+    try {
+      session = await getSession(config, directory, sessionID);
+    } catch (error) {
+      if (error instanceof OpencodeError && error.status >= 500) throw new HttpError(404, "session not found");
+      throw error;
+    }
+    if (session.directory !== directory) throw new HttpError(404, "session not found");
+    return session;
+  };
+
+  router.post(
+    "/sessions/:id/share",
+    asyncRoute(async (req, res) => {
+      const directory = await directoryOf(req);
+      const sessionID = paramOf(req, "id");
+      await ownedSession(directory, sessionID);
+      const session = await shareSession(config, directory, sessionID);
+      if (!session.shareUrl) throw new HttpError(502, "OpenCode did not return a valid public share URL");
+      res.json({ session });
+    }),
+  );
+
+  router.delete(
+    "/sessions/:id/share",
+    asyncRoute(async (req, res) => {
+      const directory = await directoryOf(req);
+      const sessionID = paramOf(req, "id");
+      await ownedSession(directory, sessionID);
+      res.json({ session: await unshareSession(config, directory, sessionID) });
     }),
   );
 

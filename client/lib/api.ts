@@ -25,6 +25,7 @@ export interface SessionSummary {
   createdAt: string;
   updatedAt: string;
   archived: boolean;
+  shareUrl?: string;
   running: boolean;
 }
 
@@ -61,6 +62,22 @@ export type McpStatus =
   | { status: "failed"; error: string }
   | { status: "needs_auth" }
   | { status: "needs_client_registration"; error: string };
+
+export interface CatalogSkill { name: string; description: string; location?: string }
+export interface CatalogCommand {
+  name: string;
+  description?: string;
+  source?: string;
+  agent?: string;
+  model?: string;
+  subtask?: boolean;
+}
+export interface CatalogResponse {
+  servers: Record<string, McpStatus>;
+  skills: CatalogSkill[];
+  commands: CatalogCommand[];
+  refreshedAt: string;
+}
 
 export type NotifyEvent = "idle" | "error" | "abort" | "permission" | "question" | "parked";
 export interface NotificationPreferences {
@@ -265,6 +282,15 @@ export const api = {
       json<{ context: number | null }>(r),
     ),
 
+  shareSession: (directory: string, id: string) =>
+    fetch(scoped(`/sessions/${encodeURIComponent(id)}/share`, directory), {
+      method: "POST",
+    }).then((r) => json<{ session: SessionSummary }>(r)),
+  unshareSession: (directory: string, id: string) =>
+    fetch(scoped(`/sessions/${encodeURIComponent(id)}/share`, directory), {
+      method: "DELETE",
+    }).then((r) => json<{ session: SessionSummary }>(r)),
+
   createSession: (input: {
     directory: string;
     title?: string;
@@ -321,6 +347,8 @@ export const api = {
 
   mcp: (directory: string) =>
     fetch(scoped("/mcp", directory)).then((r) => json<{ servers: Record<string, McpStatus> }>(r)),
+  catalog: (directory: string, signal?: AbortSignal) =>
+    fetch(scoped("/catalog", directory), { signal }).then((r) => json<CatalogResponse>(r)),
   setMcp: (directory: string, name: string, connected: boolean) =>
     fetch(scoped(`/mcp/${encodeURIComponent(name)}/${connected ? "connect" : "disconnect"}`, directory), {
       method: "POST",
