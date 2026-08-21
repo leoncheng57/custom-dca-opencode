@@ -116,6 +116,11 @@ export interface PermissionRequest {
   permission: string;
   patterns: string[];
 }
+export interface ReminderSummary {
+  id: string;
+  description: string;
+  triggers: string[];
+}
 
 /**
  * Unwrap a response, surfacing the BFF's `{ error }` body when present.
@@ -202,11 +207,17 @@ export const api = {
     text: string,
     model?: { providerID: string; modelID: string },
     attachments?: Array<{ filename: string; mime: string; url: string }>,
+    reminder?: string,
   ) =>
     fetch(scoped(`/sessions/${encodeURIComponent(id)}/prompt`, directory), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, ...(model ? { model } : {}), ...(attachments?.length ? { attachments } : {}) }),
+      body: JSON.stringify({
+        text,
+        ...(model ? { model } : {}),
+        ...(attachments?.length ? { attachments } : {}),
+        ...(reminder ? { reminder } : {}),
+      }),
     }).then((r) => json<{ accepted: boolean }>(r)),
 
   abort: (directory: string, id: string) =>
@@ -301,6 +312,8 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ reply }),
     }).then((r) => json<{ replied: boolean }>(r)),
+  reminders: () =>
+    fetch("/api/reminders").then((r) => json<{ reminders: ReminderSummary[] }>(r)),
 
   /** SSE endpoint URL — consumed by EventSource, not fetch. */
   eventsUrl: (directory?: string) =>

@@ -18,6 +18,7 @@ describe("normalizeTranscript", () => {
   it("maps a user text part to a user row", () => {
     const user = events.find((e) => e.kind === "user") as UserEvent;
     expect(user.text).toBe("Add a health endpoint to the server.");
+    expect(user.reminders).toEqual([]);
   });
 
   it("folds file references into the surrounding turn instead of emitting a row", () => {
@@ -195,7 +196,7 @@ describe("frozen contract", () => {
   // Verified against 1,133 real messages / 1,592 events from a live 1.18.19
   // server before being written down.
   const ALLOWED: Record<string, string[]> = {
-    user: ["kind", "id", "messageId", "timestamp", "text", "attachments"],
+    user: ["kind", "id", "messageId", "timestamp", "text", "reminders", "attachments"],
     agent: ["kind", "id", "messageId", "timestamp", "text"],
     thought: ["kind", "id", "messageId", "timestamp", "text", "durationMs"],
     tool: [
@@ -218,7 +219,7 @@ describe("frozen contract", () => {
   it("emits only scalars, except attachments", () => {
     for (const event of events) {
       for (const [key, value] of Object.entries(event)) {
-        if (key === "attachments") continue;
+        if (key === "attachments" || key === "reminders") continue;
         expect(
           value === null || typeof value !== "object",
           `${event.kind}.${key} must not be a nested backend object`,

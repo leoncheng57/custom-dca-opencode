@@ -28,6 +28,9 @@ several decisions below.
 - Tests: `npm test` (vitest, `tests/*.test.ts`, node environment, import with `.js`
   suffixes). `npm run typecheck` runs both tsconfigs. Playwright starts deterministic
   mock OpenCode and preview servers, so `npm run test:e2e` needs no live stack or keys.
+- `reminders/<id>/SKILL.md` is read at runtime, not emitted by `tsc`. Keep the root
+  catalogue beside `dist/` in deployments. Per-message injection accepts an ID only;
+  the BFF resolves the body and appends the `<reminder name="id">` sentinel.
 
 ## Non-obvious API contracts (each one cost real debugging)
 

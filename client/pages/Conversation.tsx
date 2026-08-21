@@ -8,7 +8,7 @@ import { LoadingIndicator } from "../ds/loading-indicator.js";
 import { RunningIndicator, Transcript } from "../components/transcript.js";
 import { SessionInspector } from "../components/session-inspector.js";
 import { WorkspacePanels } from "../components/workspace-panels.js";
-import { api, formatCost, type SessionSummary } from "../lib/api.js";
+import { api, formatCost, type ReminderSummary, type SessionSummary } from "../lib/api.js";
 import { collapseActionGroups, mergeEvents, runningActivity } from "../lib/derive.js";
 import { normalizeTranscript, type RawMessage } from "../lib/events.js";
 import { useSessionStream } from "../lib/useSessionStream.js";
@@ -30,6 +30,8 @@ export function ConversationPage() {
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [contextLimit, setContextLimit] = useState<number | null>(null);
   const [attachments, setAttachments] = useState<Array<{ filename: string; mime: string; url: string }>>([]);
+  const [reminderCatalogue, setReminderCatalogue] = useState<ReminderSummary[]>([]);
+  const [selectedReminder, setSelectedReminder] = useState("");
 
   // Keep event identity stable across polls so memoised rows do not churn.
   const [events, setEvents] = useState<TranscriptEvent[]>([]);
@@ -57,6 +59,18 @@ export function ConversationPage() {
     if (!directory || !id) return;
     void api.modelLimit(directory, id).then((result) => setContextLimit(result.context)).catch(() => setContextLimit(null));
   }, [directory, id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void api.reminders().then((result) => {
+      if (!cancelled) setReminderCatalogue(result.reminders);
+    }).catch(() => {
+      // A missing catalogue is optional; keep the picker hidden.
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const items = useMemo(() => collapseActionGroups(events), [events]);
   const activity = useMemo(() => runningActivity(events), [events]);
@@ -87,9 +101,18 @@ export function ConversationPage() {
     if (!text) return;
     setSending(true);
     try {
-      await api.prompt(directory, id, text, undefined, attachments);
+      await api.prompt(
+        directory,
+        id,
+        text,
+        undefined,
+        attachments,
+        selectedReminder || undefined,
+      );
       setDraft("");
       setAttachments([]);
+      // Per-message choice: never let a reminder silently ride on later turns.
+      setSelectedReminder("");
       stream.refresh();
     } finally {
       setSending(false);
@@ -239,6 +262,27 @@ export function ConversationPage() {
               event.target.value = "";
             }} />
           </label>
+          {reminderCatalogue.length > 0 && (
+            <select
+              value={selectedReminder}
+              onChange={(event) => setSelectedReminder(event.target.value)}
+              className={`min-w-0 rounded-md border px-2 text-xs ${
+                selectedReminder
+                  ? "border-[var(--color-border-focus)] bg-[var(--color-background-surface)] text-[var(--color-text-default)]"
+                  : "border-[var(--color-border-default)] bg-transparent text-[var(--color-text-muted)]"
+              }`}
+              data-testid="composer-reminder-select"
+              aria-label="Attach a reminder to this message"
+              title="Attach one reminder to the next message only. Cleared after sending."
+            >
+              <option value="">+ reminder</option>
+              {reminderCatalogue.map((reminder) => (
+                <option key={reminder.id} value={reminder.id} title={reminder.description}>
+                  {reminder.id}{reminder.triggers.length ? " (triggers ignored)" : ""}
+                </option>
+              ))}
+            </select>
+          )}
           <textarea
             value={draft}
             onChange={(event) => setDraft(event.target.value)}

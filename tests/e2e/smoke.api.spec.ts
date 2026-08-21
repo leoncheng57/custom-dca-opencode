@@ -127,6 +127,33 @@ test.describe("prompting", () => {
     expect(res.status()).toBe(201);
     expect((await res.json()).session.title).toBe("e2e created");
   });
+
+  test("exposes reminder metadata without injectable body text", async ({ request }) => {
+    const response = await request.get("/api/reminders");
+    expect(response.ok()).toBe(true);
+    const payload = await response.json();
+    expect(payload.reminders.length).toBeGreaterThan(0);
+    expect(payload.reminders[0]).toEqual(expect.objectContaining({
+      id: expect.any(String),
+      description: expect.any(String),
+      triggers: expect.any(Array),
+    }));
+    expect(payload.reminders[0]).not.toHaveProperty("body");
+    expect(payload.reminders[0]).not.toHaveProperty("enabled");
+  });
+
+  test("rejects malformed and unknown reminder ids", async ({ request }) => {
+    for (const reminder of ["../etc", "", null, 42]) {
+      const malformed = await request.post(`/api/sessions/ses_mock_done/prompt?directory=${DIR}`, {
+        data: { text: "go", reminder },
+      });
+      expect(malformed.status()).toBe(400);
+    }
+    const unknown = await request.post(`/api/sessions/ses_mock_done/prompt?directory=${DIR}`, {
+      data: { text: "go", reminder: "not-in-catalogue" },
+    });
+    expect(unknown.status()).toBe(400);
+  });
 });
 
 test.describe("event stream", () => {

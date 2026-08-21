@@ -12,6 +12,7 @@
 //   - status() only reports sessions owned by the current server process,
 //     which is exactly what makes crash detection possible (detectInterrupted).
 
+import { withReminderTag, type ReminderPreset } from "../reminders/reminders.js";
 import { request, type OpencodeConfig } from "./client.js";
 
 export interface SessionSummary {
@@ -158,6 +159,7 @@ export interface PromptInput {
   agent?: string;
   model?: { providerID: string; modelID: string };
   attachments?: Array<{ filename: string; mime: string; url: string }>;
+  reminder?: Pick<ReminderPreset, "id" | "body">;
 }
 
 /**
@@ -180,7 +182,10 @@ export async function prompt(
       ...(input.agent ? { agent: input.agent } : {}),
       ...(input.model ? { model: input.model } : {}),
       parts: [
-        { type: "text", text: input.text },
+        {
+          type: "text",
+          text: input.reminder ? withReminderTag(input.text, input.reminder) : input.text,
+        },
         ...(input.attachments ?? []).map((attachment) => ({
           type: "file" as const,
           mime: attachment.mime,
