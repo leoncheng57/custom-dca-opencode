@@ -57,7 +57,7 @@ function eventMap(value: unknown): Record<NotifyEvent, boolean> {
 export function trustedNtfyOrigin(env: NodeJS.ProcessEnv = process.env): string {
   const configured = env.NTFY_SERVER ?? "https://ntfy.sh";
   const url = new URL(configured);
-  if (!["http:", "https:"].includes(url.protocol) || url.pathname !== "/") {
+  if (!["http:", "https:"].includes(url.protocol) || url.pathname !== "/" || url.username || url.password || url.search || url.hash) {
     throw new Error("NTFY_SERVER must be an HTTP(S) origin");
   }
   return url.origin;
@@ -66,7 +66,7 @@ export function trustedNtfyOrigin(env: NodeJS.ProcessEnv = process.env): string 
 function validServer(value: unknown): string {
   if (typeof value !== "string") throw new Error("ntfy.server must be an HTTP(S) origin");
   const url = new URL(value);
-  if (!["http:", "https:"].includes(url.protocol) || url.pathname !== "/") {
+  if (!["http:", "https:"].includes(url.protocol) || url.pathname !== "/" || url.username || url.password || url.search || url.hash) {
     throw new Error("ntfy.server must be an HTTP(S) origin");
   }
   const trusted = trustedNtfyOrigin();

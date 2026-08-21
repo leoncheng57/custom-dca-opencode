@@ -9,8 +9,10 @@ import { RunningIndicator, Transcript } from "../components/transcript.js";
 import { SessionInspector } from "../components/session-inspector.js";
 import { WorkspacePanels } from "../components/workspace-panels.js";
 import { AgentModeToggle } from "../components/agent-mode-toggle.js";
+import { QuestionRequest } from "../components/question-request.js";
 import { api, formatCost, type ReminderSummary, type SessionSummary } from "../lib/api.js";
 import { latestModeMessageID, modeFromMessages, type AgentMode } from "../lib/agentMode.js";
+import { MAX_IMAGE_ATTACHMENTS, readImageAttachment, selectImageFiles, type ImageAttachment } from "../lib/attachments.js";
 import { collapseActionGroups, mergeEvents, runningActivity } from "../lib/derive.js";
 import { normalizeTranscript, type RawMessage } from "../lib/events.js";
 import { useSessionStream } from "../lib/useSessionStream.js";
@@ -30,8 +32,10 @@ export function ConversationPage() {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
   const [contextLimit, setContextLimit] = useState<number | null>(null);
-  const [attachments, setAttachments] = useState<Array<{ filename: string; mime: string; url: string }>>([]);
+  const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [reminderCatalogue, setReminderCatalogue] = useState<ReminderSummary[]>([]);
   const [selectedReminder, setSelectedReminder] = useState("");
   const [mode, setMode] = useState<AgentMode>("build");
@@ -141,6 +145,15 @@ export function ConversationPage() {
     }
   };
 
+  const addAttachments = (files: Iterable<File>) => {
+    const selection = selectImageFiles(files, attachments.length);
+    setAttachmentError(selection.error);
+    if (!selection.files.length) return;
+    void Promise.all(selection.files.map(readImageAttachment))
+      .then((next) => setAttachments((items) => [...items, ...next].slice(0, MAX_IMAGE_ATTACHMENTS)))
+      .catch(() => setAttachmentError("Could not read the selected image."));
+  };
+
   if (!directory) {
     return (
       <main className="mx-auto max-w-3xl p-6">
@@ -175,6 +188,9 @@ export function ConversationPage() {
         </Button>
         <Button size="sm" variant="secondary" onClick={() => setWorkspaceOpen(true)} data-testid="opencode-workspace-open">
           Workspace
+        </Button>
+        <Button className="min-h-11 lg:hidden" size="sm" variant="secondary" onClick={() => setInspectorOpen(true)} data-testid="opencode-mobile-inspector-open">
+          Details
         </Button>
         {stream.running && (
           <Button
@@ -235,6 +251,10 @@ export function ConversationPage() {
         </div>
       ))}
 
+      {stream.questions.map((request) => (
+        <QuestionRequest key={request.id} directory={directory} sessionID={id} request={request} onResolved={stream.refresh} />
+      ))}
+
       <div className="flex min-h-0 flex-1">
         <div
           className="thin-scrollbar min-w-0 flex-1 overflow-y-auto px-3 py-6 sm:px-6 sm:py-8"
@@ -264,7 +284,7 @@ export function ConversationPage() {
           </div>
         </div>
 
-        <SessionInspector events={events} todos={stream.todos} />
+        <SessionInspector events={events} todos={stream.todos} mobileOpen={inspectorOpen} onMobileClose={() => setInspectorOpen(false)} />
       </div>
 
       <footer className="border-t border-[var(--color-border-default)] p-3">
@@ -276,17 +296,12 @@ export function ConversationPage() {
             </span>
           </div>
           {attachments.length > 0 && <div className="mb-2 flex flex-wrap gap-2">{attachments.map((attachment, index) => <button key={`${attachment.filename}-${index}`} type="button" onClick={() => setAttachments((items) => items.filter((_, itemIndex) => itemIndex !== index))} className="rounded border border-[var(--color-border-default)] px-2 py-1 text-xs" data-testid="opencode-attachment-chip">{attachment.filename} x</button>)}</div>}
+          {attachmentError && <p className="mb-2 text-xs text-[var(--color-text-danger)]" role="alert" data-testid="opencode-attachment-error">{attachmentError}</p>}
           <div className="flex min-w-0 gap-2">
           <label className="inline-flex cursor-pointer items-center rounded-md border border-[var(--color-border-default)] px-3 text-xs font-semibold" data-testid="opencode-attach-label">
             Attach
             <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple className="sr-only" data-testid="opencode-attach" onChange={(event) => {
-              const files = [...(event.target.files ?? [])].slice(0, Math.max(0, 4 - attachments.length)).filter((file) => file.size <= 3 * 1024 * 1024);
-              void Promise.all(files.map((file) => new Promise<{ filename: string; mime: string; url: string }>((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = () => resolve({ filename: file.name, mime: file.type, url: String(reader.result) });
-                reader.onerror = () => reject(reader.error);
-                reader.readAsDataURL(file);
-              }))).then((next) => setAttachments((items) => [...items, ...next]));
+              addAttachments(event.target.files ?? []);
               event.target.value = "";
             }} />
           </label>
@@ -294,7 +309,7 @@ export function ConversationPage() {
             <select
               value={selectedReminder}
               onChange={(event) => setSelectedReminder(event.target.value)}
-              className={`min-w-0 rounded-md border px-2 text-xs ${
+              className={`min-w-0 rounded-md border px-2 text-base sm:text-xs ${
                 selectedReminder
                   ? "border-[var(--color-border-focus)] bg-[var(--color-background-surface)] text-[var(--color-text-default)]"
                   : "border-[var(--color-border-default)] bg-transparent text-[var(--color-text-muted)]"
@@ -314,9 +329,16 @@ export function ConversationPage() {
           <textarea
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
+            onPaste={(event) => {
+              const images = [...event.clipboardData.items]
+                .filter((item) => item.kind === "file")
+                .map((item) => item.getAsFile())
+                .filter((file): file is File => file !== null);
+              if (images.length) addAttachments(images);
+            }}
             rows={2}
             placeholder="Send a follow-up…"
-            className="flex-1 rounded-md border border-[var(--color-border-default)] bg-transparent p-2 text-sm"
+            className="flex-1 rounded-md border border-[var(--color-border-default)] bg-transparent p-2 text-base sm:text-sm"
             data-testid="opencode-composer"
           />
           <Button onClick={() => void send()} disabled={sending || !draft.trim()} data-testid="opencode-send">

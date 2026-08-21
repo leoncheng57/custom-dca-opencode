@@ -43,6 +43,51 @@ test.describe("hub", () => {
     await expect(page.getByTestId("opencode-start")).toBeDisabled();
   });
 
+  test("searches project cards and keeps manual paths as an advanced fallback", async ({ page }) => {
+    await page.goto(hub);
+    const mockProject = page.getByTestId("opencode-project-card").filter({
+      has: page.getByText("mock-project", { exact: true }),
+    });
+    await expect(mockProject).toBeVisible();
+    await page.getByTestId("opencode-project-search").fill("no-project-has-this-name");
+    await expect(mockProject).toHaveCount(0);
+    await expect(page.getByTestId("opencode-directory-input")).not.toBeVisible();
+    await page.getByTestId("opencode-directory-advanced-toggle").click();
+    await expect(page.getByTestId("opencode-directory-input")).toBeVisible();
+  });
+
+  test("pins a project with the always-visible card action", async ({ page }) => {
+    let directories: string[] = [];
+    await page.route("**/api/project-pins", async (route) => {
+      if (route.request().method() === "PATCH") {
+        directories = (route.request().postDataJSON() as { directories: string[] }).directories;
+      }
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ directories }) });
+    });
+    await page.goto(hub);
+    const mockProject = page.getByTestId("opencode-project-card").filter({
+      has: page.getByText("mock-project", { exact: true }),
+    });
+    const pin = mockProject.getByTestId("opencode-project-pin");
+    await expect(pin).toBeVisible();
+    await pin.click();
+    await expect(pin).toHaveAttribute("aria-pressed", "true");
+  });
+
+  test("shows an advisory running-session warning only outside isolated mode", async ({ page }) => {
+    await page.goto(hub);
+    await expect(page.getByTestId("opencode-session-collision-warning")).toBeVisible();
+    await page.getByTestId("opencode-isolated-workspace").check();
+    await expect(page.getByTestId("opencode-session-collision-warning")).toHaveCount(0);
+  });
+
+  test("keeps an undiscovered URL workspace selected", async ({ page }) => {
+    const other = `${DIR}/src`;
+    await page.goto(`/?directory=${encodeURIComponent(other)}`);
+    await expect(page.getByTestId("opencode-other-workspace")).toContainText("Other workspace");
+    await expect(page.getByTestId("opencode-project-select-other")).toHaveAttribute("aria-pressed", "true");
+  });
+
   test("navigating to a session keeps the directory scope", async ({ page }) => {
     await page.goto(hub);
     await page.getByTestId("opencode-session-row").first().click();
@@ -184,6 +229,22 @@ test.describe("composer", () => {
     await expect(page.getByTestId("opencode-attachment-chip")).toHaveCount(0);
   });
 
+  test("pastes an image without consuming pasted text and reports invalid files", async ({ page }) => {
+    await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
+    const composer = page.getByTestId("opencode-composer");
+    await composer.fill("keep this text");
+    await composer.evaluate((element) => {
+      const transfer = new DataTransfer();
+      transfer.items.add(new File([new Uint8Array([137, 80, 78, 71])], "pasted.png", { type: "image/png" }));
+      element.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: transfer }));
+    });
+    await expect(composer).toHaveValue("keep this text");
+    await expect(page.getByTestId("opencode-attachment-chip")).toContainText("pasted.png");
+
+    await page.getByTestId("opencode-attach").setInputFiles({ name: "page.html", mimeType: "text/html", buffer: Buffer.from("<img src=https://example.test/x.png>") });
+    await expect(page.getByTestId("opencode-attachment-error")).toContainText("Use PNG, JPEG, GIF, or WebP");
+  });
+
   test("disables send when empty", async ({ page }) => {
     await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
     await expect(page.getByTestId("opencode-send")).toBeDisabled();
@@ -230,6 +291,7 @@ test.describe("mobile", () => {
   test("hub is usable on a phone", async ({ page }) => {
     await page.goto(hub);
     await expect(page.getByTestId("opencode-session-list")).toBeVisible();
+    await expect(page.getByTestId("opencode-project-grid")).toBeVisible();
     await expect(page.getByTestId("opencode-hub-mode")).toBeVisible();
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -245,6 +307,66 @@ test.describe("mobile", () => {
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
     );
     expect(overflow).toBeLessThanOrEqual(1);
+  });
+
+  test("opens session tasks, commands, and reviews in a dismissible mobile sheet", async ({ page }) => {
+    await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
+    await page.getByTestId("opencode-mobile-inspector-open").click();
+    const sheet = page.getByTestId("opencode-mobile-inspector");
+    await expect(sheet).toBeVisible();
+    await expect(sheet.getByTestId("opencode-task-list")).toContainText("Add the route");
+    await sheet.getByTestId("opencode-inspector-commands").click();
+    await expect(sheet.getByTestId("opencode-command-list")).toBeVisible();
+    await sheet.getByTestId("opencode-inspector-links").click();
+    await expect(sheet.getByTestId("opencode-merge-request-list")).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+    await sheet.getByTestId("opencode-mobile-inspector-close").click();
+    await expect(sheet).toHaveCount(0);
+    await page.getByTestId("opencode-mobile-inspector-open").click();
+    await expect(sheet).toBeVisible();
+    await page.goBack();
+    await expect(sheet).toHaveCount(0);
+  });
+});
+
+test.describe("question remote control", () => {
+  test.beforeEach(async () => {
+    await fetch(`${MOCK_URL}/test/questions/reset?scope=ui`, { method: "POST" });
+  });
+
+  test("renders every question and submits answers in order", async ({ page }) => {
+    await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
+    const request = page.getByTestId("opencode-question-request");
+    await expect(request).toContainText("Where should this ship?");
+    await expect(request).toContainText("Which checks should run?");
+    await request.getByTestId("opencode-question-option").nth(0).check();
+    await request.getByTestId("opencode-question-option").nth(2).check();
+    await request.getByTestId("opencode-question-option").nth(3).check();
+    await request.getByTestId("opencode-question-submit").click();
+    await expect.poll(async () => {
+      const replies = await (await fetch(`${MOCK_URL}/test/question-replies?id=que_mock`)).json() as unknown[];
+      return replies;
+    }).toEqual([{ id: "que_mock", answers: [["Staging"], ["Unit", "E2E"]] }]);
+  });
+
+  test("submits a custom multi-select answer", async ({ page }) => {
+    await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
+    const request = page.getByTestId("opencode-question-request");
+    await request.getByTestId("opencode-question-option").nth(0).check();
+    await request.getByTestId("opencode-question-option").nth(2).check();
+    await request.getByTestId("opencode-question-custom").fill("Lint");
+    await request.getByTestId("opencode-question-submit").click();
+    await expect.poll(async () => await (await fetch(`${MOCK_URL}/test/question-replies?id=que_mock`)).json()).toEqual([
+      { id: "que_mock", answers: [["Staging"], ["Unit", "Lint"]] },
+    ]);
+  });
+
+  test("rejects a question", async ({ page }) => {
+    await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
+    await page.getByTestId("opencode-question-reject").click();
+    await expect.poll(async () => await (await fetch(`${MOCK_URL}/test/question-replies?id=que_mock`)).json()).toEqual([
+      { id: "que_mock", rejected: true },
+    ]);
   });
 });
 
@@ -281,6 +403,8 @@ test.describe("workspace UI", () => {
   test("opens files, changes, commands and preview", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto(conversation);
+    await expect(page.getByTestId("opencode-session-inspector")).toBeVisible();
+    await expect(page.getByTestId("opencode-mobile-inspector-open")).toBeHidden();
     await page.getByTestId("opencode-inspector-commands").click();
     await expect(page.getByTestId("opencode-command-row")).toHaveCount(3);
     await page.getByTestId("opencode-inspector-links").click();

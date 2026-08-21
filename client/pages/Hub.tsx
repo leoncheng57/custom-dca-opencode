@@ -1,12 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Pin, Search } from "lucide-react";
 
 import { Alert } from "../ds/alert.js";
 import { Badge } from "../ds/badge.js";
 import { Button } from "../ds/button.js";
 import { LoadingIndicator } from "../ds/loading-indicator.js";
 import { AgentModeToggle } from "../components/agent-mode-toggle.js";
-import { api, formatCost, type HealthResponse, type SessionSummary, type Worktree } from "../lib/api.js";
+import {
+  api,
+  formatCost,
+  type DiscoveredProject,
+  type HealthResponse,
+  type SessionSummary,
+  type Worktree,
+} from "../lib/api.js";
 import type { AgentMode } from "../lib/agentMode.js";
 
 const DIRECTORY_KEY = "opencode.directory.v1";
@@ -44,6 +52,12 @@ export function HubPage() {
   const [isolated, setIsolated] = useState(false);
   const [mode, setMode] = useState<AgentMode>("build");
   const [worktrees, setWorktrees] = useState<Worktree[]>([]);
+  const [projectsRoot, setProjectsRoot] = useState("");
+  const [projects, setProjects] = useState<DiscoveredProject[] | null>(null);
+  const [pinnedDirectories, setPinnedDirectories] = useState<string[]>([]);
+  const [projectSearch, setProjectSearch] = useState("");
+  const [pinsSaving, setPinsSaving] = useState(false);
+  const [projectError, setProjectError] = useState<string | null>(null);
 
   useEffect(() => {
     if (directory) localStorage.setItem(DIRECTORY_KEY, directory);
@@ -51,28 +65,45 @@ export function HubPage() {
 
   useEffect(() => {
     api.health().then(setHealth).catch(() => setHealth(null));
+    Promise.all([api.projects(), api.projectPins()])
+      .then(([discovery, pins]) => {
+        setProjectsRoot(discovery.root);
+        setProjects(discovery.projects);
+        setPinnedDirectories(pins.directories);
+        setProjectError(null);
+      })
+      .catch((e: Error) => {
+        setProjects([]);
+        setProjectError(e.message);
+      });
   }, []);
 
   // In-flight guard: the interval keeps firing while a slow list call is
   // outstanding, and stacking requests against a wedged upstream helps nobody.
-  const inFlight = useRef(false);
+  const activeDirectory = useRef(directory);
+  activeDirectory.current = directory;
+  const inFlight = useRef<string | null>(null);
   const refresh = useCallback(() => {
-    if (!directory || inFlight.current) return;
-    inFlight.current = true;
+    if (!directory || inFlight.current === directory) return;
+    inFlight.current = directory;
     api
       .sessions(directory)
       .then((r) => {
+        if (activeDirectory.current !== directory) return;
         setSessions(r.sessions);
         setError(null);
       })
-      .catch((e: Error) => setError(e.message))
+      .catch((e: Error) => {
+        if (activeDirectory.current === directory) setError(e.message);
+      })
       .finally(() => {
-        inFlight.current = false;
+        if (inFlight.current === directory) inFlight.current = null;
       });
   }, [directory]);
 
   useEffect(() => {
     if (!directory) return;
+    setSessions(null);
     refresh();
     const timer = setInterval(() => {
       if (document.visibilityState === "hidden") return;
@@ -86,11 +117,30 @@ export function HubPage() {
     void api.worktrees(directory).then((result) => setWorktrees(result.worktrees)).catch(() => setWorktrees([]));
   }, [directory]);
 
-  const applyDirectory = () => {
-    const next = directoryInput.trim();
+  const selectDirectory = (next: string) => {
     if (!next) return;
+    setDirectoryInput(next);
     setSessions(null);
     setParams({ directory: next });
+  };
+
+  const applyDirectory = () => selectDirectory(directoryInput.trim());
+
+  const togglePin = async (projectDirectory: string) => {
+    if (pinsSaving) return;
+    const next = pinnedDirectories.includes(projectDirectory)
+      ? pinnedDirectories.filter((item) => item !== projectDirectory)
+      : [...pinnedDirectories, projectDirectory];
+    setPinsSaving(true);
+    setProjectError(null);
+    try {
+      const result = await api.saveProjectPins(next);
+      setPinnedDirectories(result.directories);
+    } catch (e) {
+      setProjectError((e as Error).message);
+    } finally {
+      setPinsSaving(false);
+    }
   };
 
   const create = async () => {
@@ -107,8 +157,41 @@ export function HubPage() {
     }
   };
 
+  const projectByDirectory = new Map((projects ?? []).map((project) => [project.directory, project]));
+  for (const pinnedDirectory of pinnedDirectories) {
+    if (projectByDirectory.has(pinnedDirectory)) continue;
+    const beneathRoot = projectsRoot && (
+      pinnedDirectory.startsWith(`${projectsRoot}/`) || pinnedDirectory.startsWith(`${projectsRoot}\\`)
+    );
+    const relativePath = beneathRoot ? pinnedDirectory.slice(projectsRoot.length + 1) : pinnedDirectory;
+    projectByDirectory.set(pinnedDirectory, {
+      name: relativePath.split(/[\\/]/).filter(Boolean).at(-1) ?? pinnedDirectory,
+      relativePath,
+      directory: pinnedDirectory,
+      kind: "directory",
+    });
+  }
+  const pinOrder = new Map(pinnedDirectories.map((item, index) => [item, index]));
+  const normalizedSearch = projectSearch.trim().toLocaleLowerCase();
+  const visibleProjects = [...projectByDirectory.values()]
+    .filter((project) =>
+      !normalizedSearch ||
+      project.name.toLocaleLowerCase().includes(normalizedSearch) ||
+      project.relativePath.toLocaleLowerCase().includes(normalizedSearch))
+    .sort((left, right) => {
+      const leftPin = pinOrder.get(left.directory);
+      const rightPin = pinOrder.get(right.directory);
+      if (leftPin !== undefined && rightPin !== undefined) return leftPin - rightPin;
+      if (leftPin !== undefined) return -1;
+      if (rightPin !== undefined) return 1;
+      return left.name.localeCompare(right.name) || left.relativePath.localeCompare(right.relativePath);
+    });
+  const selectedProject = projectByDirectory.get(directory);
+  const showOtherWorkspace = Boolean(directory && projects && !selectedProject);
+  const hasRunningSession = sessions?.some((session) => session.running) ?? false;
+
   return (
-    <main className="mx-auto max-w-4xl space-y-5 p-6" data-testid="opencode-hub">
+    <main className="mx-auto max-w-4xl space-y-5 p-4 sm:p-6" data-testid="opencode-hub">
       <header className="flex flex-wrap items-end gap-3 pt-2">
         <div>
           <h1 className="text-[1.6rem] font-bold tracking-tight">What should the agent do?</h1>
@@ -145,26 +228,137 @@ export function HubPage() {
         </Alert>
       )}
       {error && <Alert variant="danger">{error}</Alert>}
+      {projectError && <Alert variant="warning" data-testid="opencode-projects-error">Project picker: {projectError}</Alert>}
 
-      <section className="rounded-xl border border-[var(--color-border-default)] p-5">
-        <h2 className="mb-3 text-sm font-semibold">New task</h2>
-        <label className="mb-1 block text-xs text-[var(--color-text-muted)]" htmlFor="directory">
-          Project directory (absolute path)
-        </label>
-        <div className="mb-3 flex gap-2">
-          <input
-            id="directory"
-            value={directoryInput}
-            onChange={(e) => setDirectoryInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && applyDirectory()}
-            placeholder="/Users/you/Projects/my-repo"
-            className="flex-1 rounded-md border border-[var(--color-border-default)] bg-transparent p-2 text-sm"
-            data-testid="opencode-directory-input"
-          />
-          <Button variant="secondary" onClick={applyDirectory} data-testid="opencode-directory-apply">
-            Use
-          </Button>
+      <section className="rounded-xl border border-[var(--color-border-default)] p-4 sm:p-5">
+        <div className="mb-3 flex flex-wrap items-center gap-3">
+          <div>
+            <h2 className="text-sm font-semibold">Choose a project</h2>
+            <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">Pinned projects stay first on every device.</p>
+          </div>
+          <label className="relative ml-auto min-w-0 flex-1 sm:max-w-72" htmlFor="project-search">
+            <span className="sr-only">Search projects</span>
+            <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-muted)]" />
+            <input
+              id="project-search"
+              type="search"
+              value={projectSearch}
+              onChange={(event) => setProjectSearch(event.target.value)}
+              placeholder="Search projects"
+              className="h-10 w-full rounded-md border border-[var(--color-border-default)] bg-transparent pl-9 pr-3 text-sm"
+              data-testid="opencode-project-search"
+            />
+          </label>
         </div>
+
+        {projects === null ? (
+          <div className="py-6"><LoadingIndicator /></div>
+        ) : (
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" data-testid="opencode-project-grid">
+            {showOtherWorkspace && (
+              <div
+                className="flex min-w-0 items-stretch rounded-lg border border-[var(--color-border-focus)] bg-[var(--color-background-surface-info-muted)]"
+                data-testid="opencode-other-workspace"
+              >
+                <button
+                  type="button"
+                  className="min-w-0 flex-1 p-3 text-left"
+                  onClick={() => selectDirectory(directory)}
+                  aria-pressed="true"
+                  data-testid="opencode-project-select-other"
+                >
+                  <span className="block truncate text-sm font-semibold">Other workspace</span>
+                  <span className="mt-1 block truncate text-xs text-[var(--color-text-muted)]" title={directory}>{directory}</span>
+                </button>
+                <button
+                  type="button"
+                  className="m-1.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-[var(--color-text-muted)] hover:bg-[var(--color-background-action-ghost-hover)] hover:text-[var(--color-text-default)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)] disabled:opacity-40"
+                  onClick={() => void togglePin(directory)}
+                  disabled={pinsSaving}
+                  aria-label={`${pinOrder.has(directory) ? "Unpin" : "Pin"} other workspace`}
+                  aria-pressed={pinOrder.has(directory)}
+                  data-testid="opencode-project-pin-other"
+                >
+                  <Pin aria-hidden="true" className="h-4 w-4" fill={pinOrder.has(directory) ? "currentColor" : "none"} />
+                </button>
+              </div>
+            )}
+            {visibleProjects.map((project) => {
+              const selected = project.directory === directory;
+              const pinned = pinOrder.has(project.directory);
+              return (
+                <div
+                  key={project.directory}
+                  className={
+                    selected
+                      ? "flex min-w-0 items-stretch rounded-lg border border-[var(--color-border-focus)] bg-[var(--color-background-surface-info-muted)]"
+                      : "flex min-w-0 items-stretch rounded-lg border border-[var(--color-border-default)] bg-[var(--color-background-surface)] hover:bg-[var(--hh-row-hover)]"
+                  }
+                  data-testid="opencode-project-card"
+                >
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 p-3 text-left"
+                    onClick={() => selectDirectory(project.directory)}
+                    aria-pressed={selected}
+                    data-testid="opencode-project-select"
+                  >
+                    <span className="block truncate text-sm font-semibold">{project.name}</span>
+                    <span className="mt-1 block truncate text-xs text-[var(--color-text-muted)]" title={project.relativePath}>{project.relativePath}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="m-1.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-[var(--color-text-muted)] hover:bg-[var(--color-background-action-ghost-hover)] hover:text-[var(--color-text-default)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)] disabled:opacity-40"
+                    onClick={() => void togglePin(project.directory)}
+                    disabled={pinsSaving}
+                    aria-label={`${pinned ? "Unpin" : "Pin"} ${project.name}`}
+                    aria-pressed={pinned}
+                    data-testid="opencode-project-pin"
+                  >
+                    <Pin aria-hidden="true" className="h-4 w-4" fill={pinned ? "currentColor" : "none"} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {projects !== null && visibleProjects.length === 0 && !showOtherWorkspace && (
+          <p className="py-5 text-center text-sm text-[var(--color-text-muted)]" data-testid="opencode-projects-empty">
+            No projects match your search.
+          </p>
+        )}
+
+        <details className="mt-3" data-testid="opencode-directory-advanced">
+          <summary className="w-fit cursor-pointer text-xs font-medium text-[var(--color-text-action-ghost)]" data-testid="opencode-directory-advanced-toggle">
+            Enter another path
+          </summary>
+          <label className="mb-1 mt-3 block text-xs text-[var(--color-text-muted)]" htmlFor="directory">
+            Workspace directory (absolute path)
+          </label>
+          <div className="flex min-w-0 gap-2">
+            <input
+              id="directory"
+              value={directoryInput}
+              onChange={(e) => setDirectoryInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && applyDirectory()}
+              placeholder="/Users/you/Projects/my-repo"
+              className="min-w-0 flex-1 rounded-md border border-[var(--color-border-default)] bg-transparent p-2 text-sm"
+              data-testid="opencode-directory-input"
+            />
+            <Button variant="secondary" onClick={applyDirectory} data-testid="opencode-directory-apply">
+              Use
+            </Button>
+          </div>
+        </details>
+      </section>
+
+      <section className="rounded-xl border border-[var(--color-border-default)] p-4 sm:p-5">
+        <h2 className="mb-3 text-sm font-semibold">New task</h2>
+        {directory && (
+          <p className="mb-3 truncate text-xs text-[var(--color-text-muted)]" title={directory} data-testid="opencode-selected-directory">
+            {selectedProject?.relativePath ?? directory}
+          </p>
+        )}
         <textarea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
@@ -173,7 +367,12 @@ export function HubPage() {
           className="mb-2 w-full rounded-md border border-[var(--color-border-default)] bg-transparent p-2 text-sm"
           data-testid="opencode-prompt"
         />
-        <div className="flex flex-wrap items-center gap-2">
+        {hasRunningSession && !isolated && (
+          <Alert variant="warning" data-testid="opencode-session-collision-warning">
+            Another agent is running in this workspace. Starting here may cause overlapping changes.
+          </Alert>
+        )}
+        <div className="mt-2 flex flex-wrap items-center gap-2">
           <AgentModeToggle mode={mode} onChange={setMode} testId="opencode-hub-mode" />
           <Button
             onClick={() => void create()}
