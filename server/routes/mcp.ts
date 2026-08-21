@@ -5,13 +5,14 @@ import { listMcp, setMcpConnected } from "../opencode/mcp.js";
 import { PathError, requireWorkspaceDirectory } from "../paths.js";
 import { getEffectivePermissions } from "../opencode/config.js";
 import { request } from "../opencode/client.js";
+import { loadCatalog } from "../opencode/catalog.js";
 
 export function mcpRoutes(config: OpencodeConfig): Router {
   const router = Router();
 
-  const fail = (res: import("express").Response, error: unknown) => {
+  const fail = (res: import("express").Response, error: unknown, mcpNotFound = false) => {
     if (error instanceof PathError) res.status(error.status).json({ error: error.message });
-    else if (error instanceof OpencodeError && error.status === 404) res.status(404).json({ error: "MCP server not found" });
+    else if (mcpNotFound && error instanceof OpencodeError && error.status === 404) res.status(404).json({ error: "MCP server not found" });
     else res.status(502).json({ error: error instanceof Error ? error.message : String(error) });
   };
 
@@ -19,6 +20,12 @@ export function mcpRoutes(config: OpencodeConfig): Router {
     requireWorkspaceDirectory(req.query.directory)
       .then((directory) => listMcp(config, directory))
       .then((servers) => res.json({ servers }))
+      .catch((error: unknown) => fail(res, error));
+  });
+  router.get("/catalog", (req, res) => {
+    requireWorkspaceDirectory(req.query.directory)
+      .then((directory) => loadCatalog(config, directory))
+      .then((catalogue) => res.json(catalogue))
       .catch((error: unknown) => fail(res, error));
   });
   router.post("/mcp/:name/:action", (req, res) => {
@@ -31,7 +38,7 @@ export function mcpRoutes(config: OpencodeConfig): Router {
     requireWorkspaceDirectory(req.query.directory)
       .then((directory) => setMcpConnected(config, directory, name, action === "connect"))
       .then((servers) => res.json({ servers }))
-      .catch((error: unknown) => fail(res, error));
+      .catch((error: unknown) => fail(res, error, true));
   });
   router.get("/permissions", (req, res) => {
     requireWorkspaceDirectory(req.query.directory)

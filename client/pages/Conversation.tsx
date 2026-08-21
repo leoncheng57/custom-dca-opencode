@@ -469,7 +469,15 @@ export function ConversationPage() {
           </div>
         </div>
 
-        <SessionInspector events={events} todos={stream.todos} mobileOpen={inspectorOpen} onMobileClose={() => setInspectorOpen(false)} />
+        <SessionInspector
+          directory={directory}
+          events={events}
+          todos={stream.todos}
+          todosLoaded={stream.todosLoaded}
+          todosError={stream.todosError}
+          mobileOpen={inspectorOpen}
+          onMobileClose={() => setInspectorOpen(false)}
+        />
       </div>
 
       <footer className="relative z-20 shrink-0 border-t border-[var(--color-border-default)] bg-[var(--color-background-surface)] px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
