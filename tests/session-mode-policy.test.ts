@@ -27,7 +27,7 @@ function arrange(input: {
   session: { agent?: string; permission?: unknown[] };
   messages?: Array<{ info?: { role?: string; agent?: string } }>;
 }) {
-  requestMock.mockImplementation(async (_config, path: string, options?: { method?: string; body?: unknown }) => {
+  requestMock.mockImplementation(async (_config, path: string, options?: { method?: string; body?: { permission?: unknown[]; agent?: string }; query?: Record<string, unknown> }) => {
     if (typeof path !== "string") throw new Error(`request path missing: ${JSON.stringify([_config, path, options])}`);
     if (path === "/experimental/tool/ids") return tools;
     if (path === "/agent") return agents;
@@ -49,22 +49,38 @@ describe("session mode policy identity safety", () => {
     requestMock.mockReset();
   });
 
-  it("rejects a foreign upstream agent before mutating or prompting", async () => {
+  it.each(["explore", "sisyphus"])("rejects foreign upstream agent %s before mutating or prompting", async (agent) => {
     arrange({
-      session: { agent: "explore", permission: [] },
-      messages: [{ info: { role: "user", agent: "explore" } }],
+      session: { agent, permission: [] },
+      messages: [{ info: { role: "user", agent } }],
     });
 
     await expect(prompt(config, directory, sessionID, { text: "change it", mode: "build" }))
       .rejects.toMatchObject<Partial<SessionAgentIdentityError>>({
         code: "SESSION_AGENT_UNSUPPORTED",
-        agent: "explore",
+        agent,
       });
     expect(mutations()).toEqual([]);
   });
 
+  it("accepts the newest user-selected mode after an explicit upstream switch", async () => {
+    arrange({
+      session: { agent: "build", permission: [] },
+      messages: [
+        { info: { role: "user", agent: "explore" } },
+        { info: { role: "user", agent: "build" } },
+      ],
+    });
+
+    await expect(prompt(config, directory, sessionID, { text: "continue", mode: "build" }))
+      .resolves.toBeUndefined();
+  });
+
   it("rejects unknown identity honestly before mutating or prompting", async () => {
-    arrange({ session: { permission: [] } });
+    arrange({
+      session: { permission: [] },
+      messages: [{ info: { role: "assistant", agent: "compaction" } }],
+    });
 
     await expect(prompt(config, directory, sessionID, { text: "change it", mode: "build" }))
       .rejects.toMatchObject<Partial<SessionAgentIdentityError>>({ code: "SESSION_AGENT_UNKNOWN" });
@@ -80,6 +96,21 @@ describe("session mode policy identity safety", () => {
     expect(promptCall?.[2]?.body).toMatchObject({ agent: mode });
     expect(requestMock.mock.calls.some(([, path, options]) =>
       path === `/session/${sessionID}` && options?.method === "PATCH")).toBe(mode === "plan");
+    expect(requestMock.mock.calls.find(([, path]) => path.endsWith("/message"))?.[2]?.query)
+      .toEqual({ limit: 100 });
+  });
+
+  it.each(["plan", "build"] as const)("ignores a compaction assistant after %s", async (mode) => {
+    arrange({
+      session: { agent: mode, permission: [] },
+      messages: [
+        { info: { role: "user", agent: mode } },
+        { info: { role: "user", agent: mode } },
+        { info: { role: "assistant", agent: "compaction" } },
+      ],
+    });
+
+    await expect(prompt(config, directory, sessionID, { text: "continue", mode })).resolves.toBeUndefined();
   });
 
   it("restores Build after Plan and avoids repeating the same appended suffix", async () => {
@@ -89,7 +120,11 @@ describe("session mode policy identity safety", () => {
     ];
     arrange({
       session: { agent: "plan", permission: planRules },
-      messages: [{ info: { role: "assistant", agent: "plan" } }],
+      messages: [
+        { info: { role: "user", agent: "plan" } },
+        { info: { role: "user", agent: "plan" } },
+        { info: { role: "assistant", agent: "compaction" } },
+      ],
     });
 
     await prompt(config, directory, sessionID, { text: "implement", mode: "build" });
@@ -109,7 +144,10 @@ describe("session mode policy identity safety", () => {
     requestMock.mockClear();
     arrange({
       session: { agent: "plan", permission: [...planRules, ...(patch?.[2]?.body.permission ?? [])] },
-      messages: [{ info: { role: "assistant", agent: "plan" } }],
+      messages: [
+        { info: { role: "user", agent: "plan" } },
+        { info: { role: "assistant", agent: "compaction" } },
+      ],
     });
     await prompt(config, directory, sessionID, { text: "continue", mode: "build" });
     expect(requestMock.mock.calls.some(([, path, options]) =>

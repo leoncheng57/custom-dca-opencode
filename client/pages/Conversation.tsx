@@ -14,7 +14,7 @@ import { AutoPermissionsControl } from "../components/auto-permissions-control.j
 import { ModelPicker } from "../components/model-picker.js";
 import { QuestionRequest } from "../components/question-request.js";
 import { ShareExportDialog } from "../components/share-export-dialog.js";
-import { api, formatCost, type ReminderSummary, type SessionSummary } from "../lib/api.js";
+import { api, ApiError, formatCost, type ReminderSummary, type SessionSummary } from "../lib/api.js";
 import { latestModeMessageID, modeFromSession, type AgentMode } from "../lib/agentMode.js";
 import { MAX_IMAGE_ATTACHMENTS, readImageAttachment, selectImageFiles, type ImageAttachment } from "../lib/attachments.js";
 import { composerEnterAction } from "../lib/composerKeys.js";
@@ -53,6 +53,7 @@ export function ConversationPage() {
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [composerError, setComposerError] = useState<string | null>(null);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [contextLimit, setContextLimit] = useState<number | null>(null);
@@ -291,6 +292,7 @@ export function ConversationPage() {
     const text = draft.trim();
     if (!text) return;
     setSending(true);
+    setComposerError(null);
     try {
       const modelOverride = selectedModel && !sameModel(selectedModel, currentModel) ? selectedModel : undefined;
       await api.prompt(
@@ -311,6 +313,13 @@ export function ConversationPage() {
         modelSelectionDirty.current = false;
       }
       stream.refresh();
+    } catch (error) {
+      if (error instanceof ApiError &&
+          (error.code === "SESSION_AGENT_UNKNOWN" || error.code === "SESSION_AGENT_UNSUPPORTED")) {
+        setComposerError(error.message);
+      } else {
+        setComposerError(`Could not send the prompt: ${error instanceof Error ? error.message : String(error)}`);
+      }
     } finally {
       setSending(false);
     }
@@ -618,6 +627,7 @@ export function ConversationPage() {
             </p>
           )}
           {attachmentError && <p className="mb-2 text-xs text-[var(--color-text-danger)]" role="alert" data-testid="opencode-attachment-error">{attachmentError}</p>}
+          {composerError && <p className="mb-2 text-xs text-[var(--color-text-danger)]" role="alert" data-testid="opencode-composer-error">{composerError}</p>}
           {/* One card owns the border so the textarea and its controls share a
               frame. Laying the controls out on their own rail is what keeps
               them aligned: as flex siblings of the textarea they stretched to

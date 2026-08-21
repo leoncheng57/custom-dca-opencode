@@ -124,12 +124,17 @@ function hasPlanDenial(rules: PermissionRuleset, toolIDs: string[]): boolean {
 }
 
 function assertModeAgentIdentity(session: RawSession, messages: RawMessage[]): void {
-  const agents = [
-    session.agent,
-    ...messages
-      .filter((message) => message.info?.role === "user" || message.info?.role === "assistant")
-      .map((message) => message.info?.agent),
-  ].filter((agent): agent is string => typeof agent === "string" && agent.length > 0);
+  // User messages persist the selected/session-driving agent. Assistant agents
+  // include internal execution identities such as the automatic compactor.
+  let messageAgent: string | undefined;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const info = messages[index].info;
+    if (info?.role !== "user" || typeof info.agent !== "string" || !info.agent) continue;
+    messageAgent = info.agent;
+    break;
+  }
+  const agents = [session.agent, messageAgent]
+    .filter((agent): agent is string => typeof agent === "string" && agent.length > 0);
   const unsupported = agents.find((agent) => agent !== "plan" && agent !== "build");
   if (unsupported) throw new SessionAgentIdentityError("SESSION_AGENT_UNSUPPORTED", unsupported);
   if (agents.length === 0) throw new SessionAgentIdentityError("SESSION_AGENT_UNKNOWN");
@@ -220,7 +225,10 @@ async function activateModePolicy(
       request<unknown>(config, "/experimental/tool/ids", { directory }),
       request<RawSession>(config, `/session/${encodeURIComponent(sessionID)}`, { directory }),
       request<unknown>(config, "/agent", { directory }),
-      request<RawMessage[]>(config, `/session/${encodeURIComponent(sessionID)}/message`, { directory }),
+      request<RawMessage[]>(config, `/session/${encodeURIComponent(sessionID)}/message`, {
+        directory,
+        query: { limit: 100 },
+      }),
     ]);
     if (session.permission !== undefined && !validRuleset(session.permission)) {
       throw new Error("invalid session permission rules");

@@ -745,6 +745,29 @@ test.describe("composer", () => {
     await expect(page.getByTestId("opencode-send")).toBeDisabled();
   });
 
+  test("shows an actionable identity error when the server rejects a stale bounded client view", async ({ page }) => {
+    await page.route("**/api/sessions/ses_mock_identity_mismatch/messages?**", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          messages: [{ info: { id: "msg_client_build", role: "user", agent: "build" }, parts: [] }],
+          running: false,
+          nextCursor: null,
+        }),
+      });
+    });
+    await page.goto(`/sessions/ses_mock_identity_mismatch?directory=${encodeURIComponent(DIR)}`);
+    await page.getByTestId("opencode-composer").fill("do not silently switch agents");
+    await expect(page.getByTestId("opencode-send")).toBeEnabled();
+    await page.getByTestId("opencode-send").click();
+
+    await expect(page.getByTestId("opencode-composer-error")).toContainText('uses OpenCode agent "explore"');
+    await expect(page.getByTestId("opencode-composer-error")).toContainText("continue it in the TUI");
+    await expect(page.getByTestId("opencode-composer-error")).not.toContainText("Could not send the prompt");
+    await expect(page.getByTestId("opencode-composer")).toHaveValue("do not silently switch agents");
+  });
+
   test("persists the selected mode from the latest message across reload", async ({ page }) => {
     const text = `follow-up plan ${Date.now()}`;
     await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);

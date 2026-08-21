@@ -8,11 +8,11 @@ describe("modeFromMessages", () => {
     expect(modeFromMessages([{ info: { id: "one", role: "user" } }])).toBeUndefined();
   });
 
-  it("uses the latest persisted user or assistant message", () => {
+  it("uses the latest persisted user message", () => {
     const messages = [
       { info: { id: "one", role: "user", agent: "build" } },
       { info: { id: "ignored", role: "system", agent: "build" } },
-      { info: { id: "two", role: "assistant", agent: "plan" } },
+      { info: { id: "two", role: "user", agent: "plan" } },
     ];
     expect(modeFromMessages(messages)).toBe("plan");
     expect(latestModeMessageID(messages)).toBe("two");
@@ -27,9 +27,26 @@ describe("modeFromMessages", () => {
     expect(modeFromSession("explore", [
       { info: { id: "one", role: "user", agent: "build" } },
     ])).toBeUndefined();
-    expect(modeFromMessages([
+    expect(modeFromSession("sisyphus", [
       { info: { id: "one", role: "user", agent: "sisyphus" } },
-      { info: { id: "two", role: "assistant", agent: "plan" } },
+      { info: { id: "two", role: "user", agent: "plan" } },
     ])).toBeUndefined();
+  });
+
+  it("uses the newest user-selected agent after an explicit upstream switch", () => {
+    expect(modeFromMessages([
+      { info: { id: "one", role: "user", agent: "explore" } },
+      { info: { id: "two", role: "user", agent: "build" } },
+    ])).toBe("build");
+  });
+
+  it.each(["plan", "build"] as const)("ignores automatic compaction after %s", (mode) => {
+    const messages = [
+      { info: { id: "selected", role: "user", agent: mode } },
+      { info: { id: "compact", role: "user", agent: mode }, parts: [{ type: "compaction", auto: true }] },
+      { info: { id: "summary", role: "assistant", agent: "compaction" } },
+    ];
+    expect(modeFromSession(mode, messages)).toBe(mode);
+    expect(latestModeMessageID(messages)).toBe("compact");
   });
 });
