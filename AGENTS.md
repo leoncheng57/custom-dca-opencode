@@ -45,6 +45,9 @@ several decisions below.
 | No git commit/log/blame route exists anywhere | Run `git log` locally in the BFF |
 | `Todo` has **no `id`** in 1.18.19 | Key task-list rows by index/content |
 | Permission precedence is **LAST-match-wins** | Put `"*"` first, specifics after — the opposite of most ACLs |
+| Non-empty legacy `prompt_async.tools` entries persist on the session | Never enforce Plan with `tools`; activate mode with append-only session rules before prompting, and restore Build from the resolved `/agent` policy |
+| `PATCH /session/{id}` appends `permission` rules | Compare the current suffix before patching so repeated same-mode prompts do not grow the ruleset |
+| Mode policy and `prompt_async` are one critical section | Serialize them process-locally by directory + session so concurrent opposite-mode prompts cannot run under each other's policy |
 | Classic SSE has no replay cursor | Refetch state on reconnect |
 
 ## Decisions
@@ -88,18 +91,21 @@ several decisions below.
    - Permissions **editor** — downgraded to a read-only display of effective rules.
      Authoring happens in `opencode.jsonc`, which has `$schema` autocomplete.
    - Skills toggles, condenser settings — no OpenCode equivalent; dropped.
-9. **Plan/Build is enforced per prompt on the classic API.** Build sends the native
-   `build` agent normally. Plan sends the native `plan` agent plus a BFF-generated,
-   deny-by-default tool map because project permissions can override agent denials
-   under last-match-wins precedence. This is deterministic read-only mode, not an
-   OpenHands-style per-action risk score.
+9. **Plan/Build is activated on the session before each classic prompt.** Issue #15
+   established that legacy `tools` overrides are converted into persistent session
+   permission rules, so omitting `tools` on the next Build prompt does not restore
+   write access. Plan now appends denies for discovered non-read tools; Build projects
+   the resolved Build agent's wildcard and tool-specific rules onto discovered tools.
+   This preserves configured asks and pattern-specific denies without blanket allows.
+   Activation must succeed before `prompt_async`, and exact suffix checks make repeated
+   same-mode prompts idempotent.
 10. **Auto permissions is volatile and directory-scoped.** The BFF keeps it in memory,
     defaults it off after every restart, and replies `once` to `permission.asked` for
     every session in an enabled directory. It never mutates policy, replies `always`,
     or answers questions; it can only approve requests that upstream emits as asked.
-    It does not change Plan/Build tool policy; issue #15 tracks the known persistence
-    of Plan's tool map separately. Permission and parked-permission notifications are
-    suppressed while enabled because asked requests are handled immediately.
+    It does not change the Plan/Build session-policy activation above. Permission and
+    parked-permission notifications are suppressed while enabled because asked requests
+    are handled immediately.
 
 ## Client conventions (inherited from the OpenHands runner, still enforced)
 

@@ -21,7 +21,7 @@ export function AppShell() {
   useNotifyWatcher();
   const location = useLocation();
   const navigate = useNavigate();
-  const { resolvedTheme, setTheme } = useTheme();
+  const { setTheme } = useTheme();
   const [phoneUrl, setPhoneUrl] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState("");
@@ -101,13 +101,13 @@ export function AppShell() {
         keywords: ["phone", "qr", "transfer"],
         run: () => void openPhoneTransfer(),
       },
-      {
-        id: "toggle-theme",
-        title: resolvedTheme === "dark" ? "Switch to light mode" : "Switch to dark mode",
-        subtitle: "Toggle the color theme",
-        keywords: ["theme", "appearance", "light", "dark"],
-        run: () => setTheme(resolvedTheme === "dark" ? "light" : "dark"),
-      },
+      ...(["system", "light", "dark"] as const).map((appearance) => ({
+        id: `appearance-${appearance}`,
+        title: `Use ${appearance[0].toUpperCase()}${appearance.slice(1)} appearance`,
+        subtitle: appearance === "system" ? "Follow this device's color scheme" : `Always use ${appearance} mode`,
+        keywords: ["appearance", "theme", "light", "dark", "system"],
+        run: () => setTheme(appearance),
+      })),
     ],
     sessions: paletteSessions,
   });
