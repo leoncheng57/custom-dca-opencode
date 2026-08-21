@@ -130,12 +130,14 @@ full:/sessions/ses_mock_done?directory=/tmp/mock-project
 ```
 ````
 
-CI publishes up to 10 validated images on the dedicated `gh-pages` branch, embeds public
-raw links in one sticky PR comment, and also keeps a 30-day Actions artifact. Blank and
-`#` comment lines are ignored. Routes cannot contain whitespace, hosts, schemes, controls,
-backslashes, or traversal. Removing the block removes that PR's published directory;
-closing the PR removes the directory and comment. Capture always uses the deterministic
-Playwright mocks, never a live OpenCode server or real conversations.
+CI accepts up to 10 routes and captures each one in dark mode at desktop (1280x800) and
+mobile (390x740) widths. The sticky PR comment shows `Route`, `Desktop`, and `Mobile`
+columns with public full-size links; a 30-day Actions artifact contains both PNGs per
+route. `full:` captures the full scroll height at both widths. Blank and `#` comment lines
+are ignored. Routes cannot contain whitespace, hosts, schemes, controls, backslashes, or
+traversal. Removing the block removes that PR's published directory; closing the PR
+removes the directory and comment. Capture always uses the deterministic Playwright mocks,
+never a live OpenCode server or real conversations.
 
 Fork runs remain read-only and may need maintainer approval. Fork artifacts are linked in
 the sticky comment but are never copied to `gh-pages`: manifest validation cannot prove

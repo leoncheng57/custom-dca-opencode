@@ -47,12 +47,18 @@ describe("PR screenshot requests", () => {
         {
           requestedRoute: "/?directory=/tmp/mock-project",
           fullPage: false,
-          filename: screenshotFilename("/?directory=/tmp/mock-project", false, 0),
+          filenames: {
+            desktop: screenshotFilename("/?directory=/tmp/mock-project", false, 0, "desktop"),
+            mobile: screenshotFilename("/?directory=/tmp/mock-project", false, 0, "mobile"),
+          },
         },
         {
           requestedRoute: "/sessions/ses_mock_done?directory=/tmp/mock-project",
           fullPage: true,
-          filename: screenshotFilename("/sessions/ses_mock_done?directory=/tmp/mock-project", true, 1),
+          filenames: {
+            desktop: screenshotFilename("/sessions/ses_mock_done?directory=/tmp/mock-project", true, 1, "desktop"),
+            mobile: screenshotFilename("/sessions/ses_mock_done?directory=/tmp/mock-project", true, 1, "mobile"),
+          },
         },
       ],
     });
@@ -62,6 +68,14 @@ describe("PR screenshot requests", () => {
     expect(parseScreenshotBlock("No visual changes.")).toEqual({ blockFound: false, requests: [] });
     expect(parseScreenshotBlock("```screenshots\n# none\n\n```"))
       .toEqual({ blockFound: true, requests: [] });
+  });
+
+  it("creates distinct desktop and mobile filenames", () => {
+    const desktop = screenshotFilename("/tools?directory=/tmp/mock-project", false, 0, "desktop");
+    const mobile = screenshotFilename("/tools?directory=/tmp/mock-project", false, 0, "mobile");
+    expect(desktop).toMatch(/^01-tools-directory-tmp-mock-project-[a-f0-9]{8}--desktop\.png$/u);
+    expect(mobile).toMatch(/^01-tools-directory-tmp-mock-project-[a-f0-9]{8}--mobile\.png$/u);
+    expect(desktop).not.toBe(mobile);
   });
 
   it.each([
