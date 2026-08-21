@@ -22,6 +22,14 @@ test.describe("health", () => {
   });
 });
 
+test.describe("public app config", () => {
+  test("exposes only the configured phone origin", async ({ request }) => {
+    const response = await request.get("/api/app-config");
+    expect(response.ok()).toBe(true);
+    expect(await response.json()).toEqual({ publicAppUrl: "https://ide.e2e.example.test:8443" });
+  });
+});
+
 test.describe("directory scoping", () => {
   // One OpenCode server hosts every project. A missing scope would silently
   // target whatever directory the server started in, so it must be rejected.

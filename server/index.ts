@@ -29,12 +29,15 @@ import { PreferenceStore } from "./notifications/preferences.js";
 import { NotificationService } from "./notifications/service.js";
 import { forgeRoutes } from "./routes/forge.js";
 import { reminderRoutes } from "./routes/reminders.js";
+import { appConfigRoutes } from "./routes/appConfig.js";
+import { parsePublicAppUrl } from "./publicAppUrl.js";
 
 dotenv.config();
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const opencode = readOpencodeConfig();
+const publicAppUrl = parsePublicAppUrl(process.env.PUBLIC_APP_URL);
 
 app.use(express.json({ limit: "20mb" }));
 
@@ -56,6 +59,7 @@ app.use("/api", worktreeRoutes(opencode, bus));
 app.use("/api", notificationRoutes(notificationStore));
 app.use("/api", forgeRoutes());
 app.use("/api", reminderRoutes());
+app.use("/api", appConfigRoutes(publicAppUrl));
 const opencodePort = Number(new URL(opencode.baseUrl).port || 80);
 app.use("/api", previewRoutes(parseAllowedPorts(process.env.PREVIEW_ALLOWED_PORTS, [PORT, opencodePort])));
 

@@ -48,11 +48,27 @@ cp .env.example .env        # point OPENCODE_URL at your server
 npm run dev
 ```
 
+### Open on a phone
+
+Expose the app with Tailscale Serve (or another private HTTP(S) endpoint), then set its
+origin in `.env` and restart the app:
+
+```bash
+PUBLIC_APP_URL=https://your-device.your-tailnet.ts.net
+```
+
+Use **Phone** in the global navigation to open a scannable QR code, copy the link, or
+close the panel without leaving the current page. The QR is generated locally in the
+browser; its URL is never sent to an image or QR service. `PUBLIC_APP_URL` must be an
+HTTP(S) origin with no path, query, fragment, or credentials. If it is unset, the QR
+uses the current browser origin, which is only useful when that origin is phone-reachable.
+
 Verification requires no live agent or model credentials:
 
 ```bash
 npm run typecheck
 npm test
+npm run build
 npm run test:e2e
 ```
 
