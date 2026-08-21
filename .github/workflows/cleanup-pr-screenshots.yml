@@ -1,0 +1,57 @@
+name: Cleanup PR screenshots
+
+on:
+  pull_request_target:
+    types: [closed]
+
+concurrency:
+  group: pr-screenshot-publication
+  cancel-in-progress: false
+
+# This event is used only for trusted Git API mutations. It never checks out or
+# executes pull request code.
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Remove only this PR publication
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const target = `pr-screenshots/pr-${context.issue.number}`;
+            let ref;
+            try {
+              ref = await github.rest.git.getRef({ ...context.repo, ref: 'heads/gh-pages' });
+            } catch (error) {
+              if (error.status === 404) return;
+              throw error;
+            }
+            const commit = await github.rest.git.getCommit({ ...context.repo, commit_sha: ref.data.object.sha });
+            const tree = await github.rest.git.getTree({ ...context.repo, tree_sha: commit.data.tree.sha, recursive: 'true' });
+            if (!tree.data.tree.some((entry) => entry.path === target || entry.path?.startsWith(`${target}/`))) return;
+            const nextTree = await github.rest.git.createTree({
+              ...context.repo,
+              base_tree: commit.data.tree.sha,
+              tree: [{ path: target, mode: '040000', type: 'tree', sha: null }],
+            });
+            const nextCommit = await github.rest.git.createCommit({
+              ...context.repo,
+              message: `Remove screenshots for closed PR #${context.issue.number}`,
+              tree: nextTree.data.sha,
+              parents: [ref.data.object.sha],
+            });
+            await github.rest.git.updateRef({ ...context.repo, ref: 'heads/gh-pages', sha: nextCommit.data.sha });
+
+      - name: Remove only the screenshot bot comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const marker = '<!-- pr-screenshots -->';
+            const comments = await github.paginate(github.rest.issues.listComments, { ...context.repo, issue_number: context.issue.number, per_page: 100 });
+            for (const comment of comments.filter((item) => item.user?.login === 'github-actions[bot]' && item.body?.includes(marker))) {
+              await github.rest.issues.deleteComment({ ...context.repo, comment_id: comment.id });
+            }

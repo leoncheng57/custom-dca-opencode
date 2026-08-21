@@ -1,0 +1,196 @@
+import { createHash } from "node:crypto";
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import path from "node:path";
+
+export const MAX_SCREENSHOTS = 10;
+export const MAX_ROUTE_LENGTH = 2_048;
+export const MAX_BLOCK_LENGTH = 24_000;
+export const MAX_PNG_BYTES = 10 * 1024 * 1024;
+export const MAX_MANIFEST_BYTES = 128 * 1024;
+export const MAX_FULL_PAGE_HEIGHT = 20_000;
+export const VIEWPORT = { width: 1280, height: 800 } as const;
+
+export type ScreenshotRequest = {
+  requestedRoute: string;
+  fullPage: boolean;
+  filename: string;
+};
+
+export type ScreenshotManifest = {
+  schemaVersion: 1;
+  prNumber: number;
+  sourceSha: string;
+  capturedAt: string;
+  screenshots: Array<ScreenshotRequest & {
+    dimensions: { width: number; height: number };
+    bytes: number;
+    sha256: string;
+  }>;
+};
+
+function assertRecord(value: unknown, context: string): asserts value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${context} must be an object`);
+}
+
+function decodeRepeatedly(value: string): string {
+  let decoded = value;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const next = decodeURIComponent(decoded);
+    if (next === decoded) return decoded;
+    decoded = next;
+  }
+  return decoded;
+}
+
+function validateRoute(route: string): void {
+  if (route.length > MAX_ROUTE_LENGTH) throw new Error(`route exceeds ${MAX_ROUTE_LENGTH} characters`);
+  if (!route.startsWith("/") || route.startsWith("//")) {
+    throw new Error(`route ${JSON.stringify(route)} must begin with one "/" and may not specify a host`);
+  }
+  if (/[\s\u0000-\u001f\u007f\\]/u.test(route)) {
+    throw new Error(`route ${JSON.stringify(route)} contains whitespace, a control character, or a backslash`);
+  }
+
+  let decoded: string;
+  try {
+    decoded = decodeRepeatedly(route);
+  } catch {
+    throw new Error(`route ${JSON.stringify(route)} contains malformed percent encoding`);
+  }
+  if (/[\s\u0000-\u001f\u007f\\]/u.test(decoded)) {
+    throw new Error(`route ${JSON.stringify(route)} contains encoded whitespace, controls, or backslashes`);
+  }
+  const decodedPath = decoded.split(/[?#]/u, 1)[0];
+  if (decodedPath.split("/").some((segment) => segment === "." || segment === "..")) {
+    throw new Error(`route ${JSON.stringify(route)} contains path traversal`);
+  }
+
+  const url = new URL(route, "http://screenshot.invalid");
+  if (url.origin !== "http://screenshot.invalid") throw new Error(`route ${JSON.stringify(route)} may not specify a scheme or host`);
+  if (![/^\/$/, /^\/settings$/, /^\/settings\/notifications$/, /^\/tools$/, /^\/sessions\/[A-Za-z0-9_-]+$/].some((pattern) => pattern.test(url.pathname))) {
+    throw new Error(`route ${JSON.stringify(route)} is not a known UI route`);
+  }
+}
+
+export function screenshotFilename(route: string, fullPage: boolean, index: number): string {
+  const url = new URL(route, "http://screenshot.invalid");
+  const readable = `${url.pathname === "/" ? "home" : url.pathname.slice(1)}${url.search}`
+    .replace(/[^A-Za-z0-9_-]+/gu, "-")
+    .replace(/^-+|-+$/gu, "")
+    .toLowerCase()
+    .slice(0, 80) || "page";
+  const digest = createHash("sha256").update(`${fullPage}:${route}`).digest("hex").slice(0, 8);
+  return `${String(index + 1).padStart(2, "0")}-${readable}-${digest}${fullPage ? "--full" : ""}.png`;
+}
+
+export function normalizeScreenshotRequests(value: unknown): ScreenshotRequest[] {
+  if (!Array.isArray(value)) throw new Error("screenshot request must be an array");
+  if (value.length > MAX_SCREENSHOTS) throw new Error(`at most ${MAX_SCREENSHOTS} screenshots may be requested`);
+  return value.map((raw, index) => {
+    assertRecord(raw, `screenshot ${index + 1}`);
+    if (typeof raw.requestedRoute !== "string" || typeof raw.fullPage !== "boolean") {
+      throw new Error(`screenshot ${index + 1} has invalid route metadata`);
+    }
+    validateRoute(raw.requestedRoute);
+    return {
+      requestedRoute: raw.requestedRoute,
+      fullPage: raw.fullPage,
+      filename: screenshotFilename(raw.requestedRoute, raw.fullPage, index),
+    };
+  });
+}
+
+export function parseScreenshotBlock(body: string): { blockFound: boolean; requests: ScreenshotRequest[] } {
+  const matches = [...body.matchAll(/^```screenshots[\t ]*\r?\n([\s\S]*?)^```[\t ]*$/gmu)];
+  if (matches.length === 0) {
+    if (/^```screenshots\b/mu.test(body)) throw new Error("screenshots block is malformed or missing its closing fence");
+    return { blockFound: false, requests: [] };
+  }
+  if (matches.length > 1) throw new Error("PR body must contain at most one ```screenshots block");
+  const block = matches[0][1];
+  if (block.length > MAX_BLOCK_LENGTH) throw new Error(`screenshots block exceeds ${MAX_BLOCK_LENGTH} characters`);
+
+  const rawRequests: Array<{ requestedRoute: string; fullPage: boolean }> = [];
+  for (const rawLine of block.split(/\r?\n/u)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    if (line !== rawLine) throw new Error(`route ${JSON.stringify(rawLine)} has leading or trailing whitespace`);
+    const fullPage = line.startsWith("full:");
+    rawRequests.push({ requestedRoute: fullPage ? line.slice("full:".length) : line, fullPage });
+  }
+  return { blockFound: true, requests: normalizeScreenshotRequests(rawRequests) };
+}
+
+export function pngDimensions(buffer: Buffer): { width: number; height: number } {
+  const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  if (buffer.length < 24 || !buffer.subarray(0, 8).equals(signature) || buffer.toString("ascii", 12, 16) !== "IHDR") {
+    throw new Error("file is not a PNG with an IHDR header");
+  }
+  return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
+}
+
+export function createManifest(outputDir: string, requests: ScreenshotRequest[], prNumber: number, sourceSha: string): ScreenshotManifest {
+  if (!Number.isSafeInteger(prNumber) || prNumber < 0) throw new Error("prNumber must be a non-negative integer");
+  if (!/^(local|[0-9a-f]{40})$/u.test(sourceSha)) throw new Error("sourceSha must be local or a 40-character lowercase commit SHA");
+  const capturedAt = new Date().toISOString();
+  const screenshots = requests.map((request) => {
+    const buffer = readFileSync(path.join(outputDir, request.filename));
+    if (buffer.length > MAX_PNG_BYTES) throw new Error(`${request.filename} exceeds ${MAX_PNG_BYTES} bytes`);
+    const dimensions = pngDimensions(buffer);
+    if (dimensions.width !== VIEWPORT.width || (request.fullPage
+      ? dimensions.height < VIEWPORT.height || dimensions.height > MAX_FULL_PAGE_HEIGHT
+      : dimensions.height !== VIEWPORT.height)) {
+      throw new Error(`${request.filename} has invalid capture dimensions`);
+    }
+    return {
+      ...request,
+      dimensions,
+      bytes: buffer.length,
+      sha256: createHash("sha256").update(buffer).digest("hex"),
+    };
+  });
+  return { schemaVersion: 1, prNumber, sourceSha, capturedAt, screenshots };
+}
+
+export function validateAndPublishBundle(bundleDir: string, destination: string, expectedPr: number, expectedSha: string): ScreenshotManifest {
+  const entries = readdirSync(bundleDir);
+  if (entries.some((entry) => lstatSync(path.join(bundleDir, entry)).isSymbolicLink())) throw new Error("bundle must not contain symbolic links");
+  if (!entries.includes("manifest.json")) throw new Error("bundle is missing manifest.json");
+  const manifestPath = path.join(bundleDir, "manifest.json");
+  if (statSync(manifestPath).size > MAX_MANIFEST_BYTES) throw new Error("manifest is too large");
+  const raw = JSON.parse(readFileSync(manifestPath, "utf8")) as unknown;
+  assertRecord(raw, "manifest");
+  if (raw.schemaVersion !== 1 || raw.prNumber !== expectedPr || raw.sourceSha !== expectedSha || typeof raw.capturedAt !== "string" || !Array.isArray(raw.screenshots)) {
+    throw new Error("manifest identity does not match the trusted workflow run");
+  }
+  const requests = normalizeScreenshotRequests(raw.screenshots.map((item, index) => {
+    assertRecord(item, `manifest screenshot ${index + 1}`);
+    return { requestedRoute: item.requestedRoute, fullPage: item.fullPage };
+  }));
+  const expectedFiles = new Set(["manifest.json", ...requests.map(({ filename }) => filename)]);
+  if (entries.length !== expectedFiles.size || entries.some((entry) => !expectedFiles.has(entry))) throw new Error("bundle contains an unexpected or missing file");
+
+  const manifest = raw as unknown as ScreenshotManifest;
+  for (const [index, request] of requests.entries()) {
+    const declared = manifest.screenshots[index];
+    const filePath = path.join(bundleDir, request.filename);
+    if (declared.filename !== request.filename || !existsSync(filePath) || !statSync(filePath).isFile()) throw new Error(`manifest file ${index + 1} is invalid`);
+    const buffer = readFileSync(filePath);
+    const dimensions = pngDimensions(buffer);
+    const digest = createHash("sha256").update(buffer).digest("hex");
+    const validDimensions = dimensions.width === VIEWPORT.width
+      && (request.fullPage
+        ? dimensions.height >= VIEWPORT.height && dimensions.height <= MAX_FULL_PAGE_HEIGHT
+        : dimensions.height === VIEWPORT.height);
+    if (!validDimensions || buffer.length > MAX_PNG_BYTES || declared.bytes !== buffer.length || declared.sha256 !== digest || declared.dimensions?.width !== dimensions.width || declared.dimensions?.height !== dimensions.height) {
+      throw new Error(`${request.filename} does not match its manifest metadata`);
+    }
+  }
+
+  rmSync(destination, { recursive: true, force: true });
+  if (requests.length === 0) return manifest;
+  mkdirSync(destination, { recursive: true });
+  for (const { filename } of requests) copyFileSync(path.join(bundleDir, filename), path.join(destination, filename));
+  writeFileSync(path.join(destination, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+  return manifest;
+}

@@ -1,0 +1,10 @@
+[
+  {
+    "requestedRoute": "/?directory=/tmp/mock-project",
+    "fullPage": false
+  },
+  {
+    "requestedRoute": "/sessions/ses_mock_done?directory=/tmp/mock-project",
+    "fullPage": true
+  }
+]

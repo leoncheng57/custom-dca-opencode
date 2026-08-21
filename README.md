@@ -72,6 +72,32 @@ npm run build
 npm run test:e2e
 ```
 
+### PR screenshots
+
+Add a fenced block to a pull request description to capture mock-backed UI routes:
+
+````md
+```screenshots
+/?directory=/tmp/mock-project
+full:/sessions/ses_mock_done?directory=/tmp/mock-project
+```
+````
+
+CI publishes up to 10 validated images on the dedicated `gh-pages` branch, embeds public
+raw links in one sticky PR comment, and also keeps a 30-day Actions artifact. Blank and
+`#` comment lines are ignored. Routes cannot contain whitespace, hosts, schemes, controls,
+backslashes, or traversal. Removing the block removes that PR's published directory;
+closing the PR removes the directory and comment. Capture always uses the deterministic
+Playwright mocks, never a live OpenCode server or real conversations.
+
+Fork runs remain read-only and may need maintainer approval. The trusted default-branch
+publisher validates every artifact before copying declared PNGs. If Actions are not
+available for a fork, attach locally captured images instead. Run the fixture request with:
+
+```bash
+npm run screenshots:local
+```
+
 ## Architecture
 
 ```
