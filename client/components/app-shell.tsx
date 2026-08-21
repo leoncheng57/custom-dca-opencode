@@ -97,7 +97,7 @@ export function AppShell() {
         id: "notifications",
         title: "Notifications",
         to: scopedPath("/settings/notifications"),
-        ...(activeCount > 0 ? { subtitle: `${activeCount} awaiting reply` } : {}),
+        ...(activeCount > 0 ? { subtitle: `${activeCount} unresolved` } : {}),
       },
       { id: "settings", title: "Settings", to: scopedPath("/settings") },
     ],
@@ -173,7 +173,7 @@ export function AppShell() {
                 to={scopedPath(to)}
                 // The count is in the label so screen readers announce it; the
                 // badge itself is decorative.
-                aria-label={badged ? `${label}, ${activeCount} awaiting reply` : undefined}
+                aria-label={badged ? `${label}, ${activeCount} unresolved` : undefined}
                 className={({ isActive }) =>
                   `relative flex items-center rounded px-2 py-1 text-xs ${isActive ? "bg-[var(--color-background-surface-neutral-muted)] font-semibold" : "text-[var(--color-text-muted)]"}`
                 }

@@ -13,9 +13,9 @@
 //     cannot observe whether a browser tab was open, so claiming delivery
 //     would be a lie. Sound and speech are device-local and intentionally not
 //     represented here because the server cannot see those settings at all.
-//   - Only `permission` and `question` records are `actionable`. Those are the
-//     only kinds a human can clear by replying, so they are the only kinds
-//     that may hold the badge above zero.
+//   - Every record starts unresolved and only an explicit user checkbox may
+//     change that state. Upstream permission/question lifecycle events never
+//     mutate notification resolution.
 
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
@@ -23,13 +23,12 @@ import path from "node:path";
 
 import { NOTIFY_EVENTS, type NotifyEvent } from "./preferences.js";
 
-/** Kinds a human clears by replying; the only ones that can hold the badge. */
-export const ACTIONABLE_EVENTS: readonly NotifyEvent[] = ["permission", "question"];
-
 export type NtfyDelivery = "sent" | "off" | "failed";
 /** "allowed" is preference intent. The BFF cannot confirm a browser rendered it. */
 export type DesktopDelivery = "allowed" | "off";
-export type ResolutionReason = "replied" | "reconciled" | "dismissed" | "suppressed";
+// Older reasons remain readable because v1 records are already persisted on
+// deployed servers. New writes use only "checked".
+export type ResolutionReason = "checked" | "replied" | "reconciled" | "dismissed" | "suppressed";
 
 export interface NotificationDelivery {
   ntfy: NtfyDelivery;
@@ -49,7 +48,6 @@ export interface NotificationRecord {
   title: string;
   body: string;
   click?: string;
-  actionable: boolean;
   resolvedAt?: number;
   resolvedBy?: ResolutionReason;
   /** Set on the parent permission record when its parked alert fires. */
@@ -66,8 +64,6 @@ export interface AppendRecord {
   body: string;
   click?: string;
   delivery: NotificationDelivery;
-  /** Force a record closed at birth (auto-approved permissions). */
-  resolvedBy?: ResolutionReason;
 }
 
 export interface HistoryQuery {
@@ -121,7 +117,6 @@ function normalizeRecord(value: unknown): NotificationRecord | null {
     title: typeof source.title === "string" ? source.title : "",
     body: typeof source.body === "string" ? source.body : "",
     ...(optionalString(source.click) ? { click: String(source.click) } : {}),
-    actionable: source.actionable === true,
     ...(Number.isFinite(resolvedAt) ? { resolvedAt } : {}),
     ...(optionalString(source.resolvedBy) ? { resolvedBy: source.resolvedBy as ResolutionReason } : {}),
     ...(Number.isFinite(parkedAt) ? { parkedAt } : {}),
@@ -130,7 +125,7 @@ function normalizeRecord(value: unknown): NotificationRecord | null {
 }
 
 export function isActive(record: NotificationRecord): boolean {
-  return record.actionable && record.resolvedAt === undefined;
+  return record.resolvedAt === undefined;
 }
 
 /**
@@ -181,7 +176,7 @@ export class HistoryStore {
       .then(async () => {
         await mkdir(path.dirname(this.file), { recursive: true });
         const temporary = `${this.file}.${process.pid}.${(this.writeCounter += 1)}.tmp`;
-        await writeFile(temporary, `${JSON.stringify({ version: 1, records: snapshot }, null, 2)}\n`, {
+        await writeFile(temporary, `${JSON.stringify({ version: 2, records: snapshot }, null, 2)}\n`, {
           mode: 0o600,
         });
         await rename(temporary, this.file);
@@ -192,22 +187,15 @@ export class HistoryStore {
   }
 
   /**
-   * Keep every active record, then fill the remaining ring capacity with the
-   * newest resolved records. If active work alone exceeds the configured
-   * limit, the file grows temporarily: dropping work awaiting a human reply
-   * would silently zero the badge this store exists to protect.
+   * Keep every unresolved record plus the newest resolved records. The limit
+   * applies to resolved history only: unresolved notifications are a durable
+   * user checklist and must never disappear before the user checks them off.
    */
   private prune(): void {
-    const active = this.records.filter(isActive);
-    const resolvedCapacity = Math.max(0, this.limit - active.length);
-    if (this.records.length <= this.limit || resolvedCapacity === 0) {
-      this.records = resolvedCapacity === 0
-        ? active
-        : this.records;
-      return;
-    }
+    const resolved = this.records.filter((record) => !isActive(record));
+    if (resolved.length <= this.limit) return;
     const keepResolved = new Set(
-      this.records.filter((record) => !isActive(record)).slice(-resolvedCapacity).map((record) => record.id),
+      resolved.slice(-this.limit).map((record) => record.id),
     );
     this.records = this.records.filter((record) => isActive(record) || keepResolved.has(record.id));
   }
@@ -230,8 +218,6 @@ export class HistoryStore {
       title: entry.title,
       body: entry.body,
       ...(entry.click ? { click: entry.click } : {}),
-      actionable: ACTIONABLE_EVENTS.includes(entry.kind) && entry.resolvedBy === undefined,
-      ...(entry.resolvedBy ? { resolvedAt: now, resolvedBy: entry.resolvedBy } : {}),
       delivery: entry.delivery,
     };
     this.records.push(record);
@@ -240,25 +226,25 @@ export class HistoryStore {
     return record;
   }
 
-  /** Close every active record the predicate selects. Returns how many changed. */
-  async resolve(
-    predicate: (record: NotificationRecord) => boolean,
-    reason: ResolutionReason,
-    at = Date.now(),
-  ): Promise<number> {
+  /** The sole mutation of resolved state: an explicit user checkbox action. */
+  async setResolved(id: string, resolved: boolean, at = Date.now()): Promise<NotificationRecord | undefined> {
     await this.load();
-    let changed = 0;
-    for (const record of this.records) {
-      if (!isActive(record) || !predicate(record)) continue;
+    const record = this.records.find((candidate) => candidate.id === id);
+    if (!record) return undefined;
+    if (resolved && isActive(record)) {
       record.resolvedAt = at;
-      record.resolvedBy = reason;
-      changed += 1;
+      record.resolvedBy = "checked";
+    } else if (!resolved && !isActive(record)) {
+      delete record.resolvedAt;
+      delete record.resolvedBy;
+    } else {
+      return record;
     }
-    if (changed) {
+    if (resolved) {
       this.prune();
-      this.persist();
     }
-    return changed;
+    this.persist();
+    return record;
   }
 
   /** Stamp the escalation onto the parent permission so the UI can flag it. */
@@ -268,8 +254,7 @@ export class HistoryStore {
       (record) =>
         record.kind === "permission" &&
         record.requestID === requestID &&
-        record.directory === directory &&
-        isActive(record),
+        record.directory === directory,
     );
     if (!parent) return false;
     parent.parkedAt = at;
@@ -283,18 +268,6 @@ export class HistoryStore {
       (total, record) => total + (isActive(record) && (!directory || record.directory === directory) ? 1 : 0),
       0,
     );
-  }
-
-  /** Directories holding at least one active record — the reconcile work list. */
-  async activeDirectories(): Promise<string[]> {
-    await this.load();
-    return [
-      ...new Set(
-        this.records
-          .filter((record) => isActive(record) && record.directory)
-          .map((record) => record.directory as string),
-      ),
-    ];
   }
 
   async list(query: HistoryQuery = {}): Promise<NotificationRecord[]> {

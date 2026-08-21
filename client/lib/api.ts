@@ -99,10 +99,8 @@ export interface NotificationRecord {
   title: string;
   body: string;
   click?: string;
-  /** Only permission/question records can hold the badge above zero. */
-  actionable: boolean;
   resolvedAt?: number;
-  resolvedBy?: "replied" | "reconciled" | "dismissed" | "suppressed";
+  resolvedBy?: "checked" | "replied" | "reconciled" | "dismissed" | "suppressed";
   parkedAt?: number;
   delivery: {
     ntfy: "sent" | "off" | "failed";
@@ -403,6 +401,12 @@ export const api = {
     fetch(`/api/notifications/${encodeURIComponent(id)}/dismiss`, { method: "POST" }).then((r) =>
       json<{ dismissed: boolean; activeCount: number }>(r),
     ),
+  setNotificationResolved: (id: string, resolved: boolean) =>
+    fetch(`/api/notifications/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ resolved }),
+    }).then((r) => json<{ record: NotificationRecord; activeCount: number }>(r)),
 
   autoPermissions: (directory: string) =>
     fetch(scoped("/auto-approve", directory)).then((r) => json<AutoPermissionStatus>(r)),

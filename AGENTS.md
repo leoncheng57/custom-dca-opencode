@@ -105,22 +105,18 @@ several decisions below.
    This preserves configured asks and pattern-specific denies without blanket allows.
    Activation must succeed before `prompt_async`, and exact suffix checks make repeated
    same-mode prompts idempotent.
-10. **Notification records are persisted; the badge counts outstanding work, not unread.**
+10. **Notification resolution is manual-only and server-persisted.**
     `.state/notification-history.json` (`NOTIFICATION_HISTORY_FILE`) is
-    written by `NotificationService`, which previously discarded everything it sent. Only
-    `permission` and `question` records are `actionable` and can hold the red counter;
-    `idle`/`error`/`abort` are logged but never counted, and `parked` escalates its parent
-    permission rather than adding a second count. Suppressed and failed deliveries are
+    written by `NotificationService`, which previously discarded everything it sent. Every
+    notification kind starts unresolved and contributes to the current-directory red
+    counter. Upstream permission/question replies never resolve notification records; only
+    the user's reversible **Resolved** checkbox may change that state. Suppressed and failed deliveries are
     still recorded — the log's job is to explain a missing ping. `delivery.desktop` is the
     server-backed desktop preference, never proof of render; device-local sound/speech are
-    intentionally absent because the BFF cannot see them. All active records are retained;
-    resolved history fills the remaining space in a 500-record ring. Since records
-    outlive the process, the active set is reconciled against `GET /permission` and
-    `GET /question` on stream reconnect and (throttled) on history reads; that is the
-    **only** dependable path for questions, whose reply events this repo has never
-    observed. Lookup failures never resolve records; explicit reply/reject, successful
-    reconciliation, or manual dismissal are the only resolution paths. There is no bulk
-    clear because resolved history is the evidence this feature exists to preserve.
+    intentionally absent because the BFF cannot see them. All unresolved records are
+    retained plus the newest 500 resolved records. There is no bulk clear because resolved
+    history is the evidence this feature exists to preserve. Persisted v1 resolution reasons
+    remain readable, but all new resolution writes use `resolvedBy: "checked"`.
 11. **Auto permissions is volatile and directory-scoped.** The BFF keeps it in memory,
     defaults it off after every restart, and replies `once` to `permission.asked` for
     every session in an enabled directory. It never mutates policy, replies `always`,

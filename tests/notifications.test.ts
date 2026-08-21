@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { EventEmitter } from "node:events";
@@ -148,7 +148,7 @@ describe("auto permission notification suppression", () => {
     service.stop();
   });
 
-  it("logs an auto-approved permission without letting it hold the badge", async () => {
+  it("logs an auto-approved permission for the user to resolve", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("ok", { status: 200 })));
     const bus = new EventEmitter() as EventBus;
     const history = historyStore();
@@ -166,14 +166,14 @@ describe("auto permission notification suppression", () => {
 
     const [record] = await history.list();
     expect(record.delivery.suppressed).toBe("auto-permissions");
-    expect(record.resolvedBy).toBe("suppressed");
-    expect(await history.activeCount()).toBe(0);
+    expect(record.resolvedAt).toBeUndefined();
+    expect(await history.activeCount()).toBe(1);
     service.stop();
   });
 });
 
 describe("notification history", () => {
-  it("counts only unresolved permission and question records", async () => {
+  it("counts every unresolved notification until the user checks it", async () => {
     const history = historyStore();
     const delivery = { ntfy: "off", desktop: "allowed" } as const;
     await history.append({ kind: "idle", title: "idle", body: "", delivery });
@@ -181,10 +181,13 @@ describe("notification history", () => {
     await history.append({ kind: "permission", requestID: "perm_1", title: "perm", body: "", delivery });
     await history.append({ kind: "question", requestID: "que_1", title: "question", body: "", delivery });
 
-    expect(await history.activeCount()).toBe(2);
-    await history.resolve((record) => record.requestID === "perm_1", "replied");
-    expect(await history.activeCount()).toBe(1);
-    expect((await history.list({ state: "active" })).map((record) => record.requestID)).toEqual(["que_1"]);
+    expect(await history.activeCount()).toBe(4);
+    const permission = (await history.list()).find((record) => record.requestID === "perm_1")!;
+    await history.setResolved(permission.id, true);
+    expect(await history.activeCount()).toBe(3);
+    expect((await history.list({ state: "resolved" }))[0].resolvedBy).toBe("checked");
+    await history.setResolved(permission.id, false);
+    expect(await history.activeCount()).toBe(4);
   });
 
   it("caps the ring buffer and round-trips through disk", async () => {
@@ -192,7 +195,8 @@ describe("notification history", () => {
     const history = new HistoryStore(file, 3);
     const delivery = { ntfy: "off", desktop: "off" } as const;
     for (const index of [1, 2, 3, 4, 5]) {
-      await history.append({ kind: "idle", title: `idle ${index}`, body: "", delivery });
+      const record = await history.append({ kind: "idle", title: `idle ${index}`, body: "", delivery });
+      await history.setResolved(record.id, true);
     }
     await history.flush();
 
@@ -215,7 +219,26 @@ describe("notification history", () => {
     expect(await history.list()).toHaveLength(1);
   });
 
-  it("escalates a parked permission without counting it twice", async () => {
+  it("persists user resolution and reopening across store instances", async () => {
+    const file = path.join(os.tmpdir(), `dca-history-resolution-${Date.now()}.json`);
+    const history = new HistoryStore(file);
+    const record = await history.append({
+      kind: "idle",
+      title: "idle",
+      body: "",
+      delivery: { ntfy: "off", desktop: "off" },
+    });
+    await history.setResolved(record.id, true);
+    await history.flush();
+
+    const reloaded = new HistoryStore(file);
+    expect((await reloaded.list())[0]).toMatchObject({ id: record.id, resolvedBy: "checked" });
+    await reloaded.setResolved(record.id, false);
+    await reloaded.flush();
+    expect((await new HistoryStore(file).list())[0].resolvedAt).toBeUndefined();
+  });
+
+  it("records a parked escalation as its own unresolved notification", async () => {
     const history = historyStore();
     const delivery = { ntfy: "sent", desktop: "allowed" } as const;
     await history.append({
@@ -226,7 +249,8 @@ describe("notification history", () => {
       body: "",
       delivery,
     });
-    // The parked alert is a second ntfy push about the same outstanding ask.
+    // The parked alert is a second notification and therefore a second item
+    // in the user's unresolved checklist.
     await history.append({
       kind: "parked",
       directory: "/tmp/project",
@@ -238,7 +262,7 @@ describe("notification history", () => {
     expect(await history.markParked("/tmp/project", "perm_1")).toBe(true);
 
     expect(await history.list()).toHaveLength(2);
-    expect(await history.activeCount()).toBe(1);
+    expect(await history.activeCount()).toBe(2);
     const permission = (await history.list()).find((record) => record.kind === "permission");
     expect(permission?.parkedAt).toBeTypeOf("number");
   });
@@ -249,15 +273,10 @@ describe("notification history", () => {
     for (const requestID of ["perm_1", "perm_2", "perm_3", "perm_4"]) {
       await history.append({ kind: "permission", requestID, title: requestID, body: "", delivery });
     }
-    await history.append({ kind: "idle", title: "resolved info", body: "", delivery });
+    await history.append({ kind: "idle", title: "unresolved info", body: "", delivery });
 
-    expect(await history.activeCount()).toBe(4);
-    expect((await history.list()).map((record) => record.requestID)).toEqual([
-      "perm_4",
-      "perm_3",
-      "perm_2",
-      "perm_1",
-    ]);
+    expect(await history.activeCount()).toBe(5);
+    expect(await history.list()).toHaveLength(5);
   });
 });
 
@@ -284,7 +303,7 @@ describe("notification resolution", () => {
     service.stop();
   });
 
-  it("clears the badge when the permission is replied to", async () => {
+  it("keeps the badge until the user resolves it, even after a reply", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("ok", { status: 200 })));
     const bus = new EventEmitter() as EventBus;
     const history = historyStore();
@@ -298,81 +317,11 @@ describe("notification resolution", () => {
       directory: "/tmp/project",
       properties: { requestID: "perm_1" },
     });
-    await vi.waitFor(async () => expect(await history.activeCount()).toBe(0));
-    expect((await history.list())[0].resolvedBy).toBe("replied");
-    service.stop();
-  });
-
-  it("reconciles an active record whose upstream request has gone", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "dca-projects-"));
-    const directory = path.join(root, "project");
-    await mkdir(directory);
-    vi.stubEnv("PROJECTS_DIR", root);
-    // Empty /permission and /question mean both requests were answered while
-    // this process was not listening.
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("[]", { status: 200 })));
-
-    const bus = new EventEmitter() as EventBus;
-    const history = historyStore();
-    const delivery = { ntfy: "off", desktop: "off" } as const;
-    await history.append({ kind: "permission", directory, requestID: "perm_gone", title: "perm", body: "", delivery });
-    await history.append({ kind: "question", directory, requestID: "que_gone", title: "question", body: "", delivery });
-    expect(await history.activeCount()).toBe(2);
-
-    const service = new NotificationService({ baseUrl: "http://opencode.test" }, bus, ntfyPreferences(), history);
-    await service.reconcileAll(true);
+    expect(await history.activeCount()).toBe(1);
+    const [record] = await history.list();
+    await history.setResolved(record.id, true);
     expect(await history.activeCount()).toBe(0);
-    expect((await history.list()).every((record) => record.resolvedBy === "reconciled")).toBe(true);
-    vi.unstubAllEnvs();
-  });
-
-  it("leaves records alone when the upstream lookup fails", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "dca-projects-"));
-    const directory = path.join(root, "project");
-    await mkdir(directory);
-    vi.stubEnv("PROJECTS_DIR", root);
-    // A lookup failure is not evidence of a reply; the badge must survive it.
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("boom", { status: 503 })));
-
-    const history = historyStore();
-    await history.append({
-      kind: "permission",
-      directory,
-      requestID: "perm_unknown",
-      title: "perm",
-      body: "",
-      delivery: { ntfy: "off", desktop: "off" },
-    });
-    const service = new NotificationService(
-      { baseUrl: "http://opencode.test" },
-      new EventEmitter() as EventBus,
-      ntfyPreferences(),
-      history,
-    );
-    await service.reconcileAll(true);
-    expect(await history.activeCount()).toBe(1);
-    vi.unstubAllEnvs();
-  });
-
-  it("leaves records alone when directory validation temporarily fails", async () => {
-    const history = historyStore();
-    await history.append({
-      kind: "permission",
-      directory: "/tmp/project-that-is-temporarily-unavailable",
-      requestID: "perm_path",
-      title: "perm",
-      body: "",
-      delivery: { ntfy: "off", desktop: "off" },
-    });
-    const service = new NotificationService(
-      { baseUrl: "http://opencode.test" },
-      new EventEmitter() as EventBus,
-      ntfyPreferences(),
-      history,
-    );
-
-    await service.reconcileAll(true);
-    expect(await history.activeCount()).toBe(1);
-    expect((await history.list())[0].resolvedAt).toBeUndefined();
+    expect((await history.list())[0].resolvedBy).toBe("checked");
+    service.stop();
   });
 });

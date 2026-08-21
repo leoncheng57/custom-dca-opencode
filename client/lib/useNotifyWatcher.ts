@@ -50,8 +50,8 @@ const ACTIVE_SET_DEBOUNCE_MS = 300;
  * One app-level listener. SSE is a nudge; notification preferences stay
  * server-backed.
  *
- * `onActiveSetChanged` fires (debounced) for events that can add or clear an
- * outstanding permission/question, so the badge can refetch from the server
+ * `onActiveSetChanged` fires (debounced) for events that can add a notification,
+ * so the badge can refetch from the server
  * without this hook's consumer opening a second EventSource.
  */
 export function useNotifyWatcher(onActiveSetChanged?: () => void): void {
