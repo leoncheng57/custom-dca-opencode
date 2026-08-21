@@ -19,6 +19,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, ApiError, type PermissionRequest, type QuestionRequest } from "./api.js";
+import type { RawMessage } from "./events.js";
 
 const POLL_MS = 3_000;
 const RETRY_BASE_MS = 2_000;
@@ -28,8 +29,31 @@ export function streamRetryDelay(retries: number): number {
   return Math.min(RETRY_BASE_MS * 2 ** Math.min(retries, 4), RETRY_MAX_MS);
 }
 
+function messageIdentity(message: RawMessage): string {
+  const messageID = message.info?.id ?? message.parts?.find((part) => part.messageID)?.messageID;
+  if (messageID) return `message:${messageID}`;
+  const partIDs = message.parts?.map((part) => part.id).filter((id): id is string => Boolean(id));
+  if (partIDs?.length) return `parts:${partIDs.join("\0")}`;
+  return `unknown:${JSON.stringify(message)}`;
+}
+
+function messageCreated(message: RawMessage): number {
+  return message.info?.time?.created ?? 0;
+}
+
+/** Merge overlapping newest/older pages without changing message or part IDs. */
+export function mergeMessagePages(previous: RawMessage[], incoming: RawMessage[]): RawMessage[] {
+  if (incoming.length === 0) return previous;
+  const byID = new Map(previous.map((message) => [messageIdentity(message), message]));
+  for (const message of incoming) byID.set(messageIdentity(message), message);
+  return [...byID.values()].sort((left, right) => {
+    const created = messageCreated(left) - messageCreated(right);
+    return created || messageIdentity(left).localeCompare(messageIdentity(right));
+  });
+}
+
 export interface SessionStreamState {
-  messages: unknown[];
+  messages: RawMessage[];
   running: boolean;
   todos: Array<{ content: string; status: string; priority: string }>;
   todosLoaded: boolean;
@@ -39,12 +63,17 @@ export interface SessionStreamState {
   error: string | null;
   /** True once the first fetch has resolved, so the UI can skip a spinner. */
   loaded: boolean;
+  hasEarlier: boolean;
+  loadingEarlier: boolean;
+  loadEarlierError: string | null;
   refresh: () => void;
+  loadEarlier: () => Promise<void>;
   replyPermission: (requestId: string, reply: "once" | "always" | "reject") => Promise<void>;
 }
 
 export function useSessionStream(directory: string, sessionId: string): SessionStreamState {
-  const [messages, setMessages] = useState<unknown[]>([]);
+  const scope = `${directory}\0${sessionId}`;
+  const [messages, setMessages] = useState<RawMessage[]>([]);
   const [running, setRunning] = useState(false);
   const [todos, setTodos] = useState<Array<{ content: string; status: string; priority: string }>>([]);
   const [todosLoaded, setTodosLoaded] = useState(false);
@@ -53,35 +82,55 @@ export function useSessionStream(directory: string, sessionId: string): SessionS
   const [questions, setQuestions] = useState<QuestionRequest[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [hasEarlier, setHasEarlier] = useState(false);
+  const [loadingEarlier, setLoadingEarlier] = useState(false);
+  const [loadEarlierError, setLoadEarlierError] = useState<string | null>(null);
 
   const inFlight = useRef(false);
+  const inFlightScope = useRef<string | null>(null);
   const pollQueued = useRef(false);
   const permissionRevision = useRef(0);
+  const earlierCursor = useRef<string | null>(null);
+  const backfillStarted = useRef(false);
+  const backfillInFlight = useRef(false);
   // Guards a stale response landing after the user navigated elsewhere.
-  const liveId = useRef(sessionId);
-  liveId.current = sessionId;
+  const liveScope = useRef(scope);
+  liveScope.current = scope;
+  const messagesScope = useRef(scope);
 
   const poll = useCallback(async () => {
+    const requestedScope = `${directory}\0${sessionId}`;
     if (inFlight.current) {
-      pollQueued.current = true;
-      return;
+      if (inFlightScope.current === requestedScope) {
+        pollQueued.current = true;
+        return;
+      }
+      // A request for the previous route may still be settling. Its scope
+      // guard prevents writes, so do not let it delay the new session.
+      inFlight.current = false;
     }
     inFlight.current = true;
+    inFlightScope.current = requestedScope;
     try {
       do {
         pollQueued.current = false;
         const permissionRevisionAtStart = permissionRevision.current;
         const [messageResult, todoResult, permissionResult, questionResult] = await Promise.allSettled([
-          api.messages(directory, sessionId),
+          api.messages(directory, sessionId, { limit: 100 }),
           api.todos(directory, sessionId),
           api.permissionRequests(directory),
           api.questionRequests(directory, sessionId),
         ]);
-        if (liveId.current !== sessionId) return;
+        if (liveScope.current !== requestedScope) return;
 
         if (messageResult.status === "fulfilled") {
-          setMessages(messageResult.value.messages);
+          messagesScope.current = requestedScope;
+          setMessages((previous) => mergeMessagePages(previous, messageResult.value.messages));
           setRunning(messageResult.value.running);
+          if (!backfillStarted.current) {
+            earlierCursor.current = messageResult.value.nextCursor;
+            setHasEarlier(messageResult.value.nextCursor !== null);
+          }
           setError(null);
         } else {
           const reason = messageResult.reason as unknown;
@@ -100,18 +149,34 @@ export function useSessionStream(directory: string, sessionId: string): SessionS
           setPermissions(permissionResult.value.requests.filter((request) => request.sessionID === sessionId));
         }
         if (questionResult.status === "fulfilled") setQuestions(questionResult.value.requests);
-      } while (pollQueued.current && liveId.current === sessionId);
+      } while (pollQueued.current && liveScope.current === requestedScope);
     } finally {
-      inFlight.current = false;
-      setLoaded(true);
+      if (inFlightScope.current === requestedScope) {
+        inFlight.current = false;
+        inFlightScope.current = null;
+      }
+      if (liveScope.current === requestedScope) setLoaded(true);
     }
   }, [directory, sessionId]);
 
   useEffect(() => {
+    messagesScope.current = scope;
+    setMessages([]);
+    setRunning(false);
     setTodos([]);
     setTodosLoaded(false);
     setTodosError(null);
-  }, [directory, sessionId]);
+    setPermissions([]);
+    setQuestions([]);
+    setError(null);
+    setLoaded(false);
+    setHasEarlier(false);
+    setLoadingEarlier(false);
+    setLoadEarlierError(null);
+    earlierCursor.current = null;
+    backfillStarted.current = false;
+    backfillInFlight.current = false;
+  }, [directory, scope, sessionId]);
 
   // Poll loop. Hidden tabs skip ticks and refresh once on return.
   useEffect(() => {
@@ -204,16 +269,57 @@ export function useSessionStream(directory: string, sessionId: string): SessionS
     void poll();
   }, [poll]);
 
+  const loadEarlier = useCallback(async () => {
+    const requestedScope = `${directory}\0${sessionId}`;
+    const before = earlierCursor.current;
+    if (!before || backfillInFlight.current) return;
+    backfillStarted.current = true;
+    backfillInFlight.current = true;
+    setLoadingEarlier(true);
+    setLoadEarlierError(null);
+    try {
+      const page = await api.messages(directory, sessionId, { limit: 100, before });
+      if (liveScope.current !== requestedScope) return;
+      setMessages((previous) => mergeMessagePages(previous, page.messages));
+      earlierCursor.current = page.nextCursor;
+      setHasEarlier(page.nextCursor !== null);
+    } catch (reason) {
+      if (liveScope.current === requestedScope) {
+        setLoadEarlierError(reason instanceof Error ? reason.message : String(reason));
+      }
+    } finally {
+      if (liveScope.current === requestedScope) setLoadingEarlier(false);
+      backfillInFlight.current = false;
+    }
+  }, [directory, sessionId]);
+
   const replyPermission = useCallback(async (requestId: string, reply: "once" | "always" | "reject") => {
     await api.replyPermission(directory, requestId, reply);
     permissionRevision.current += 1;
-    if (liveId.current === sessionId) {
+    if (liveScope.current === `${directory}\0${sessionId}`) {
       setPermissions((requests) => requests.filter((request) => request.id !== requestId));
     }
     await poll();
   }, [directory, poll, sessionId]);
 
-  return { messages, running, todos, todosLoaded, todosError, permissions, questions, error, loaded, refresh, replyPermission };
+  const currentScope = messagesScope.current === scope;
+  return {
+    messages: currentScope ? messages : [],
+    running: currentScope && running,
+    todos,
+    todosLoaded,
+    todosError,
+    permissions,
+    questions,
+    error,
+    loaded: currentScope && loaded,
+    hasEarlier: currentScope && hasEarlier,
+    loadingEarlier: currentScope && loadingEarlier,
+    loadEarlierError: currentScope ? loadEarlierError : null,
+    refresh,
+    loadEarlier,
+    replyPermission,
+  };
 }
 
 /** True when an error means "stop trying" rather than "retry later". */

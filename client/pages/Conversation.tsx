@@ -81,13 +81,21 @@ export function ConversationPage() {
 
   // Keep event identity stable across polls so memoised rows do not churn.
   const [events, setEvents] = useState<TranscriptEvent[]>([]);
+  const eventScope = useRef(`${directory}\0${id}`);
   const transcript = useMemo(
     () => normalizeTranscript(stream.messages as RawMessage[], { isRunning: stream.running }),
     [stream.messages, stream.running],
   );
   useEffect(() => {
-    setEvents((previous) => mergeEvents(previous, transcript.events));
-  }, [transcript.events]);
+    const scope = `${directory}\0${id}`;
+    setEvents((previous) => {
+      if (eventScope.current !== scope) {
+        eventScope.current = scope;
+        return transcript.events;
+      }
+      return mergeEvents(previous, transcript.events);
+    });
+  }, [directory, id, transcript.events]);
 
   useEffect(() => {
     if (!stream.loaded) return;
@@ -491,6 +499,25 @@ export function ConversationPage() {
             </div>
           )}
           <div ref={transcriptContentRef} className="mx-auto min-w-0 max-w-3xl">
+            {stream.loaded && stream.hasEarlier && (
+              <div className="mb-6 flex justify-center">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={stream.loadingEarlier}
+                  onClick={() => void stream.loadEarlier()}
+                  aria-label="Load earlier transcript messages"
+                  data-testid="opencode-load-earlier"
+                >
+                  {stream.loadingEarlier ? "Loading earlier..." : "Load earlier"}
+                </Button>
+              </div>
+            )}
+            {stream.loadEarlierError && (
+              <div className="mb-6" role="alert" data-testid="opencode-load-earlier-error">
+                <Alert variant="danger">Could not load earlier messages: {stream.loadEarlierError}</Alert>
+              </div>
+            )}
             {!stream.loaded ? (
               <LoadingIndicator />
             ) : items.length === 0 ? (

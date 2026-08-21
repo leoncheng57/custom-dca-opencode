@@ -180,6 +180,12 @@ export interface ReminderSummary {
   triggers: string[];
 }
 
+export interface MessagePage {
+  messages: RawMessage[];
+  running: boolean;
+  nextCursor: string | null;
+}
+
 /**
  * Unwrap a response, surfacing the BFF's `{ error }` body when present.
  *
@@ -242,9 +248,12 @@ export const api = {
       json<{ session: SessionSummary }>(r),
     ),
 
-  messages: (directory: string, id: string) =>
-    fetch(scoped(`/sessions/${encodeURIComponent(id)}/messages`, directory)).then((r) =>
-      json<{ messages: RawMessage[]; running: boolean }>(r),
+  messages: (directory: string, id: string, options: { limit?: number; before?: string } = {}) =>
+    fetch(scoped(`/sessions/${encodeURIComponent(id)}/messages`, directory, {
+      limit: String(options.limit ?? 100),
+      ...(options.before ? { before: options.before } : {}),
+    })).then((r) =>
+      json<MessagePage>(r),
     ),
 
   todos: (directory: string, id: string) =>
