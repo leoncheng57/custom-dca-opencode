@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "prNumber": 28,
+  "sourceSha": "6afcc2b53f309495c81615d13f65d3b1deb22e86",
+  "capturedAt": "2026-08-21T20:47:54.904Z",
+  "screenshots": [
+    {
+      "requestedRoute": "/?directory=/tmp/mock-project",
+      "fullPage": false,
+      "filename": "01-home-directory-tmp-mock-project-aaeaa4a7.png",
+      "dimensions": {
+        "width": 1280,
+        "height": 800
+      },
+      "bytes": 76048,
+      "sha256": "548d13db3e9b61361167daa0c1f7f851e1e1d31becc1e18f3e1c72f1e8207152"
+    },
+    {
+      "requestedRoute": "/settings?directory=/tmp/mock-project",
+      "fullPage": false,
+      "filename": "02-settings-directory-tmp-mock-project-5cee4980.png",
+      "dimensions": {
+        "width": 1280,
+        "height": 800
+      },
+      "bytes": 54497,
+      "sha256": "116b8facdd5c36958d58d16e16991411dc3a08d42ec2c68f920bc38498fe83a7"
+    },
+    {
+      "requestedRoute": "/tools?directory=/tmp/mock-project",
+      "fullPage": false,
+      "filename": "03-tools-directory-tmp-mock-project-ea74ee5c.png",
+      "dimensions": {
+        "width": 1280,
+        "height": 800
+      },
+      "bytes": 51057,
+      "sha256": "e22a308184cac5af1c26e76a5e671b4c93bfa0769543ea6c7525f422ceb99acd"
+    }
+  ]
+}
