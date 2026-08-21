@@ -158,6 +158,7 @@ export interface QuestionRequest {
 }
 export interface ReminderSummary {
   id: string;
+  title: string;
   description: string;
   triggers: string[];
 }

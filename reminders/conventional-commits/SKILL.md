@@ -1,5 +1,6 @@
 ---
 name: conventional-commits
+title: Conventional Commits
 description: Write conventional-commit subjects — feat:, fix:, docs:, ci: — matching the repo history.
 ---
 

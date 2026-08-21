@@ -1,5 +1,6 @@
 ---
 name: no-force-push
+title: No Force Push
 description: Never force-push, rewrite shared history, or amend a commit that has been pushed.
 ---
 

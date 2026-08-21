@@ -519,7 +519,7 @@ export function ConversationPage() {
               <option value="">+ reminder</option>
               {reminderCatalogue.map((reminder) => (
                 <option key={reminder.id} value={reminder.id} title={reminder.description}>
-                  {reminder.id}{reminder.triggers.length ? " (triggers ignored)" : ""}
+                  {reminder.title}{reminder.triggers.length ? " (triggers ignored)" : ""}
                 </option>
               ))}
             </select>

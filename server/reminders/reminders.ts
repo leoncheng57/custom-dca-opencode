@@ -1,18 +1,29 @@
 /** OpenCode skill-name contract, reused so every preset is a valid skill directory. */
 export const REMINDER_ID_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 export const REMINDER_ID_MAX = 255;
+export const REMINDER_TITLE_MAX = 100;
+export const REMINDER_DESCRIPTION_MAX = 1_000;
+export const REMINDER_BODY_MAX = 24_000;
+
+export interface ReminderSource {
+  repo: string;
+  path: string;
+  commit: string;
+}
 
 export interface ReminderPreset {
   id: string;
+  title: string;
   description: string;
   body: string;
+  source?: ReminderSource;
   /** Parsed for visibility but deliberately ignored by per-message injection. */
   triggers: string[];
 }
 
-export function parseReminderMarkdown(id: string, source: string): ReminderPreset | null {
+export function parseReminderMarkdown(id: string, markdown: string): ReminderPreset | null {
   if (!isValidReminderId(id)) return null;
-  const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(source.replace(/^\uFEFF/, ""));
+  const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(markdown.replace(/^\uFEFF/, ""));
   if (!match) return null;
 
   const [, frontmatter, rest] = match;
@@ -39,10 +50,30 @@ export function parseReminderMarkdown(id: string, source: string): ReminderPrese
   }
 
   const body = rest.trim();
+  const title = (scalars.title ?? id.split("-").map(capitalize).join(" ")).trim();
   const description = (scalars.description ?? "").trim();
   if (scalars.name !== undefined && scalars.name.trim() !== id) return null;
-  if (body === "" || description === "") return null;
-  return { id, description, body, triggers };
+  if (
+    body === "" || body.length > REMINDER_BODY_MAX
+    || title === "" || title.length > REMINDER_TITLE_MAX
+    || description === "" || description.length > REMINDER_DESCRIPTION_MAX
+  ) return null;
+
+  const sourceFields = [scalars.source_repo, scalars.source_path, scalars.source_commit];
+  if (sourceFields.some((value) => value !== undefined) && sourceFields.some((value) => !value)) return null;
+  if (sourceFields[0] && (
+    !/^https:\/\/[^\s]+$/.test(sourceFields[0])
+    || !/^skills\/[a-z0-9][a-z0-9-]*\/SKILL\.md$/.test(sourceFields[1]!)
+    || !/^[0-9a-f]{40}$/.test(sourceFields[2]!)
+  )) return null;
+  const provenance = sourceFields[0]
+    ? { repo: sourceFields[0], path: sourceFields[1]!, commit: sourceFields[2]! }
+    : undefined;
+  return { id, title, description, body, triggers, source: provenance };
+}
+
+function capitalize(value: string): string {
+  return value.length ? value[0].toUpperCase() + value.slice(1) : value;
 }
 
 function unquote(value: string): string {

@@ -1,5 +1,6 @@
 ---
 name: cite-file-lines
+title: Cite File Lines
 description: Reference code as file_path:line_number so the user can jump straight to it.
 ---
 
