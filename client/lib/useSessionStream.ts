@@ -24,6 +24,7 @@ import {
   appendOlderPage,
   emptyTranscriptPages,
   invalidateOlderPages,
+  nextRevertState,
   refreshNewestPage,
   transcriptMessages,
   type TranscriptPages,
@@ -61,10 +62,12 @@ export function useSessionStream(directory: string, sessionId: string): SessionS
   const scopeRef = useRef(scope);
   const generationRef = useRef(0);
   const pollGate = useRef({ generation: 0, inFlight: false, queued: false });
-  const backfillRequest = useRef<{ generation: number } | null>(null);
+  const backfillRequest = useRef<{ generation: number; historyGeneration: number } | null>(null);
   const earlierCursor = useRef<string | null>(null);
   const newestCursor = useRef<string | null>(null);
   const backfillStarted = useRef(false);
+  const historyGeneration = useRef(0);
+  const revertState = useRef<string | null | undefined>(undefined);
   if (scopeRef.current !== scope) {
     scopeRef.current = scope;
     generationRef.current += 1;
@@ -72,6 +75,8 @@ export function useSessionStream(directory: string, sessionId: string): SessionS
     backfillRequest.current = null;
     earlierCursor.current = null;
     backfillStarted.current = false;
+    historyGeneration.current += 1;
+    revertState.current = undefined;
   }
   const generation = generationRef.current;
 
@@ -172,6 +177,8 @@ export function useSessionStream(directory: string, sessionId: string): SessionS
     newestCursor.current = null;
     backfillStarted.current = false;
     backfillRequest.current = null;
+    historyGeneration.current += 1;
+    revertState.current = undefined;
   }, [generation]);
 
   // Poll loop. Hidden tabs skip ticks and refresh once on return.
@@ -212,7 +219,7 @@ export function useSessionStream(directory: string, sessionId: string): SessionS
       source = new EventSource(api.eventsUrl(directory));
       source.onmessage = (message) => {
         try {
-          const event = JSON.parse(message.data) as { type?: string; properties?: { sessionID?: string; messageID?: string; info?: { id?: string } } };
+          const event = JSON.parse(message.data) as { type?: string; properties?: { sessionID?: string; part?: { messageID?: string }; info?: { id?: string; revert?: unknown } } };
           if (!event.type) return;
           const eventType = event.type;
           // A valid application frame proves more than a TCP open. Reset here
@@ -222,6 +229,9 @@ export function useSessionStream(directory: string, sessionId: string): SessionS
             if (backfillStarted.current) {
               setPages((pages) => invalidateOlderPages(pages));
               backfillStarted.current = false;
+              historyGeneration.current += 1;
+              backfillRequest.current = null;
+              setLoadingEarlier(false);
               earlierCursor.current = newestCursor.current;
               setHasEarlier(newestCursor.current !== null);
             }
@@ -231,12 +241,23 @@ export function useSessionStream(directory: string, sessionId: string): SessionS
           // Only react to events about this session; the bus is global.
           const target = event.properties?.sessionID;
           if (target && target !== sessionId) return;
-          if (["message.updated", "message.removed", "message.part.updated", "message.part.removed", "session.reverted", "session.unreverted"].includes(eventType)) {
-            const messageID = event.properties?.messageID ?? event.properties?.info?.id;
+          let invalidatedMessage: string | undefined;
+          let invalidateAll = false;
+          if (["message.updated", "message.removed"].includes(eventType)) invalidatedMessage = event.properties?.info?.id;
+          if (["message.part.updated", "message.part.removed"].includes(eventType)) invalidatedMessage = event.properties?.part?.messageID;
+          if (eventType === "session.updated") {
+            const transition = nextRevertState(revertState.current, event.properties?.info?.revert);
+            revertState.current = transition.state;
+            invalidateAll = transition.changed;
+          }
+          if (invalidatedMessage || invalidateAll) {
             setPages((pages) => {
-              const next = invalidateOlderPages(pages, eventType.startsWith("session.") ? undefined : messageID);
+              const next = invalidateOlderPages(pages, invalidateAll ? undefined : invalidatedMessage);
               if (next !== pages) {
                 backfillStarted.current = false;
+                historyGeneration.current += 1;
+                backfillRequest.current = null;
+                setLoadingEarlier(false);
                 earlierCursor.current = newestCursor.current;
                 setHasEarlier(newestCursor.current !== null);
               }
@@ -290,14 +311,14 @@ export function useSessionStream(directory: string, sessionId: string): SessionS
   const loadEarlier = useCallback(async () => {
     const before = earlierCursor.current;
     if (!before || backfillRequest.current?.generation === generation) return;
-    const request = { generation };
+    const request = { generation, historyGeneration: historyGeneration.current };
     backfillStarted.current = true;
     backfillRequest.current = request;
     setLoadingEarlier(true);
     setLoadEarlierError(null);
     try {
       const page = await api.messages(directory, sessionId, { limit: 100, before });
-      if (generationRef.current !== generation) return;
+      if (generationRef.current !== generation || historyGeneration.current !== request.historyGeneration) return;
       setPages((previous) => appendOlderPage(previous, page.messages));
       earlierCursor.current = page.nextCursor;
       setHasEarlier(page.nextCursor !== null);

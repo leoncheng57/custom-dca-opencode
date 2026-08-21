@@ -363,10 +363,32 @@ test.describe("transcript", () => {
     await navigateInApp(page, mobileConversation);
     await expect(page.getByTestId("opencode-session-title")).toHaveText("Mobile full session fixture");
     await navigateInApp(page, paginatedConversation);
-    await expect(page.getByText("Paged message 26", { exact: true })).toBeVisible();
+    await expect(page.getByText("Paged message 126", { exact: true })).toBeVisible();
     releaseBackfill();
     await expect(page.getByText("Paged message 1", { exact: true })).toHaveCount(0);
     await expect(page.getByTestId("opencode-load-earlier")).toBeVisible();
+  });
+
+  test("keeps older pages for newest part updates and cancels backfill for older updates", async ({ page }) => {
+    let release!: () => void;
+    let held = false;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    await page.route("**/api/sessions/ses_mock_paginated/messages?**", async (route) => {
+      const url = new URL(route.request().url());
+      if (url.searchParams.get("before") === "25" && !held) { held = true; await gate; }
+      await route.continue();
+    });
+    await page.goto(paginatedConversation);
+    await page.getByTestId("opencode-load-earlier").click();
+    await expect(page.getByText("Paged message 50", { exact: true })).toBeVisible();
+    await fetch(`${MOCK_URL}/test/paginated/newest-update`, { method: "POST" });
+    await expect(page.getByText("Paged message 50", { exact: true })).toBeVisible();
+    await page.getByTestId("opencode-load-earlier").click({ noWaitAfter: true });
+    await expect.poll(() => held).toBe(true);
+    await fetch(`${MOCK_URL}/test/paginated/older-update`, { method: "POST" });
+    await expect(page.getByText("Paged message 50", { exact: true })).toHaveCount(0);
+    release();
+    await expect(page.getByText("Paged message 1", { exact: true })).toHaveCount(0);
   });
 
   test("shows the reasoning duration OpenHands could not", async ({ page }) => {

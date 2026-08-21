@@ -101,11 +101,11 @@ test.describe.serial("share and export", () => {
 
   test("loads earlier transcript pages only on deliberate request", async ({ page }) => {
     await page.goto(paginatedConversation);
-    await expect(page.getByText("Paged message 26", { exact: true })).toBeVisible();
+    await expect(page.getByText("Paged message 126", { exact: true })).toBeVisible();
     await expect(page.getByText("Paged message 1", { exact: true })).toHaveCount(0);
     await page.getByTestId("opencode-load-earlier").click();
-    await expect(page.getByText("Paged message 1", { exact: true })).toBeVisible();
-    await expect(page.getByTestId("opencode-load-earlier")).toHaveCount(0);
+    await expect(page.getByText("Paged message 26", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("opencode-load-earlier")).toBeVisible();
   });
 
   test("refuses a partial full-session export and retries the complete fetch", async ({ page }) => {

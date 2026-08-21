@@ -6,6 +6,7 @@ import {
   emptyTranscriptPages,
   fetchAllMessagePages,
   invalidateOlderPages,
+  nextRevertState,
   mergeMessagePages,
   refreshNewestPage,
   transcriptMessages,
@@ -109,5 +110,14 @@ describe("transcript page merging", () => {
     const pages = { newest: [message("new", 3)], older: [message("old", 1, "stale"), message("middle", 2)] };
     expect(transcriptMessages(invalidateOlderPages(pages, "old"))).toEqual([pages.newest[0]]);
     expect(invalidateOlderPages(pages, "missing")).toBe(pages);
+  });
+
+  it("detects revert and unrevert transitions without treating routine session updates as mutations", () => {
+    const routine = nextRevertState(undefined, undefined);
+    expect(routine).toEqual({ state: null, changed: false });
+    const reverted = nextRevertState(routine.state, { messageID: "msg_old", partID: "prt_old" });
+    expect(reverted.changed).toBe(true);
+    expect(nextRevertState(reverted.state, { messageID: "msg_old", partID: "prt_old" }).changed).toBe(false);
+    expect(nextRevertState(reverted.state, undefined)).toEqual({ state: null, changed: true });
   });
 });

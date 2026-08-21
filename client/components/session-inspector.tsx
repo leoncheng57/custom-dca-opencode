@@ -349,6 +349,7 @@ function MobileInspector({ onClose, children }: { onClose: () => void; children:
 }
 
 export function SessionInspector({ directory, sessionID, events, todos, todosLoaded, todosError, mobileOpen = false, onMobileClose }: SessionInspectorProps & { sessionID: string }) {
+  const commandScope = `${directory}\0${sessionID}`;
   const commands = useMemo(() => extractCommands(events), [events]);
   const links = useMemo(() => extractMrUrls(events), [events]);
   const [tab, setTab] = useState<InspectorTab>("todo");
@@ -357,19 +358,37 @@ export function SessionInspector({ directory, sessionID, events, todos, todosLoa
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [commandExporting, setCommandExporting] = useState(false);
   const [commandExportError, setCommandExportError] = useState<string | null>(null);
+  const commandExportScope = useRef(commandScope);
+  const commandExportGeneration = useRef(0);
+  if (commandExportScope.current !== commandScope) {
+    commandExportScope.current = commandScope;
+    commandExportGeneration.current += 1;
+  }
   const catalogRequest = useRef<{ id: number; controller: AbortController } | null>(null);
   const catalogueRef = useRef(catalogue);
   const directoryRef = useRef(directory);
   catalogueRef.current = catalogue;
   directoryRef.current = directory;
   const exportCompleteCommands = useCallback(() => {
+    const generation = commandExportGeneration.current;
     setCommandExporting(true);
     setCommandExportError(null);
     void fetchAllMessagePages((before) => api.messages(directory, sessionID, { limit: 100, ...(before ? { before } : {}) }))
-      .then((messages) => exportCommands(extractCommands(normalizeTranscript(messages).events)))
-      .catch((error: unknown) => setCommandExportError(`Command export failed: ${error instanceof Error ? error.message : String(error)}`))
-      .finally(() => setCommandExporting(false));
+      .then((messages) => {
+        if (commandExportGeneration.current === generation) exportCommands(extractCommands(normalizeTranscript(messages).events));
+      })
+      .catch((error: unknown) => {
+        if (commandExportGeneration.current === generation) setCommandExportError(`Command export failed: ${error instanceof Error ? error.message : String(error)}`);
+      })
+      .finally(() => {
+        if (commandExportGeneration.current === generation) setCommandExporting(false);
+      });
   }, [directory, sessionID]);
+
+  useEffect(() => {
+    setCommandExporting(false);
+    setCommandExportError(null);
+  }, [commandScope]);
 
   const loadCatalogue = useCallback((force = false) => {
     if (!directory || (!force && catalogueRef.current?.directory === directory)) return;

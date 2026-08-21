@@ -60,7 +60,7 @@ function mobileMessages(): unknown[] {
 }
 
 function paginatedMessages(): unknown[] {
-  return Array.from({ length: 125 }, (_, index) => {
+  return Array.from({ length: 225 }, (_, index) => {
     const number = index + 1;
     return {
       info: { id: `msg_page_${number}`, role: number % 2 ? "user" : "assistant", agent: "build", time: { created: 1787300000000 + number, completed: 1787300000000 + number } },
@@ -487,7 +487,15 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     const live = sessionMessages.find((message) => message.info?.id === "msg_mobile_live");
     const text = live?.parts?.find((part) => part.type === "text");
     if (text) text.text = `${hostileMarkdown}\n\nNew live activity from the running agent.`;
-    emit("message.part.updated", { sessionID: "ses_mock_mobile", partID: "prt_mobile_live" });
+    emit("message.part.updated", { sessionID: "ses_mock_mobile", part: { id: "prt_mobile_live", messageID: "msg_mobile_live" } });
+    return json(res, 200, true);
+  }
+  if (pathname === "/test/paginated/older-update" && req.method === "POST") {
+    emit("message.part.updated", { sessionID: "ses_mock_paginated", part: { id: "prt_page_50", messageID: "msg_page_50" } });
+    return json(res, 200, true);
+  }
+  if (pathname === "/test/paginated/newest-update" && req.method === "POST") {
+    emit("message.part.updated", { sessionID: "ses_mock_paginated", part: { id: "prt_page_225", messageID: "msg_page_225" } });
     return json(res, 200, true);
   }
   if (pathname === "/test/session-policy") {

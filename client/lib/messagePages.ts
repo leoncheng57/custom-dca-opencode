@@ -67,6 +67,11 @@ export function invalidateOlderPages(pages: TranscriptPages, messageID?: string)
   return { newest: pages.newest, older: [] };
 }
 
+export function nextRevertState(previous: string | null | undefined, revert: unknown): { state: string | null; changed: boolean } {
+  const state = revert === undefined || revert === null ? null : JSON.stringify(revert);
+  return { state, changed: previous !== undefined && previous !== state || previous === undefined && state !== null };
+}
+
 export async function fetchAllMessagePages(
   fetchPage: (before?: string) => Promise<Pick<MessagePage, "messages" | "nextCursor">>,
 ): Promise<RawMessage[]> {
