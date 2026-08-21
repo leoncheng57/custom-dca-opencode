@@ -40,6 +40,7 @@ const CATALOGUE_FAILURE_DIRECTORY_INPUT = "/tmp/mock-catalogue-failure";
 mkdirSync(MOCK_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(TOOL_FAILURE_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(CATALOGUE_FAILURE_DIRECTORY_INPUT, { recursive: true });
+mkdirSync(path.join(MOCK_DIRECTORY_INPUT, "src"), { recursive: true });
 export const MOCK_DIRECTORY = realpathSync(MOCK_DIRECTORY_INPUT);
 const TOOL_FAILURE_DIRECTORY = realpathSync(TOOL_FAILURE_DIRECTORY_INPUT);
 const CATALOGUE_FAILURE_DIRECTORY = realpathSync(CATALOGUE_FAILURE_DIRECTORY_INPUT);
