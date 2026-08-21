@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 
 import { Alert } from "../ds/alert.js";
@@ -16,6 +16,7 @@ import { ShareExportDialog } from "../components/share-export-dialog.js";
 import { api, formatCost, type ReminderSummary, type SessionSummary } from "../lib/api.js";
 import { latestModeMessageID, modeFromMessages, type AgentMode } from "../lib/agentMode.js";
 import { MAX_IMAGE_ATTACHMENTS, readImageAttachment, selectImageFiles, type ImageAttachment } from "../lib/attachments.js";
+import { composerEnterAction } from "../lib/composerKeys.js";
 import { collapseActionGroups, mergeEvents, runningActivity } from "../lib/derive.js";
 import { normalizeTranscript, type RawMessage } from "../lib/events.js";
 import { useSessionStream } from "../lib/useSessionStream.js";
@@ -69,6 +70,7 @@ export function ConversationPage() {
   const [modelError, setModelError] = useState<string | null>(null);
   const derivedModelMarker = useRef<string | undefined>(undefined);
   const modelSelectionDirty = useRef(false);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const transcriptScrollerRef = useRef<HTMLDivElement | null>(null);
   const transcriptContentRef = useRef<HTMLDivElement | null>(null);
   const followingTranscript = useRef(true);
@@ -262,6 +264,16 @@ export function ConversationPage() {
     scroller.scrollTo({ top: scroller.scrollHeight, behavior: "smooth" });
   };
 
+  // The composer grows with its content instead of showing a resize grabber.
+  // `min-h-24` still floors the box, so a one-line draft keeps the same 96px
+  // target the mobile layout is measured against.
+  useLayoutEffect(() => {
+    const textarea = composerRef.current;
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    textarea.style.height = `${textarea.scrollHeight}px`;
+  }, [draft]);
+
   const send = async () => {
     const text = draft.trim();
     if (!text) return;
@@ -289,6 +301,29 @@ export function ConversationPage() {
     } finally {
       setSending(false);
     }
+  };
+
+  // Policy lives in composerKeys.ts so the coarse-pointer and IME branches are
+  // unit tested; this only wires it to the DOM event.
+  const submitOnEnter = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    const action = composerEnterAction(
+      {
+        key: event.key,
+        shiftKey: event.shiftKey,
+        metaKey: event.metaKey,
+        ctrlKey: event.ctrlKey,
+        isComposing: event.nativeEvent.isComposing,
+        keyCode: event.nativeEvent.keyCode,
+      },
+      {
+        coarsePointer: window.matchMedia("(pointer: coarse)").matches,
+        // `send()` has no re-entry guard and prompt_async returns as soon as
+        // the turn is queued, so a fast double Enter would post two turns.
+        canSubmit: !sending && draft.trim().length > 0,
+      },
+    );
+    if (action.preventDefault) event.preventDefault();
+    if (action.submit) void send();
   };
 
   const replyToPermission = async (requestId: string, reply: "once" | "always" | "reject") => {
@@ -501,7 +536,7 @@ export function ConversationPage() {
               testId="opencode-composer-model"
               label="Model"
             />
-            <span className="min-w-0 flex-1 truncate text-right text-[11px] text-[var(--color-text-muted)]" data-testid="opencode-current-model">
+            <span className="basis-full text-[11px] text-[var(--color-text-muted)]" data-testid="opencode-current-model">
               {mode === "plan" ? "Read-only analysis" : "Can modify files"}
               {selectedModel ? ` · ${sameModel(selectedModel, currentModel) ? "current" : "switches next message"}` : ""}
             </span>
@@ -513,57 +548,73 @@ export function ConversationPage() {
             </p>
           )}
           {attachmentError && <p className="mb-2 text-xs text-[var(--color-text-danger)]" role="alert" data-testid="opencode-attachment-error">{attachmentError}</p>}
-          <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] gap-2 sm:flex">
-          <label className="row-start-2 inline-flex min-h-11 cursor-pointer items-center justify-center rounded-md border border-[var(--color-border-default)] px-3 text-xs font-semibold sm:min-h-0" data-testid="opencode-attach-label">
-            Attach
-            <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple className="sr-only" data-testid="opencode-attach" onChange={(event) => {
-              addAttachments(event.target.files ?? []);
-              event.target.value = "";
-            }} />
-          </label>
-          {reminderCatalogue.length > 0 && (
-            <select
-              value={selectedReminder}
-              onChange={(event) => setSelectedReminder(event.target.value)}
-              className={`row-start-2 min-h-11 min-w-0 w-full max-w-36 rounded-md border px-2 text-base sm:min-h-0 sm:max-w-40 sm:text-xs ${
-                selectedReminder
-                  ? "border-[var(--color-border-focus)] bg-[var(--color-background-surface)] text-[var(--color-text-default)]"
-                  : "border-[var(--color-border-default)] bg-transparent text-[var(--color-text-muted)]"
-              }`}
-              data-testid="composer-reminder-select"
-              aria-label="Attach a reminder to this message"
-              title="Attach one reminder to the next message only. Cleared after sending."
-            >
-              <option value="">+ reminder</option>
-              {reminderCatalogue.map((reminder) => (
-                <option key={reminder.id} value={reminder.id} title={reminder.description}>
-                  {reminder.title}{reminder.triggers.length ? " (triggers ignored)" : ""}
-                </option>
-              ))}
-            </select>
-          )}
-          <textarea
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            onPaste={(event) => {
-              const images = [...event.clipboardData.items]
-                .filter((item) => item.kind === "file")
-                .map((item) => item.getAsFile())
-                .filter((file): file is File => file !== null);
-              if (images.length) addAttachments(images);
-            }}
-            rows={4}
-            enterKeyHint="enter"
-            autoCapitalize="none"
-            autoCorrect="off"
-            spellCheck={false}
-            placeholder="Send a follow-up…"
-            className="col-span-3 row-start-1 min-h-24 min-w-0 resize-y rounded-md border border-[var(--color-border-default)] bg-transparent p-2 text-base sm:order-none sm:min-h-16 sm:flex-1 sm:text-sm"
-            data-testid="opencode-composer"
-          />
-          <Button className="row-start-2 min-h-11 sm:min-h-0" onClick={() => void send()} disabled={sending || !draft.trim()} data-testid="opencode-send">
-            {sending ? "Sending…" : "Send"}
-          </Button>
+          {/* One card owns the border so the textarea and its controls share a
+              frame. Laying the controls out on their own rail is what keeps
+              them aligned: as flex siblings of the textarea they stretched to
+              its height, while the fixed-height Send button did not. */}
+          <div
+            className="min-w-0 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-background-surface)] transition-colors focus-within:border-[var(--color-border-focus)]"
+            data-testid="opencode-composer-card"
+          >
+            <textarea
+              ref={composerRef}
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={submitOnEnter}
+              onPaste={(event) => {
+                const images = [...event.clipboardData.items]
+                  .filter((item) => item.kind === "file")
+                  .map((item) => item.getAsFile())
+                  .filter((file): file is File => file !== null);
+                if (images.length) addAttachments(images);
+              }}
+              rows={1}
+              enterKeyHint="enter"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              placeholder="Send a follow-up…"
+              className="thin-scrollbar block max-h-64 min-h-24 w-full resize-none border-0 bg-transparent p-3 text-base text-[var(--color-text-default)] outline-none placeholder:text-[var(--color-text-muted)] sm:min-h-16 sm:p-2.5 sm:text-sm"
+              data-testid="opencode-composer"
+            />
+            {/* Kept deliberately short: a session showing the auto-permission,
+                interrupted, permission and question banners at once leaves the
+                transcript only a sliver of a 720px viewport, so every pixel the
+                footer takes comes straight out of readable transcript. */}
+            <div className="flex min-w-0 items-center gap-2 border-t border-[var(--color-border-default)] px-2 py-2 sm:py-1">
+              <label className="inline-flex min-h-11 shrink-0 cursor-pointer items-center rounded-md px-2.5 text-xs font-semibold text-[var(--color-text-muted)] hover:bg-[var(--hh-row-hover)] hover:text-[var(--color-text-default)] sm:min-h-8" data-testid="opencode-attach-label">
+                Attach
+                <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple className="sr-only" data-testid="opencode-attach" onChange={(event) => {
+                  addAttachments(event.target.files ?? []);
+                  event.target.value = "";
+                }} />
+              </label>
+              {reminderCatalogue.length > 0 && (
+                <select
+                  value={selectedReminder}
+                  onChange={(event) => setSelectedReminder(event.target.value)}
+                  className={`min-h-11 min-w-0 max-w-36 shrink rounded-md border px-2 text-base sm:min-h-8 sm:max-w-40 sm:text-xs ${
+                    selectedReminder
+                      ? "border-[var(--color-border-focus)] bg-[var(--color-background-surface)] text-[var(--color-text-default)]"
+                      : "border-transparent bg-transparent text-[var(--color-text-muted)] hover:border-[var(--color-border-default)]"
+                  }`}
+                  data-testid="composer-reminder-select"
+                  aria-label="Attach a reminder to this message"
+                  title="Attach one reminder to the next message only. Cleared after sending."
+                >
+                  <option value="">+ reminder</option>
+                  {reminderCatalogue.map((reminder) => (
+                    <option key={reminder.id} value={reminder.id} title={reminder.description}>
+                      {reminder.title}{reminder.triggers.length ? " (triggers ignored)" : ""}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <span className="flex-1" aria-hidden="true" />
+              <Button size="sm" className="min-h-11 shrink-0 sm:min-h-8" onClick={() => void send()} disabled={sending || !draft.trim()} data-testid="opencode-send">
+                {sending ? "Sending…" : "Send"}
+              </Button>
+            </div>
           </div>
         </div>
       </footer>
