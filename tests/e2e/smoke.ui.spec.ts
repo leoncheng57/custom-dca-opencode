@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 // Browser tier — the built SPA against the real BFF against the mock agent.
 
@@ -41,6 +41,11 @@ async function promptPayload(text: string): Promise<Record<string, unknown> | un
   });
 }
 
+async function selectModel(page: Page, testId: string, key: string): Promise<void> {
+  await page.getByTestId(testId).click();
+  await page.locator(`[data-testid="${testId}-option"][data-model-key="${key}"]`).getByRole("option").click();
+}
+
 test.describe("hub", () => {
   test("lists sessions for the directory", async ({ page }) => {
     await page.goto(hub);
@@ -76,8 +81,40 @@ test.describe("hub", () => {
 
   test("selects the configured model from the safe catalogue", async ({ page }) => {
     await page.goto(hub);
-    await expect(page.getByTestId("opencode-hub-model")).toHaveValue("anthropic/claude-opus-5");
-    await expect(page.getByTestId("opencode-hub-model").locator("option")).toContainText(["Claude Opus 5", "Claude Retired", "GPT-5"]);
+    const picker = page.getByTestId("opencode-hub-model");
+    await expect(picker).toHaveAttribute("value", "anthropic/claude-opus-5");
+    await picker.click();
+    const pinned = page.getByTestId("opencode-hub-model-pinned-group");
+    await expect(pinned).toContainText("GPT-5.6 Sol");
+    await expect(pinned).toContainText("Claude Opus 5");
+    await expect(page.getByTestId("opencode-hub-model-panel")).toContainText("Claude Retired");
+    await expect(page.getByTestId("opencode-hub-model-panel")).toContainText("GPT-5");
+  });
+
+  test("searches models and persists user-managed pins", async ({ page }) => {
+    let pins = [
+      { providerID: "openai", modelID: "gpt-5.6-sol" },
+      { providerID: "anthropic", modelID: "claude-opus-5" },
+    ];
+    await page.route("**/api/model-pins", async (route) => {
+      if (route.request().method() === "PATCH") {
+        pins = (route.request().postDataJSON() as { models: typeof pins }).models;
+      }
+      await route.fulfill({ json: { models: pins } });
+    });
+    await page.goto(hub);
+    await page.getByTestId("opencode-hub-model").click();
+    await page.getByTestId("opencode-hub-model-search").fill("sol");
+    await expect(page.getByTestId("opencode-hub-model-panel")).toContainText("GPT-5.6 Sol");
+    await expect(page.getByTestId("opencode-hub-model-panel")).not.toContainText("Claude Opus 5");
+    const sol = page.locator('[data-testid="opencode-hub-model-option"][data-model-key="openai/gpt-5.6-sol"]');
+    await sol.getByTestId("opencode-hub-model-pin").click();
+    await expect.poll(() => pins).toEqual([{ providerID: "anthropic", modelID: "claude-opus-5" }]);
+    await page.keyboard.press("Escape");
+    await page.reload();
+    await page.getByTestId("opencode-hub-model").click();
+    await expect(page.getByTestId("opencode-hub-model-pinned-group")).not.toContainText("GPT-5.6 Sol");
+    await expect(page.getByTestId("opencode-hub-model-panel")).toContainText("GPT-5.6 Sol");
   });
 
   test("prompts for a directory when none is set", async ({ page }) => {
@@ -310,7 +347,8 @@ test.describe("hub", () => {
     const text = `initial variant plan ${Date.now()}`;
     await page.goto(hub);
     await page.getByTestId("opencode-hub-mode-plan").click();
-    await page.getByTestId("opencode-hub-model-variant").selectOption("high");
+    await page.getByTestId("opencode-hub-model").click();
+    await page.getByTestId("opencode-hub-model-variant").filter({ hasText: "high" }).click();
     await expect(page.getByTestId("opencode-hub-mode-plan")).toHaveAttribute("aria-pressed", "true");
     await page.getByTestId("opencode-prompt").fill(text);
     await page.getByTestId("opencode-start").click();
@@ -584,7 +622,7 @@ test.describe("composer", () => {
   test("switches models once, persists the new current model, and omits unchanged overrides", async ({ page }) => {
     const initial = `model initial ${Date.now()}`;
     await page.goto(hub);
-    await page.getByTestId("opencode-hub-model").selectOption("openai/gpt-5");
+    await selectModel(page, "opencode-hub-model", "openai/gpt-5");
     await page.getByTestId("opencode-prompt").fill(initial);
     await page.getByTestId("opencode-start").click();
     await expect(page).toHaveURL(/\/sessions\/ses_mock_new_/);
@@ -593,8 +631,8 @@ test.describe("composer", () => {
       model: { providerID: "openai", modelID: "gpt-5" },
     });
     const picker = page.getByTestId("opencode-composer-model");
-    await expect(picker).toHaveValue("openai/gpt-5");
-    await expect(page.getByTestId("opencode-current-model")).toContainText("current");
+    await expect(picker).toHaveAttribute("value", "openai/gpt-5");
+    await expect(page.getByTestId("opencode-current-model")).toBeHidden();
 
     const unchanged = `model unchanged ${Date.now()}`;
     await page.getByTestId("opencode-composer").fill(unchanged);
@@ -602,22 +640,22 @@ test.describe("composer", () => {
     await expect.poll(() => promptPayload(unchanged)).not.toHaveProperty("model");
 
     const switched = `model switched ${Date.now()}`;
-    await picker.selectOption("anthropic/claude-opus-5");
+    await selectModel(page, "opencode-composer-model", "anthropic/claude-opus-5");
     await expect(page.getByTestId("opencode-current-model")).toContainText("switches next message");
     await page.getByTestId("opencode-composer").fill(switched);
     await page.getByTestId("opencode-send").click();
     await expect.poll(() => promptPayload(switched)).toMatchObject({
       model: { providerID: "anthropic", modelID: "claude-opus-5" },
     });
-    await expect(page.getByTestId("opencode-current-model")).toContainText("current");
+    await expect(page.getByTestId("opencode-current-model")).toBeHidden();
     await page.reload();
-    await expect(page.getByTestId("opencode-composer-model")).toHaveValue("anthropic/claude-opus-5");
+    await expect(page.getByTestId("opencode-composer-model")).toHaveAttribute("value", "anthropic/claude-opus-5");
   });
 
   test("shows an image capability warning without changing Plan/Build", async ({ page }) => {
     await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
     await page.getByTestId("opencode-composer-mode-plan").click();
-    await page.getByTestId("opencode-composer-model").selectOption("anthropic/claude-text");
+    await selectModel(page, "opencode-composer-model", "anthropic/claude-text");
     await expect(page.getByTestId("opencode-composer-mode-plan")).toHaveAttribute("aria-pressed", "true");
     await page.getByTestId("opencode-attach").setInputFiles({ name: "pixel.png", mimeType: "image/png", buffer: Buffer.from("89504e470d0a1a0a", "hex") });
     await expect(page.getByTestId("opencode-model-image-warning")).toBeVisible();
@@ -626,8 +664,8 @@ test.describe("composer", () => {
   test("keeps an unknown persisted model visible instead of silently replacing it", async ({ page }) => {
     await page.goto(`/sessions/ses_mock_unknown_model?directory=${encodeURIComponent(DIR)}`);
     const picker = page.getByTestId("opencode-composer-model");
-    await expect(picker).toHaveValue("legacy/removed-model");
-    await expect(picker.locator("option:checked")).toContainText("unknown");
+    await expect(picker).toHaveAttribute("value", "legacy/removed-model");
+    await expect(picker).toContainText("unknown");
   });
 
   test("round-trips two imported reminders by ID and resets the picker", async ({ page }) => {
@@ -727,6 +765,20 @@ test.describe("mobile", () => {
     await expect(composer).toHaveAttribute("autocapitalize", "none");
   });
 
+  test("collapses the composer without losing its draft", async ({ page }) => {
+    await page.goto(`/sessions/ses_mock_mobile?directory=${encodeURIComponent(DIR)}`);
+    const composer = page.getByTestId("opencode-composer");
+    await composer.fill("unfinished mobile thought");
+    const expandedHeight = (await page.getByTestId("opencode-conversation").locator("footer").boundingBox())?.height ?? 0;
+    await page.getByTestId("opencode-composer-collapse").click();
+    await expect(composer).toBeHidden();
+    const collapsedHeight = (await page.getByTestId("opencode-conversation").locator("footer").boundingBox())?.height ?? 0;
+    expect(collapsedHeight).toBeLessThan(expandedHeight / 2);
+    await page.getByTestId("opencode-composer-expand").click();
+    await expect(composer).toHaveValue("unfinished mobile thought");
+    await expect(composer).toBeFocused();
+  });
+
   // The Enter-vs-newline decision itself is covered in tests/composer-keys.test.ts:
   // Playwright launches Chromium with a browser-level primaryPointerType of
   // "fine", so `hasTouch` does not move `(pointer: coarse)` and this suite
@@ -799,7 +851,8 @@ test.describe("mobile", () => {
 
   test("stacks the Changes rail above the diff at phone width", async ({ page }) => {
     await page.goto(`/sessions/ses_mock_mobile?directory=${encodeURIComponent(DIR)}`);
-    await page.getByTestId("opencode-workspace-open").click();
+    await page.getByTestId("opencode-mobile-session-menu").locator("summary").click();
+    await page.getByTestId("opencode-mobile-workspace-open").click();
     await page.getByTestId("opencode-workspace-changes").click();
     const rail = page.getByTestId("opencode-changes-rail");
     const diff = page.getByTestId("opencode-diff-viewer");
@@ -812,7 +865,8 @@ test.describe("mobile", () => {
   test("opens session todo, run log, reviews, and catalog in a dismissible mobile sheet", async ({ page }) => {
     await fetch(`${MOCK_URL}/test/catalog-requests`, { method: "POST" });
     await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
-    await page.getByTestId("opencode-mobile-inspector-open").click();
+    await page.getByTestId("opencode-mobile-session-menu").locator("summary").click();
+    await page.getByTestId("opencode-mobile-inspector-menu-open").click();
     const sheet = page.getByTestId("opencode-mobile-inspector");
     await expect(sheet).toBeVisible();
     await expect(sheet.getByTestId("opencode-todo-list")).toContainText("Add the route");
@@ -832,7 +886,8 @@ test.describe("mobile", () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
     await sheet.getByTestId("opencode-mobile-inspector-close").click();
     await expect(sheet).toHaveCount(0);
-    await page.getByTestId("opencode-mobile-inspector-open").click();
+    await page.getByTestId("opencode-mobile-session-menu").locator("summary").click();
+    await page.getByTestId("opencode-mobile-inspector-menu-open").click();
     await expect(sheet).toBeVisible();
     expect(await (await fetch(`${MOCK_URL}/test/catalog-requests`)).json()).toEqual({ count: 4 });
     await page.goBack();
@@ -1017,7 +1072,8 @@ test.describe("workspace UI", () => {
   test("workspace drawer fits a phone", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 740 });
     await page.goto(conversation);
-    await page.getByTestId("opencode-workspace-open").click();
+    await page.getByTestId("opencode-mobile-session-menu").locator("summary").click();
+    await page.getByTestId("opencode-mobile-workspace-open").click();
     await expect(page.getByTestId("opencode-workspace-panels")).toBeVisible();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(1);

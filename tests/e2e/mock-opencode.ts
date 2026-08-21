@@ -442,7 +442,10 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
             "claude-retired": { name: "Claude Retired", enabled: false, limit: { context: 1000 } },
           },
         },
-        { id: "openai", name: "OpenAI", models: { "gpt-5": { name: "GPT-5", modalities: { input: ["text", "image"] }, limit: { context: 128000, output: 16000 } } } },
+        { id: "openai", name: "OpenAI", models: {
+          "gpt-5": { name: "GPT-5", modalities: { input: ["text", "image"] }, limit: { context: 128000, output: 16000 } },
+          "gpt-5.6-sol": { name: "GPT-5.6 Sol", modalities: { input: ["text", "image"] }, limit: { context: 256000, output: 32000 } },
+        } },
       ],
       default: { anthropic: "claude-opus-5" },
     });

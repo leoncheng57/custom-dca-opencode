@@ -252,6 +252,13 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ directories }),
     }).then((r) => json<{ directories: string[] }>(r)),
+  modelPins: () => fetch("/api/model-pins").then((r) => json<{ models: ModelSelection[] }>(r)),
+  saveModelPins: (models: ModelSelection[]) =>
+    fetch("/api/model-pins", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ models: models.map(({ providerID, modelID }) => ({ providerID, modelID })) }),
+    }).then((r) => json<{ models: ModelSelection[] }>(r)),
 
   sessions: (directory: string, limit = 100) =>
     fetch(scoped("/sessions", directory, { limit: String(limit) })).then((r) =>
