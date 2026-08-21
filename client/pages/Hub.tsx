@@ -6,8 +6,10 @@ import { Badge } from "../ds/badge.js";
 import { Button } from "../ds/button.js";
 import { LoadingIndicator } from "../ds/loading-indicator.js";
 import { AgentModeToggle } from "../components/agent-mode-toggle.js";
+import { ModelSelect } from "../components/model-select.js";
 import { api, formatCost, type HealthResponse, type SessionSummary, type Worktree } from "../lib/api.js";
 import type { AgentMode } from "../lib/agentMode.js";
+import { catalogueDefault, sameModel, type ModelCatalogue, type ModelSelection } from "../lib/models.js";
 
 const DIRECTORY_KEY = "opencode.directory.v1";
 const POLL_MS = 10_000;
@@ -44,6 +46,10 @@ export function HubPage() {
   const [isolated, setIsolated] = useState(false);
   const [mode, setMode] = useState<AgentMode>("build");
   const [worktrees, setWorktrees] = useState<Worktree[]>([]);
+  const [modelCatalogue, setModelCatalogue] = useState<ModelCatalogue | null>(null);
+  const [selectedModel, setSelectedModel] = useState<ModelSelection | undefined>();
+  const [initialModel, setInitialModel] = useState<ModelSelection | undefined>();
+  const [modelError, setModelError] = useState<string | null>(null);
 
   useEffect(() => {
     if (directory) localStorage.setItem(DIRECTORY_KEY, directory);
@@ -86,6 +92,28 @@ export function HubPage() {
     void api.worktrees(directory).then((result) => setWorktrees(result.worktrees)).catch(() => setWorktrees([]));
   }, [directory]);
 
+  useEffect(() => {
+    setModelCatalogue(null);
+    setSelectedModel(undefined);
+    setInitialModel(undefined);
+    setModelError(null);
+    if (!directory) return;
+    let cancelled = false;
+    void api.models(directory).then((catalogue) => {
+      if (cancelled) return;
+      const defaultModel = catalogueDefault(catalogue);
+      setModelCatalogue(catalogue);
+      setSelectedModel(defaultModel);
+      setInitialModel(defaultModel);
+      setModelError(defaultModel ? null : "No enabled models are configured for this project.");
+    }).catch((cause: Error) => {
+      if (!cancelled) setModelError(`Model catalogue unavailable: ${cause.message}`);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [directory]);
+
   const applyDirectory = () => {
     const next = directoryInput.trim();
     if (!next) return;
@@ -98,7 +126,8 @@ export function HubPage() {
     setCreating(true);
     setError(null);
     try {
-      const { session } = await api.createSession({ directory, prompt, isolated, mode });
+      const model = selectedModel && !sameModel(selectedModel, initialModel) ? selectedModel : undefined;
+      const { session } = await api.createSession({ directory, prompt, isolated, mode, model });
       navigate(`/sessions/${session.id}?directory=${encodeURIComponent(session.directory)}`);
     } catch (e) {
       setError((e as Error).message);
@@ -145,6 +174,7 @@ export function HubPage() {
         </Alert>
       )}
       {error && <Alert variant="danger">{error}</Alert>}
+      {modelError && <Alert variant="danger" data-testid="opencode-model-error">{modelError}</Alert>}
 
       <section className="rounded-xl border border-[var(--color-border-default)] p-5">
         <h2 className="mb-3 text-sm font-semibold">New task</h2>
@@ -175,9 +205,16 @@ export function HubPage() {
         />
         <div className="flex flex-wrap items-center gap-2">
           <AgentModeToggle mode={mode} onChange={setMode} testId="opencode-hub-mode" />
+          <ModelSelect
+            catalogue={modelCatalogue}
+            value={selectedModel}
+            onChange={setSelectedModel}
+            testId="opencode-hub-model"
+            label="Session model"
+          />
           <Button
             onClick={() => void create()}
-            disabled={creating || !prompt.trim() || !directory}
+            disabled={creating || !prompt.trim() || !directory || !selectedModel}
             data-testid="opencode-start"
           >
             {creating ? "Starting…" : "Start agent"}

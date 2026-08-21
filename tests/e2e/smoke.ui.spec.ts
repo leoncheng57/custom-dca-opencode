@@ -35,6 +35,12 @@ test.describe("hub", () => {
     await expect(page.getByTestId("opencode-upstream-badge")).toContainText("1.18.19");
   });
 
+  test("selects the configured model from the safe catalogue", async ({ page }) => {
+    await page.goto(hub);
+    await expect(page.getByTestId("opencode-hub-model")).toHaveValue("anthropic/claude-opus-5");
+    await expect(page.getByTestId("opencode-hub-model").locator("option")).toContainText(["Claude Opus 5", "Claude Retired", "GPT-5"]);
+  });
+
   test("prompts for a directory when none is set", async ({ page }) => {
     await page.goto("/");
     await page.evaluate(() => localStorage.clear());
@@ -59,6 +65,21 @@ test.describe("hub", () => {
     await expect(page).toHaveURL(/\/sessions\/ses_mock_new_/);
     await expect.poll(() => promptPayload(text)).toMatchObject({ agent: "plan" });
     await expect(page.getByTestId("opencode-composer-mode-plan")).toHaveAttribute("aria-pressed", "true");
+  });
+
+  test("starts with an explicit variant while keeping Plan independent", async ({ page }) => {
+    const text = `initial variant plan ${Date.now()}`;
+    await page.goto(hub);
+    await page.getByTestId("opencode-hub-mode-plan").click();
+    await page.getByTestId("opencode-hub-model-variant").selectOption("high");
+    await expect(page.getByTestId("opencode-hub-mode-plan")).toHaveAttribute("aria-pressed", "true");
+    await page.getByTestId("opencode-prompt").fill(text);
+    await page.getByTestId("opencode-start").click();
+    await expect.poll(() => promptPayload(text)).toMatchObject({
+      agent: "plan",
+      model: { providerID: "anthropic", modelID: "claude-opus-5" },
+      variant: "high",
+    });
   });
 });
 
@@ -198,6 +219,55 @@ test.describe("composer", () => {
     await expect.poll(() => promptPayload(text)).toMatchObject({ agent: "plan" });
     await page.reload();
     await expect(page.getByTestId("opencode-composer-mode-plan")).toHaveAttribute("aria-pressed", "true");
+  });
+
+  test("switches models once, persists the new current model, and omits unchanged overrides", async ({ page }) => {
+    const initial = `model initial ${Date.now()}`;
+    await page.goto(hub);
+    await page.getByTestId("opencode-hub-model").selectOption("openai/gpt-5");
+    await page.getByTestId("opencode-prompt").fill(initial);
+    await page.getByTestId("opencode-start").click();
+    await expect(page).toHaveURL(/\/sessions\/ses_mock_new_/);
+    await expect.poll(() => promptPayload(initial)).toMatchObject({
+      agent: "build",
+      model: { providerID: "openai", modelID: "gpt-5" },
+    });
+    const picker = page.getByTestId("opencode-composer-model");
+    await expect(picker).toHaveValue("openai/gpt-5");
+    await expect(page.getByTestId("opencode-current-model")).toContainText("current");
+
+    const unchanged = `model unchanged ${Date.now()}`;
+    await page.getByTestId("opencode-composer").fill(unchanged);
+    await page.getByTestId("opencode-send").click();
+    await expect.poll(() => promptPayload(unchanged)).not.toHaveProperty("model");
+
+    const switched = `model switched ${Date.now()}`;
+    await picker.selectOption("anthropic/claude-opus-5");
+    await expect(page.getByTestId("opencode-current-model")).toContainText("switches next message");
+    await page.getByTestId("opencode-composer").fill(switched);
+    await page.getByTestId("opencode-send").click();
+    await expect.poll(() => promptPayload(switched)).toMatchObject({
+      model: { providerID: "anthropic", modelID: "claude-opus-5" },
+    });
+    await expect(page.getByTestId("opencode-current-model")).toContainText("current");
+    await page.reload();
+    await expect(page.getByTestId("opencode-composer-model")).toHaveValue("anthropic/claude-opus-5");
+  });
+
+  test("shows an image capability warning without changing Plan/Build", async ({ page }) => {
+    await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
+    await page.getByTestId("opencode-composer-mode-plan").click();
+    await page.getByTestId("opencode-composer-model").selectOption("anthropic/claude-text");
+    await expect(page.getByTestId("opencode-composer-mode-plan")).toHaveAttribute("aria-pressed", "true");
+    await page.getByTestId("opencode-attach").setInputFiles({ name: "pixel.png", mimeType: "image/png", buffer: Buffer.from("89504e470d0a1a0a", "hex") });
+    await expect(page.getByTestId("opencode-model-image-warning")).toBeVisible();
+  });
+
+  test("keeps an unknown persisted model visible instead of silently replacing it", async ({ page }) => {
+    await page.goto(`/sessions/ses_mock_unknown_model?directory=${encodeURIComponent(DIR)}`);
+    const picker = page.getByTestId("opencode-composer-model");
+    await expect(picker).toHaveValue("legacy/removed-model");
+    await expect(picker.locator("option:checked")).toContainText("unknown");
   });
 
   test("attaches one reminder, round-trips it, and resets the picker", async ({ page }) => {

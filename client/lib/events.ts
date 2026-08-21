@@ -89,6 +89,10 @@ export interface RawMessageInfo {
   role?: string;
   time?: RawTime;
   agent?: string;
+  providerID?: string;
+  modelID?: string;
+  variant?: string;
+  model?: { providerID?: string; modelID?: string; id?: string; variant?: string };
   cost?: number;
   tokens?: RawTokens;
   finish?: string;

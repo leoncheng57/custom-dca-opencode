@@ -5,6 +5,7 @@ import { expect, test } from "@playwright/test";
 
 const DIR = process.platform === "darwin" ? "/private/tmp/mock-project" : "/tmp/mock-project";
 const TOOL_FAILURE_DIR = process.platform === "darwin" ? "/private/tmp/mock-tool-failure" : "/tmp/mock-tool-failure";
+const CATALOGUE_FAILURE_DIR = process.platform === "darwin" ? "/private/tmp/mock-catalogue-failure" : "/tmp/mock-catalogue-failure";
 const MOCK_URL = `http://127.0.0.1:${process.env.MOCK_OPENCODE_PORT || 4599}`;
 
 async function promptPayload(text: string): Promise<Record<string, unknown>> {
@@ -15,6 +16,12 @@ async function promptPayload(text: string): Promise<Record<string, unknown>> {
   });
   expect(payload).toBeDefined();
   return payload!;
+}
+
+async function latestSessionPayload(): Promise<Record<string, unknown>> {
+  const payloads = await (await fetch(`${MOCK_URL}/test/session-payloads`)).json() as Array<Record<string, unknown>>;
+  expect(payloads.length).toBeGreaterThan(0);
+  return payloads.at(-1)!;
 }
 
 test.describe("health", () => {
@@ -101,6 +108,38 @@ test.describe("sessions", () => {
   });
 });
 
+test.describe("model catalogue", () => {
+  test("exposes only safe, bounded model metadata", async ({ request }) => {
+    const response = await request.get(`/api/models?directory=${DIR}`);
+    expect(response.ok()).toBe(true);
+    const body = await response.json();
+    expect(body.defaultModel).toEqual({ providerID: "anthropic", modelID: "claude-opus-5" });
+    expect(body.models).toContainEqual(expect.objectContaining({
+      providerID: "anthropic",
+      modelID: "claude-opus-5",
+      capabilities: { image: true, reasoning: true },
+      limits: { context: 200000, output: 32000 },
+      variants: ["high"],
+    }));
+    const serialized = JSON.stringify(body);
+    for (const forbidden of ["headers", "options", "apiKey", "baseURL", "must-not-reach-browser", "private.example", "secret"]) {
+      expect(serialized).not.toContain(forbidden);
+    }
+  });
+
+  test("fails honestly when discovery is unavailable", async ({ request }) => {
+    const response = await request.get(`/api/models?directory=${CATALOGUE_FAILURE_DIR}`);
+    expect(response.status()).toBe(502);
+    expect((await response.json()).error).toContain("catalogue is unavailable");
+
+    const prompt = await request.post(`/api/sessions/ses_mock_done/prompt?directory=${CATALOGUE_FAILURE_DIR}`, {
+      data: { text: "must not route", model: { providerID: "anthropic", modelID: "claude-opus-5" } },
+    });
+    expect(prompt.status()).toBe(502);
+    expect((await prompt.json()).error).toContain("no model selection was sent");
+  });
+});
+
 test.describe("transcript", () => {
   test("returns raw messages for the client adapter to shape", async ({ request }) => {
     const body = await (await request.get(`/api/sessions/ses_mock_done/messages?directory=${DIR}`)).json();
@@ -165,6 +204,58 @@ test.describe("prompting", () => {
     expect(payload).not.toHaveProperty("tools");
   });
 
+  test("validates model switches and preserves the prompt_async model shape", async ({ request }) => {
+    const text = `switch model ${Date.now()}`;
+    const response = await request.post(`/api/sessions/ses_mock_done/prompt?directory=${DIR}`, {
+      data: { text, mode: "plan", model: { providerID: "openai", modelID: "gpt-5" } },
+    });
+    expect(response.status()).toBe(202);
+    const payload = await promptPayload(text);
+    expect(payload).toMatchObject({ agent: "plan", model: { providerID: "openai", modelID: "gpt-5" } });
+    expect(payload.tools).toBeDefined();
+
+    for (const model of [
+      { providerID: "openai", modelID: "guessed" },
+      { providerID: "anthropic", modelID: "claude-retired" },
+      "anthropic/claude-opus-5",
+    ]) {
+      const rejected = await request.post(`/api/sessions/ses_mock_done/prompt?directory=${DIR}`, {
+        data: { text: "must not send", model },
+      });
+      expect(rejected.status()).toBe(400);
+    }
+  });
+
+  test("validates variants and sends Plan, model, and variant together", async ({ request }) => {
+    const text = `variant plan ${Date.now()}`;
+    const response = await request.post(`/api/sessions/ses_mock_done/prompt?directory=${DIR}`, {
+      data: {
+        text,
+        mode: "plan",
+        model: { providerID: "anthropic", modelID: "claude-opus-5", variant: "high" },
+      },
+    });
+    expect(response.status()).toBe(202);
+    const payload = await promptPayload(text);
+    expect(payload).toMatchObject({
+      agent: "plan",
+      model: { providerID: "anthropic", modelID: "claude-opus-5" },
+      variant: "high",
+    });
+    expect(payload.tools).toMatchObject({ read: true, bash: false, apply_patch: false });
+
+    for (const model of [
+      { providerID: "anthropic", modelID: "claude-opus-5", variant: "invented" },
+      { providerID: "anthropic", modelID: "claude-opus-5", variant: "" },
+      { providerID: "anthropic", modelID: "claude-opus-5", token: "leak" },
+    ]) {
+      const rejected = await request.post(`/api/sessions/ses_mock_done/prompt?directory=${DIR}`, {
+        data: { text: "must not send", model },
+      });
+      expect(rejected.status()).toBe(400);
+    }
+  });
+
   test("fails closed when Plan tool discovery is unavailable", async ({ request }) => {
     const text = `blocked plan ${Date.now()}`;
     const res = await request.post(`/api/sessions/ses_mock_done/prompt?directory=${TOOL_FAILURE_DIR}`, {
@@ -200,6 +291,38 @@ test.describe("prompting", () => {
     });
     expect(res.status()).toBe(201);
     expect((await res.json()).session.title).toBe("e2e created");
+    expect(await latestSessionPayload()).not.toHaveProperty("model");
+  });
+
+  test("validates and persists a model chosen at session creation", async ({ request }) => {
+    const response = await request.post("/api/sessions", {
+      data: { directory: DIR, title: "model session", model: { providerID: "openai", modelID: "gpt-5" } },
+    });
+    expect(response.status()).toBe(201);
+    expect((await response.json()).session.model).toEqual({ providerID: "openai", modelID: "gpt-5" });
+    expect(await latestSessionPayload()).toMatchObject({ model: { providerID: "openai", id: "gpt-5" } });
+    expect(await latestSessionPayload()).not.toHaveProperty("model.modelID");
+  });
+
+  test("sends the initial prompt with the selected model and variant", async ({ request }) => {
+    const text = `initial variant ${Date.now()}`;
+    const response = await request.post("/api/sessions", {
+      data: {
+        directory: DIR,
+        prompt: text,
+        mode: "build",
+        model: { providerID: "anthropic", modelID: "claude-opus-5", variant: "high" },
+      },
+    });
+    expect(response.status()).toBe(201);
+    expect(await latestSessionPayload()).toMatchObject({
+      model: { providerID: "anthropic", id: "claude-opus-5", variant: "high" },
+    });
+    expect(await promptPayload(text)).toMatchObject({
+      agent: "build",
+      model: { providerID: "anthropic", modelID: "claude-opus-5" },
+      variant: "high",
+    });
   });
 
   test("exposes reminder metadata without injectable body text", async ({ request }) => {
