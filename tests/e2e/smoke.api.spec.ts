@@ -846,3 +846,82 @@ test.describe("permission remote control", () => {
     await fetch(`${MOCK_URL}/test/permissions/reset?directory=${encodeURIComponent(AUTO_DIR)}`, { method: "POST" });
   });
 });
+
+test.describe("notification history", () => {
+  // The active set is shared process state, so every assertion here is scoped
+  // to an id this test created rather than to a global count.
+  const record = (records: Array<Record<string, unknown>>, requestID: string) =>
+    records.find((item) => item.requestID === requestID);
+
+  async function history(request: APIRequestContext): Promise<{
+    records: Array<Record<string, unknown>>;
+    activeCount: number;
+  }> {
+    return await (await request.get("/api/notifications/history?limit=200")).json();
+  }
+
+  test("records an ask and keeps it unresolved after the permission reply", async ({ request }) => {
+    const requestID = `perm_history_${Date.now()}`;
+    await fetch(`${MOCK_URL}/test/permission?directory=${encodeURIComponent(DIR)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: requestID, sessionID: "ses_mock_done", permission: "bash", patterns: ["npm test"] }),
+    });
+
+    await expect.poll(async () => record((await history(request)).records, requestID))
+      .toMatchObject({ kind: "permission", directory: DIR });
+    const asked = record((await history(request)).records, requestID)!;
+    // ntfy is disabled in e2e, and the BFF must never claim a desktop
+    // notification rendered or infer device-local sound/speech settings.
+    expect(asked.delivery).toMatchObject({ ntfy: "off", desktop: "allowed" });
+    expect(asked.resolvedAt).toBeUndefined();
+
+    await request.post(`/api/permission-requests/${requestID}/reply?directory=${DIR}`, { data: { reply: "once" } });
+    expect(record((await history(request)).records, requestID)?.resolvedAt).toBeUndefined();
+    await request.patch(`/api/notifications/${asked.id}`, { data: { resolved: true } });
+  });
+
+  test("persists a reversible user-only resolved checkbox", async ({ request }) => {
+    const requestID = `perm_dismiss_${Date.now()}`;
+    await fetch(`${MOCK_URL}/test/permission?directory=${encodeURIComponent(DIR)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: requestID, sessionID: "ses_mock_done", permission: "bash", patterns: ["npm run lint"] }),
+    });
+    await expect.poll(async () => Boolean(record((await history(request)).records, requestID))).toBe(true);
+
+    const before = await history(request);
+    const id = record(before.records, requestID)!.id as string;
+    const resolved = await request.patch(`/api/notifications/${id}`, { data: { resolved: true } });
+    expect(resolved.status()).toBe(200);
+    expect((await resolved.json()).record).toMatchObject({ id, resolvedBy: "checked" });
+
+    const after = await history(request);
+    expect(record(after.records, requestID)).toMatchObject({ resolvedBy: "checked" });
+
+    const reopened = await request.patch(`/api/notifications/${id}`, { data: { resolved: false } });
+    expect((await reopened.json()).record.resolvedAt).toBeUndefined();
+    expect((await request.patch("/api/notifications/nope", { data: { resolved: true } })).status()).toBe(404);
+    expect((await request.patch(`/api/notifications/${id}`, { data: { resolved: "yes" } })).status()).toBe(400);
+    await request.patch(`/api/notifications/${id}`, { data: { resolved: true } });
+    await fetch(`${MOCK_URL}/test/permissions/reset?directory=${encodeURIComponent(DIR)}`, { method: "POST" });
+  });
+
+  test("scopes the badge count without filtering the history", async ({ request }) => {
+    const requestID = `perm_scoped_${Date.now()}`;
+    await fetch(`${MOCK_URL}/test/permission?directory=${encodeURIComponent(DIR)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: requestID, sessionID: "ses_mock_done", permission: "bash", patterns: ["npm test"] }),
+    });
+    await expect.poll(async () => record((await history(request)).records, requestID)).toBeTruthy();
+
+    const current = await (await request.get(`/api/notifications/history?directory=${encodeURIComponent(DIR)}`)).json();
+    const other = await (await request.get("/api/notifications/history?directory=/tmp/unrelated-project")).json();
+    expect(current.activeCount).toBeGreaterThan(0);
+    expect(other.activeCount).toBe(0);
+    expect(record(other.records, requestID)).toBeTruthy();
+    const item = record(current.records, requestID)!;
+    await request.patch(`/api/notifications/${item.id}`, { data: { resolved: true } });
+  });
+});

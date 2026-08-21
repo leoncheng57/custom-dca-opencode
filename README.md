@@ -61,6 +61,8 @@ paths containing spaces, and the optional OpenCode unit. The BFF installer never
 starts a second OpenCode server; it uses `OPENCODE_URL` from `.env`.
 The OpenCode 1.18.21 compatibility check is recorded in
 [`docs/opencode-1.18.21-api-audit.md`](docs/opencode-1.18.21-api-audit.md).
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the development and pull request workflow.
+The same contributor material has a themed [visual reading index](docs/contributing/index.html).
 
 ### Open on a phone
 
@@ -86,6 +88,25 @@ never include prompts, paths, filenames, commands, tool output, or notification 
 Constructor-based browser Notifications on iPhone and iPad still require installed-PWA
 and service-worker support. This feature does not add a service worker; ntfy remains the
 reliable phone notification path.
+
+A red counter appears on the nav link and the page header with the number of unresolved
+notifications in the current project. Every notification kind starts unresolved, including
+`idle`, `error`, `abort`, and `parked`. Answering an agent permission or question does not
+change notification state: only the user's **Resolved** checkbox does. The checkbox is
+reversible and its state is persisted on the server.
+
+The page also lists every notification the BFF classified, including ones that were never
+delivered, because "why was I never asked?" is the question that log exists to answer.
+`ntfy` reports `sent`, `off` or `failed`; `desktop` reports only whether server-backed
+desktop notifications were **allowed**, since the BFF cannot observe whether a tab rendered
+one. Sound and speech are device-local and therefore absent from the server log.
+Auto-approved permissions appear marked `suppressed by auto permissions` and remain in the
+unresolved checklist until the user checks them off.
+
+Records live in `.state/notification-history.json` (override with
+`NOTIFICATION_HISTORY_FILE`). Every unresolved record is retained; the newest 500 resolved
+records are retained alongside them. History is not bulk-clearable because it is the
+evidence used to explain missing or suppressed delivery.
 
 Verification requires no live agent or model credentials:
 

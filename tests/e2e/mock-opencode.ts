@@ -120,17 +120,23 @@ function policyProbe(session: Record<string, any>): Record<string, unknown> {
 }
 
 const MOCK_DIRECTORY_INPUT = "/tmp/mock-project";
+// A second project with its own sessions, so the cross-project recents panel
+// has something to merge. Kept separate from the auto-permissions fixture
+// directory so adding sessions here cannot perturb those tests.
+const SECOND_DIRECTORY_INPUT = "/tmp/mock-second-project";
 const AUTO_DIRECTORY_INPUT = "/tmp/mock-auto-project";
 const TOOL_FAILURE_DIRECTORY_INPUT = "/tmp/mock-tool-failure";
 const CATALOGUE_FAILURE_DIRECTORY_INPUT = "/tmp/mock-catalogue-failure";
 const POLICY_FAILURE_DIRECTORY_INPUT = "/tmp/mock-policy-failure";
 mkdirSync(MOCK_DIRECTORY_INPUT, { recursive: true });
+mkdirSync(SECOND_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(AUTO_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(TOOL_FAILURE_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(CATALOGUE_FAILURE_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(POLICY_FAILURE_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(path.join(MOCK_DIRECTORY_INPUT, "src"), { recursive: true });
 export const MOCK_DIRECTORY = realpathSync(MOCK_DIRECTORY_INPUT);
+export const SECOND_DIRECTORY = realpathSync(SECOND_DIRECTORY_INPUT);
 const AUTO_DIRECTORY = realpathSync(AUTO_DIRECTORY_INPUT);
 const TOOL_FAILURE_DIRECTORY = realpathSync(TOOL_FAILURE_DIRECTORY_INPUT);
 const CATALOGUE_FAILURE_DIRECTORY = realpathSync(CATALOGUE_FAILURE_DIRECTORY_INPUT);
@@ -180,6 +186,29 @@ const SESSIONS: Array<Record<string, any>> = [
     cost: 0,
     tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
     time: { created: 1787000300000, updated: 1787000300000 },
+  },
+  {
+    // Newest session anywhere: proves the recents panel merges across projects
+    // rather than ordering within one.
+    id: "ses_second_newest",
+    title: "Second project newest",
+    directory: SECOND_DIRECTORY,
+    agent: "build",
+    model: { providerID: "anthropic", id: "claude-opus-5" },
+    cost: 0,
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    time: { created: 1787000400000, updated: 1787000400000 },
+  },
+  {
+    // Oldest active session anywhere, so it sorts below the first project's.
+    id: "ses_second_oldest",
+    title: "Second project oldest",
+    directory: SECOND_DIRECTORY,
+    agent: "build",
+    model: { providerID: "anthropic", id: "claude-opus-5" },
+    cost: 0,
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    time: { created: 1787000000000, updated: 1787000000000 },
   },
   {
     id: "ses_mock_mobile",

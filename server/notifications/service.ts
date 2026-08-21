@@ -2,7 +2,8 @@ import type { OpencodeConfig } from "../opencode/client.js";
 import type { EventBus, OpencodeEvent } from "../opencode/events.js";
 import { listPermissions, parsePermissionRequest, type PermissionRequest } from "../opencode/permissions.js";
 import { sendNtfy, type NotificationMessage } from "./ntfy.js";
-import { PreferenceStore, type NotifyEvent } from "./preferences.js";
+import { HistoryStore, type NotificationDelivery } from "./history.js";
+import { PreferenceStore, type NotificationPreferences, type NotifyEvent } from "./preferences.js";
 import { eventClickUrl } from "../publicAppUrl.js";
 
 export function classifyEvent(event: OpencodeEvent): NotifyEvent | null {
@@ -22,6 +23,12 @@ function permission(event: OpencodeEvent): PermissionRequest | null {
   return parsePermissionRequest(event.properties);
 }
 
+/** Upstream is inconsistent about which key carries the request id. */
+function requestIdOf(properties: Record<string, unknown>): string | undefined {
+  const candidate = properties.requestID ?? properties.id;
+  return typeof candidate === "string" && candidate ? candidate : undefined;
+}
+
 export class NotificationService {
   private timers = new Map<string, NodeJS.Timeout>();
   private seen = new Map<string, number>();
@@ -31,6 +38,7 @@ export class NotificationService {
     private readonly config: OpencodeConfig,
     private readonly bus: EventBus,
     private readonly store: PreferenceStore,
+    private readonly history: HistoryStore,
     private readonly publicAppUrl: string | null = null,
     private readonly autoPermissionsEnabled: (directory: string | undefined) => boolean = () => false,
   ) {}
@@ -54,9 +62,12 @@ export class NotificationService {
       this.timers.delete(key);
       return;
     }
-    if (event.type === "permission.asked" && this.autoPermissionsEnabled(event.directory)) return;
+
     const kind = classifyEvent(event);
     if (!kind) return;
+
+    // Deduplicate before recording: a repeat inside 5s is an upstream echo,
+    // not a second notification, and logging it would inflate the badge.
     const identity = String(event.properties.id ?? event.properties.requestID ?? event.properties.sessionID ?? "");
     const dedupeKey = `${event.type}:${identity}`;
     const now = Date.now();
@@ -67,6 +78,7 @@ export class NotificationService {
         if (now - timestamp > 60_000) this.seen.delete(key);
       }
     }
+
     const preferences = await this.store.read();
     const sessionID = String(event.properties.sessionID ?? "");
     const details = kind === "permission" ? permission(event) : null;
@@ -76,9 +88,64 @@ export class NotificationService {
       body: details ? `${details.permission} requires review` : `Session ${sessionID || "updated"}`,
       click: eventClickUrl(this.publicAppUrl, event),
     };
-    await sendNtfy(preferences, message).catch((error) => console.warn("[ntfy]", String(error)));
+    const requestID = requestIdOf(event.properties);
+    const common = {
+      kind,
+      ...(event.directory ? { directory: event.directory } : {}),
+      ...(sessionID ? { sessionID } : {}),
+      ...(requestID ? { requestID } : {}),
+      title: message.title,
+      body: message.body,
+      ...(message.click ? { click: message.click } : {}),
+    };
+
+    // Auto-approved permissions still belong in the user's checklist — "why
+    // was I never asked?" is exactly the question the log should answer.
+    if (event.type === "permission.asked" && this.autoPermissionsEnabled(event.directory)) {
+      const record = await this.history.append({
+        ...common,
+        delivery: { ntfy: "off", desktop: "off", suppressed: "auto-permissions" },
+      });
+      this.emitRecorded(record.id, event.directory, sessionID);
+      return;
+    }
+
+    const delivery = await this.deliver(preferences, message);
+    const record = await this.history.append({ ...common, delivery });
+    this.emitRecorded(record.id, event.directory, sessionID);
+
     if (kind === "permission" && details && event.directory) {
       this.scheduleParked(event.directory, details, preferences.parkedPermissionSeconds);
+    }
+  }
+
+  /** Browser nudge emitted only after the durable append completes. */
+  private emitRecorded(id: string, directory: string | undefined, sessionID: string): void {
+    this.bus.emit("event", {
+      type: "notification.recorded",
+      properties: { id, ...(sessionID ? { sessionID } : {}) },
+      ...(directory ? { directory } : {}),
+    } satisfies OpencodeEvent);
+  }
+
+  /** Send over every enabled channel and report what actually happened. */
+  private async deliver(
+    preferences: NotificationPreferences,
+    message: NotificationMessage,
+  ): Promise<NotificationDelivery> {
+    // The BFF has no view of open tabs, so this is the preference, not proof.
+    const desktop =
+      preferences.browser.desktop && preferences.browser.events[message.event] ? "allowed" : "off";
+    const wantsNtfy =
+      preferences.ntfy.enabled && Boolean(preferences.ntfy.topic) && preferences.ntfy.events[message.event];
+    if (!wantsNtfy) return { ntfy: "off", desktop };
+    try {
+      await sendNtfy(preferences, message);
+      return { ntfy: "sent", desktop };
+    } catch (error) {
+      const ntfyError = error instanceof Error ? error.message : String(error);
+      console.warn("[ntfy]", ntfyError);
+      return { ntfy: "failed", ntfyError, desktop };
     }
   }
 
@@ -95,7 +162,7 @@ export class NotificationService {
           .then(async (requests) => {
             if (!requests.some((item) => item.id === pending.id)) return;
             const preferences = await this.store.read();
-            await sendNtfy(preferences, {
+            const message: NotificationMessage = {
               event: "parked",
               title: "OpenCode is parked",
               body: `${pending.permission} has waited ${seconds}s for a reply`,
@@ -105,7 +172,22 @@ export class NotificationService {
                 properties: { sessionID: pending.sessionID },
                 directory,
               }),
+            };
+            const delivery = await this.deliver(preferences, message);
+            // The parked alert escalates an already-counted permission. It is
+            // logged for the record but must not add a second active item.
+            const record = await this.history.append({
+              kind: "parked",
+              directory,
+              sessionID: pending.sessionID,
+              requestID: pending.id,
+              title: message.title,
+              body: message.body,
+              ...(message.click ? { click: message.click } : {}),
+              delivery,
             });
+            this.emitRecorded(record.id, directory, pending.sessionID);
+            await this.history.markParked(directory, pending.id);
             this.bus.emit("event", {
               type: "notification.parked",
               properties: { requestID: pending.id, sessionID: pending.sessionID },

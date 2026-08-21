@@ -87,6 +87,30 @@ export interface NotificationPreferences {
   parkedPermissionSeconds: number;
 }
 
+export type NotificationHistoryState = "all" | "active" | "resolved";
+
+export interface NotificationRecord {
+  id: string;
+  kind: NotifyEvent;
+  at: number;
+  directory?: string;
+  sessionID?: string;
+  requestID?: string;
+  title: string;
+  body: string;
+  click?: string;
+  resolvedAt?: number;
+  resolvedBy?: "checked" | "replied" | "reconciled" | "dismissed" | "suppressed";
+  parkedAt?: number;
+  delivery: {
+    ntfy: "sent" | "off" | "failed";
+    ntfyError?: string;
+    /** Desktop-notification preference; sound and speech are device-local. */
+    desktop: "allowed" | "off";
+    suppressed?: "auto-permissions";
+  };
+}
+
 export interface WorkspaceNode {
   name: string;
   path: string;
@@ -241,6 +265,24 @@ export const api = {
       json<{ sessions: SessionSummary[] }>(r),
     ),
 
+  /**
+   * Recent sessions across projects. Unlike every other session call this one
+   * is not scoped to a single directory: the caller passes the projects it
+   * knows about and the BFF unions them with the shared pins.
+   *
+   * `lookupIDs` names sessions the browser opened previously. They are usually
+   * not among the most recently active, so they have to be requested by id or
+   * the "recently opened" panel would come back empty.
+   */
+  recentSessions: (directories: string[], lookupIDs: string[] = [], limit = 5) => {
+    const query = new URLSearchParams({ limit: String(limit) });
+    for (const directory of directories) query.append("directory", directory);
+    for (const id of lookupIDs) query.append("session", id);
+    return fetch(`/api/recent-sessions?${query}`).then((r) =>
+      json<{ sessions: SessionSummary[]; directories: string[] }>(r),
+    );
+  },
+
   models: (directory: string) =>
     fetch(scoped("/models", directory)).then((r) => json<ModelCatalogue>(r)),
 
@@ -351,6 +393,27 @@ export const api = {
     }).then((r) => json<{ preferences: NotificationPreferences; tokenConfigured: boolean }>(r)),
   testNtfy: () =>
     fetch("/api/notifications/test", { method: "POST" }).then((r) => json<{ sent: boolean }>(r)),
+  notificationHistory: (options: { limit?: number; kind?: NotifyEvent; state?: NotificationHistoryState; directory?: string } = {}) => {
+    const query = new URLSearchParams();
+    if (options.limit) query.set("limit", String(options.limit));
+    if (options.kind) query.set("kind", options.kind);
+    if (options.state && options.state !== "all") query.set("state", options.state);
+    if (options.directory) query.set("directory", options.directory);
+    const suffix = query.size ? `?${query}` : "";
+    return fetch(`/api/notifications/history${suffix}`).then((r) =>
+      json<{ records: NotificationRecord[]; activeCount: number }>(r),
+    );
+  },
+  dismissNotification: (id: string) =>
+    fetch(`/api/notifications/${encodeURIComponent(id)}/dismiss`, { method: "POST" }).then((r) =>
+      json<{ dismissed: boolean; activeCount: number }>(r),
+    ),
+  setNotificationResolved: (id: string, resolved: boolean) =>
+    fetch(`/api/notifications/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ resolved }),
+    }).then((r) => json<{ record: NotificationRecord; activeCount: number }>(r)),
 
   autoPermissions: (directory: string) =>
     fetch(scoped("/auto-approve", directory)).then((r) => json<AutoPermissionStatus>(r)),
