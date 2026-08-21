@@ -65,19 +65,22 @@ export async function discoverProjects(options: {
   const canonicalWorktrees = await realpath(configuredWorktrees).catch(() => path.resolve(configuredWorktrees));
   const projects: DiscoveredProject[] = [];
   let visited = 0;
+  const queue = [{ directory: canonicalRoot, depth: 0 }];
 
-  async function scan(directory: string, depth: number): Promise<void> {
-    if (depth >= PROJECT_SCAN_MAX_DEPTH || projects.length >= PROJECT_SCAN_MAX_RESULTS) return;
+  for (let queueIndex = 0; queueIndex < queue.length; queueIndex += 1) {
+    const { directory, depth } = queue[queueIndex];
+    if (projects.length >= PROJECT_SCAN_MAX_RESULTS || visited >= PROJECT_SCAN_MAX_DIRECTORIES) break;
+    if (depth >= PROJECT_SCAN_MAX_DEPTH) continue;
     let entries;
     try {
       entries = await readdir(directory, { withFileTypes: true });
     } catch {
-      return;
+      continue;
     }
     entries.sort((left, right) => left.name.localeCompare(right.name));
 
     for (const entry of entries) {
-      if (projects.length >= PROJECT_SCAN_MAX_RESULTS || visited >= PROJECT_SCAN_MAX_DIRECTORIES) return;
+      if (projects.length >= PROJECT_SCAN_MAX_RESULTS || visited >= PROJECT_SCAN_MAX_DIRECTORIES) break;
       if (entry.name.startsWith(".") || EXCLUDED_NAMES.has(entry.name.toLowerCase())) continue;
       if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
 
@@ -110,11 +113,12 @@ export async function discoverProjects(options: {
         }
       }
 
-      await scan(canonicalCandidate, candidateDepth);
+      if (candidateDepth < PROJECT_SCAN_MAX_DEPTH) {
+        queue.push({ directory: canonicalCandidate, depth: candidateDepth });
+      }
     }
   }
 
-  await scan(canonicalRoot, 0);
   projects.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
   return { root: canonicalRoot, projects };
 }

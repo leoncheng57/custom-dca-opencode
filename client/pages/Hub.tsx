@@ -254,25 +254,28 @@ export function HubPage() {
         {projects === null ? (
           <div className="py-6"><LoadingIndicator /></div>
         ) : (
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" data-testid="opencode-project-grid">
+          <div
+            className="max-h-72 overflow-y-auto overscroll-contain rounded-lg border border-[var(--color-border-default)] divide-y divide-[var(--color-border-default)]"
+            data-testid="opencode-project-list"
+          >
             {showOtherWorkspace && (
               <div
-                className="flex min-w-0 items-stretch rounded-lg border border-[var(--color-border-focus)] bg-[var(--color-background-surface-info-muted)]"
+                className="flex min-w-0 items-stretch bg-[var(--color-background-surface-info-muted)]"
                 data-testid="opencode-other-workspace"
               >
                 <button
                   type="button"
-                  className="min-w-0 flex-1 p-3 text-left"
+                  className="flex min-w-0 flex-1 items-baseline gap-2 px-3 py-2 text-left"
                   onClick={() => selectDirectory(directory)}
                   aria-pressed="true"
                   data-testid="opencode-project-select-other"
                 >
-                  <span className="block truncate text-sm font-semibold">Other workspace</span>
-                  <span className="mt-1 block truncate text-xs text-[var(--color-text-muted)]" title={directory}>{directory}</span>
+                  <span className="max-w-[45%] shrink-0 truncate text-xs font-semibold">Other workspace</span>
+                  <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--color-text-muted)]" title={directory}>{directory}</span>
                 </button>
                 <button
                   type="button"
-                  className="m-1.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-[var(--color-text-muted)] hover:bg-[var(--color-background-action-ghost-hover)] hover:text-[var(--color-text-default)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)] disabled:opacity-40"
+                  className="m-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[var(--color-text-muted)] hover:bg-[var(--color-background-action-ghost-hover)] hover:text-[var(--color-text-default)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)] disabled:opacity-40 pointer-coarse:h-11 pointer-coarse:w-11"
                   onClick={() => void togglePin(directory)}
                   disabled={pinsSaving}
                   aria-label={`${pinOrder.has(directory) ? "Unpin" : "Pin"} other workspace`}
@@ -291,24 +294,24 @@ export function HubPage() {
                   key={project.directory}
                   className={
                     selected
-                      ? "flex min-w-0 items-stretch rounded-lg border border-[var(--color-border-focus)] bg-[var(--color-background-surface-info-muted)]"
-                      : "flex min-w-0 items-stretch rounded-lg border border-[var(--color-border-default)] bg-[var(--color-background-surface)] hover:bg-[var(--hh-row-hover)]"
+                      ? "flex min-w-0 items-stretch bg-[var(--color-background-surface-info-muted)]"
+                      : "flex min-w-0 items-stretch bg-[var(--color-background-surface)] hover:bg-[var(--hh-row-hover)]"
                   }
                   data-testid="opencode-project-card"
                 >
                   <button
                     type="button"
-                    className="min-w-0 flex-1 p-3 text-left"
+                    className="flex min-w-0 flex-1 items-baseline gap-2 px-3 py-2 text-left"
                     onClick={() => selectDirectory(project.directory)}
                     aria-pressed={selected}
                     data-testid="opencode-project-select"
                   >
-                    <span className="block truncate text-sm font-semibold">{project.name}</span>
-                    <span className="mt-1 block truncate text-xs text-[var(--color-text-muted)]" title={project.relativePath}>{project.relativePath}</span>
+                    <span className="max-w-[45%] shrink-0 truncate text-xs font-semibold">{project.name}</span>
+                    <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--color-text-muted)]" title={project.relativePath}>{project.relativePath}</span>
                   </button>
                   <button
                     type="button"
-                    className="m-1.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-[var(--color-text-muted)] hover:bg-[var(--color-background-action-ghost-hover)] hover:text-[var(--color-text-default)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)] disabled:opacity-40"
+                    className="m-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[var(--color-text-muted)] hover:bg-[var(--color-background-action-ghost-hover)] hover:text-[var(--color-text-default)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)] disabled:opacity-40 pointer-coarse:h-11 pointer-coarse:w-11"
                     onClick={() => void togglePin(project.directory)}
                     disabled={pinsSaving}
                     aria-label={`${pinned ? "Unpin" : "Pin"} ${project.name}`}
