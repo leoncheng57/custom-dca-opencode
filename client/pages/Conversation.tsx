@@ -61,6 +61,12 @@ export function ConversationPage() {
   const [modelError, setModelError] = useState<string | null>(null);
   const derivedModelMarker = useRef<string | undefined>(undefined);
   const modelSelectionDirty = useRef(false);
+  const transcriptScrollerRef = useRef<HTMLDivElement | null>(null);
+  const transcriptContentRef = useRef<HTMLDivElement | null>(null);
+  const followingTranscript = useRef(true);
+  const transcriptScrollInitialized = useRef(false);
+  const transcriptHeight = useRef(0);
+  const [newActivity, setNewActivity] = useState(false);
 
   // Keep event identity stable across polls so memoised rows do not churn.
   const [events, setEvents] = useState<TranscriptEvent[]>([]);
@@ -180,11 +186,69 @@ export function ConversationPage() {
     });
   };
 
-  // Stick to the bottom as the transcript grows.
-  const bottomRef = useRef<HTMLDivElement | null>(null);
+  // Follow live output only while the reader remains near the bottom. Depending
+  // on the event array (not its length) also covers a streaming row growing in
+  // place rather than only newly appended rows.
   useLayoutEffect(() => {
-    bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [events.length]);
+    const scroller = transcriptScrollerRef.current;
+    if (!scroller) return;
+    if (!transcriptScrollInitialized.current || followingTranscript.current) {
+      scroller.scrollTop = scroller.scrollHeight;
+      transcriptScrollInitialized.current = true;
+      setNewActivity(false);
+    } else {
+      setNewActivity(true);
+    }
+  }, [events, stream.running]);
+
+  useEffect(() => {
+    const scroller = transcriptScrollerRef.current;
+    const content = transcriptContentRef.current;
+    if (!scroller || !content || typeof ResizeObserver === "undefined") return;
+    followingTranscript.current = true;
+    transcriptScrollInitialized.current = false;
+    transcriptHeight.current = 0;
+    setNewActivity(false);
+    let frame = 0;
+    const sync = () => {
+      frame = 0;
+      const grew = scroller.scrollHeight > transcriptHeight.current;
+      transcriptHeight.current = scroller.scrollHeight;
+      if (followingTranscript.current) {
+        scroller.scrollTop = scroller.scrollHeight;
+        setNewActivity(false);
+      } else if (grew) {
+        setNewActivity(true);
+      }
+    };
+    const observer = new ResizeObserver(() => {
+      if (frame) cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(sync);
+    });
+    observer.observe(scroller);
+    observer.observe(content);
+    sync();
+    return () => {
+      observer.disconnect();
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [directory, id]);
+
+  const updateTranscriptFollow = () => {
+    const scroller = transcriptScrollerRef.current;
+    if (!scroller) return;
+    const nearBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= 96;
+    followingTranscript.current = nearBottom;
+    if (nearBottom) setNewActivity(false);
+  };
+
+  const jumpToLatest = () => {
+    const scroller = transcriptScrollerRef.current;
+    if (!scroller) return;
+    followingTranscript.current = true;
+    setNewActivity(false);
+    scroller.scrollTo({ top: scroller.scrollHeight, behavior: "smooth" });
+  };
 
   const send = async () => {
     const text = draft.trim();
@@ -245,8 +309,8 @@ export function ConversationPage() {
   }
 
   return (
-    <main className="flex h-full min-h-0 flex-col" data-testid="opencode-conversation">
-      <header className="flex flex-wrap items-center gap-3 border-b border-[var(--color-border-default)] px-4 py-3">
+    <main className="flex h-full min-h-0 flex-col overflow-hidden" data-testid="opencode-conversation">
+      <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-[var(--color-border-default)] px-4 py-3">
         <Link to={`/?directory=${encodeURIComponent(directory)}`} className="text-sm underline">
           ← Sessions
         </Link>
@@ -349,10 +413,30 @@ export function ConversationPage() {
 
       <div className="flex min-h-0 flex-1">
         <div
-          className="thin-scrollbar min-w-0 flex-1 overflow-y-auto px-3 py-6 sm:px-6 sm:py-8"
+          ref={transcriptScrollerRef}
+          onScroll={updateTranscriptFollow}
+          className="thin-scrollbar relative min-w-0 flex-1 overflow-y-auto overscroll-contain px-3 py-6 sm:px-6 sm:py-8"
           data-testid="opencode-transcript"
         >
-          <div className="mx-auto max-w-3xl">
+          {newActivity && (
+            <div
+              className="sticky z-10 flex h-0 justify-center"
+              style={{ top: "calc(100% - 3.5rem)" }}
+              data-testid="opencode-new-activity"
+            >
+              <Button
+                size="sm"
+                variant="secondary"
+                className="shadow-md"
+                onClick={jumpToLatest}
+                aria-label="Jump to latest activity"
+                data-testid="opencode-jump-to-latest"
+              >
+                Jump to latest
+              </Button>
+            </div>
+          )}
+          <div ref={transcriptContentRef} className="mx-auto min-w-0 max-w-3xl">
             {!stream.loaded ? (
               <LoadingIndicator />
             ) : items.length === 0 ? (
@@ -372,14 +456,13 @@ export function ConversationPage() {
                 <RunningIndicator activity={activity} />
               </div>
             )}
-            <div ref={bottomRef} />
           </div>
         </div>
 
         <SessionInspector events={events} todos={stream.todos} mobileOpen={inspectorOpen} onMobileClose={() => setInspectorOpen(false)} />
       </div>
 
-      <footer className="border-t border-[var(--color-border-default)] p-3">
+      <footer className="shrink-0 border-t border-[var(--color-border-default)] px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <div className="mx-auto max-w-3xl">
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <AgentModeToggle mode={mode} onChange={selectMode} testId="opencode-composer-mode" />
@@ -402,8 +485,8 @@ export function ConversationPage() {
             </p>
           )}
           {attachmentError && <p className="mb-2 text-xs text-[var(--color-text-danger)]" role="alert" data-testid="opencode-attachment-error">{attachmentError}</p>}
-          <div className="flex min-w-0 gap-2">
-          <label className="inline-flex cursor-pointer items-center rounded-md border border-[var(--color-border-default)] px-3 text-xs font-semibold" data-testid="opencode-attach-label">
+          <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] gap-2 sm:flex">
+          <label className="row-start-2 inline-flex min-h-11 cursor-pointer items-center justify-center rounded-md border border-[var(--color-border-default)] px-3 text-xs font-semibold sm:min-h-0" data-testid="opencode-attach-label">
             Attach
             <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple className="sr-only" data-testid="opencode-attach" onChange={(event) => {
               addAttachments(event.target.files ?? []);
@@ -414,7 +497,7 @@ export function ConversationPage() {
             <select
               value={selectedReminder}
               onChange={(event) => setSelectedReminder(event.target.value)}
-              className={`min-w-0 rounded-md border px-2 text-base sm:text-xs ${
+              className={`row-start-2 min-h-11 min-w-0 w-full max-w-36 rounded-md border px-2 text-base sm:min-h-0 sm:max-w-40 sm:text-xs ${
                 selectedReminder
                   ? "border-[var(--color-border-focus)] bg-[var(--color-background-surface)] text-[var(--color-text-default)]"
                   : "border-[var(--color-border-default)] bg-transparent text-[var(--color-text-muted)]"
@@ -441,12 +524,16 @@ export function ConversationPage() {
                 .filter((file): file is File => file !== null);
               if (images.length) addAttachments(images);
             }}
-            rows={2}
+            rows={4}
+            enterKeyHint="enter"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
             placeholder="Send a follow-up…"
-            className="flex-1 rounded-md border border-[var(--color-border-default)] bg-transparent p-2 text-base sm:text-sm"
+            className="col-span-3 row-start-1 min-h-24 min-w-0 resize-y rounded-md border border-[var(--color-border-default)] bg-transparent p-2 text-base sm:order-none sm:min-h-16 sm:flex-1 sm:text-sm"
             data-testid="opencode-composer"
           />
-          <Button onClick={() => void send()} disabled={sending || !draft.trim()} data-testid="opencode-send">
+          <Button className="row-start-2 min-h-11 sm:min-h-0" onClick={() => void send()} disabled={sending || !draft.trim()} data-testid="opencode-send">
             {sending ? "Sending…" : "Send"}
           </Button>
           </div>

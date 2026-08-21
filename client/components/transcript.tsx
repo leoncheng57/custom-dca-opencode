@@ -5,7 +5,7 @@
 // OpenCode Part. That wall is what made this migration a small adapter rewrite
 // instead of a rebuild; see client/lib/transcript.ts.
 
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 
 import { Markdown } from "../ds/markdown.js";
 import { cn } from "../ds/utils.js";
@@ -114,7 +114,7 @@ function UserBubble({ event }: { event: UserEvent }) {
 
 function AgentProse({ event }: { event: AgentEvent }) {
   return (
-    <div className="text-sm leading-relaxed" data-kind="agent" data-testid="opencode-agent-message">
+    <div className="min-w-0 text-sm leading-relaxed" data-kind="agent" data-testid="opencode-agent-message">
       <Markdown source={event.text} />
       <div className="mt-1 flex justify-end">
         <TimeLabel timestamp={event.timestamp} />
@@ -258,7 +258,7 @@ function StatusSeparator({ event }: { event: StatusEvent }) {
       data-testid="opencode-status-separator"
     >
       <span className="h-px flex-1 bg-[var(--color-border-default)]" aria-hidden />
-      <span>
+      <span className="min-w-0 break-words text-center [overflow-wrap:anywhere]">
         {event.label}
         {event.detail && <span className="opacity-70"> · {event.detail}</span>}
         {event.timestamp && (
@@ -327,7 +327,7 @@ function ActionGroupRow({
   );
 }
 
-function TranscriptRow({ event, wrap }: { event: TranscriptEvent; wrap: boolean }) {
+const TranscriptRow = memo(function TranscriptRow({ event, wrap }: { event: TranscriptEvent; wrap: boolean }) {
   switch (event.kind) {
     case "user":
       return <UserBubble event={event} />;
@@ -346,7 +346,7 @@ function TranscriptRow({ event, wrap }: { event: TranscriptEvent; wrap: boolean 
       // crashing the transcript.
       return null;
   }
-}
+});
 
 export function RunningIndicator({ activity }: { activity: RunningActivity }) {
   const [now, setNow] = useState(() => Date.now());
@@ -407,7 +407,7 @@ function rowSpacing(previous: DisplayItem | undefined, item: DisplayItem): strin
   return "mt-6";
 }
 
-export function Transcript({
+export const Transcript = memo(function Transcript({
   items,
   wrap,
   collapsedGroups,
@@ -440,4 +440,4 @@ export function Transcript({
       ))}
     </>
   );
-}
+});
