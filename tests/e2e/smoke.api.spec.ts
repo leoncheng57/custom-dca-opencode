@@ -317,6 +317,31 @@ test.describe("prompting", () => {
     expect(res.status()).toBe(400);
   });
 
+  test("rejects a foreign agent without changing its session policy", async ({ request }) => {
+    const before = await policyProbe("ses_mock_foreign_agent");
+    const res = await request.post(`/api/sessions/ses_mock_foreign_agent/prompt?directory=${DIR}`, {
+      data: { text: "do not switch this agent", mode: "build" },
+    });
+
+    expect(res.status()).toBe(409);
+    expect(await res.json()).toMatchObject({
+      code: "SESSION_AGENT_UNSUPPORTED",
+      agent: "explore",
+    });
+    expect(await policyProbe("ses_mock_foreign_agent")).toEqual(before);
+  });
+
+  test("reports unknown agent identity honestly without changing session policy", async ({ request }) => {
+    const before = await policyProbe("ses_mock_unknown_agent");
+    const res = await request.post(`/api/sessions/ses_mock_unknown_agent/prompt?directory=${DIR}`, {
+      data: { text: "do not guess this agent", mode: "plan" },
+    });
+
+    expect(res.status()).toBe(409);
+    expect(await res.json()).toMatchObject({ code: "SESSION_AGENT_UNKNOWN" });
+    expect(await policyProbe("ses_mock_unknown_agent")).toEqual(before);
+  });
+
   test("recovers Build tools in the same session after Plan without weakening configured policy", async ({ request }) => {
     const sessionID = await freshSession(request);
     const planText = `plan api ${Date.now()}`;

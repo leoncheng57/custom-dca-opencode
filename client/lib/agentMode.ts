@@ -5,14 +5,32 @@ export type AgentMode = "plan" | "build";
 function latestModeMessage(messages: RawMessage[]): RawMessage | undefined {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
-    if (message.info?.role === "user" || message.info?.role === "assistant") return message;
+    if (message.info?.role === "user") return message;
   }
   return undefined;
 }
 
-export function modeFromMessages(messages: RawMessage[]): AgentMode {
-  const latest = latestModeMessage(messages);
-  return latest?.info?.agent === "plan" ? "plan" : "build";
+function latestUserAgent(messages: RawMessage[]): string | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const info = messages[index].info;
+    if (info?.role === "user" && typeof info.agent === "string" && info.agent.length > 0) return info.agent;
+  }
+  return undefined;
+}
+
+export function modeFromSession(sessionAgent: string | undefined, messages: RawMessage[]): AgentMode | undefined {
+  // User messages carry the selected/session-driving agent. Assistant messages
+  // can use hidden internal agents such as `compaction` and are not identity.
+  const messageAgent = latestUserAgent(messages);
+  const agents = [sessionAgent, messageAgent]
+    .filter((agent): agent is string => typeof agent === "string" && agent.length > 0);
+  if (agents.length === 0 || agents.some((agent) => agent !== "plan" && agent !== "build")) return undefined;
+  if (messageAgent === "plan" || messageAgent === "build") return messageAgent;
+  return sessionAgent === "plan" || sessionAgent === "build" ? sessionAgent : undefined;
+}
+
+export function modeFromMessages(messages: RawMessage[]): AgentMode | undefined {
+  return modeFromSession(undefined, messages);
 }
 
 export function latestModeMessageID(messages: RawMessage[]): string | undefined {

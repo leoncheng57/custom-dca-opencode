@@ -49,6 +49,10 @@ interface RawAgent {
   permission?: PermissionRuleset;
 }
 
+interface RawMessage {
+  info?: { role?: string; agent?: string };
+}
+
 const EDIT_TOOL_ALIASES = new Set(["edit", "write", "apply_patch"]);
 const sessionPromptTails = new Map<string, Promise<void>>();
 
@@ -56,6 +60,20 @@ export class ModePolicyActivationError extends Error {
   constructor(mode: AgentMode) {
     super(`Could not activate OpenCode ${mode === "plan" ? "Plan" : "Build"} policy; prompt was not sent`);
     this.name = "ModePolicyActivationError";
+  }
+}
+
+export type SessionAgentIdentityErrorCode = "SESSION_AGENT_UNKNOWN" | "SESSION_AGENT_UNSUPPORTED";
+
+export class SessionAgentIdentityError extends Error {
+  constructor(
+    readonly code: SessionAgentIdentityErrorCode,
+    readonly agent?: string,
+  ) {
+    super(agent
+      ? `This session uses OpenCode agent "${agent}". The web UI can only prompt Plan or Build sessions; continue it in the TUI or create a web session.`
+      : "This session's OpenCode agent could not be established. Continue it in the TUI or create a web Plan or Build session.");
+    this.name = "SessionAgentIdentityError";
   }
 }
 
@@ -103,6 +121,23 @@ function hasPlanDenial(rules: PermissionRuleset, toolIDs: string[]): boolean {
     }
     return false;
   });
+}
+
+function assertModeAgentIdentity(session: RawSession, messages: RawMessage[]): void {
+  // User messages persist the selected/session-driving agent. Assistant agents
+  // include internal execution identities such as the automatic compactor.
+  let messageAgent: string | undefined;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const info = messages[index].info;
+    if (info?.role !== "user" || typeof info.agent !== "string" || !info.agent) continue;
+    messageAgent = info.agent;
+    break;
+  }
+  const agents = [session.agent, messageAgent]
+    .filter((agent): agent is string => typeof agent === "string" && agent.length > 0);
+  const unsupported = agents.find((agent) => agent !== "plan" && agent !== "build");
+  if (unsupported) throw new SessionAgentIdentityError("SESSION_AGENT_UNSUPPORTED", unsupported);
+  if (agents.length === 0) throw new SessionAgentIdentityError("SESSION_AGENT_UNKNOWN");
 }
 
 async function withSessionPromptLock<T>(
@@ -186,16 +221,22 @@ async function activateModePolicy(
   mode: AgentMode,
 ): Promise<void> {
   try {
-    const [toolIDs, session, agents] = await Promise.all([
+    const [toolIDs, session, agents, messages] = await Promise.all([
       request<unknown>(config, "/experimental/tool/ids", { directory }),
       request<RawSession>(config, `/session/${encodeURIComponent(sessionID)}`, { directory }),
       request<unknown>(config, "/agent", { directory }),
+      request<RawMessage[]>(config, `/session/${encodeURIComponent(sessionID)}/message`, {
+        directory,
+        query: { limit: 100 },
+      }),
     ]);
-    if (!Array.isArray(toolIDs) || toolIDs.length === 0 || toolIDs.some((id) => typeof id !== "string" || !id)) {
-      throw new Error("invalid tool catalogue");
-    }
     if (session.permission !== undefined && !validRuleset(session.permission)) {
       throw new Error("invalid session permission rules");
+    }
+    if (!Array.isArray(messages)) throw new Error("invalid session message history");
+    assertModeAgentIdentity(session, messages);
+    if (!Array.isArray(toolIDs) || toolIDs.length === 0 || toolIDs.some((id) => typeof id !== "string" || !id)) {
+      throw new Error("invalid tool catalogue");
     }
     if (!Array.isArray(agents)) throw new Error("invalid agent catalogue");
     const agent = (agents as RawAgent[]).find((candidate) => candidate?.name === mode);
@@ -222,7 +263,8 @@ async function activateModePolicy(
       directory,
       body: { permission: desiredRules },
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof SessionAgentIdentityError) throw error;
     throw new ModePolicyActivationError(mode);
   }
 }

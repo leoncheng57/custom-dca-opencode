@@ -216,10 +216,13 @@ export interface MessagePage {
  * The status is attached so callers can distinguish "this session is gone"
  * (404, stop polling) from "the agent server is down" (502, keep retrying).
  */
+export type ApiErrorCode = "SESSION_AGENT_UNKNOWN" | "SESSION_AGENT_UNSUPPORTED";
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    readonly code?: ApiErrorCode,
   ) {
     super(message);
     this.name = "ApiError";
@@ -229,13 +232,15 @@ export class ApiError extends Error {
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let message = `HTTP ${res.status}`;
+    let code: ApiErrorCode | undefined;
     try {
-      const body = (await res.json()) as { error?: string };
+      const body = (await res.json()) as { error?: string; code?: string };
       if (body.error) message = body.error;
+      if (body.code === "SESSION_AGENT_UNKNOWN" || body.code === "SESSION_AGENT_UNSUPPORTED") code = body.code;
     } catch {
       /* keep the status-only message */
     }
-    throw new ApiError(res.status, message);
+    throw new ApiError(res.status, message, code);
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
