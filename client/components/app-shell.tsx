@@ -43,7 +43,7 @@ export function AppShell() {
     } catch {
       // The browser origin is still useful when the optional config route is unavailable.
     }
-    setPhoneUrl(selectPhoneUrl(configuredUrl, window.location.origin));
+    setPhoneUrl(selectPhoneUrl(configuredUrl, window.location.href));
   };
 
   const closePalette = () => {
