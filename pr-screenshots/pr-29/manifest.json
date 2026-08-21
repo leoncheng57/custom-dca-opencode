@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 2,
+  "prNumber": 29,
+  "sourceSha": "312d3a36b0cb3b890f8762631c4b116026676af6",
+  "capturedAt": "2026-08-21T22:04:45.397Z",
+  "screenshots": [
+    {
+      "requestedRoute": "/settings/notifications",
+      "fullPage": false,
+      "captures": {
+        "desktop": {
+          "filename": "01-settings-notifications-7ffe0e07--desktop.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 800
+          },
+          "bytes": 67099,
+          "sha256": "2c62c6d1210dce09157a4be399ff6794cc73d119bfc9eaa1fe488b01455b445f"
+        },
+        "mobile": {
+          "filename": "01-settings-notifications-3a26b792--mobile.png",
+          "dimensions": {
+            "width": 390,
+            "height": 740
+          },
+          "bytes": 52941,
+          "sha256": "51be8e5b4a45088a50ecef13960994f14050f9b08ea144a254c8a3b1b4d2ce14"
+        }
+      }
+    }
+  ]
+}
