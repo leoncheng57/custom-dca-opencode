@@ -109,7 +109,8 @@ test.describe.serial("share and export", () => {
   test("contains the modal and controls at 390px", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 740 });
     await page.goto(conversation);
-    await page.getByTestId("opencode-share-export-open").click();
+    await page.getByTestId("opencode-mobile-session-menu").locator("summary").click();
+    await page.getByTestId("opencode-mobile-share-export-open").click();
     const dialog = page.getByTestId("opencode-share-export-dialog");
     await expect(dialog).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);

@@ -48,14 +48,14 @@ export function AutoPermissionsControl({ directory, testId }: { directory: strin
   const enabled = status?.enabled ?? false;
   return (
     <div data-testid={testId}>
-      <Alert variant={enabled ? "danger" : "info"} className={`border border-current ${enabled ? "p-4" : "p-2"}`}>
-        <div className={`flex gap-3 ${enabled ? "items-start" : "items-center"}`}>
+      <Alert variant={enabled ? "danger" : "info"} className={`border border-current p-2 ${enabled ? "sm:p-4" : ""}`}>
+        <div className={`flex gap-2 sm:gap-3 ${enabled ? "items-start" : "items-center"}`}>
           <ShieldAlert aria-hidden="true" className={`${enabled ? "mt-0.5 h-5 w-5" : "h-4 w-4"} shrink-0`} />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-3">
               <div className="min-w-0 flex-1">
                 <strong>Auto permissions: {status ? (enabled ? "ON" : "OFF") : "loading"}</strong>
-                <p className={`${enabled ? "mt-1" : "ml-2 inline"} text-xs`}>
+                <p className={`${enabled ? "mt-1" : "ml-2 inline"} hidden text-xs sm:block`}>
                   {enabled
                     ? "This affects every session using this project directory and resets to off when the BFF restarts."
                     : "Every session in this directory asks normally."}
@@ -73,12 +73,17 @@ export function AutoPermissionsControl({ directory, testId }: { directory: strin
                 {saving ? "Updating..." : enabled ? "Turn off" : "Turn on"}
               </button>
             </div>
-            {enabled && (
-              <p className="mt-2 font-medium" data-testid={`${testId}-warning`}>
-                Danger: every asked permission is approved once automatically, including arbitrary shell commands,
+            {enabled && <details className="mt-1 sm:hidden">
+              <summary className="cursor-pointer text-xs font-medium">Why this is dangerous</summary>
+              <p className="mt-1 text-xs font-medium" data-testid={`${testId}-mobile-warning`}>
+                Every asked permission is approved once automatically, including arbitrary shell commands,
                 external-directory access, and repeated requests from a doom loop.
               </p>
-            )}
+            </details>}
+            {enabled && <p className="mt-2 hidden font-medium sm:block" data-testid={`${testId}-warning`}>
+              Danger: every asked permission is approved once automatically, including arbitrary shell commands,
+              external-directory access, and repeated requests from a doom loop.
+            </p>}
             {(status?.error || requestError) && (
               <p className="mt-2 font-medium" data-testid={`${testId}-error`}>
                 Auto permissions error: {status?.error ?? requestError}

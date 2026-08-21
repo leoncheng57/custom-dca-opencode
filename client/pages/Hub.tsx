@@ -8,7 +8,7 @@ import { Button } from "../ds/button.js";
 import { LoadingIndicator } from "../ds/loading-indicator.js";
 import { AgentModeToggle } from "../components/agent-mode-toggle.js";
 import { AutoPermissionsControl } from "../components/auto-permissions-control.js";
-import { ModelSelect } from "../components/model-select.js";
+import { ModelPicker } from "../components/model-picker.js";
 import {
   api,
   formatCost,
@@ -452,7 +452,7 @@ export function HubPage() {
         )}
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <AgentModeToggle mode={mode} onChange={setMode} testId="opencode-hub-mode" />
-          <ModelSelect
+          <ModelPicker
             catalogue={modelCatalogue}
             value={selectedModel}
             onChange={setSelectedModel}

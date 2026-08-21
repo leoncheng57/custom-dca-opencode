@@ -32,6 +32,7 @@ import { forgeRoutes } from "./routes/forge.js";
 import { reminderRoutes } from "./routes/reminders.js";
 import { appConfigRoutes } from "./routes/appConfig.js";
 import { projectRoutes } from "./routes/projects.js";
+import { modelPinRoutes } from "./routes/modelPins.js";
 import { parsePublicAppUrl } from "./publicAppUrl.js";
 
 dotenv.config();
@@ -71,6 +72,7 @@ app.use("/api", forgeRoutes());
 app.use("/api", reminderRoutes());
 app.use("/api", appConfigRoutes(publicAppUrl));
 app.use("/api", projectRoutes());
+app.use("/api", modelPinRoutes());
 const opencodePort = Number(new URL(opencode.baseUrl).port || 80);
 app.use("/api", previewRoutes(parseAllowedPorts(process.env.PREVIEW_ALLOWED_PORTS, [PORT, opencodePort])));
 
@@ -110,7 +112,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const clientDir = path.resolve(here, "../client");
 app.use(express.static(clientDir));
 app.get(/^\/(?!api\/).*/, (_req, res) => {
-  res.sendFile(path.join(clientDir, "index.html"));
+  res.sendFile("index.html", { root: clientDir });
 });
 
 app.listen(PORT, "0.0.0.0", () => {

@@ -47,6 +47,7 @@ export default defineConfig({
         OPENCODE_URL: `http://127.0.0.1:${MOCK_PORT}`,
         PROJECTS_DIR: "/tmp",
         PROJECT_PINS_FILE: "/tmp/custom-dca-opencode-e2e-project-pins.json",
+        MODEL_PINS_FILE: `/tmp/custom-dca-opencode-e2e-model-pins-${process.pid}.json`,
         OPENCODE_WORKTREE_ROOT: "/tmp/custom-dca-opencode-e2e-worktrees",
         NOTIFICATION_PREFS_FILE: "/tmp/custom-dca-opencode-e2e-notifications.json",
         PREVIEW_ALLOWED_PORTS: String(PREVIEW_PORT),
