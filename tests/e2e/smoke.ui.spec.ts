@@ -379,6 +379,15 @@ test.describe("phone transfer", () => {
     await expect(dialog).toHaveCount(0);
   });
 
+  test("targets the active conversation", async ({ page }) => {
+    await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
+    await page.getByTestId("opencode-phone-transfer-open").click();
+
+    await expect(page.getByTestId("opencode-phone-transfer-url")).toHaveText(
+      `https://ide.e2e.example.test:8443/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`,
+    );
+  });
+
   test("dialog fits without horizontal overflow at 390px", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 740 });
     await page.goto(hub);
