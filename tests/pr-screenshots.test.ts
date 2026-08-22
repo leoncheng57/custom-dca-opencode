@@ -83,6 +83,11 @@ describe("PR screenshot requests", () => {
       .toHaveLength(2);
   });
 
+  it("accepts the global planning page", () => {
+    expect(parseScreenshotBlock("```screenshots\n/planning\n```").requests[0])
+      .toMatchObject({ requestedRoute: "/planning", fullPage: false });
+  });
+
   it.each([
     "https://evil.example/path",
     "//evil.example/path",

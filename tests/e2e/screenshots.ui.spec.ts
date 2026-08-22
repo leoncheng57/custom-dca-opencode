@@ -33,12 +33,17 @@ test.describe("requested PR screenshots", () => {
               ? "opencode-settings"
               : pathname === "/tools"
                 ? "opencode-tools"
+                : pathname === "/planning"
+                  ? "opencode-planning"
                 : pathname === "/docs"
                   ? "opencode-docs"
                   : pathname.startsWith("/docs/")
                     ? "opencode-doc"
                     : "opencode-hub";
         await expect(page.getByTestId(stableRoot)).toBeVisible();
+        if (pathname === "/planning") {
+          await expect(page.getByTestId("opencode-planning-list")).toBeVisible();
+        }
         const url = new URL(request.requestedRoute, "http://screenshot.invalid");
         if (url.searchParams.get("panel") === "subagents") {
           await expect(page.locator('[data-testid="opencode-subagents"]:visible')).toBeVisible();

@@ -1,0 +1,264 @@
+import { useEffect, useState } from "react";
+import { ExternalLink, GitPullRequest, MessageSquare, RefreshCw } from "lucide-react";
+
+import { Alert } from "../ds/alert.js";
+import { Badge, type BadgeVariant } from "../ds/badge.js";
+import { Button } from "../ds/button.js";
+import { LoadingIndicator } from "../ds/loading-indicator.js";
+import {
+  api,
+  type PlanningItem,
+  type PlanningItemState,
+  type PlanningItemType,
+  type PlanningSnapshot,
+} from "../lib/api.js";
+
+type TypeFilter = "all" | PlanningItemType;
+type StateFilter = "all" | PlanningItemState;
+
+const TYPE_FILTERS: Array<{ value: TypeFilter; label: string }> = [
+  { value: "all", label: "All" },
+  { value: "issue", label: "Issues" },
+  { value: "pull_request", label: "Pull requests" },
+];
+
+const STATE_FILTERS: Array<{ value: StateFilter; label: string }> = [
+  { value: "open", label: "Open" },
+  { value: "closed", label: "Closed" },
+  { value: "all", label: "All" },
+];
+
+function formatDate(value: string): string {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "Unknown";
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  }).format(date);
+}
+
+function formatFetchedAt(value: string): string {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "Unknown";
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function stateBadge(item: PlanningItem): { label: string; variant: BadgeVariant } {
+  if (item.merged) return { label: "Merged", variant: "info" };
+  if (item.state === "open") return { label: "Open", variant: "success" };
+  return { label: "Closed", variant: "neutral" };
+}
+
+function PlanningRow({ item }: { item: PlanningItem }) {
+  const status = stateBadge(item);
+  return (
+    <li className="p-4 sm:p-5" data-testid="opencode-planning-row">
+      <div className="flex min-w-0 items-start gap-3">
+        <span
+          aria-hidden="true"
+          className="mt-0.5 shrink-0 text-[var(--color-text-muted)]"
+        >
+          {item.type === "pull_request" ? <GitPullRequest size={18} /> : <span className="text-base font-bold">#</span>}
+        </span>
+        <div className="min-w-0 flex-1 space-y-2.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant={item.type === "pull_request" ? "info" : "neutral"}>
+              {item.type === "pull_request" ? "Pull request" : "Issue"}
+            </Badge>
+            <span className="text-xs font-medium tabular-nums text-[var(--color-text-muted)]">
+              #{item.number}
+            </span>
+            <Badge variant={status.variant}>{status.label}</Badge>
+          </div>
+
+          <a
+            className="group inline-flex max-w-full items-start gap-1.5 font-semibold text-[var(--color-text-default)] hover:text-[var(--color-text-info)] focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]"
+            data-testid={`opencode-planning-item-${item.number}`}
+            href={item.url}
+            rel="noopener noreferrer"
+            target="_blank"
+          >
+            <span>{item.title || "Untitled"}</span>
+            <ExternalLink aria-hidden="true" className="mt-0.5 shrink-0 opacity-60 group-hover:opacity-100" size={14} />
+          </a>
+
+          {item.labels.length > 0 && (
+            <div className="flex flex-wrap gap-1.5" aria-label="Labels">
+              {item.labels.map((label) => (
+                <Badge className="normal-case" key={label} variant="neutral">
+                  {label}
+                </Badge>
+              ))}
+            </div>
+          )}
+
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--color-text-muted)]">
+            <span>Created {formatDate(item.createdAt)}</span>
+            <span>Last activity {formatDate(item.updatedAt)}</span>
+            {item.author && <span>by {item.author}</span>}
+            {item.commentCount > 0 && (
+              <span className="inline-flex items-center gap-1" aria-label={`${item.commentCount} comments`}>
+                <MessageSquare aria-hidden="true" size={12} />
+                {item.commentCount}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+    </li>
+  );
+}
+
+export function PlanningPage() {
+  const [snapshot, setSnapshot] = useState<PlanningSnapshot | null>(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
+  const [stateFilter, setStateFilter] = useState<StateFilter>("open");
+
+  const load = (refresh = false) => {
+    setLoading(true);
+    setError("");
+    return api.planningItems(refresh)
+      .then(setSnapshot)
+      .catch((reason: Error) => setError(reason.message))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError("");
+    void api.planningItems()
+      .then((value) => {
+        if (active) setSnapshot(value);
+      })
+      .catch((reason: Error) => {
+        if (active) setError(reason.message);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const items = (snapshot?.items ?? []).filter((item) =>
+    (typeFilter === "all" || item.type === typeFilter)
+    && (stateFilter === "all" || item.state === stateFilter),
+  );
+
+  return (
+    <main className="mx-auto max-w-5xl space-y-5 p-4 sm:p-6" data-testid="opencode-planning">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <p className="mb-1 text-xs font-semibold uppercase tracking-widest text-[var(--color-text-muted)]">
+            Developer roadmap
+          </p>
+          <h1 className="text-2xl font-bold tracking-tight">Project Planning</h1>
+          {snapshot && (
+            <a
+              className="mt-1 inline-flex items-center gap-1 text-sm text-[var(--color-text-info)] hover:underline focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]"
+              data-testid="opencode-planning-repository"
+              href={snapshot.repository.url}
+              rel="noopener noreferrer"
+              target="_blank"
+            >
+              {snapshot.repository.owner}/{snapshot.repository.repo}
+              <ExternalLink aria-hidden="true" size={13} />
+            </a>
+          )}
+        </div>
+        <div className="flex items-center gap-3 sm:flex-col sm:items-end sm:gap-1.5">
+          <Button
+            className="gap-2"
+            data-testid="opencode-planning-refresh"
+            disabled={loading}
+            onClick={() => void load(true)}
+            size="sm"
+            type="button"
+            variant="secondary"
+          >
+            <RefreshCw aria-hidden="true" className={loading ? "animate-spin" : ""} size={14} />
+            Refresh
+          </Button>
+          {snapshot && (
+            <span className="text-xs text-[var(--color-text-muted)]">
+              Fetched {formatFetchedAt(snapshot.fetchedAt)}
+            </span>
+          )}
+        </div>
+      </header>
+
+      <section
+        aria-label="Planning filters"
+        className="flex flex-col gap-3 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-background-surface)] p-3 sm:flex-row sm:items-center sm:justify-between"
+      >
+        <div className="flex flex-wrap gap-1" aria-label="Item type">
+          {TYPE_FILTERS.map(({ value, label }) => (
+            <Button
+              aria-pressed={typeFilter === value}
+              data-testid={`opencode-planning-type-${value}`}
+              key={value}
+              onClick={() => setTypeFilter(value)}
+              size="sm"
+              type="button"
+              variant={typeFilter === value ? "primary" : "ghost"}
+            >
+              {label}
+            </Button>
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-1" aria-label="Item state">
+          {STATE_FILTERS.map(({ value, label }) => (
+            <Button
+              aria-pressed={stateFilter === value}
+              data-testid={`opencode-planning-state-${value}`}
+              key={value}
+              onClick={() => setStateFilter(value)}
+              size="sm"
+              type="button"
+              variant={stateFilter === value ? "primary" : "ghost"}
+            >
+              {label}
+            </Button>
+          ))}
+        </div>
+      </section>
+
+      {error && <Alert variant="danger">Planning data is unavailable: {error}</Alert>}
+      {snapshot?.truncated && (
+        <Alert variant="warning">
+          GitHub returned more than 500 items. This list shows the 500 most recently active records.
+        </Alert>
+      )}
+
+      {loading && !snapshot ? (
+        <div className="flex min-h-40 items-center justify-center" data-testid="opencode-planning-loading">
+          <LoadingIndicator label="Loading planning data" />
+        </div>
+      ) : !error && items.length === 0 ? (
+        <div
+          className="rounded-lg border border-dashed border-[var(--color-border-default)] p-10 text-center text-sm text-[var(--color-text-muted)]"
+          data-testid="opencode-planning-empty"
+        >
+          No items match these filters.
+        </div>
+      ) : items.length > 0 ? (
+        <ul
+          className="divide-y divide-[var(--color-border-default)] overflow-hidden rounded-lg border border-[var(--color-border-default)] bg-[var(--color-background-surface)]"
+          data-testid="opencode-planning-list"
+        >
+          {items.map((item) => <PlanningRow item={item} key={`${item.type}-${item.id}`} />)}
+        </ul>
+      ) : null}
+    </main>
+  );
+}

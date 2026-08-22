@@ -279,6 +279,36 @@ export class ApiError extends Error {
   }
 }
 
+export type PlanningItemType = "issue" | "pull_request";
+export type PlanningItemState = "open" | "closed";
+
+export interface PlanningItem {
+  id: string;
+  number: number;
+  type: PlanningItemType;
+  title: string;
+  state: PlanningItemState;
+  merged: boolean;
+  /**
+   * Label names only. The BFF drops GitHub's per-label hex colors on purpose:
+   * `client/ds` forbids raw hex, and inventing a token mapping per label would
+   * be a guess about meaning the label text already carries.
+   */
+  labels: string[];
+  author: string | null;
+  url: string;
+  createdAt: string;
+  updatedAt: string;
+  commentCount: number;
+}
+
+export interface PlanningSnapshot {
+  repository: { owner: string; repo: string; url: string };
+  items: PlanningItem[];
+  truncated: boolean;
+  fetchedAt: string;
+}
+
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let message = `HTTP ${res.status}`;
@@ -551,6 +581,8 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ worktreeDirectory }),
     }).then((r) => json<void>(r)),
+  /** Not project-scoped: the planning feed is one fixed repository (see server/github-planning.ts). */
+  planningItems: (refresh = false) => fetch(`/api/planning/items${refresh ? "?refresh=1" : ""}`).then((r) => json<PlanningSnapshot>(r)),
   review: (url: string) =>
     fetch(`/api/forge/review?${new URLSearchParams({ url })}`).then((r) => json<{ review: ReviewStatus }>(r)),
   reviewDetails: (url: string) =>
