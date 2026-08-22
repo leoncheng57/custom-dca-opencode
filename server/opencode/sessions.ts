@@ -165,7 +165,17 @@ export interface SessionSummary {
   id: string;
   title: string;
   directory: string;
+  /** Set when this session was delegated to by another session. */
   parentID?: string;
+  /**
+   * Non-archived children of this session in the same directory.
+   *
+   * Derived by grouping the directory listing rather than by asking upstream,
+   * because `/session` already returns children — 124 of 149 sessions in one
+   * audited directory — so the count is free and a per-row `children` call
+   * would not be.
+   */
+  childCount: number;
   agent?: string;
   model?: { providerID?: string; modelID?: string; variant?: string };
   cost: number;
@@ -276,6 +286,7 @@ export function toSummary(raw: RawSession, running: boolean): SessionSummary {
     title: raw.title?.trim() || "Untitled session",
     directory: raw.directory ?? "",
     parentID: raw.parentID,
+    childCount: 0,
     agent: raw.agent,
     model: raw.model
       ? { providerID: raw.model.providerID, modelID: raw.model.modelID ?? raw.model.id, variant: raw.model.variant }
@@ -328,9 +339,32 @@ export async function listSessions(
     // A status failure must not blank the whole list.
     runningSessions(config, directory).catch(() => new Set<string>()),
   ]);
-  return (raw ?? [])
+  const summaries = (raw ?? [])
     .filter((s) => !s.time?.archived)
     .map((s) => toSummary(s, running.has(s.id ?? "")));
+  // A roots-only listing has no children to count, and reporting zero would
+  // claim every root is a leaf. Leave the field untouched instead.
+  return options.rootsOnly ? summaries : withChildCounts(summaries);
+}
+
+/**
+ * Fill in `childCount` from the sessions we already have.
+ *
+ * Only meaningful over a full directory listing: with `roots=true` the children
+ * are absent, so every count would read zero and the UI would claim leaf
+ * sessions that are not leaves. Callers that filter to roots must not use this.
+ */
+export function withChildCounts(sessions: SessionSummary[]): SessionSummary[] {
+  const counts = new Map<string, number>();
+  for (const session of sessions) {
+    if (!session.parentID) continue;
+    counts.set(session.parentID, (counts.get(session.parentID) ?? 0) + 1);
+  }
+  if (counts.size === 0) return sessions;
+  return sessions.map((session) => {
+    const childCount = counts.get(session.id) ?? 0;
+    return childCount === session.childCount ? session : { ...session, childCount };
+  });
 }
 
 /** Upstream calls in flight during a cross-project fan-out. */

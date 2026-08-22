@@ -69,8 +69,97 @@ function paginatedMessages(): unknown[] {
   });
 }
 
+// ── Sub-agent fixture ───────────────────────────────────────────────────────
+//
+// Kept in its own project directory so the three child sessions cannot perturb
+// the hub assertions that count rows and running pills in the main fixture.
+// The four children deliberately cover one state per evidence path.
+const PARENT_ID = "ses_mock_parent";
+const CHILD_RUNNING = "ses_mock_child_running";
+const CHILD_DONE = "ses_mock_child_done";
+const CHILD_REPORTED = "ses_mock_child_reported";
+// A sub-agent that delegated further. Nested delegation is reachable whenever
+// subagent_depth allows it, and a one-level tree silently loses this row.
+const GRANDCHILD = "ses_mock_grandchild";
+const CHILD_UNKNOWN = "ses_mock_child_unknown";
+
+function taskPart(
+  index: number,
+  sessionId: string,
+  over: { status: string; description: string; agent: string; background?: boolean },
+): Record<string, unknown> {
+  return {
+    id: `prt_task_${index}`,
+    messageID: "msg_parent_plan",
+    type: "tool",
+    callID: `call_task_${index}`,
+    tool: "task",
+    state: {
+      status: over.status,
+      input: { description: over.description, subagent_type: over.agent },
+      title: over.description,
+      metadata: { sessionId, ...(over.background ? { background: true } : {}) },
+      time: { start: 1787400001000 + index, end: 1787400002000 + index },
+    },
+  };
+}
+
+function parentMessages(): unknown[] {
+  return [
+    {
+      info: { id: "msg_parent_user", role: "user", agent: "build", time: { created: 1787400000000 } },
+      parts: [{ id: "prt_parent_user", messageID: "msg_parent_user", type: "text", text: "Investigate three areas in parallel." }],
+    },
+    {
+      info: { id: "msg_parent_plan", role: "assistant", agent: "build", time: { created: 1787400001000, completed: 1787400003000 } },
+      parts: [
+        taskPart(1, CHILD_RUNNING, { status: "running", description: "Audit the parser", agent: "explore" }),
+        taskPart(2, CHILD_DONE, { status: "completed", description: "Check the tests", agent: "explore" }),
+        taskPart(3, CHILD_REPORTED, { status: "running", description: "Summarize the docs", agent: "general", background: true }),
+        taskPart(4, CHILD_UNKNOWN, { status: "completed", description: "Crawl the changelog", agent: "general", background: true }),
+      ],
+    },
+    {
+      // A machine-authored hand-back. It must NOT render as a human bubble.
+      info: { id: "msg_parent_notice", role: "user", time: { created: 1787400004000 } },
+      parts: [{
+        id: "prt_parent_notice",
+        messageID: "msg_parent_notice",
+        type: "text",
+        text: `Background task ${CHILD_REPORTED} completed successfully.`,
+      }],
+    },
+    {
+      info: { id: "msg_parent_wrap", role: "assistant", agent: "build", time: { created: 1787400005000, completed: 1787400006000 } },
+      parts: [{ id: "prt_parent_wrap", messageID: "msg_parent_wrap", type: "text", text: "Two of three sub-agents have reported back." }],
+    },
+  ];
+}
+
 const messages = new Map<string, unknown[]>([
   ["ses_mock_done", fixture],
+  [PARENT_ID, parentMessages()],
+  [CHILD_RUNNING, [
+    { info: { id: "msg_cr_1", role: "user", agent: "explore", time: { created: 1787400001500 } }, parts: [{ id: "prt_cr_1", messageID: "msg_cr_1", type: "text", text: "Audit the parser" }] },
+    { info: { id: "msg_cr_2", role: "assistant", agent: "explore", time: { created: 1787400001600 } }, parts: [{ id: "prt_cr_2", messageID: "msg_cr_2", type: "text", text: "Reading the parser now." }] },
+  ]],
+  [CHILD_DONE, [
+    { info: { id: "msg_cd_1", role: "user", agent: "explore", time: { created: 1787400002500 } }, parts: [{ id: "prt_cd_1", messageID: "msg_cd_1", type: "text", text: "Check the tests" }] },
+    { info: { id: "msg_cd_2", role: "assistant", agent: "explore", time: { created: 1787400002600, completed: 1787400002900 } }, parts: [{ id: "prt_cd_2", messageID: "msg_cd_2", type: "text", text: "All suites pass." }] },
+  ]],
+  [GRANDCHILD, [
+    { info: { id: "msg_gc_1", role: "assistant", agent: "explore", time: { created: 1787400002700, completed: 1787400002800 } }, parts: [{ id: "prt_gc_1", messageID: "msg_gc_1", type: "text", text: "Flake reproduced." }] },
+  ]],
+  // Its own last turn never completed, so only the parent's hand-back notice
+  // settles this one — which is what makes it the `parent-completion` case.
+  [CHILD_REPORTED, [
+    { info: { id: "msg_crp_1", role: "assistant", agent: "general", time: { created: 1787400003100 } }, parts: [{ id: "prt_crp_1", messageID: "msg_crp_1", type: "text", text: "Summarizing." }] },
+  ]],
+  // Launched in the background, then silently cancelled: its last turn never
+  // completed and no notice ever arrived, which is the `unknown` case.
+  [CHILD_UNKNOWN, [
+    { info: { id: "msg_cu_1", role: "assistant", agent: "general", time: { created: 1787400003500 } }, parts: [{ id: "prt_cu_1", messageID: "msg_cu_1", type: "text", text: "Starting the crawl." }] },
+  ]],
   ["ses_mock_mobile", mobileMessages()],
   ["ses_mock_foreign_agent", [
     { info: { id: "msg_foreign", role: "user", agent: "explore", time: { created: 1787300000000 } }, parts: [], },
@@ -145,6 +234,8 @@ const AUTO_DIRECTORY_INPUT = "/tmp/mock-auto-project";
 const TOOL_FAILURE_DIRECTORY_INPUT = "/tmp/mock-tool-failure";
 const CATALOGUE_FAILURE_DIRECTORY_INPUT = "/tmp/mock-catalogue-failure";
 const POLICY_FAILURE_DIRECTORY_INPUT = "/tmp/mock-policy-failure";
+const SUBAGENT_DIRECTORY_INPUT = "/tmp/mock-subagent-project";
+mkdirSync(SUBAGENT_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(MOCK_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(SECOND_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(AUTO_DIRECTORY_INPUT, { recursive: true });
@@ -158,6 +249,7 @@ const AUTO_DIRECTORY = realpathSync(AUTO_DIRECTORY_INPUT);
 const TOOL_FAILURE_DIRECTORY = realpathSync(TOOL_FAILURE_DIRECTORY_INPUT);
 const CATALOGUE_FAILURE_DIRECTORY = realpathSync(CATALOGUE_FAILURE_DIRECTORY_INPUT);
 const POLICY_FAILURE_DIRECTORY = realpathSync(POLICY_FAILURE_DIRECTORY_INPUT);
+export const SUBAGENT_DIRECTORY = realpathSync(SUBAGENT_DIRECTORY_INPUT);
 if (!existsSync(path.join(MOCK_DIRECTORY, ".git"))) {
   execFileSync("git", ["init", "-q", MOCK_DIRECTORY]);
   writeFileSync(path.join(MOCK_DIRECTORY, "README.md"), "# Mock project\n");
@@ -285,6 +377,66 @@ const SESSIONS: Array<Record<string, any>> = [
     cost: 0,
     tokens: {},
     time: { created: 1787300050000, updated: 1787300050000, archived: 1787300051000 },
+  },
+  {
+    id: PARENT_ID,
+    title: "Parallel investigation",
+    directory: SUBAGENT_DIRECTORY,
+    agent: "build",
+    model: { providerID: "anthropic", id: "claude-opus-5" },
+    cost: 0.03,
+    tokens: { input: 40, output: 200, reasoning: 0, cache: { read: 0, write: 0 } },
+    time: { created: 1787400000000, updated: 1787400006000 },
+  },
+  {
+    id: CHILD_RUNNING,
+    title: "Audit the parser",
+    directory: SUBAGENT_DIRECTORY,
+    parentID: PARENT_ID,
+    agent: "explore",
+    cost: 0.004,
+    tokens: {},
+    time: { created: 1787400001500, updated: 1787400001600 },
+  },
+  {
+    id: CHILD_DONE,
+    title: "Check the tests",
+    directory: SUBAGENT_DIRECTORY,
+    parentID: PARENT_ID,
+    agent: "explore",
+    cost: 0.002,
+    tokens: {},
+    time: { created: 1787400002500, updated: 1787400002900 },
+  },
+  {
+    id: GRANDCHILD,
+    title: "Reproduce the flake",
+    directory: SUBAGENT_DIRECTORY,
+    parentID: CHILD_DONE,
+    agent: "explore",
+    cost: 0,
+    tokens: {},
+    time: { created: 1787400002700, updated: 1787400002800 },
+  },
+  {
+    id: CHILD_REPORTED,
+    title: "Summarize the docs",
+    directory: SUBAGENT_DIRECTORY,
+    parentID: PARENT_ID,
+    agent: "general",
+    cost: 0.001,
+    tokens: {},
+    time: { created: 1787400003100, updated: 1787400003200 },
+  },
+  {
+    id: CHILD_UNKNOWN,
+    title: "Crawl the changelog",
+    directory: SUBAGENT_DIRECTORY,
+    parentID: PARENT_ID,
+    agent: "general",
+    cost: 0,
+    tokens: {},
+    time: { created: 1787400003500, updated: 1787400003500 },
   },
   {
     id: "ses_mock_share_failure",
@@ -512,6 +664,14 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
       : json(res, 200, toolIDs);
   }
   if (pathname === "/agent") return json(res, 200, agents);
+  if (pathname === "/experimental/capabilities") return json(res, 200, { backgroundSubagents: true });
+  const promoteMatch = /^\/experimental\/session\/([^/]+)\/background$/.exec(pathname);
+  if (promoteMatch && req.method === "POST") {
+    const id = decodeURIComponent(promoteMatch[1]);
+    // Mirrors the real contract: a bare boolean, false when nothing running
+    // and synchronous was eligible for promotion.
+    return json(res, 200, SESSIONS.some((s) => s.parentID === id && s.id === CHILD_RUNNING));
+  }
   if (pathname === "/test/prompt-payloads") return json(res, 200, promptPayloads);
   if (pathname === "/test/session-list-requests") return json(res, 200, { count: sessionListRequests });
   if (pathname === "/test/session-list-requests") return json(res, 200, { count: sessionListRequests });
@@ -712,6 +872,7 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
   if (pathname === "/session/status") {
     return json(res, 200, {
       ses_mock_running: { type: "busy" },
+      [CHILD_RUNNING]: { type: "busy" },
       ...(mobileRunning ? { ses_mock_mobile: { type: "busy" } } : {}),
     });
   }
@@ -861,6 +1022,9 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
       const start = Math.max(0, end - limit);
       const nextCursor = start > 0 ? String(start) : null;
       return json(res, 200, all.slice(start, end), nextCursor ? { "X-Next-Cursor": nextCursor } : {});
+    }
+    if (rest === "/children") {
+      return json(res, 200, SESSIONS.filter((candidate) => candidate.parentID === id));
     }
     if (rest === "/todo") {
       return json(res, 200, id === "ses_mock_done" ? TODOS : []);

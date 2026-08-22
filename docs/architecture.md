@@ -58,6 +58,21 @@ Raw OpenCode response and event shapes cross the application at two deliberate s
 That separation keeps transport churn out of the UI and made the migration from the OpenHands
 backend an adapter rewrite instead of a transcript rebuild.
 
+## Derived sub-agent state
+
+OpenCode delegates work to child sessions but exposes no durable background-job API, so
+"what are this session's sub-agents doing?" is computed rather than read.
+`server/opencode/subagents.ts` reconciles the child list, the parent's delegating task parts,
+the process-local status map, and each child's own transcript into one ledger keyed by child
+session id.
+
+Each row reports the evidence behind its state, because the strength of those sources differs
+sharply. A child's own final turn is first-hand; a task part in the parent is not. A background
+task part reports `completed` as soon as the launch call returns, which is usually long before
+the child finishes, so it is never treated as terminal. When nothing settles a child — it was
+cancelled, or the owning server restarted — the row is `unknown` and says what was checked,
+rather than presenting a plausible guess as fact.
+
 ## State ownership
 
 | State | Owner | Persistence |
@@ -68,6 +83,7 @@ backend an adapter rewrite instead of a transcript rebuild.
 | Auto-permissions toggle | BFF | Memory only; off after restart |
 | Git worktrees and repository state | Host | Local filesystem and Git |
 | Global event subscriptions | BFF | Process lifetime |
+| Sub-agent state | BFF | Derived per request; never stored |
 
 ## Safety boundary
 
@@ -94,6 +110,7 @@ The BFF adds narrower boundaries around browser-controlled input:
 | New BFF route | `server/routes/` | Credential isolation and path validation |
 | New page or primitive | `client/pages/`, `client/ds/` | Semantic tokens and deterministic test IDs |
 | Notifications | `server/notifications.ts`, `client/lib/useNotificationCenter.tsx` | Manual-only resolution semantics |
+| Sub-agent state or controls | `server/opencode/subagents.ts` | Evidence precedence and honest `unknown` rows |
 | Preview behavior | `server/preview.ts` | Port allowlist and stripped credentials |
 | Deployment | `deploy/README.md`, `scripts/launchd.ts` | One supervised BFF and one existing OpenCode server |
 

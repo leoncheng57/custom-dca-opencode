@@ -10,5 +10,17 @@
   {
     "requestedRoute": "/docs?directory=/tmp/mock-project",
     "fullPage": true
+  },
+  {
+    "requestedRoute": "/?directory=/tmp/mock-subagent-project",
+    "fullPage": true
+  },
+  {
+    "requestedRoute": "/sessions/ses_mock_parent?directory=/tmp/mock-subagent-project",
+    "fullPage": true
+  },
+  {
+    "requestedRoute": "/sessions/ses_mock_child_running?directory=/tmp/mock-subagent-project",
+    "fullPage": true
   }
 ]

@@ -87,6 +87,14 @@ export interface ToolEvent extends TranscriptBase {
   durationMs?: number;
   /** Files this call produced or referenced. */
   attachments: Attachment[];
+  /**
+   * Session this call delegated work to, when it started a sub-agent.
+   *
+   * Rendered as a link to the child transcript. Without it a delegation is an
+   * opaque "task" chip and the work it started is unreachable from the place
+   * that started it.
+   */
+  childSessionId?: string;
 }
 
 /** Lifecycle markers rendered as separators: compaction, retries, snapshots. */
@@ -95,6 +103,8 @@ export interface StatusEvent extends TranscriptBase {
   label: string;
   /** Extra context, e.g. which files a patch touched. */
   detail?: string;
+  /** Sub-agent session this marker reports on, when it is a hand-back notice. */
+  childSessionId?: string;
 }
 
 /** A turn-level failure. */

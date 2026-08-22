@@ -50,6 +50,9 @@ several decisions below.
 | `GET /find` silently caps at 10 results | Narrow the query or shell out |
 | No git commit/log/blame route exists anywhere | Run `git log` locally in the BFF |
 | `Todo` has **no `id`** in 1.18.21 | Key task-list rows by index/content |
+| A **background** task part flips to `completed` when the *launch call* returns | Never read it as "the child finished"; only a synchronous task part proves that |
+| A background child reports back as a **user-role** message in the parent | Detect and re-render it, or it appears as a prompt the human never typed |
+| There is **no durable background-job list** | Derive child state per request; `/session/status` is process-local, so absence ≠ idle |
 | Permission precedence is **LAST-match-wins** | Put `"*"` first, specifics after — the opposite of most ACLs |
 | Non-empty legacy `prompt_async.tools` entries persist on the session | Never enforce Plan with `tools`; activate mode with append-only session rules before prompting, and restore Build from the resolved `/agent` policy |
 | `PATCH /session/{id}` appends `permission` rules | Compare the current suffix before patching so repeated same-mode prompts do not grow the ruleset |
@@ -124,7 +127,7 @@ several decisions below.
     It does not change the Plan/Build session-policy activation above. Permission and
     parked-permission notifications are suppressed while enabled because asked requests
     are handled immediately.
-11. **Recents are cross-project; they are the one non-directory-scoped route.**
+12. **Recents are cross-project; they are the one non-directory-scoped route.**
     The Hub shows recent work before a project is chosen, so `GET /api/recent-sessions`
     takes a *set* of directories instead of `?directory=`. There is no global session
     list upstream — `/session` is directory-scoped — so this is a capped, concurrency-
@@ -136,6 +139,40 @@ several decisions below.
     pinned nor previously opened in this browser stays invisible. Recents poll on
     their own 60s timer, not the 10s session poll. Invalid directories are dropped
     rather than rejected — localStorage outlives renames and moves between machines.
+13. **Sub-agent state is derived, and `unknown` is a first-class answer.**
+    OpenCode has child sessions but no durable background-job API, so
+    `server/opencode/subagents.ts` combines four upstream facts —
+    `/session/{id}/children`, the parent's task parts, `/session/status`, and the
+    child's own transcript — into one ledger keyed by **child session id**, never by
+    task-part id (resume emits several parts per child). Precedence is fixed:
+    observed busy, then the child's own final turn, then a hand-back notice in the
+    parent, then the delegating task part. A **background** task part that reports
+    `completed` means only that the launch call returned, so it is never read as a
+    finished child; a **synchronous** one blocked on the child and is. When nothing
+    settles it — a cancelled child, or an agent server that restarted mid-run — the
+    row is `unknown` and names what was checked. Three cancelled children were
+    observed in the audit with no parent notification at all, so guessing here would
+    print a confident falsehood. Cost is bounded: the newest parent page for intent,
+    and child transcripts probed only for children that are neither running nor
+    already settled, newest first, capped and concurrency-limited, with `truncated`
+    reported rather than silently implied.
+14. **A hand-back notice is identified by the child session id it names.**
+    Background children report completion by injecting a *user-role* message into
+    the parent, and nothing upstream marks it as machine-authored — left alone it
+    renders as a chat bubble the human never typed. Both detectors require an
+    outcome word *and* a child session id (the server additionally requires the id
+    to be a known child; the client also requires a delegation word, since it
+    cannot know the child set). A message that merely mentions an id settles
+    nothing and is ignored: a spurious "completed" is the expensive direction to be
+    wrong in. If upstream ever adds an explicit synthetic flag, prefer it and keep
+    this as the fallback.
+15. **Delegation controls only promise what the connected process can deliver.**
+    Stop appears solely for children `/session/status` reports busy, because abort
+    authority is process-local; background promotion is gated on
+    `/experimental/capabilities`, never on an environment variable the BFF cannot
+    read. Child endpoints verify the parent link before acting — upstream will abort
+    any id, so `/sessions/{parent}/subagents/{child}/abort` would otherwise be a
+    general-purpose abort endpoint wearing a sub-agent costume.
 
 ## Client conventions (inherited from the OpenHands runner, still enforced)
 

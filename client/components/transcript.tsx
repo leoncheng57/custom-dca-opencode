@@ -6,6 +6,7 @@
 // instead of a rebuild; see client/lib/transcript.ts.
 
 import { memo, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 
 import { Markdown } from "../ds/markdown.js";
 import { cn } from "../ds/utils.js";
@@ -80,6 +81,38 @@ function Attachments({ items }: { items: Attachment[] }) {
         );
       })}
     </div>
+  );
+}
+
+/**
+ * Link from a delegation to the session that ran it.
+ *
+ * Rendered as a sibling of the tool chip rather than inside it: the chip is a
+ * disclosure button, and nesting an anchor in a button is invalid and breaks
+ * keyboard activation of both.
+ *
+ * Without `directory` there is no addressable route — every session route is
+ * project-scoped — so the link is omitted rather than pointing somewhere wrong.
+ */
+function SubagentLink({
+  directory,
+  sessionId,
+  label,
+}: {
+  directory?: string;
+  sessionId: string;
+  label: string;
+}) {
+  if (!directory) return null;
+  return (
+    <Link
+      to={`/sessions/${sessionId}?directory=${encodeURIComponent(directory)}`}
+      className="ml-1.5 inline-flex shrink-0 items-center rounded px-1.5 py-0.5 text-[11px] text-[var(--color-text-info)] underline-offset-2 hover:underline"
+      title={sessionId}
+      data-testid="opencode-subagent-link"
+    >
+      {label} →
+    </Link>
   );
 }
 
@@ -196,14 +229,19 @@ const TOOL_BULLET: Record<ToolStatus, string> = {
   error: "text-[var(--color-text-danger)]",
 };
 
-export function ToolCallRow({ event, wrap }: { event: ToolEvent; wrap: boolean }) {
+export function ToolCallRow({ event, wrap, directory }: { event: ToolEvent; wrap: boolean; directory?: string }) {
   const [expanded, setExpanded] = useState(false);
   const failed = event.status === "error";
   const duration = formatDurationMs(event.durationMs);
   const preClass = wrap ? "whitespace-pre-wrap break-words" : "thin-scrollbar overflow-x-auto";
 
   return (
-    <div data-kind="tool" data-testid="opencode-tool" data-status={event.status}>
+    <div
+      data-kind="tool"
+      data-testid="opencode-tool"
+      data-status={event.status}
+      {...(event.childSessionId ? { "data-child-session": event.childSessionId } : {})}
+    >
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
@@ -238,6 +276,9 @@ export function ToolCallRow({ event, wrap }: { event: ToolEvent; wrap: boolean }
         )}
         <TimeLabel timestamp={event.timestamp} />
       </button>
+      {event.childSessionId && (
+        <SubagentLink directory={directory} sessionId={event.childSessionId} label="Open sub-agent" />
+      )}
 
       {expanded && (
         <div className="mt-1 space-y-1">
@@ -269,12 +310,13 @@ export function ToolCallRow({ event, wrap }: { event: ToolEvent; wrap: boolean }
   );
 }
 
-function StatusSeparator({ event }: { event: StatusEvent }) {
+function StatusSeparator({ event, directory }: { event: StatusEvent; directory?: string }) {
   return (
     <div
       className="flex items-center gap-3 text-[10px] uppercase tracking-wide text-[var(--color-text-muted)] opacity-70"
       data-kind="status"
       data-testid="opencode-status-separator"
+      {...(event.childSessionId ? { "data-child-session": event.childSessionId } : {})}
     >
       <span className="h-px flex-1 bg-[var(--color-border-default)]" aria-hidden />
       <span className="min-w-0 break-words text-center [overflow-wrap:anywhere]">
@@ -285,6 +327,9 @@ function StatusSeparator({ event }: { event: StatusEvent }) {
             {" · "}
             <time dateTime={event.timestamp}>{formatClockTime(event.timestamp)}</time>
           </>
+        )}
+        {event.childSessionId && (
+          <SubagentLink directory={directory} sessionId={event.childSessionId} label="Open sub-agent" />
         )}
       </span>
       <span className="h-px flex-1 bg-[var(--color-border-default)]" aria-hidden />
@@ -313,11 +358,13 @@ function ActionGroupRow({
   wrap,
   expanded,
   onToggle,
+  directory,
 }: {
   calls: ToolEvent[];
   wrap: boolean;
   expanded: boolean;
   onToggle: () => void;
+  directory?: string;
 }) {
   const last = calls[calls.length - 1];
   return (
@@ -337,7 +384,7 @@ function ActionGroupRow({
         <div className="mt-1.5 space-y-1.5 border-l border-[var(--color-border-default)] pl-3">
           {calls.map((call) => (
             <div key={call.id} data-event-id={call.id}>
-              <ToolCallRow event={call} wrap={wrap} />
+              <ToolCallRow event={call} wrap={wrap} directory={directory} />
             </div>
           ))}
         </div>
@@ -346,7 +393,7 @@ function ActionGroupRow({
   );
 }
 
-const TranscriptRow = memo(function TranscriptRow({ event, wrap, onExport }: { event: TranscriptEvent; wrap: boolean; onExport?: (event: UserEvent | AgentEvent) => void }) {
+const TranscriptRow = memo(function TranscriptRow({ event, wrap, onExport, directory }: { event: TranscriptEvent; wrap: boolean; onExport?: (event: UserEvent | AgentEvent) => void; directory?: string }) {
   switch (event.kind) {
     case "user":
       return <UserBubble event={event} onExport={onExport} />;
@@ -355,9 +402,9 @@ const TranscriptRow = memo(function TranscriptRow({ event, wrap, onExport }: { e
     case "thought":
       return <ThoughtRow text={event.text} durationMs={event.durationMs} />;
     case "tool":
-      return <ToolCallRow event={event} wrap={wrap} />;
+      return <ToolCallRow event={event} wrap={wrap} directory={directory} />;
     case "status":
-      return <StatusSeparator event={event} />;
+      return <StatusSeparator event={event} directory={directory} />;
     case "error":
       return <ErrorCard event={event} />;
     default:
@@ -432,12 +479,15 @@ export const Transcript = memo(function Transcript({
   collapsedGroups,
   onToggleGroup,
   onExport,
+  directory,
 }: {
   items: DisplayItem[];
   wrap: boolean;
   collapsedGroups: Record<string, boolean>;
   onToggleGroup: (id: string) => void;
   onExport?: (event: UserEvent | AgentEvent) => void;
+  /** Project scope, required to build links to delegated child sessions. */
+  directory?: string;
 }) {
   return (
     <>
@@ -453,9 +503,10 @@ export const Transcript = memo(function Transcript({
               wrap={wrap}
               expanded={collapsedGroups[item.id] !== true}
               onToggle={() => onToggleGroup(item.id)}
+              directory={directory}
             />
           ) : (
-            <TranscriptRow event={item.event} wrap={wrap} onExport={onExport} />
+            <TranscriptRow event={item.event} wrap={wrap} onExport={onExport} directory={directory} />
           )}
         </div>
       ))}

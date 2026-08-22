@@ -27,6 +27,7 @@ import {
   SessionAgentIdentityError,
   type AgentMode,
 } from "../opencode/sessions.js";
+import { listSubagents, promoteSubagentToBackground } from "../opencode/subagents.js";
 import { createWorktree } from "../opencode/worktrees.js";
 import {
   getModelCatalogue,
@@ -373,6 +374,62 @@ export function sessionRoutes(
       const directory = await directoryOf(req);
       await abortSession(config, directory, paramOf(req, "id"));
       res.json({ aborted: true });
+    }),
+  );
+
+  /**
+   * Confirm a child really belongs to the parent named in the path.
+   *
+   * Upstream will abort any session id handed to it, so without this check
+   * `/sessions/{anything}/subagents/{victim}/abort` would be a general-purpose
+   * abort endpoint wearing a sub-agent costume. The parent link is the
+   * authorization, and the directory check keeps it inside the project scope
+   * the caller already proved.
+   */
+  const ownedChild = async (directory: string, parentID: string, childID: string) => {
+    const child = await getSession(config, directory, childID).catch(() => null);
+    if (!child || child.directory !== directory || child.parentID !== parentID) {
+      throw new HttpError(404, "sub-agent session not found for this parent");
+    }
+    return child;
+  };
+
+  router.get(
+    "/sessions/:id/subagents",
+    sessionRoute(async (req, res) => {
+      const directory = await directoryOf(req);
+      res.json(await listSubagents(config, directory, paramOf(req, "id")));
+    }),
+  );
+
+  router.post(
+    "/sessions/:id/subagents/:childId/abort",
+    sessionRoute(async (req, res) => {
+      const directory = await directoryOf(req);
+      const childID = paramOf(req, "childId");
+      await ownedChild(directory, paramOf(req, "id"), childID);
+      await abortSession(config, directory, childID);
+      res.json({ aborted: true });
+    }),
+  );
+
+  /**
+   * Promote this session's currently running synchronous children to
+   * background execution. Upstream is parent-scoped and answers a bare
+   * boolean; `false` means nothing was eligible, which is a conflict rather
+   * than a server fault.
+   */
+  router.post(
+    "/sessions/:id/background",
+    sessionRoute(async (req, res) => {
+      const directory = await directoryOf(req);
+      const sessionID = paramOf(req, "id");
+      await ownedSession(directory, sessionID);
+      const promoted = await promoteSubagentToBackground(config, directory, sessionID);
+      if (!promoted) {
+        throw new HttpError(409, "No running sub-agent could be moved to the background.");
+      }
+      res.json({ promoted: true });
     }),
   );
 

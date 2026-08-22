@@ -1,0 +1,171 @@
+import { expect, test } from "@playwright/test";
+
+// Sub-agent orchestration, end to end: the built SPA against the real BFF
+// against the mock agent.
+//
+// The fixture lives in its own project directory and covers one child per
+// evidence path: busy, a child whose own transcript completed, one settled
+// only by a hand-back notice in the parent, and a background launch that was
+// silently cancelled. The last is the interesting one — nothing upstream can
+// settle it, and the requirement is that the UI admits that rather than
+// guessing.
+
+const DIR = process.platform === "darwin" ? "/private/tmp/mock-subagent-project" : "/tmp/mock-subagent-project";
+const PARENT = "ses_mock_parent";
+const CHILD_RUNNING = "ses_mock_child_running";
+const CHILD_DONE = "ses_mock_child_done";
+const CHILD_REPORTED = "ses_mock_child_reported";
+const CHILD_UNKNOWN = "ses_mock_child_unknown";
+
+const hub = `/?directory=${encodeURIComponent(DIR)}`;
+const parentUrl = `/sessions/${PARENT}?directory=${encodeURIComponent(DIR)}`;
+const childUrl = `/sessions/${CHILD_RUNNING}?directory=${encodeURIComponent(DIR)}`;
+
+test.describe("hub hierarchy", () => {
+  test("nests delegated sessions under the root that started them", async ({ page }) => {
+    await page.goto(hub);
+    const rows = page.getByTestId("opencode-session-row");
+    await expect(rows.first()).toContainText("Parallel investigation");
+    await expect(rows.first()).toHaveAttribute("data-depth", "0");
+
+    // Children follow their parent, indented, and never appear before it.
+    // The "2" is a sub-agent that delegated further: nested work must not be
+    // dropped from the only page that lists it.
+    const depths = await rows.evaluateAll((items) => items.map((item) => item.getAttribute("data-depth")));
+    expect(depths.slice(0, 6)).toEqual(["0", "1", "1", "2", "1", "1"]);
+    await expect(rows.nth(3)).toContainText("Reproduce the flake");
+  });
+
+  test("marks children with a sub pill and the root with its child count", async ({ page }) => {
+    await page.goto(hub);
+    const rows = page.getByTestId("opencode-session-row");
+    await expect(rows.first().getByTestId("opencode-session-child-count")).toHaveText("4 sub");
+    // The count is direct children only, so the nested delegation shows on the
+    // sub-agent that actually made it.
+    await expect(rows.nth(2).getByTestId("opencode-session-child-count")).toHaveText("1 sub");
+    await expect(rows.first().getByTestId("opencode-subagent-pill")).toHaveCount(0);
+    await expect(page.getByTestId("opencode-session-list").getByTestId("opencode-subagent-pill")).toHaveCount(5);
+  });
+});
+
+test.describe("child session identity", () => {
+  test("badges a sub-agent transcript and links back to its parent", async ({ page }) => {
+    await page.goto(childUrl);
+    await expect(page.getByTestId("opencode-subagent-badge")).toBeVisible();
+    const banner = page.getByTestId("opencode-parent-link");
+    await expect(banner).toContainText("Parallel investigation");
+
+    await banner.getByTestId("opencode-parent-open").click();
+    await expect(page).toHaveURL(new RegExp(`/sessions/${PARENT}`));
+    await expect(page.getByTestId("opencode-session-title")).toHaveText("Parallel investigation");
+  });
+
+  test("does not badge a root session", async ({ page }) => {
+    await page.goto(parentUrl);
+    await expect(page.getByTestId("opencode-session-title")).toHaveText("Parallel investigation");
+    await expect(page.getByTestId("opencode-subagent-badge")).toHaveCount(0);
+    await expect(page.getByTestId("opencode-parent-link")).toHaveCount(0);
+  });
+});
+
+test.describe("parent transcript", () => {
+  test("links each delegation to the session that ran it", async ({ page }) => {
+    await page.goto(parentUrl);
+    const delegation = page.locator(`[data-child-session="${CHILD_DONE}"]`).first();
+    await expect(delegation).toBeVisible();
+    await delegation.getByTestId("opencode-subagent-link").first().click();
+    await expect(page).toHaveURL(new RegExp(`/sessions/${CHILD_DONE}`));
+  });
+
+  test("keeps a successful delegation out of a collapsed action group", async ({ page }) => {
+    await page.goto(parentUrl);
+    // Four task calls in a row would otherwise fold into one "N actions
+    // completed" chevron, hiding every link to the child work.
+    await expect(page.getByTestId("opencode-action-group")).toHaveCount(0);
+    await expect(page.getByTestId("opencode-tool")).toHaveCount(4);
+  });
+
+  test("renders a machine-authored hand-back as a status row, not a user message", async ({ page }) => {
+    await page.goto(parentUrl);
+    const notice = page.locator(`[data-testid="opencode-status-separator"][data-child-session="${CHILD_REPORTED}"]`);
+    await expect(notice).toContainText("Sub-agent reported completion");
+    await expect(page.getByTestId("opencode-user-message-body").filter({ hasText: CHILD_REPORTED })).toHaveCount(0);
+  });
+});
+
+test.describe("agents panel", () => {
+  test("derives one row per child with honest evidence for each state", async ({ page }) => {
+    await page.goto(parentUrl);
+    await page.getByTestId("opencode-inspector-agents").click();
+
+    const rows = page.getByTestId("opencode-subagent-row");
+    await expect(rows).toHaveCount(4);
+
+    const running = page.locator(`[data-testid="opencode-subagent-row"][data-session="${CHILD_RUNNING}"]`);
+    await expect(running.getByTestId("opencode-subagent-state")).toHaveText("running");
+    await expect(running.getByTestId("opencode-subagent-evidence")).toContainText("busy");
+
+    const done = page.locator(`[data-testid="opencode-subagent-row"][data-session="${CHILD_DONE}"]`);
+    await expect(done.getByTestId("opencode-subagent-state")).toHaveText("completed");
+    await expect(done.getByTestId("opencode-subagent-evidence")).toContainText("own final turn");
+
+    // Settled only by the parent's hand-back notice: weaker provenance, and
+    // the panel says which artefact it read.
+    const reported = page.locator(`[data-testid="opencode-subagent-row"][data-session="${CHILD_REPORTED}"]`);
+    await expect(reported.getByTestId("opencode-subagent-state")).toHaveText("completed");
+    await expect(reported.getByTestId("opencode-subagent-evidence")).toContainText("completion notice");
+
+    // A background launch whose child never reported back. The parent task part
+    // says "completed" — that only means the launch returned.
+    const unknown = page.locator(`[data-testid="opencode-subagent-row"][data-session="${CHILD_UNKNOWN}"]`);
+    await expect(unknown.getByTestId("opencode-subagent-state")).toHaveText("unknown");
+    await expect(unknown.getByTestId("opencode-subagent-evidence")).toContainText("cancelled");
+    await expect(unknown.getByTestId("opencode-subagent-background")).toBeVisible();
+  });
+
+  test("offers Stop only for work the connected server is actually running", async ({ page }) => {
+    await page.goto(parentUrl);
+    await page.getByTestId("opencode-inspector-agents").click();
+    await expect(page.getByTestId("opencode-subagent-row")).toHaveCount(4);
+
+    await expect(page.getByTestId("opencode-subagent-abort")).toHaveCount(1);
+    const running = page.locator(`[data-testid="opencode-subagent-row"][data-session="${CHILD_RUNNING}"]`);
+    await expect(running.getByTestId("opencode-subagent-abort")).toBeVisible();
+  });
+
+  test("navigates from a panel row to the child transcript", async ({ page }) => {
+    await page.goto(parentUrl);
+    await page.getByTestId("opencode-inspector-agents").click();
+    await page
+      .locator(`[data-testid="opencode-subagent-row"][data-session="${CHILD_DONE}"]`)
+      .getByTestId("opencode-subagent-open")
+      .click();
+    await expect(page).toHaveURL(new RegExp(`/sessions/${CHILD_DONE}`));
+  });
+
+  test("summarizes states and counts sub-agents on the tab", async ({ page }) => {
+    await page.goto(parentUrl);
+    await page.getByTestId("opencode-inspector-agents").click();
+    await expect(page.getByTestId("opencode-subagents-summary")).toContainText("1 running");
+    await expect(page.getByTestId("opencode-subagents-summary")).toContainText("1 unknown");
+    await expect(page.getByTestId("opencode-inspector-agents")).toContainText("4");
+  });
+
+  test("says plainly when a session delegated nothing", async ({ page }) => {
+    await page.goto(childUrl);
+    await page.getByTestId("opencode-inspector-agents").click();
+    await expect(page.getByTestId("opencode-subagents-empty")).toBeVisible();
+    await expect(page.getByTestId("opencode-subagent-row")).toHaveCount(0);
+  });
+
+  test("is reachable on mobile", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 740 });
+    await page.goto(parentUrl);
+    await page.getByTestId("opencode-mobile-session-menu").locator("summary").click();
+    await page.getByTestId("opencode-mobile-inspector-menu-open").click();
+    const sheet = page.getByTestId("opencode-mobile-inspector");
+    await expect(sheet).toBeVisible();
+    await sheet.getByTestId("opencode-inspector-agents").click();
+    await expect(sheet.getByTestId("opencode-subagent-row")).toHaveCount(4);
+  });
+});
