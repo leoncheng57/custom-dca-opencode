@@ -21,6 +21,7 @@ import { MAX_IMAGE_ATTACHMENTS, readImageAttachment, selectImageFiles, type Imag
 import { composerEnterAction } from "../lib/composerKeys.js";
 import { collapseActionGroups, mergeEvents, runningActivity } from "../lib/derive.js";
 import { normalizeTranscript, type RawMessage } from "../lib/events.js";
+import { parseInspectorTab, type InspectorTab } from "../lib/inspectorTabs.js";
 import { useSessionStream } from "../lib/useSessionStream.js";
 import type { TranscriptEvent } from "../lib/transcript.js";
 import type { ShareTarget } from "../lib/sessionSharing.js";
@@ -42,6 +43,7 @@ export function ConversationPage() {
   const { id = "" } = useParams();
   const [params] = useSearchParams();
   const directory = params.get("directory") ?? "";
+  const panelParam = parseInspectorTab(params.get("panel"));
 
   useEffect(() => {
     if (directory && id) recordRecentSessionOpen(localStorage, directory, id);
@@ -57,6 +59,8 @@ export function ConversationPage() {
   const [composerError, setComposerError] = useState<string | null>(null);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [requestedInspectorTab, setRequestedInspectorTab] = useState<InspectorTab | undefined>();
+  const appliedPanelScope = useRef("");
   const [contextLimit, setContextLimit] = useState<number | null>(null);
   const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
@@ -83,6 +87,7 @@ export function ConversationPage() {
   const [newActivity, setNewActivity] = useState(false);
   const [shareTarget, setShareTarget] = useState<ShareTarget | null>(null);
   const [composerCollapsed, setComposerCollapsed] = useState(false);
+  const [parent, setParent] = useState<SessionSummary | null>(null);
 
   // Keep event identity stable across polls so memoised rows do not churn.
   const [events, setEvents] = useState<TranscriptEvent[]>([]);
@@ -91,6 +96,14 @@ export function ConversationPage() {
     () => normalizeTranscript(stream.messages as RawMessage[], { isRunning: stream.running }),
     [stream.messages, stream.running],
   );
+  useEffect(() => {
+    if (!panelParam) return;
+    const scope = `${id}:${panelParam}`;
+    if (appliedPanelScope.current === scope) return;
+    appliedPanelScope.current = scope;
+    setRequestedInspectorTab(panelParam);
+    if (window.matchMedia("(max-width: 1023.98px)").matches) setInspectorOpen(true);
+  }, [id, panelParam]);
   useEffect(() => {
     const scope = `${directory}\0${id}`;
     setEvents((previous) => {
@@ -154,6 +167,23 @@ export function ConversationPage() {
     if (!directory || !id) return;
     void api.modelLimit(directory, id).then((result) => setContextLimit(result.context)).catch(() => setContextLimit(null));
   }, [directory, id]);
+
+  // A sub-agent transcript is meaningless without the work that spawned it,
+  // and the parent id alone is not navigable in the UI. Resolve it to a title
+  // so the banner can name the session it links to; a failure degrades to the
+  // link without a title rather than hiding the route back.
+  const parentID = session?.parentID;
+  useEffect(() => {
+    setParent(null);
+    if (!directory || !parentID) return;
+    let cancelled = false;
+    void api.session(directory, parentID)
+      .then((result) => !cancelled && setParent(result.session))
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [directory, parentID]);
 
   useEffect(() => {
     if (!directory) return;
@@ -387,6 +417,7 @@ export function ConversationPage() {
         <h1 className="min-w-0 flex-1 truncate text-sm font-semibold" data-testid="opencode-session-title">
           {session?.title ?? "Session"}
         </h1>
+        {parentID && <Badge variant="neutral" data-testid="opencode-subagent-badge">sub</Badge>}
         {stream.running && <Badge variant="info">running</Badge>}
         {session && session.cost > 0 && (
           <span className="hidden text-xs tabular-nums text-[var(--color-text-muted)] sm:inline" data-testid="opencode-session-cost">
@@ -435,6 +466,22 @@ export function ConversationPage() {
           </div>
         </details>
       </header>
+
+      {parentID && (
+        <div className="px-3 pt-2 sm:px-4 sm:pt-3" data-testid="opencode-parent-link">
+          <p className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-background-surface-neutral-muted)] px-3 py-2 text-xs text-[var(--color-text-muted)]">
+            Delegated by{" "}
+            <Link
+              to={`/sessions/${parentID}?directory=${encodeURIComponent(directory)}`}
+              className="font-semibold text-[var(--color-text-info)] underline-offset-2 hover:underline"
+              data-testid="opencode-parent-open"
+            >
+              {parent?.title ?? "the parent session"}
+            </Link>
+            . Follow-ups here do not reach the parent.
+          </p>
+        </div>
+      )}
 
       <div className="px-3 pt-2 sm:px-4 sm:pt-3">
         <AutoPermissionsControl directory={directory} testId="opencode-conversation-auto-permissions" />
@@ -559,6 +606,7 @@ export function ConversationPage() {
                 collapsedGroups={collapsedGroups}
                 onToggleGroup={toggleGroup}
                 onExport={exportMessage}
+                directory={directory}
               />
             )}
             {stream.running && (
@@ -576,6 +624,7 @@ export function ConversationPage() {
           todos={stream.todos}
           todosLoaded={stream.todosLoaded}
           todosError={stream.todosError}
+          requestedTab={requestedInspectorTab}
           mobileOpen={inspectorOpen}
           onMobileClose={() => setInspectorOpen(false)}
         />

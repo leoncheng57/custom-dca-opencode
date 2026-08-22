@@ -51,12 +51,11 @@ export function validateSettingsPatch(value: unknown): AppSettings {
     throw new Error("settings patch must be an object");
   }
   const source = value as Record<string, unknown>;
-  const allowed = new Set(["model", "small_model", "default_agent", "subagent_depth", "compaction"]);
+  // subagent_depth remains readable through publicSettings, but it is authored
+  // in opencode.json rather than through the global settings form.
+  const allowed = new Set(["model", "small_model", "default_agent", "compaction"]);
   for (const key of Object.keys(source)) {
     if (!allowed.has(key)) throw new Error(`unsupported setting '${key}'`);
-  }
-  if ("subagent_depth" in source && optionalCount(source.subagent_depth) === undefined) {
-    throw new Error("subagent_depth must be a non-negative integer");
   }
   if ("compaction" in source) {
     if (!source.compaction || typeof source.compaction !== "object" || Array.isArray(source.compaction)) {

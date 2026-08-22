@@ -20,7 +20,7 @@ describe("public settings", () => {
 
   it("rejects unsupported and invalid patches", () => {
     expect(() => validateSettingsPatch({ provider: {} })).toThrow("unsupported setting");
-    expect(() => validateSettingsPatch({ subagent_depth: -1 })).toThrow("non-negative integer");
+    expect(() => validateSettingsPatch({ subagent_depth: 3 })).toThrow("unsupported setting");
     expect(() => validateSettingsPatch({ compaction: { reserved: 1.5 } })).toThrow("non-negative integer");
   });
 });

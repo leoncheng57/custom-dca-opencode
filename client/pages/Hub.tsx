@@ -25,6 +25,7 @@ import {
   recentlyActiveSessions,
   recentlyOpenedSessions,
 } from "../lib/recentSessions.js";
+import { buildSessionRows, isSubagentSession, MAX_SESSION_DEPTH } from "../lib/subagents.js";
 
 const DIRECTORY_KEY = "opencode.directory.v1";
 const POLL_MS = 10_000;
@@ -43,6 +44,25 @@ export function StatusPill({ running }: { running: boolean }) {
       data-testid="opencode-status-pill"
     >
       {running ? "running" : "idle"}
+    </span>
+  );
+}
+
+/**
+ * Marks a session that another session delegated to.
+ *
+ * Worth the pixels: in one audited project 124 of 149 sessions were children,
+ * so without this an unbroken list of similarly-named rows gives no clue which
+ * ones a human actually started.
+ */
+export function SubagentPill() {
+  return (
+    <span
+      className="inline-flex shrink-0 items-center rounded-full bg-[var(--color-background-surface-neutral-muted)] px-2 py-0.5 text-[11px] font-medium text-[var(--color-text-muted)]"
+      title="Delegated by another session"
+      data-testid="opencode-subagent-pill"
+    >
+      sub
     </span>
   );
 }
@@ -274,6 +294,11 @@ export function HubPage() {
     ?? sessionDirectory.split(/[\\/]/).filter(Boolean).at(-1)
     ?? sessionDirectory;
 
+  // Roots first, each immediately followed by the work it delegated. Kept as
+  // one flat row list rather than nested <ul>s so every session stays a single
+  // click target and the list keeps one uniform row rhythm.
+  const sessionRows = sessions ? buildSessionRows(sessions) : [];
+
   const recentList = (items: SessionSummary[], emptyMessage: string, testId: string) => (
     items.length === 0 ? (
       <p className="px-4 py-5 text-sm text-[var(--color-text-muted)]" data-testid={`${testId}-empty`}>
@@ -290,6 +315,7 @@ export function HubPage() {
             >
               <StatusPill running={session.running} />
               <span className="min-w-0 flex-1 truncate">{session.title}</span>
+              {isSubagentSession(session) && <SubagentPill />}
               <span
                 className="max-w-[40%] shrink-0 truncate text-[11px] text-[var(--color-text-muted)]"
                 title={session.directory}
@@ -569,18 +595,32 @@ export function HubPage() {
           </p>
         ) : (
           <ul data-testid="opencode-session-list">
-            {sessions.map((session) => (
+            {sessionRows.map(({ session, depth }) => (
               <li
                 key={session.id}
                 className="border-b border-[var(--color-border-default)] last:border-0"
                 data-testid="opencode-session-row"
+                data-depth={depth}
               >
                 <Link
                   to={`/sessions/${session.id}?directory=${encodeURIComponent(session.directory)}`}
-                  className="flex min-w-0 items-center gap-3 px-4 py-3 text-sm hover:bg-[var(--hh-row-hover)]"
+                  className="flex min-w-0 items-center gap-3 py-3 pr-4 text-sm hover:bg-[var(--hh-row-hover)]"
+                  // Indent stops at MAX_SESSION_DEPTH so a deep delegation
+                  // chain cannot squeeze the title out of the row.
+                  style={{ paddingLeft: `${1 + Math.min(depth, MAX_SESSION_DEPTH) * 1.5}rem` }}
                 >
                   <StatusPill running={session.running} />
                   <span className="min-w-0 flex-1 truncate">{session.title}</span>
+                  {isSubagentSession(session) && <SubagentPill />}
+                  {session.childCount > 0 && (
+                    <span
+                      className="shrink-0 text-[11px] text-[var(--color-text-muted)]"
+                      title={`${session.childCount} delegated sub-agent sessions`}
+                      data-testid="opencode-session-child-count"
+                    >
+                      {session.childCount} sub
+                    </span>
+                  )}
                   {session.cost > 0 && (
                     <span className="shrink-0 text-xs tabular-nums text-[var(--color-text-muted)]">
                       {formatCost(session.cost)}

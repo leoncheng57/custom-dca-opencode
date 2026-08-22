@@ -156,6 +156,52 @@ export function toolDetail(input: Record<string, unknown> | undefined): string |
   return undefined;
 }
 
+/**
+ * The child session a tool call delegated to, if any.
+ *
+ * Keyed on `state.metadata.sessionId` rather than on the tool being named
+ * "task": the field is what makes a delegation identifiable, it is stable
+ * across launch and resume, and it survives the launch tool being renamed.
+ */
+export function childSessionIdOf(part: RawPart): string | undefined {
+  const metadata = part.state?.metadata;
+  if (!metadata || typeof metadata !== "object") return undefined;
+  const source = metadata as Record<string, unknown>;
+  const value = source.sessionId ?? source.sessionID;
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+// ── Sub-agent hand-back notices ─────────────────────────────────────────────
+//
+// A background child reports back by injecting a USER-role message into its
+// parent. Nothing upstream marks it as machine-authored, so left alone it
+// renders as a chat bubble attributed to the human — who never typed it.
+//
+// The signature required here is deliberately narrow: a child session id, a
+// word establishing that the message is about delegated work, and an outcome.
+// A human prompt satisfying all three is vanishingly unlikely, and the cost of
+// a miss is only that a notice keeps rendering the way it does today.
+
+const SESSION_ID_RE = /\bses_[A-Za-z0-9_-]{6,}\b/u;
+const DELEGATION_RE = /\b(background|sub-?agent|child session|delegated|task)\b/iu;
+const NOTICE_FAILED_RE = /\b(fail(?:s|ed|ure)?|error(?:ed|s)?|abort(?:ed)?|cancell?(?:ed)?|crash(?:ed)?)\b/iu;
+const NOTICE_DONE_RE = /\b(complet(?:e|ed|ion)|finish(?:ed)?|done|succe(?:ss|eded|eds))\b/iu;
+
+export interface SubagentNotice {
+  childSessionId: string;
+  outcome: "completed" | "failed";
+}
+
+/** Recognize a machine-authored sub-agent hand-back, or return null. */
+export function subagentNotice(text: string): SubagentNotice | null {
+  const id = SESSION_ID_RE.exec(text)?.[0];
+  if (!id || !DELEGATION_RE.test(text)) return null;
+  // Failure is tested first so "failed to complete" is not read as success.
+  if (NOTICE_FAILED_RE.test(text)) return { childSessionId: id, outcome: "failed" };
+  if (NOTICE_DONE_RE.test(text)) return { childSessionId: id, outcome: "completed" };
+  return null;
+}
+
 function toolStatus(raw: string | undefined): ToolStatus {
   switch (raw) {
     case "pending":
@@ -187,6 +233,23 @@ function normalizePart(
       const text = part.text?.trim();
       if (!text) return null;
       if (isUser) {
+        // A sub-agent hand-back is machine-authored; rendering it as a human
+        // bubble misattributes it to the user and buries the outcome.
+        const notice = subagentNotice(text);
+        if (notice) {
+          return {
+            kind: "status",
+            id,
+            messageId,
+            timestamp: iso(created, created),
+            label: notice.outcome === "failed" ? "Sub-agent reported a failure" : "Sub-agent reported completion",
+            // A success needs no elaboration — the label says it and the link
+            // reaches the work. A failure's reason is the whole point, so it
+            // is the one case worth spending a separator line on.
+            ...(notice.outcome === "failed" ? { detail: text } : {}),
+            childSessionId: notice.childSessionId,
+          };
+        }
         const split = splitReminderTags(text);
         if (!split.text && split.reminders.length === 0) return null;
         return {
@@ -220,6 +283,7 @@ function normalizePart(
     case "tool": {
       const state = part.state || {};
       const status = toolStatus(state.status);
+      const childSessionId = childSessionIdOf(part);
       return {
         kind: "tool",
         id,
@@ -236,6 +300,7 @@ function normalizePart(
         error: state.error,
         durationMs: duration(state.time),
         attachments: [],
+        ...(childSessionId ? { childSessionId } : {}),
       };
     }
 

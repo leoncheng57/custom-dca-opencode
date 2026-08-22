@@ -12,11 +12,12 @@ import {
   type CommandEntry,
 } from "../lib/derive.js";
 import { api, type CatalogResponse, type McpStatus, type Todo } from "../lib/api.js";
+import { INSPECTOR_TABS, type InspectorTab } from "../lib/inspectorTabs.js";
+import { useSubagents, type SubagentsState } from "../lib/useSubagents.js";
 import type { TranscriptEvent } from "../lib/transcript.js";
 import { ReviewCard } from "./review-card.js";
+import { SubagentPanel } from "./subagent-panel.js";
 import { Link } from "react-router-dom";
-
-type InspectorTab = "todo" | "runlog" | "reviews" | "catalog";
 
 interface SessionInspectorProps {
   directory: string;
@@ -24,6 +25,7 @@ interface SessionInspectorProps {
   todos: Todo[];
   todosLoaded: boolean;
   todosError: string | null;
+  requestedTab?: InspectorTab;
   mobileOpen?: boolean;
   onMobileClose?: () => void;
 }
@@ -31,6 +33,7 @@ interface SessionInspectorProps {
 const TAB_LABELS: Record<InspectorTab, string> = {
   todo: "Todo",
   runlog: "Run log",
+  subagents: "Subagents",
   reviews: "Reviews",
   catalog: "Catalog",
 };
@@ -175,6 +178,7 @@ function InspectorContent({
   onExportCommands,
   commandExporting,
   commandExportError,
+  subagents,
 }: {
   catalogue: CatalogResponse | null;
   catalogError: string | null;
@@ -192,15 +196,20 @@ function InspectorContent({
   onExportCommands: () => void;
   commandExporting: boolean;
   commandExportError: string | null;
+  subagents: SubagentsState;
 }) {
+  const subagentCount = subagents.report?.tasks.length ?? 0;
   return (
     <>
       <nav className="thin-scrollbar sticky top-0 z-10 flex overflow-x-auto border-b border-[var(--color-border-default)] bg-[var(--color-background-surface)] p-1" aria-label="Session detail panels">
-        {(["todo", "runlog", "reviews", "catalog"] as const).map((name) => (
+        {INSPECTOR_TABS.map((name) => (
           <button
             key={name}
             type="button"
-            className={`min-h-11 min-w-[4.5rem] shrink-0 flex-1 rounded px-2 py-1.5 text-xs lg:min-h-0 ${
+            // 3.75rem keeps all five tabs inside the 320px desktop aside
+            // without a horizontal scroll; the nav still scrolls if a sixth
+            // is ever added.
+            className={`min-h-11 min-w-[3.75rem] shrink-0 flex-1 rounded px-1.5 py-1.5 text-xs lg:min-h-0 ${
               tab === name
                 ? "bg-[var(--color-background-surface-neutral-muted)] font-semibold"
                 : "text-[var(--color-text-muted)]"
@@ -211,6 +220,7 @@ function InspectorContent({
             {TAB_LABELS[name]}
             {name === "todo" && todos.length ? ` ${todos.length}` : ""}
             {name === "runlog" && commands.length ? ` ${commands.length}` : ""}
+            {name === "subagents" && subagentCount ? ` ${subagentCount}` : ""}
             {name === "reviews" && links.length ? ` ${links.length}` : ""}
           </button>
         ))}
@@ -265,6 +275,21 @@ function InspectorContent({
               </ol>
             )}
           </section>
+        )}
+
+        {tab === "subagents" && (
+          <SubagentPanel
+            directory={directory}
+            report={subagents.report}
+            loading={subagents.loading}
+            error={subagents.error}
+            busyChild={subagents.busyChild}
+            promoting={subagents.promoting}
+            actionError={subagents.actionError}
+            onRefresh={subagents.refresh}
+            onAbort={subagents.abortChild}
+            onPromote={subagents.promote}
+          />
         )}
 
         {tab === "reviews" && (
@@ -348,7 +373,7 @@ function MobileInspector({ onClose, children }: { onClose: () => void; children:
   );
 }
 
-export function SessionInspector({ directory, sessionID, events, todos, todosLoaded, todosError, mobileOpen = false, onMobileClose }: SessionInspectorProps & { sessionID: string }) {
+export function SessionInspector({ directory, sessionID, events, todos, todosLoaded, todosError, requestedTab, mobileOpen = false, onMobileClose }: SessionInspectorProps & { sessionID: string }) {
   const commandScope = `${directory}\0${sessionID}`;
   const commands = useMemo(() => extractCommands(events), [events]);
   const links = useMemo(() => extractMrUrls(events), [events]);
@@ -364,11 +389,18 @@ export function SessionInspector({ directory, sessionID, events, todos, todosLoa
     commandExportScope.current = commandScope;
     commandExportGeneration.current += 1;
   }
+  // Owned here rather than inside the panel: the panel renders twice on a
+  // phone (desktop aside plus mobile sheet share this parent), and a
+  // self-fetching panel would run two poll loops against the same session.
+  const subagents = useSubagents(directory, sessionID, tab === "subagents");
   const catalogRequest = useRef<{ id: number; controller: AbortController } | null>(null);
   const catalogueRef = useRef(catalogue);
   const directoryRef = useRef(directory);
   catalogueRef.current = catalogue;
   directoryRef.current = directory;
+  useEffect(() => {
+    if (requestedTab) setTab(requestedTab);
+  }, [requestedTab]);
   const exportCompleteCommands = useCallback(() => {
     const generation = commandExportGeneration.current;
     setCommandExporting(true);
@@ -435,6 +467,7 @@ export function SessionInspector({ directory, sessionID, events, todos, todosLoa
       onExportCommands={exportCompleteCommands}
       commandExporting={commandExporting}
       commandExportError={commandExportError}
+      subagents={subagents}
     />
   );
 

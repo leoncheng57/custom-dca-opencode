@@ -11,7 +11,10 @@ export interface SessionSummary {
   id: string;
   title: string;
   directory: string;
+  /** Present when another session delegated this one — i.e. it is a sub-agent. */
   parentID?: string;
+  /** Non-archived children in the same directory. Zero for a leaf session. */
+  childCount: number;
   agent?: string;
   model?: ModelSelection;
   cost: number;
@@ -33,6 +36,40 @@ export interface Todo {
   content: string;
   status: string;
   priority: string;
+}
+
+/** Mirrors `server/opencode/subagents.ts`; see there for how each is derived. */
+export type SubagentState = "launched" | "running" | "completed" | "failed" | "unknown";
+
+export type SubagentEvidence =
+  | "session-status"
+  | "child-transcript"
+  | "parent-completion"
+  | "parent-task-part"
+  | "launch-only"
+  | "no-terminal-evidence";
+
+export interface SubagentTask {
+  sessionID: string;
+  parentID: string;
+  title: string;
+  agent?: string;
+  description?: string;
+  state: SubagentState;
+  evidence: SubagentEvidence;
+  background: boolean;
+  present: boolean;
+  createdAt: string;
+  updatedAt: string;
+  cost: number;
+  detail?: string;
+}
+
+export interface SubagentReport {
+  parentID: string;
+  tasks: SubagentTask[];
+  capabilities: { backgroundSubagents: boolean };
+  truncated: boolean;
 }
 
 export interface HealthResponse {
@@ -367,6 +404,22 @@ export const api = {
   abort: (directory: string, id: string) =>
     fetch(scoped(`/sessions/${encodeURIComponent(id)}/abort`, directory), { method: "POST" }).then(
       (r) => json<{ aborted: boolean }>(r),
+    ),
+
+  subagents: (directory: string, id: string, signal?: AbortSignal) =>
+    fetch(scoped(`/sessions/${encodeURIComponent(id)}/subagents`, directory), { signal }).then((r) =>
+      json<SubagentReport>(r),
+    ),
+
+  abortSubagent: (directory: string, id: string, childID: string) =>
+    fetch(
+      scoped(`/sessions/${encodeURIComponent(id)}/subagents/${encodeURIComponent(childID)}/abort`, directory),
+      { method: "POST" },
+    ).then((r) => json<{ aborted: boolean }>(r)),
+
+  backgroundSubagents: (directory: string, id: string) =>
+    fetch(scoped(`/sessions/${encodeURIComponent(id)}/background`, directory), { method: "POST" }).then(
+      (r) => json<{ promoted: boolean }>(r),
     ),
 
   remove: (directory: string, id: string) =>

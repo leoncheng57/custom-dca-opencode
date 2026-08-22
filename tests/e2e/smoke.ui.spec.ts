@@ -1144,10 +1144,28 @@ test.describe("question remote control", () => {
 });
 
 test.describe("settings and tools UI", () => {
+  test("shows inherited defaults without turning them into overrides", async ({ page }) => {
+    // The API tier mutates the mock's process-global config in parallel. This
+    // assertion is specifically about the all-inherited response, so pin that
+    // response at the browser boundary instead of depending on test order.
+    await page.route("**/api/settings", (route) => route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ settings: {} }),
+    }));
+    await page.goto("/settings");
+    await expect(page.getByTestId("opencode-setting-subagent-depth")).toHaveAttribute("readonly", "");
+    await expect(page.getByTestId("opencode-setting-subagent-depth")).toHaveValue("1 (OpenCode default)");
+    await expect(page.getByTestId("opencode-compaction-auto")).toHaveValue("default");
+    await expect(page.getByTestId("opencode-compaction-auto").locator("option:checked")).toHaveText("Default (on)");
+    await expect(page.getByTestId("opencode-compaction-prune").locator("option:checked")).toHaveText("Default (off)");
+    await expect(page.getByTestId("opencode-compaction-reserved")).toHaveValue("");
+  });
+
   test("edits compaction settings", async ({ page }) => {
     await page.goto("/settings");
     await page.getByTestId("opencode-setting-model").fill("anthropic/claude-opus-5");
-    await page.getByTestId("opencode-compaction-auto").check();
+    await page.getByTestId("opencode-compaction-auto").selectOption("on");
     await page.getByTestId("opencode-compaction-reserved").fill("4096");
     await page.getByTestId("opencode-settings-save").click();
     await expect(page.getByText("Saved", { exact: true })).toBeVisible();
