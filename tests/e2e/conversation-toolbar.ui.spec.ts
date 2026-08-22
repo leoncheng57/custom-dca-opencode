@@ -12,16 +12,24 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 //      Details disclosure and still renders the full warning text;
 //   4. nothing touch-reachable at phone width drops below a 44px hit area.
 
-const DIR = process.platform === "darwin" ? "/private/tmp/mock-project" : "/tmp/mock-project";
-const conversation = `/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`;
+// Auto permissions is per-directory in-memory BFF state and this file toggles
+// it, so it owns a directory no other spec touches. Playwright runs spec files
+// in parallel against a single BFF: sharing /tmp/mock-project with the UI and
+// API specs that also toggle the flag made all three flip it under each other,
+// which passed in isolation and failed intermittently in a full run.
+const TOOLBAR_DIR = process.platform === "darwin"
+  ? "/private/tmp/mock-toolbar-project"
+  : "/tmp/mock-toolbar-project";
+const conversation = `/sessions/ses_mock_toolbar?directory=${encodeURIComponent(TOOLBAR_DIR)}`;
 
 const DESKTOP = { width: 1280, height: 800 } as const;
 const MOBILE = { width: 390, height: 740 } as const;
 
-/** The BFF keeps auto permissions in memory per directory; reset it so a
- *  neighbouring spec cannot leave this one starting from ON. */
+/** The BFF keeps auto permissions in memory per directory, and this file's
+ *  tests turn it on. Reset between them so an earlier test cannot leave a
+ *  later one starting from ON — TOOLBAR_DIR keeps that entirely in this file. */
 async function resetAutoPermissions(page: Page): Promise<void> {
-  await page.request.patch(`/api/auto-approve?directory=${encodeURIComponent(DIR)}`, {
+  await page.request.patch(`/api/auto-approve?directory=${encodeURIComponent(TOOLBAR_DIR)}`, {
     data: { enabled: false },
   });
 }

@@ -29,6 +29,13 @@ several decisions below.
   suffixes). `npm run typecheck` runs the client, server, and screenshot-tool tsconfigs.
   Playwright starts deterministic mock OpenCode and preview servers, so
   `npm run test:e2e` needs no live stack or keys.
+- **Playwright runs spec _files_ in parallel against one BFF process.** Tests inside a
+  file are serial; files are not. So any BFF state that is not per-request is shared
+  across files, and a spec that both mutates and asserts it must own its key. Auto
+  permissions is the live example: it is directory-scoped in-memory state, and
+  `tests/e2e-auto-permissions-ownership.test.ts` fails the build if two spec files
+  toggle the same directory. Give a new file its own mock directory instead. This class
+  of bug passes in isolation and fails somewhere else on each full run.
 - PR screenshot requests are routes inside one fenced `screenshots` block in the PR
   body; the exact schema and local command are in README. Capture is an
   unprivileged fork-safe workflow. Only the default-branch publisher may validate
