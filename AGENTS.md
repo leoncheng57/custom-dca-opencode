@@ -29,13 +29,18 @@ several decisions below.
   suffixes). `npm run typecheck` runs the client, server, and screenshot-tool tsconfigs.
   Playwright starts deterministic mock OpenCode and preview servers, so
   `npm run test:e2e` needs no live stack or keys.
-- **Playwright runs spec _files_ in parallel against one BFF process.** Tests inside a
-  file are serial; files are not. So any BFF state that is not per-request is shared
-  across files, and a spec that both mutates and asserts it must own its key. Auto
-  permissions is the live example: it is directory-scoped in-memory state, and
-  `tests/e2e-auto-permissions-ownership.test.ts` fails the build if two spec files
-  toggle the same directory. Give a new file its own mock directory instead. This class
-  of bug passes in isolation and fails somewhere else on each full run.
+- **Playwright runs spec _files_ in parallel against one BFF _and one mock_.** Tests
+  inside a file are serial; files are not, and `test.describe.serial` orders only the
+  file it is written in. So any state that is not per-request — BFF memory *or* the mock
+  server's fixture objects — is shared across files, and a spec that both mutates and
+  asserts it must own its key. Two flavours have shipped: auto permissions
+  (directory-scoped BFF memory) and the mock's `/test/*/reset` endpoints, where
+  `sharing/reset` deleted `share` from every session in every directory, so
+  share-export.ui revoked the URL smoke.api was mid-assertion on. Hence: **a reset must
+  only clear what its caller named**, and no two files may name the same key — mock
+  directory, question scope or share-fixture session. `tests/e2e-shared-state-ownership.test.ts`
+  fails the build otherwise. This class of bug passes in isolation and fails somewhere
+  else on each full run, so it is diagnosed from the rule, not from a repro.
 - PR screenshot requests are routes inside one fenced `screenshots` block in the PR
   body; the exact schema and local command are in README. Capture is an
   unprivileged fork-safe workflow. Only the default-branch publisher may validate

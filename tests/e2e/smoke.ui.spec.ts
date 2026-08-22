@@ -750,8 +750,11 @@ test.describe("composer", () => {
   test("auto-approves once, leaves questions visible, and surfaces reply failures", async ({ page, request }) => {
     await request.patch(`/api/auto-approve?directory=${DIR}`, { data: { enabled: false } });
     await fetch(`${MOCK_URL}/test/permissions/reset?directory=${encodeURIComponent(DIR)}`, { method: "POST" });
-    await fetch(`${MOCK_URL}/test/questions/reset?scope=api`, { method: "POST" });
-    await page.goto(`/sessions/ses_mock_running?directory=${encodeURIComponent(DIR)}`);
+    // scope=ui/ses_mock_done, not scope=api/ses_mock_running: smoke.api.spec.ts owns
+    // the api-scoped question and answers it on another worker, so resetting it here
+    // and asserting it stays visible is an assertion about that file's timing.
+    await fetch(`${MOCK_URL}/test/questions/reset?scope=ui`, { method: "POST" });
+    await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
     const control = page.getByTestId("opencode-conversation-auto-permissions");
     await expect(control).toContainText("Auto permissions: OFF");
     await control.getByTestId("opencode-conversation-auto-permissions-toggle").click();
@@ -761,7 +764,7 @@ test.describe("composer", () => {
     await fetch(`${MOCK_URL}/test/permission?directory=${encodeURIComponent(DIR)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, sessionID: "ses_mock_running", permission: "bash", patterns: ["npm test"] }),
+      body: JSON.stringify({ id, sessionID: "ses_mock_done", permission: "bash", patterns: ["npm test"] }),
     });
     await expect.poll(async () => await (await fetch(`${MOCK_URL}/test/permission-replies`)).json())
       .toContainEqual({ id, reply: "once" });
@@ -772,7 +775,7 @@ test.describe("composer", () => {
     await fetch(`${MOCK_URL}/test/permission?directory=${encodeURIComponent(DIR)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: failedID, sessionID: "ses_mock_running", permission: "external_directory", patterns: ["/tmp/*"] }),
+      body: JSON.stringify({ id: failedID, sessionID: "ses_mock_done", permission: "external_directory", patterns: ["/tmp/*"] }),
     });
     await expect(control.getByTestId("opencode-conversation-auto-permissions-error"))
       .toContainText("Could not auto-approve external_directory");

@@ -7,7 +7,11 @@ const MOCK_URL = `http://127.0.0.1:${process.env.MOCK_OPENCODE_PORT || 4599}`;
 
 test.describe.serial("share and export", () => {
   test.beforeEach(async () => {
-    await fetch(`${MOCK_URL}/test/sharing/reset`, { method: "POST" });
+    // Only the session this file shares. `test.describe.serial` orders the tests
+    // *inside* this file; it says nothing about the other files Playwright runs
+    // in parallel against the same mock, and smoke.api.spec.ts is asserting on
+    // its own share fixtures while these hooks fire.
+    await fetch(`${MOCK_URL}/test/sharing/reset?session=ses_mock_done`, { method: "POST" });
   });
 
   test("runs the full modal operations without exporting tools or signatures and restores focus", async ({ page, context }) => {
