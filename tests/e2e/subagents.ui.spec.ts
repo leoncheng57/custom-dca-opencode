@@ -76,8 +76,10 @@ test.describe("parent transcript", () => {
     const cards = page.getByTestId("opencode-task-card");
     await expect(cards).toHaveCount(6);
     await expect(cards.first().getByTestId("opencode-task-metadata")).toContainText("Foreground");
+    await expect(cards.first().getByTestId("opencode-task-metadata")).toContainText("Agent: explore");
     await expect(cards.first().getByTestId("opencode-task-metadata")).toContainText("claude-opus-5-with-an-intentionally-long-unbroken-model-name");
     await expect(cards.nth(2).getByTestId("opencode-task-metadata")).toContainText("Background");
+    await expect(cards.nth(2).getByTestId("opencode-task-metadata")).toContainText("Agent: general");
   });
 
   test("keeps disclosure and child navigation as accessible sibling controls", async ({ page }) => {

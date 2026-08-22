@@ -120,7 +120,7 @@ function SubagentLink({
 function TaskPills({ event }: { event: ToolEvent }) {
   const pills = [
     event.taskExecution && { label: event.taskExecution === "background" ? "Background" : "Foreground", variant: "info" as const },
-    event.taskMode && { label: event.taskMode === "plan" ? "Plan" : "Build", variant: "neutral" as const },
+    event.taskAgent && { label: `Agent: ${event.taskAgent}`, variant: "neutral" as const },
     event.taskModel && { label: event.taskModel, variant: "neutral" as const },
   ].filter((value): value is { label: string; variant: "info" | "neutral" } => Boolean(value));
   if (pills.length === 0) return null;

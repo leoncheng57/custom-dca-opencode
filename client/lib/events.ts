@@ -21,7 +21,6 @@ import type {
   Attachment,
   InterruptedState,
   TaskExecution,
-  TaskMode,
   ToolStatus,
   Transcript,
   TranscriptEvent,
@@ -175,7 +174,7 @@ export function childSessionIdOf(part: RawPart): string | undefined {
 
 interface NormalizedTaskMetadata {
   taskExecution?: TaskExecution;
-  taskMode?: TaskMode;
+  taskAgent?: string;
   taskModel?: string;
 }
 
@@ -198,8 +197,7 @@ export function taskMetadataOf(part: RawPart): NormalizedTaskMetadata {
   const metadata = part.state?.metadata;
   if (!input || !metadata) return {};
 
-  const rawMode = nonEmptyString(input.subagent_type);
-  const taskMode: TaskMode | undefined = rawMode === "plan" || rawMode === "build" ? rawMode : undefined;
+  const taskAgent = nonEmptyString(input.subagent_type);
   const model = metadata.model;
   const modelRecord = model && typeof model === "object" ? model as Record<string, unknown> : undefined;
   const providerID = nonEmptyString(modelRecord?.providerID);
@@ -207,7 +205,7 @@ export function taskMetadataOf(part: RawPart): NormalizedTaskMetadata {
   const verifiedTask = Boolean(
     nonEmptyString(input.description) &&
     nonEmptyString(input.prompt) &&
-    nonEmptyString(input.subagent_type) &&
+    taskAgent &&
     nonEmptyString(metadata.parentSessionId) &&
     nonEmptyString(metadata.sessionId) &&
     providerID &&
@@ -223,7 +221,7 @@ export function taskMetadataOf(part: RawPart): NormalizedTaskMetadata {
 
   return {
     ...(taskExecution ? { taskExecution } : {}),
-    ...(taskMode ? { taskMode } : {}),
+    ...(taskAgent ? { taskAgent } : {}),
     ...(taskModel ? { taskModel } : {}),
   };
 }

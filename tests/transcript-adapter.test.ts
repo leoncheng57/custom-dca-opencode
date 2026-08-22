@@ -108,10 +108,10 @@ describe("task metadata", () => {
     parts: [{ id: "prt_task", messageID: "msg_task", type: "tool", tool: "task", state }],
   });
 
-  it("normalizes verified foreground, mode, model, and child fields", () => {
+  it("normalizes verified foreground, agent, model, and child fields", () => {
     const [event] = normalizeMessage(task({
       status: "completed",
-      input: { description: "Inspect architecture", prompt: "Review the boundaries", subagent_type: "plan" },
+      input: { description: "Inspect architecture", prompt: "Review the boundaries", subagent_type: "explore" },
       metadata: {
         parentSessionId: "ses_parent",
         sessionId: "ses_child_exact",
@@ -122,16 +122,16 @@ describe("task metadata", () => {
     expect(event).toMatchObject({
       name: "task",
       taskExecution: "foreground",
-      taskMode: "plan",
+      taskAgent: "explore",
       taskModel: "claude-opus-5",
       childSessionId: "ses_child_exact",
     });
   });
 
-  it("normalizes explicit background execution and Build mode", () => {
+  it("normalizes explicit background execution and the selected subagent", () => {
     const [event] = normalizeMessage(task({
       status: "running",
-      input: { description: "Implement change", prompt: "Edit the files", subagent_type: "build", background: true },
+      input: { description: "Implement change", prompt: "Edit the files", subagent_type: "general", background: true },
       metadata: {
         parentSessionId: "ses_parent",
         sessionId: "ses_child_background",
@@ -139,7 +139,7 @@ describe("task metadata", () => {
         background: true,
       },
     })) as ToolEvent[];
-    expect(event).toMatchObject({ taskExecution: "background", taskMode: "build" });
+    expect(event).toMatchObject({ taskExecution: "background", taskAgent: "general" });
   });
 
   it("omits unknown and malformed task values instead of guessing", () => {
@@ -289,7 +289,7 @@ describe("frozen contract", () => {
     tool: [
       "kind", "id", "messageId", "timestamp", "status", "name",
       "title", "detail", "output", "error", "durationMs", "attachments",
-      "taskExecution", "taskMode", "taskModel", "childSessionId",
+      "taskExecution", "taskAgent", "taskModel", "childSessionId",
     ],
     status: ["kind", "id", "messageId", "timestamp", "label", "detail", "childSessionId"],
     error: ["kind", "id", "messageId", "timestamp", "message"],
