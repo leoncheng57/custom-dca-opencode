@@ -4,6 +4,12 @@ import { sendNtfy } from "../notifications/ntfy.js";
 import { HistoryStore } from "../notifications/history.js";
 import { NOTIFY_EVENTS, PreferenceStore, type NotifyEvent } from "../notifications/preferences.js";
 
+export const NTFY_TEST_MESSAGE = {
+  event: "idle" as const,
+  title: "OpenCode notification test",
+  body: "Your phone notification path is working.",
+};
+
 function queryString(value: unknown): string | undefined {
   return typeof value === "string" && value ? value : undefined;
 }
@@ -50,7 +56,7 @@ export function notificationRoutes(
     store
       .read()
       .then((preferences) =>
-        sendNtfy(preferences, { event: "idle", title: "OpenCode notification test", body: "Notifications are configured." }),
+        sendNtfy(preferences, NTFY_TEST_MESSAGE),
       )
       .then(() => res.json({ sent: true }))
       .catch((error: unknown) => res.status(502).json({ error: error instanceof Error ? error.message : String(error) }));

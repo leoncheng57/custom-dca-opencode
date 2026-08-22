@@ -4,7 +4,13 @@ import path from "node:path";
 import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { classifyEvent, NotificationService } from "../server/notifications/service.js";
+import {
+  classifyEvent,
+  NTFY_BODY_LIMIT,
+  NTFY_TITLE_LIMIT,
+  NotificationService,
+  outboundMessage,
+} from "../server/notifications/service.js";
 import type { EventBus } from "../server/opencode/events.js";
 import { HistoryStore } from "../server/notifications/history.js";
 import {
@@ -13,6 +19,7 @@ import {
 } from "../server/notifications/preferences.js";
 import { sendNtfy } from "../server/notifications/ntfy.js";
 import type { SessionMetadata } from "../server/opencode/sessions.js";
+import { NTFY_TEST_MESSAGE } from "../server/routes/notifications.js";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -76,7 +83,7 @@ describe("ntfy delivery", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe("https://ntfy.sh/team");
-    expect(init?.headers).toMatchObject({ Authorization: "Bearer secret", Click: click });
+    expect(init?.headers).toMatchObject({ Authorization: "Bearer secret", Click: click, Tags: "question" });
     expect(init?.redirect).toBe("manual");
 
     await expect(sendNtfy(
@@ -85,6 +92,80 @@ describe("ntfy delivery", () => {
       "secret",
     )).rejects.toThrow("untrusted origin");
     expect(fetchMock).toHaveBeenCalledOnce();
+  });
+});
+
+describe("outbound ntfy copy", () => {
+  const event = (type: string, properties: Record<string, unknown> = {}) => ({
+    type,
+    directory: "/tmp/project",
+    properties: { sessionID: "ses_private", ...properties },
+  });
+
+  it("uses a compact session title capped for the lock screen", () => {
+    const message = outboundMessage(
+      event("session.idle"),
+      "idle",
+      `  Rewrite   notifications ${"x".repeat(100)}  `,
+    );
+    expect(message.title).toBe(`Rewrite notifications ${"x".repeat(55)}...`);
+    expect(message.title).toHaveLength(NTFY_TITLE_LIMIT);
+    expect(message.body).toBe("Finished its turn and is waiting for you");
+  });
+
+  it.each([
+    ["permission", event("permission.asked", { permission: "bash" }), "\u{1F510} Needs approval to run bash"],
+    ["question", event("question.asked", {
+      id: "que_1",
+      questions: [{ question: "Which release should I deploy?", header: "Release", options: [] }],
+    }), "\u{2753} Needs your answer: Which release should I deploy?"],
+    ["idle", event("session.idle"), "Finished its turn and is waiting for you"],
+    ["error", event("session.error", { error: { name: "ProviderError" } }), "\u{26A0}\u{FE0F} Stopped with an error: ProviderError"],
+    ["abort", event("session.error", { error: { name: "MessageAbortedError" } }), "Stopped at your request"],
+  ] as const)("uses approved %s copy", (kind, notificationEvent, body) => {
+    const message = outboundMessage(notificationEvent, kind, "Release work");
+    expect(message.title).toBe("Release work");
+    expect(message.body).toBe(body);
+    expect(message.body.length).toBeLessThanOrEqual(NTFY_BODY_LIMIT);
+  });
+
+  it("falls back rather than exposing absent or unsafe details", () => {
+    const permission = outboundMessage(event("permission.asked", {
+      permission: "BASH /tmp/private",
+      metadata: { output: "/tmp/private/output.txt", token: "sk-secret-token" },
+      patterns: ["npm test -- --output /tmp/private/output.txt"],
+    }), "permission", "ses_private");
+    const question = outboundMessage(event("question.asked", {
+      id: "que_1",
+      questions: [{ question: "Use /tmp/private/output.txt with sk-secret-token?", header: "Secret", options: [] }],
+    }), "question", undefined);
+    const error = outboundMessage(event("session.error", {
+      error: { name: "ProviderError", message: "failed at /tmp/private/output.txt with sk-secret-token" },
+    }), "error", undefined);
+
+    expect(permission).toMatchObject({ title: "OpenCode needs permission", body: "\u{1F510} Needs your approval" });
+    expect(question.body).toBe("\u{2753} Needs your answer");
+    expect(error.body).toBe("\u{26A0}\u{FE0F} Stopped with an error: ProviderError");
+    for (const message of [permission, question, error]) {
+      expect(`${message.title} ${message.body}`).not.toMatch(/ses_private|\/tmp\/private|sk-secret-token|output\.txt/u);
+    }
+  });
+
+  it("uses human-readable parked duration and a bounded body", () => {
+    const message = outboundMessage(event("permission.asked", { permission: "bash" }), "parked", "Release work", 90);
+    expect(message).toMatchObject({
+      title: "Release work",
+      body: "\u{23F3} Still waiting 1 minute 30 seconds for approval: bash",
+      priority: "high",
+    });
+  });
+
+  it("keeps the explicit test-route title and revised confirmation copy", () => {
+    expect(NTFY_TEST_MESSAGE).toEqual({
+      event: "idle",
+      title: "OpenCode notification test",
+      body: "Your phone notification path is working.",
+    });
   });
 });
 
@@ -265,6 +346,7 @@ describe("root session notification filtering", () => {
     // Whitespace is normalised on parse; the record keeps what was true when
     // it fired, because the session may be renamed or deleted later.
     expect((await history.list())[0].sessionTitle).toBe("Rewrite the   notification popover");
+    expect(fetchMock.mock.calls[0][1]?.headers).toMatchObject({ Title: "Rewrite the notification popover" });
     service.stop();
   });
 

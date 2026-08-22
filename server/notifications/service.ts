@@ -1,6 +1,7 @@
 import type { OpencodeConfig } from "../opencode/client.js";
 import type { EventBus, OpencodeEvent } from "../opencode/events.js";
 import { listPermissions, parsePermissionRequest, type PermissionRequest } from "../opencode/permissions.js";
+import { parseQuestionRequests } from "../opencode/questions.js";
 import { getSessionMetadata, parseSessionMetadata, type SessionMetadata } from "../opencode/sessions.js";
 import { sendNtfy, type NotificationMessage } from "./ntfy.js";
 import { HistoryStore, type NotificationDelivery } from "./history.js";
@@ -43,6 +44,97 @@ const SESSION_CACHE_MS = 5 * 60_000;
 const UNKNOWN_SESSION_CACHE_MS = 5_000;
 const SESSION_LOOKUP_TIMEOUT_MS = 2_000;
 const SESSION_LOOKUP_CONCURRENCY = 4;
+export const NTFY_TITLE_LIMIT = 80;
+// Lock-screen notifications should remain glanceable and avoid pushing unrelated
+// phone content below the action that needs attention.
+export const NTFY_BODY_LIMIT = 140;
+
+function truncate(value: string, limit: number): string {
+  return value.length <= limit ? value : `${value.slice(0, limit - 3)}...`;
+}
+
+function compact(value: string): string {
+  return value.trim().replace(/\s+/gu, " ");
+}
+
+function genericTitle(kind: NotifyEvent): string {
+  return kind === "permission" ? "OpenCode needs permission" : `OpenCode: ${kind}`;
+}
+
+function safeToolName(event: OpencodeEvent): string | undefined {
+  const value = event.properties.permission;
+  return typeof value === "string" && /^[a-z][a-z0-9_-]{0,31}$/u.test(value) ? value : undefined;
+}
+
+function safePreview(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const preview = compact(value);
+  if (!preview || preview.length > 100) return undefined;
+  // Details come from an upstream agent. Reject identifiers, credentials, URLs,
+  // and filesystem references instead of trying to redact arbitrary tool output.
+  if (/(?:^|[\s("'`])(?:\/|~\/)|(?:https?|file):\/\/|\b(?:ses|perm|que)_[A-Za-z0-9_-]+|\b(?:sk|ghp|github_pat)_[A-Za-z0-9_-]+|\bBearer\s+[A-Za-z0-9._-]+/iu.test(preview)) {
+    return undefined;
+  }
+  return preview;
+}
+
+function safeQuestionPreview(event: OpencodeEvent): string | undefined {
+  try {
+    return safePreview(parseQuestionRequests([event.properties])[0]?.questions[0]?.question);
+  } catch {
+    return undefined;
+  }
+}
+
+function safeErrorReason(event: OpencodeEvent): string | undefined {
+  const error = event.properties.error;
+  if (!error || typeof error !== "object" || Array.isArray(error)) return undefined;
+  const name = (error as Record<string, unknown>).name;
+  return typeof name === "string" && /^[A-Za-z][A-Za-z0-9 ._-]{0,47}$/u.test(name) && safePreview(name)
+    ? name
+    : undefined;
+}
+
+function humanDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds} ${seconds === 1 ? "second" : "seconds"}`;
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return remainder ? `${minutes} ${minutes === 1 ? "minute" : "minutes"} ${remainder} ${remainder === 1 ? "second" : "seconds"}` : `${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
+}
+
+export function outboundMessage(
+  event: OpencodeEvent,
+  kind: NotifyEvent,
+  sessionTitle: string | undefined,
+  parkedSeconds?: number,
+): NotificationMessage {
+  const compactTitle = sessionTitle ? compact(sessionTitle) : "";
+  const title = compactTitle && compactTitle !== String(event.properties.sessionID ?? "") && !/^ses_[A-Za-z0-9_-]+$/u.test(compactTitle)
+    ? truncate(compactTitle, NTFY_TITLE_LIMIT)
+    : genericTitle(kind);
+  let body: string;
+  if (kind === "permission") {
+    const tool = safeToolName(event);
+    body = tool ? `\u{1F510} Needs approval to run ${tool}` : "\u{1F510} Needs your approval";
+  } else if (kind === "question") {
+    const question = safeQuestionPreview(event);
+    body = question ? `\u{2753} Needs your answer: ${question}` : "\u{2753} Needs your answer";
+  } else if (kind === "idle") {
+    body = "Finished its turn and is waiting for you";
+  } else if (kind === "error") {
+    const reason = safeErrorReason(event);
+    body = reason ? `\u{26A0}\u{FE0F} Stopped with an error: ${reason}` : "\u{26A0}\u{FE0F} Stopped with an error";
+  } else if (kind === "parked") {
+    const tool = safeToolName(event);
+    const duration = humanDuration(parkedSeconds ?? 0);
+    body = tool
+      ? `\u{23F3} Still waiting ${duration} for approval: ${tool}`
+      : `\u{23F3} Still waiting ${duration} for approval`;
+  } else {
+    body = "Stopped at your request";
+  }
+  return { event: kind, title, body: truncate(body, NTFY_BODY_LIMIT), ...(kind === "parked" ? { priority: "high" as const } : {}) };
+}
 
 export class NotificationService {
   private timers = new Map<string, NodeJS.Timeout>();
@@ -122,22 +214,24 @@ export class NotificationService {
 
     const preferences = await this.store.read();
     const details = kind === "permission" ? permission(event) : null;
-    const message: NotificationMessage = {
-      event: kind,
-      title: kind === "permission" ? "OpenCode needs permission" : `OpenCode: ${kind}`,
-      body: details ? `${details.permission} requires review` : `Session ${sessionID || "updated"}`,
-      click: eventClickUrl(this.publicAppUrl, event),
-    };
     const requestID = requestIdOf(event.properties);
     const sessionTitle = this.sessionTitle(event.directory, sessionID);
+    // History retains its generic operational copy; outbound ntfy copy is
+    // intentionally session-first and lock-screen-safe.
+    const historyTitle = genericTitle(kind);
+    const historyBody = details ? `${details.permission} requires review` : `Session ${sessionID || "updated"}`;
+    const message = {
+      ...outboundMessage(event, kind, sessionTitle),
+      ...(eventClickUrl(this.publicAppUrl, event) ? { click: eventClickUrl(this.publicAppUrl, event) } : {}),
+    };
     const common = {
       kind,
       ...(event.directory ? { directory: event.directory } : {}),
       ...(sessionID ? { sessionID } : {}),
       ...(sessionTitle ? { sessionTitle } : {}),
       ...(requestID ? { requestID } : {}),
-      title: message.title,
-      body: message.body,
+      title: historyTitle,
+      body: historyBody,
       ...(message.click ? { click: message.click } : {}),
     };
 
@@ -323,16 +417,14 @@ export class NotificationService {
           .then(async (requests) => {
             if (!requests.some((item) => item.id === pending.id)) return;
             const preferences = await this.store.read();
-            const message: NotificationMessage = {
-              event: "parked",
-              title: "OpenCode is parked",
-              body: `${pending.permission} has waited ${seconds}s for a reply`,
-              priority: "high",
-              click: eventClickUrl(this.publicAppUrl, {
-                type: "permission.asked",
-                properties: { sessionID: pending.sessionID },
-                directory,
-              }),
+            const parkedEvent: OpencodeEvent = {
+              type: "permission.asked",
+              properties: { sessionID: pending.sessionID, permission: pending.permission },
+              directory,
+            };
+            const message = {
+              ...outboundMessage(parkedEvent, "parked", this.sessionTitle(directory, pending.sessionID), seconds),
+              ...(eventClickUrl(this.publicAppUrl, parkedEvent) ? { click: eventClickUrl(this.publicAppUrl, parkedEvent) } : {}),
             };
             const delivery = await this.deliver(preferences, message);
             // The parked alert escalates an already-counted permission. It is
@@ -344,8 +436,8 @@ export class NotificationService {
               sessionID: pending.sessionID,
               ...(parkedTitle ? { sessionTitle: parkedTitle } : {}),
               requestID: pending.id,
-              title: message.title,
-              body: message.body,
+              title: "OpenCode is parked",
+              body: `${pending.permission} has waited ${seconds}s for a reply`,
               ...(message.click ? { click: message.click } : {}),
               delivery,
             });
