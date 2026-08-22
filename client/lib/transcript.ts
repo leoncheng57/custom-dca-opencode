@@ -62,6 +62,8 @@ export interface ThoughtEvent extends TranscriptBase {
 }
 
 export type ToolStatus = "pending" | "running" | "completed" | "error";
+export type TaskExecution = "foreground" | "background";
+export type TaskMode = "plan" | "build";
 
 /**
  * A tool call and its result as ONE event.
@@ -87,6 +89,10 @@ export interface ToolEvent extends TranscriptBase {
   durationMs?: number;
   /** Files this call produced or referenced. */
   attachments: Attachment[];
+  /** Verified task execution metadata, flattened at the backend boundary. */
+  taskExecution?: TaskExecution;
+  taskMode?: TaskMode;
+  taskModel?: string;
   /**
    * Session this call delegated work to, when it started a sub-agent.
    *

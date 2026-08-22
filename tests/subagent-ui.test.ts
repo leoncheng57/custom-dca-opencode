@@ -139,7 +139,15 @@ describe("adapter: delegations", () => {
         messageID: "m1",
         type: "tool",
         tool: "task",
-        state: { status: "completed", metadata: { sessionId: CHILD }, input: { description: "look into it" } },
+        state: {
+          status: "completed",
+          metadata: {
+            parentSessionId: "ses_parent",
+            sessionId: CHILD,
+            model: { providerID: "anthropic", modelID: "claude-opus-5" },
+          },
+          input: { description: "look into it", prompt: "Investigate the issue", subagent_type: "explore" },
+        },
       }],
     });
     expect(event).toMatchObject({ kind: "tool", childSessionId: CHILD });

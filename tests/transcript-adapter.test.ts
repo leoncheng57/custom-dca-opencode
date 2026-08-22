@@ -5,6 +5,7 @@ import {
   detectInterrupted,
   normalizeMessage,
   normalizeTranscript,
+  taskMetadataOf,
   toolDetail,
   type RawMessage,
 } from "../client/lib/events.js";
@@ -98,6 +99,92 @@ describe("tool events", () => {
     expect(running.status).toBe("running");
     expect(running.output).toBe("partial output so far");
     expect(running.durationMs).toBeUndefined();
+  });
+});
+
+describe("task metadata", () => {
+  const task = (state: NonNullable<RawMessage["parts"]>[number]["state"]): RawMessage => ({
+    info: { id: "msg_task", role: "assistant", time: { created: 1 } },
+    parts: [{ id: "prt_task", messageID: "msg_task", type: "tool", tool: "task", state }],
+  });
+
+  it("normalizes verified foreground, mode, model, and child fields", () => {
+    const [event] = normalizeMessage(task({
+      status: "completed",
+      input: { description: "Inspect architecture", prompt: "Review the boundaries", subagent_type: "plan" },
+      metadata: {
+        parentSessionId: "ses_parent",
+        sessionId: "ses_child_exact",
+        model: { providerID: "anthropic", modelID: "claude-opus-5" },
+      },
+    })) as ToolEvent[];
+
+    expect(event).toMatchObject({
+      name: "task",
+      taskExecution: "foreground",
+      taskMode: "plan",
+      taskModel: "claude-opus-5",
+      childSessionId: "ses_child_exact",
+    });
+  });
+
+  it("normalizes explicit background execution and Build mode", () => {
+    const [event] = normalizeMessage(task({
+      status: "running",
+      input: { description: "Implement change", prompt: "Edit the files", subagent_type: "build", background: true },
+      metadata: {
+        parentSessionId: "ses_parent",
+        sessionId: "ses_child_background",
+        model: { providerID: "openai", modelID: "gpt-5.6-sol" },
+        background: true,
+      },
+    })) as ToolEvent[];
+    expect(event).toMatchObject({ taskExecution: "background", taskMode: "build" });
+  });
+
+  it("omits unknown and malformed task values instead of guessing", () => {
+    expect(taskMetadataOf({
+      type: "tool",
+      tool: "task",
+      state: {
+        input: { subagent_type: "explore", background: "true" },
+        metadata: { sessionId: 42, model: { modelID: 7 }, effort: false, background: "true" },
+      },
+    })).toEqual({});
+
+    const [event] = normalizeMessage(task({
+      status: "completed",
+      input: { description: "Malformed task", prompt: "Do work", subagent_type: "explore" },
+      metadata: { sessionId: "ses_unverified", model: { modelID: "missing-provider" } },
+    })) as ToolEvent[];
+    expect(event).toMatchObject({ childSessionId: "ses_unverified" });
+    expect(event).not.toHaveProperty("taskExecution");
+    expect(event).not.toHaveProperty("taskModel");
+
+    expect(taskMetadataOf({
+      type: "tool",
+      tool: "task",
+      state: {
+        input: { description: "Bad flag", prompt: "Do work", subagent_type: "explore" },
+        metadata: {
+          parentSessionId: "ses_parent",
+          sessionId: "ses_child",
+          model: { providerID: "anthropic", modelID: "claude-opus-5" },
+          background: false,
+        },
+      },
+    })).toEqual({});
+  });
+
+  it("does not attach task metadata to generic tools", () => {
+    expect(taskMetadataOf({
+      type: "tool",
+      tool: "bash",
+      state: {
+        input: { subagent_type: "plan", background: true },
+        metadata: { sessionId: "ses_wrong", model: { modelID: "wrong" }, effort: "high" },
+      },
+    })).toEqual({});
   });
 });
 
@@ -202,8 +289,9 @@ describe("frozen contract", () => {
     tool: [
       "kind", "id", "messageId", "timestamp", "status", "name",
       "title", "detail", "output", "error", "durationMs", "attachments",
+      "taskExecution", "taskMode", "taskModel", "childSessionId",
     ],
-    status: ["kind", "id", "messageId", "timestamp", "label", "detail"],
+    status: ["kind", "id", "messageId", "timestamp", "label", "detail", "childSessionId"],
     error: ["kind", "id", "messageId", "timestamp", "message"],
   };
 
