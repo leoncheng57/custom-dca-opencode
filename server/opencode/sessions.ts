@@ -56,22 +56,178 @@ interface RawMessage {
 const EDIT_TOOL_ALIASES = new Set(["edit", "write", "apply_patch"]);
 const sessionPromptTails = new Map<string, Promise<void>>();
 
+/**
+ * What this server can honestly say about a session right now.
+ *
+ * `starting` covers the gap between `prompt_async` answering 204 and the agent
+ * loop reporting busy. It is abortable because the run exists even though no
+ * status proves it yet.
+ *
+ * `completed` means we leased a run and personally watched it end. It grants no
+ * authority: it cannot be aborted, and prompting still needs an explicit
+ * continue, because the moment our run ended another process could have taken
+ * over. Its only job is to let the client show an honest interrupted banner.
+ */
 export type SessionRuntime =
+  | { ownership: "current-server"; state: "starting"; abortable: true }
   | { ownership: "current-server"; state: "running"; abortable: true }
   | { ownership: "current-server"; state: "retrying"; abortable: true; attempt?: number; message?: string; next?: number }
-  | { ownership: "current-server"; state: "idle"; abortable: false }
+  | { ownership: "current-server"; state: "completed"; abortable: false }
   | { ownership: "unknown-or-external"; state: "unknown"; abortable: false };
 
-/** Volatile evidence only: this intentionally resets whenever the BFF restarts. */
-export class SessionRuntimeRegistry {
-  private readonly owned = new Set<string>();
+/** How long `starting` may persist with no busy evidence before we admit ignorance. */
+export const RUN_START_GRACE_MS = 30_000;
+/** How long a witnessed terminal boundary stays reportable. */
+export const COMPLETED_TTL_MS = 15 * 60_000;
+/** Hard cap so a long-lived BFF cannot accumulate run records without bound. */
+export const MAX_TRACKED_RUNS = 500;
 
-  claim(directory: string, sessionID: string): void {
-    this.owned.add(`${directory}\0${sessionID}`);
+type RunPhase = "starting" | "active" | "completed";
+
+interface RunRecord {
+  phase: RunPhase;
+  /** When this phase was entered — drives the startup grace and the completed TTL. */
+  since: number;
+}
+
+/**
+ * Run-scoped evidence about sessions this server is driving.
+ *
+ * Deliberately NOT a durable ownership map. `/session/status` is process-local:
+ * a session absent from it may be genuinely idle, or may be mid-run in an
+ * external TUI attached to the same database. The only claim this server can
+ * prove is "I started a run and have not yet seen it end", so a lease is taken
+ * when we issue a prompt and released at the first terminal boundary — the run
+ * finishing, an abort, a delete, or the grace expiring without evidence.
+ *
+ * Volatile by design: a BFF restart drops every lease, which correctly degrades
+ * to "unknown" rather than to a stale assertion of idleness.
+ *
+ * Rejected alternative: keep a durable claim and invalidate it when the
+ * session's `time.updated` advances without us. That detects an external run
+ * only after it has already written, which is precisely the window in which a
+ * concurrent prompt does the damage.
+ */
+export class SessionRuntimeRegistry {
+  private readonly runs = new Map<string, RunRecord>();
+
+  private static key(directory: string, sessionID: string): string {
+    return `${directory}\0${sessionID}`;
   }
 
-  owns(directory: string, sessionID: string): boolean {
-    return this.owned.has(`${directory}\0${sessionID}`);
+  /** Tracked run count. Exposed so tests can assert leases are actually released. */
+  get size(): number {
+    return this.runs.size;
+  }
+
+  /**
+   * Take a lease for a run that is about to start.
+   *
+   * Throws when a run is already in flight: that is the duplicate-prompt guard,
+   * and it must hold during `starting` too, before any status can corroborate.
+   */
+  begin(directory: string, sessionID: string, now: number = Date.now()): void {
+    const key = SessionRuntimeRegistry.key(directory, sessionID);
+    const existing = this.runs.get(key);
+    if (existing && (existing.phase === "starting" || existing.phase === "active")) {
+      throw new SessionRuntimeConflictError(
+        "SESSION_ALREADY_RUNNING",
+        "This session already has a run starting on this server. Wait for it to finish or stop it first.",
+      );
+    }
+    this.evict(now);
+    this.runs.set(key, { phase: "starting", since: now });
+  }
+
+  /** Drop the lease entirely — the session becomes unknown again. */
+  release(directory: string, sessionID: string): void {
+    this.runs.delete(SessionRuntimeRegistry.key(directory, sessionID));
+  }
+
+  /**
+   * Record a terminal boundary we caused (a successful abort).
+   *
+   * Only meaningful if we still hold the lease; otherwise the run was never
+   * ours to conclude.
+   */
+  complete(directory: string, sessionID: string, now: number = Date.now()): void {
+    const key = SessionRuntimeRegistry.key(directory, sessionID);
+    if (!this.runs.has(key)) return;
+    this.runs.set(key, { phase: "completed", since: now });
+  }
+
+  /**
+   * Fold one upstream status reading into the lease and report the result.
+   *
+   * This is the single place the state machine lives; every read path goes
+   * through it so transitions cannot drift between callers.
+   */
+  observe(
+    directory: string,
+    sessionID: string,
+    status: RawStatus | undefined,
+    now: number = Date.now(),
+  ): SessionRuntime {
+    const key = SessionRuntimeRegistry.key(directory, sessionID);
+
+    // Live evidence from the connected server outranks anything we remember.
+    if (status?.type === "busy") {
+      this.runs.set(key, { phase: "active", since: now });
+      return { ownership: "current-server", state: "running", abortable: true };
+    }
+    if (status?.type === "retry") {
+      this.runs.set(key, { phase: "active", since: now });
+      return {
+        ownership: "current-server",
+        state: "retrying",
+        abortable: true,
+        ...(typeof status.attempt === "number" ? { attempt: status.attempt } : {}),
+        ...(typeof status.message === "string" ? { message: status.message } : {}),
+        ...(typeof status.next === "number" ? { next: status.next } : {}),
+      };
+    }
+
+    const record = this.runs.get(key);
+    if (!record) return UNKNOWN_RUNTIME;
+
+    // 1.18.21 omits idle sessions from the map, but an explicit idle is still
+    // proof the connected server knows this session and is not running it.
+    const explicitlyIdle = status?.type === "idle";
+
+    switch (record.phase) {
+      case "starting": {
+        if (!explicitlyIdle && now - record.since < RUN_START_GRACE_MS) {
+          return { ownership: "current-server", state: "starting", abortable: true };
+        }
+        // No busy evidence ever arrived. Stop asserting a run we cannot see.
+        this.runs.delete(key);
+        return UNKNOWN_RUNTIME;
+      }
+      case "active": {
+        // We watched it run and the connected server no longer reports it.
+        this.runs.set(key, { phase: "completed", since: now });
+        return COMPLETED_RUNTIME;
+      }
+      case "completed": {
+        if (now - record.since < COMPLETED_TTL_MS) return COMPLETED_RUNTIME;
+        this.runs.delete(key);
+        return UNKNOWN_RUNTIME;
+      }
+    }
+  }
+
+  /** Expire stale completions, then bound the map by age. */
+  private evict(now: number): void {
+    for (const [key, record] of this.runs) {
+      if (record.phase === "completed" && now - record.since >= COMPLETED_TTL_MS) {
+        this.runs.delete(key);
+      }
+    }
+    if (this.runs.size < MAX_TRACKED_RUNS) return;
+    const oldestFirst = [...this.runs.entries()].sort((left, right) => left[1].since - right[1].since);
+    for (const [key] of oldestFirst.slice(0, this.runs.size - MAX_TRACKED_RUNS + 1)) {
+      this.runs.delete(key);
+    }
   }
 }
 
@@ -340,34 +496,36 @@ const UNKNOWN_RUNTIME: SessionRuntime = {
   abortable: false,
 };
 
+const COMPLETED_RUNTIME: SessionRuntime = {
+  ownership: "current-server",
+  state: "completed",
+  abortable: false,
+};
+
+/** True while this server holds a lease it can still act on. */
+export function holdsLiveRun(runtime: SessionRuntime): boolean {
+  return runtime.abortable;
+}
+
+/**
+ * Whether a prompt may proceed without the caller explicitly opting in.
+ *
+ * Only a live lease qualifies. Everything else — a witnessed completion
+ * included — means another process could have taken the session since we last
+ * had proof, so the caller must confirm the takeover.
+ */
+export function canPromptSilently(runtime: SessionRuntime): boolean {
+  return runtime.state === "starting" || runtime.state === "running" || runtime.state === "retrying";
+}
+
 export function sessionRuntime(
   directory: string,
   sessionID: string,
   status: RawStatus | undefined,
   registry: SessionRuntimeRegistry = sessionRuntimeRegistry,
+  now: number = Date.now(),
 ): SessionRuntime {
-  if (status?.type === "busy") {
-    registry.claim(directory, sessionID);
-    return { ownership: "current-server", state: "running", abortable: true };
-  }
-  if (status?.type === "retry") {
-    registry.claim(directory, sessionID);
-    return {
-      ownership: "current-server",
-      state: "retrying",
-      abortable: true,
-      ...(typeof status.attempt === "number" ? { attempt: status.attempt } : {}),
-      ...(typeof status.message === "string" ? { message: status.message } : {}),
-      ...(typeof status.next === "number" ? { next: status.next } : {}),
-    };
-  }
-  if (status?.type === "idle") {
-    registry.claim(directory, sessionID);
-    return { ownership: "current-server", state: "idle", abortable: false };
-  }
-  return registry.owns(directory, sessionID)
-    ? { ownership: "current-server", state: "idle", abortable: false }
-    : UNKNOWN_RUNTIME;
+  return registry.observe(directory, sessionID, status, now);
 }
 
 /** Process-local statuses. Missing entries are not proof that a session is idle. */
@@ -504,8 +662,10 @@ export async function createSession(
       ...(input.parentID ? { parentID: input.parentID } : {}),
     },
   });
-  registry.claim(input.directory, raw?.id ?? "");
-  return toSummary(raw ?? {}, { ownership: "current-server", state: "idle", abortable: false });
+  // A created session has no run yet, so there is nothing to lease. The caller
+  // that immediately prompts gets `starting` back from `prompt`.
+  void registry;
+  return toSummary(raw ?? {}, UNKNOWN_RUNTIME);
 }
 
 export interface PromptInput {
@@ -514,7 +674,14 @@ export interface PromptInput {
   model?: ModelSelection;
   attachments?: Array<{ filename: string; mime: string; url: string }>;
   reminder?: Pick<ReminderPreset, "id" | "body">;
-  claimUnknown?: boolean;
+  /**
+   * Explicit opt-in to run in a session this server cannot prove it owns.
+   *
+   * Required for every prompt without a live lease, including a follow-up to a
+   * run we just watched finish: the instant our run ended, an external process
+   * could have picked the session up.
+   */
+  confirmContinue?: boolean;
 }
 
 /**
@@ -523,6 +690,12 @@ export interface PromptInput {
  * `/prompt_async` answers 204 immediately and the agent loop continues
  * server-side — which is what lets the browser close, the laptop sleep, and a
  * notification arrive later. Progress arrives over SSE.
+ *
+ * The lease is taken BEFORE `prompt_async`, not after. `prompt_async` can
+ * return before the loop reports busy, and a lease taken afterwards leaves a
+ * window in which the session looks idle: a second prompt would be accepted,
+ * Stop would be disabled, and the interrupted banner would fire on a run that
+ * is about to start. Returns the runtime the caller should report.
  */
 export async function prompt(
   config: OpencodeConfig,
@@ -530,47 +703,60 @@ export async function prompt(
   sessionID: string,
   input: PromptInput,
   registry: SessionRuntimeRegistry = sessionRuntimeRegistry,
-): Promise<void> {
-  await withSessionPromptLock(directory, sessionID, async () => {
+): Promise<SessionRuntime> {
+  return await withSessionPromptLock(directory, sessionID, async () => {
     const statuses = await sessionStatuses(config, directory);
     const runtime = sessionRuntime(directory, sessionID, statuses[sessionID], registry);
-    if (runtime.abortable) {
+    if (holdsLiveRun(runtime)) {
       throw new SessionRuntimeConflictError(
         "SESSION_ALREADY_RUNNING",
         "This session already has a run controlled by this server. Wait for it to finish or stop it first.",
       );
     }
-    if (runtime.ownership === "unknown-or-external" && !input.claimUnknown) {
+    if (!canPromptSilently(runtime) && !input.confirmContinue) {
       throw new SessionRuntimeConflictError(
         "SESSION_RUNTIME_UNKNOWN",
-        "This session is not controlled by this server. It may be active in another OpenCode process; confirm before starting a concurrent run here.",
+        runtime.state === "completed"
+          ? "This server finished its last run here but cannot prove the session is still free. It may have been picked up by another OpenCode process; confirm before continuing."
+          : "This session is not controlled by this server. It may be active in another OpenCode process; confirm before starting a concurrent run here.",
       );
     }
-    await activateModePolicy(config, directory, sessionID, input.mode);
-    await request<void>(config, `/session/${encodeURIComponent(sessionID)}/prompt_async`, {
-      method: "POST",
-      directory,
-      body: {
-        agent: input.mode,
-        ...(input.model ? {
-          model: { providerID: input.model.providerID, modelID: input.model.modelID },
-          ...(input.model.variant ? { variant: input.model.variant } : {}),
-        } : {}),
-        parts: [
-          {
-            type: "text",
-            text: input.reminder ? withReminderTag(input.text, input.reminder) : input.text,
-          },
-          ...(input.attachments ?? []).map((attachment) => ({
-            type: "file" as const,
-            mime: attachment.mime,
-            filename: attachment.filename,
-            url: attachment.url,
-          })),
-        ],
-      },
-    });
-    registry.claim(directory, sessionID);
+
+    // Claim first: from here on a duplicate prompt is rejected, Stop works, and
+    // interrupted detection is suppressed, even though no status proves it yet.
+    registry.begin(directory, sessionID);
+    try {
+      await activateModePolicy(config, directory, sessionID, input.mode);
+      await request<void>(config, `/session/${encodeURIComponent(sessionID)}/prompt_async`, {
+        method: "POST",
+        directory,
+        body: {
+          agent: input.mode,
+          ...(input.model ? {
+            model: { providerID: input.model.providerID, modelID: input.model.modelID },
+            ...(input.model.variant ? { variant: input.model.variant } : {}),
+          } : {}),
+          parts: [
+            {
+              type: "text",
+              text: input.reminder ? withReminderTag(input.text, input.reminder) : input.text,
+            },
+            ...(input.attachments ?? []).map((attachment) => ({
+              type: "file" as const,
+              mime: attachment.mime,
+              filename: attachment.filename,
+              url: attachment.url,
+            })),
+          ],
+        },
+      });
+    } catch (error) {
+      // The run never started, so the lease would be a phantom that blocks
+      // retries and lies to the UI until the grace expires.
+      registry.release(directory, sessionID);
+      throw error;
+    }
+    return { ownership: "current-server", state: "starting", abortable: true } as const;
   });
 }
 
@@ -582,7 +768,7 @@ export async function abortSession(
 ): Promise<void> {
   const statuses = await sessionStatuses(config, directory);
   const runtime = sessionRuntime(directory, sessionID, statuses[sessionID], registry);
-  if (!runtime.abortable) {
+  if (!holdsLiveRun(runtime)) {
     throw new SessionRuntimeConflictError(
       "SESSION_NOT_ABORTABLE",
       runtime.ownership === "unknown-or-external"
@@ -594,17 +780,23 @@ export async function abortSession(
     method: "POST",
     directory,
   });
+  // A successful abort is a terminal boundary we caused and therefore witnessed.
+  registry.complete(directory, sessionID);
 }
 
 export async function deleteSession(
   config: OpencodeConfig,
   directory: string,
   sessionID: string,
+  registry: SessionRuntimeRegistry = sessionRuntimeRegistry,
 ): Promise<void> {
   await request<unknown>(config, `/session/${encodeURIComponent(sessionID)}`, {
     method: "DELETE",
     directory,
   });
+  // Without this the lease outlives the session and would be inherited by any
+  // future session that reuses the id.
+  registry.release(directory, sessionID);
 }
 
 export async function shareSession(

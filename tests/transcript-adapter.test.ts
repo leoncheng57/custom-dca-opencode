@@ -160,7 +160,7 @@ describe("detectInterrupted", () => {
 
   // The last fixture message is an assistant turn with no time.completed.
   it("flags an assistant turn that never completed", () => {
-    expect(detectInterrupted(messages, "idle")).toEqual({
+    expect(detectInterrupted(messages, "completed")).toEqual({
       interrupted: true,
       reason: "incomplete-turn",
     });
@@ -170,7 +170,7 @@ describe("detectInterrupted", () => {
     const trailing: RawMessage[] = [
       { info: { id: "m1", role: "user", time: { created: 1 } }, parts: [] },
     ];
-    expect(detectInterrupted(trailing, "idle")).toEqual({
+    expect(detectInterrupted(trailing, "completed")).toEqual({
       interrupted: true,
       reason: "never-answered",
     });
@@ -180,15 +180,25 @@ describe("detectInterrupted", () => {
     const done: RawMessage[] = [
       { info: { id: "m1", role: "assistant", time: { created: 1, completed: 2 } }, parts: [] },
     ];
-    expect(detectInterrupted(done, "idle")).toEqual({ interrupted: false });
+    expect(detectInterrupted(done, "completed")).toEqual({ interrupted: false });
   });
 
   it("handles an empty transcript", () => {
-    expect(detectInterrupted([], "idle")).toEqual({ interrupted: false });
+    expect(detectInterrupted([], "completed")).toEqual({ interrupted: false });
   });
 
   it("suppresses false interruption when ownership is unknown or external", () => {
     expect(detectInterrupted(messages, "unknown")).toEqual({ interrupted: false });
+  });
+
+  // The startup gap: prompt_async has returned, the loop has not reported busy,
+  // and the last turn is legitimately incomplete. Banner here would be a lie.
+  it("suppresses interruption during the startup gap", () => {
+    expect(detectInterrupted(messages, "starting")).toEqual({ interrupted: false });
+  });
+
+  it("suppresses interruption while retrying", () => {
+    expect(detectInterrupted(messages, "retrying")).toEqual({ interrupted: false });
   });
 });
 

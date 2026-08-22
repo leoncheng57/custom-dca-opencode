@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { api, ApiError } from "../client/lib/api.js";
+import { api, ApiError, canPromptSilently } from "../client/lib/api.js";
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
 describe("session runtime API", () => {
-  it("surfaces a typed unknown-ownership conflict and sends an explicit claim only when requested", async () => {
+  it("surfaces a typed unknown-ownership conflict and sends an explicit continue only when requested", async () => {
+    const starting = { ownership: "current-server", state: "starting", abortable: true };
     const bodies: unknown[] = [];
     vi.stubGlobal("fetch", vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
       bodies.push(JSON.parse(String(init?.body)));
@@ -17,17 +18,27 @@ describe("session runtime API", () => {
           code: "SESSION_RUNTIME_UNKNOWN",
         }), { status: 409 });
       }
-      return new Response(JSON.stringify({ accepted: true }), { status: 202 });
+      return new Response(JSON.stringify({ accepted: true, runtime: starting }), { status: 202 });
     }));
 
     await expect(api.prompt("/tmp/project", "ses_1", "continue", "build"))
       .rejects.toMatchObject<Partial<ApiError>>({ status: 409, code: "SESSION_RUNTIME_UNKNOWN" });
+    // An accepted prompt hands back `starting` so the UI can block a duplicate
+    // send and enable Stop before any status corroborates the run.
     await expect(api.prompt("/tmp/project", "ses_1", "continue", "build", undefined, undefined, undefined, true))
-      .resolves.toEqual({ accepted: true });
+      .resolves.toEqual({ accepted: true, runtime: starting });
     expect(bodies).toEqual([
       { text: "continue", mode: "build" },
-      { text: "continue", mode: "build", claimUnknown: true },
+      { text: "continue", mode: "build", confirmContinue: true },
     ]);
+  });
+
+  it("treats only live-lease states as safe to prompt without confirmation", () => {
+    expect(canPromptSilently({ ownership: "current-server", state: "starting", abortable: true })).toBe(true);
+    expect(canPromptSilently({ ownership: "current-server", state: "running", abortable: true })).toBe(true);
+    expect(canPromptSilently({ ownership: "current-server", state: "retrying", abortable: true })).toBe(true);
+    expect(canPromptSilently({ ownership: "current-server", state: "completed", abortable: false })).toBe(false);
+    expect(canPromptSilently({ ownership: "unknown-or-external", state: "unknown", abortable: false })).toBe(false);
   });
 });
 

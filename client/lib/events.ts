@@ -302,18 +302,21 @@ function usageFrom(part: RawPart, messageId: string): UsageSnapshot | null {
 /**
  * Detect a run that died without finishing.
  *
- * Interruption is only knowable after this BFF has established current-server
- * ownership and subsequently observes that server idle. An absent process-local
- * status for an unknown session says nothing about work in another process.
+ * Only assertable in `completed`: the state where this BFF leased a run and
+ * personally watched it end. An absent process-local status says nothing —
+ * the session may be mid-turn in an external TUI, and calling that "did not
+ * finish" would be a lie. `starting` is excluded for the same reason in
+ * reverse: the loop has not reported busy yet, so an incomplete last turn is
+ * expected rather than evidence of a failure.
  *
  * A deliberate user abort produces an identical signature, so callers should
  * describe the state ("this run did not finish") rather than diagnose a cause.
  */
 export function detectInterrupted(
   messages: RawMessage[],
-  runtime: "running" | "retrying" | "idle" | "unknown",
+  runtime: "starting" | "running" | "retrying" | "completed" | "unknown",
 ): InterruptedState {
-  if (runtime !== "idle" || messages.length === 0) return { interrupted: false };
+  if (runtime !== "completed" || messages.length === 0) return { interrupted: false };
 
   const last = messages[messages.length - 1]?.info;
   if (!last) return { interrupted: false };
@@ -364,7 +367,7 @@ export function normalizeMessage(message: RawMessage): TranscriptEvent[] {
 /** Map a full transcript fetch. */
 export function normalizeTranscript(
   messages: RawMessage[],
-  options: { runtime?: "running" | "retrying" | "idle" | "unknown" } = {},
+  options: { runtime?: "starting" | "running" | "retrying" | "completed" | "unknown" } = {},
 ): Transcript {
   const events: TranscriptEvent[] = [];
   const usage: UsageSnapshot[] = [];

@@ -29,11 +29,25 @@ export interface SessionSummary {
   runtime: SessionRuntime;
 }
 
+/**
+ * What the BFF can honestly say about a session, mirroring the server union.
+ *
+ * `starting` is the gap between the prompt being accepted and the agent loop
+ * reporting busy. `completed` means the BFF watched its own run end — it is
+ * informational only and still requires an explicit continue to prompt, since
+ * another OpenCode process could have taken the session in the meantime.
+ */
 export type SessionRuntime =
+  | { ownership: "current-server"; state: "starting"; abortable: true }
   | { ownership: "current-server"; state: "running"; abortable: true }
   | { ownership: "current-server"; state: "retrying"; abortable: true; attempt?: number; message?: string; next?: number }
-  | { ownership: "current-server"; state: "idle"; abortable: false }
+  | { ownership: "current-server"; state: "completed"; abortable: false }
   | { ownership: "unknown-or-external"; state: "unknown"; abortable: false };
+
+/** The BFF will reject a prompt without `confirmContinue` unless this is true. */
+export function canPromptSilently(runtime: SessionRuntime): boolean {
+  return runtime.state === "starting" || runtime.state === "running" || runtime.state === "retrying";
+}
 
 export interface Todo {
   content: string;
@@ -364,7 +378,7 @@ export const api = {
     model?: ModelSelection,
     attachments?: Array<{ filename: string; mime: string; url: string }>,
     reminder?: string,
-    claimUnknown = false,
+    confirmContinue = false,
   ) =>
     fetch(scoped(`/sessions/${encodeURIComponent(id)}/prompt`, directory), {
       method: "POST",
@@ -375,9 +389,9 @@ export const api = {
         ...(model ? { model } : {}),
         ...(attachments?.length ? { attachments } : {}),
         ...(reminder ? { reminder } : {}),
-        ...(claimUnknown ? { claimUnknown: true } : {}),
+        ...(confirmContinue ? { confirmContinue: true } : {}),
       }),
-    }).then((r) => json<{ accepted: boolean }>(r)),
+    }).then((r) => json<{ accepted: boolean; runtime: SessionRuntime }>(r)),
 
   abort: (directory: string, id: string) =>
     fetch(scoped(`/sessions/${encodeURIComponent(id)}/abort`, directory), { method: "POST" }).then(

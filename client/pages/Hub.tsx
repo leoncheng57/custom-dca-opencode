@@ -33,20 +33,35 @@ const POLL_MS = 10_000;
 // rather than riding the per-directory session poll.
 const RECENTS_POLL_MS = 60_000;
 
+/** Copy for each runtime state, phrased as what this server knows, not as fact. */
+const RUNTIME_LABEL: Record<SessionRuntime["state"], string> = {
+  starting: "starting",
+  running: "running",
+  retrying: "retrying",
+  completed: "finished here",
+  unknown: "status unavailable",
+};
+
+const RUNTIME_HINT: Record<SessionRuntime["state"], string | undefined> = {
+  starting: "The run has been accepted but has not reported progress yet.",
+  running: undefined,
+  retrying: undefined,
+  completed: "This server finished its last run here. It cannot tell whether another OpenCode process has since taken over.",
+  unknown: "This session is not controlled by this server; its live status is unavailable.",
+};
+
 export function StatusPill({ runtime }: { runtime: SessionRuntime }) {
-  const active = runtime.state === "running" || runtime.state === "retrying";
-  const label = runtime.state === "unknown" ? "status unavailable" : runtime.state;
   return (
     <span
       className={
-        active
+        runtime.abortable
           ? "inline-flex shrink-0 items-center rounded-full bg-[var(--color-background-surface-info-muted)] px-2 py-0.5 text-[11px] font-medium text-[var(--color-text-info)]"
           : "inline-flex shrink-0 items-center rounded-full bg-[var(--color-background-surface-neutral-muted)] px-2 py-0.5 text-[11px] font-medium text-[var(--color-text-muted)]"
       }
       data-testid="opencode-status-pill"
-      title={runtime.state === "unknown" ? "This session is not controlled by this server; its live status is unavailable." : undefined}
+      title={RUNTIME_HINT[runtime.state]}
     >
-      {label}
+      {RUNTIME_LABEL[runtime.state]}
     </span>
   );
 }

@@ -149,11 +149,12 @@ export interface Transcript {
   /** Newest-last, matching `events` order. Drives the status bar. */
   usage: UsageSnapshot[];
   /**
-   * True when an owned run ended idle without completing its last turn.
+   * True when a run this BFF leased ended without completing its last turn.
    *
    * OpenCode never persists "running" state (the session table has no status
    * column), and another process may share the same DB. We only derive this
-   * after the current BFF has established ownership — see AGENTS.md decision #5.
+   * from a witnessed terminal boundary — the `completed` runtime — never from
+   * an absent status. See AGENTS.md decision #5.
    */
   interrupted: InterruptedState;
 }

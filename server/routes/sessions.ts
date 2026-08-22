@@ -248,7 +248,18 @@ export function sessionRoutes(
       const session = await createSession(config, { directory, title, agent: mode, model: validatedModel });
       // Fire-and-forget the opening turn so the response is not held for it.
       if (typeof initialPrompt === "string" && initialPrompt.trim()) {
-        await prompt(config, directory, session.id, { text: initialPrompt, mode, model: validatedModel });
+        // A session created microseconds ago cannot be owned by another
+        // process, so the continue confirmation is satisfied by construction.
+        const runtime = await prompt(config, directory, session.id, {
+          text: initialPrompt,
+          mode,
+          model: validatedModel,
+          confirmContinue: true,
+        });
+        // Report the run we just started; returning the pre-prompt `unknown`
+        // would show a freshly started session as idle.
+        res.status(201).json({ session: { ...session, runtime } });
+        return;
       }
       res.status(201).json({ session });
     }),
@@ -363,16 +374,18 @@ export function sessionRoutes(
       if (typeof text !== "string" || !text.trim()) {
         throw new HttpError(400, "'text' is required");
       }
-      await prompt(config, directory, paramOf(req, "id"), {
+      const runtime = await prompt(config, directory, paramOf(req, "id"), {
         text,
         mode: promptMode(req.body?.mode),
         model: await selectedModel(config, directory, model),
         attachments: promptAttachments(attachments),
         reminder: promptReminder(reminder),
-        claimUnknown: req.body?.claimUnknown === true,
+        confirmContinue: req.body?.confirmContinue === true,
       });
-      // 202: accepted, running server-side. Progress arrives over SSE.
-      res.status(202).json({ accepted: true });
+      // 202: accepted, running server-side. Progress arrives over SSE. The
+      // runtime rides along so the client can flip to `starting` without
+      // waiting for the next poll to catch up.
+      res.status(202).json({ accepted: true, runtime });
     }),
   );
 
