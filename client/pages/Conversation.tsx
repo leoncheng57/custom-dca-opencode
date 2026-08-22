@@ -15,7 +15,7 @@ import { ModelPicker } from "../components/model-picker.js";
 import { QuestionRequest } from "../components/question-request.js";
 import { ReminderPicker } from "../components/reminder-picker.js";
 import { ShareExportDialog } from "../components/share-export-dialog.js";
-import { api, ApiError, formatCost, type ReminderSummary, type SessionSummary } from "../lib/api.js";
+import { api, ApiError, canPromptSilently, formatCost, type ReminderSummary, type SessionSummary } from "../lib/api.js";
 import { latestModeMessageID, modeFromSession, type AgentMode } from "../lib/agentMode.js";
 import { MAX_IMAGE_ATTACHMENTS, readImageAttachment, selectImageFiles, type ImageAttachment } from "../lib/attachments.js";
 import { composerEnterAction } from "../lib/composerKeys.js";
@@ -88,8 +88,8 @@ export function ConversationPage() {
   const [events, setEvents] = useState<TranscriptEvent[]>([]);
   const eventScope = useRef(`${directory}\0${id}`);
   const transcript = useMemo(
-    () => normalizeTranscript(stream.messages as RawMessage[], { isRunning: stream.running }),
-    [stream.messages, stream.running],
+    () => normalizeTranscript(stream.messages as RawMessage[], { runtime: stream.runtime.state }),
+    [stream.messages, stream.runtime.state],
   );
   useEffect(() => {
     const scope = `${directory}\0${id}`;
@@ -148,7 +148,7 @@ export function ConversationPage() {
     return () => {
       cancelled = true;
     };
-  }, [directory, id, stream.running]);
+  }, [directory, id, stream.runtime.state]);
 
   useEffect(() => {
     if (!directory || !id) return;
@@ -296,15 +296,23 @@ export function ConversationPage() {
     setComposerError(null);
     try {
       const modelOverride = selectedModel && !sameModel(selectedModel, currentModel) ? selectedModel : undefined;
-      await api.prompt(
-        directory,
-        id,
-        text,
-        mode,
-        modelOverride,
-        attachments,
-        selectedReminder || undefined,
+      const sendPrompt = (confirmContinue = false) => api.prompt(
+        directory, id, text, mode, modelOverride, attachments, selectedReminder || undefined, confirmContinue,
       );
+      try {
+        // The button already reads "Continue here" whenever the server cannot
+        // prove it owns the session, so the click itself is the explicit
+        // consent and no modal is needed for the common follow-up.
+        await sendPrompt(!canPromptSilently(stream.runtime));
+      } catch (error) {
+        // Reached only when the state changed between render and click.
+        if (!(error instanceof ApiError) || error.code !== "SESSION_RUNTIME_UNKNOWN") throw error;
+        const confirmed = window.confirm(
+          "This session is not controlled by this server and may still be active in another OpenCode process. Start a run here anyway?",
+        );
+        if (!confirmed) return;
+        await sendPrompt(true);
+      }
       setDraft("");
       setAttachments([]);
       // Per-message choice: never let a reminder silently ride on later turns.
@@ -387,7 +395,14 @@ export function ConversationPage() {
         <h1 className="min-w-0 flex-1 truncate text-sm font-semibold" data-testid="opencode-session-title">
           {session?.title ?? "Session"}
         </h1>
-        {stream.running && <Badge variant="info">running</Badge>}
+        {stream.runtime.abortable && (
+          <Badge variant="info" data-testid="opencode-runtime-badge">{stream.runtime.state}</Badge>
+        )}
+        {stream.runtime.state === "unknown" && (
+          <Badge variant="neutral" data-testid="opencode-runtime-badge" title="Status is unavailable because this session is not controlled by this server.">
+            status unavailable
+          </Badge>
+        )}
         {session && session.cost > 0 && (
           <span className="hidden text-xs tabular-nums text-[var(--color-text-muted)] sm:inline" data-testid="opencode-session-cost">
             {formatCost(session.cost)}
@@ -413,11 +428,14 @@ export function ConversationPage() {
             Details
           </Button>
         </div>
-        {stream.running && (
+        {stream.runtime.abortable && (
           <Button
             size="sm"
             variant="secondary"
-            onClick={() => void api.abort(directory, id).then(stream.refresh)}
+            onClick={() => void api.abort(directory, id).then(stream.refresh).catch((error: unknown) => {
+              setComposerError(error instanceof Error ? error.message : String(error));
+              stream.refresh();
+            })}
             data-testid="opencode-abort"
           >
             Stop
@@ -440,8 +458,9 @@ export function ConversationPage() {
         <AutoPermissionsControl directory={directory} testId="opencode-conversation-auto-permissions" />
       </div>
 
-      {/* R2: OpenCode never persists "running" state, so a crash mid-turn is
-          invisible unless derived. We surface it and let the human decide —
+      {/* R2: OpenCode never persists "running" state. Only derive an interrupted
+          owned run after this server observes idle; unknown sessions stay neutral.
+          We surface it and let the human decide —
           Resume prefills the composer rather than auto-sending, because
           replaying an interrupted turn can redo destructive work. */}
       {transcript.interrupted.interrupted && (
@@ -561,7 +580,7 @@ export function ConversationPage() {
                 onExport={exportMessage}
               />
             )}
-            {stream.running && (
+            {(stream.runtime.state === "running" || stream.runtime.state === "retrying") && (
               <div className="mt-6">
                 <RunningIndicator activity={activity} />
               </div>
@@ -678,8 +697,27 @@ export function ConversationPage() {
                 />
               )}
               <span className="flex-1" aria-hidden="true" />
-              <Button size="sm" className="min-h-11 shrink-0 sm:min-h-8" onClick={() => void send()} disabled={!agentIdentityKnown || sending || !draft.trim()} data-testid="opencode-send">
-                {sending ? "Sending…" : "Send"}
+              {!canPromptSilently(stream.runtime) && (
+                <span
+                  className="hidden shrink-0 text-[11px] text-[var(--color-text-muted)] sm:inline"
+                  data-testid="opencode-continue-hint"
+                >
+                  {stream.runtime.state === "completed"
+                    ? "Last run finished here; ownership unverified"
+                    : "Not controlled by this server"}
+                </span>
+              )}
+              <Button
+                size="sm"
+                className="min-h-11 shrink-0 sm:min-h-8"
+                onClick={() => void send()}
+                disabled={!agentIdentityKnown || sending || !draft.trim()}
+                title={canPromptSilently(stream.runtime)
+                  ? undefined
+                  : "This server cannot prove the session is free. Continuing starts a run here anyway."}
+                data-testid="opencode-send"
+              >
+                {sending ? "Sending…" : canPromptSilently(stream.runtime) ? "Send" : "Continue here"}
               </Button>
             </div>
           </div>

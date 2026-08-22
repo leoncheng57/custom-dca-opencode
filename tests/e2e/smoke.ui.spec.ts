@@ -448,7 +448,7 @@ test.describe("transcript", () => {
           contentType: "application/json",
           body: JSON.stringify({
             messages: [{ info: { id: "msg_stale", role: "assistant", time: { created: 1, completed: 1 } }, parts: [{ id: "prt_stale", messageID: "msg_stale", type: "text", text: "STALE A RESPONSE" }] }],
-            running: false,
+            runtime: { ownership: "current-server", state: "idle", abortable: false },
             nextCursor: null,
           }),
         });
@@ -624,6 +624,24 @@ test.describe("interrupted runs", () => {
     await expect(page.getByTestId("opencode-conversation")).toBeVisible();
     await expect(page.getByTestId("opencode-interrupted")).toHaveCount(0);
   });
+
+  test("shows neutral unavailable status and suppresses false interruption for unknown ownership", async ({ page }) => {
+    await page.route("**/api/sessions/ses_mock_running/messages?**", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          messages: [{ info: { id: "msg_external", role: "assistant", time: { created: 1 } }, parts: [] }],
+          runtime: { ownership: "unknown-or-external", state: "unknown", abortable: false },
+          nextCursor: null,
+        }),
+      });
+    });
+    await page.goto(`/sessions/ses_mock_running?directory=${encodeURIComponent(DIR)}`);
+    await expect(page.getByText("status unavailable", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("opencode-interrupted")).toHaveCount(0);
+    await expect(page.getByTestId("opencode-abort")).toHaveCount(0);
+  });
 });
 
 test.describe("composer", () => {
@@ -773,7 +791,7 @@ test.describe("composer", () => {
         contentType: "application/json",
         body: JSON.stringify({
           messages: [{ info: { id: "msg_client_build", role: "user", agent: "build" }, parts: [] }],
-          running: false,
+          runtime: { ownership: "current-server", state: "idle", abortable: false },
           nextCursor: null,
         }),
       });
@@ -991,7 +1009,7 @@ test.describe("mobile", () => {
   // "fine", so `hasTouch` does not move `(pointer: coarse)` and this suite
   // cannot faithfully emulate the soft-keyboard branch.
   test("submits with Cmd/Ctrl+Enter regardless of pointer type", async ({ page }) => {
-    await page.goto(`/sessions/ses_mock_mobile?directory=${encodeURIComponent(DIR)}`);
+    await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
     const composer = page.getByTestId("opencode-composer");
     await composer.click();
     await composer.type("send from a phone");

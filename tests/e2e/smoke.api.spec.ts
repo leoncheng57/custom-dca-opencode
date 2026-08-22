@@ -138,13 +138,13 @@ test.describe("sessions", () => {
     expect(ids).not.toContain("ses_mock_archived");
   });
 
-  test("marks the busy session as running", async ({ request }) => {
+  test("reports current-server runtime without treating absent status as idle", async ({ request }) => {
     const body = await (await request.get(`/api/sessions?directory=${DIR}`)).json();
     const byId = Object.fromEntries(
-      body.sessions.map((s: { id: string; running: boolean }) => [s.id, s.running]),
+      body.sessions.map((s: { id: string; runtime: { state: string } }) => [s.id, s.runtime.state]),
     );
-    expect(byId.ses_mock_running).toBe(true);
-    expect(byId.ses_mock_done).toBe(false);
+    expect(byId.ses_mock_running).toBe("running");
+    expect(byId.ses_mock_done).toBe("idle");
   });
 
   test("normalises cost and token totals", async ({ request }) => {
@@ -537,7 +537,7 @@ test.describe("prompting", () => {
   test("fails closed when Plan tool discovery is unavailable", async ({ request }) => {
     const text = `blocked plan ${Date.now()}`;
     const res = await request.post(`/api/sessions/ses_mock_done/prompt?directory=${TOOL_FAILURE_DIR}`, {
-      data: { text, mode: "plan" },
+      data: { text, mode: "plan", claimUnknown: true },
     });
     expect(res.status()).toBe(502);
     expect((await res.json()).error).toContain("Plan policy; prompt was not sent");

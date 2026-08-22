@@ -31,6 +31,15 @@ export interface PaletteAction {
 
 const KIND_WEIGHT: Record<PaletteKind, number> = { navigation: 0, action: 1, conversation: 2 };
 
+/** Never says "Idle": absent status is not proof that nothing is running. */
+const PALETTE_RUNTIME_SUBTITLE: Record<SessionSummary["runtime"]["state"], string> = {
+  starting: "Starting",
+  running: "Running",
+  retrying: "Retrying",
+  completed: "Finished here",
+  unknown: "Status unavailable",
+};
+
 export function resolvePaletteDirectory(search: string, savedDirectory: string | null): string {
   const fromUrl = new URLSearchParams(search).get("directory")?.trim();
   return fromUrl || savedDirectory?.trim() || "";
@@ -72,7 +81,7 @@ export function buildPaletteCommands(input: {
       id: optionId("conversation", session.id),
       kind: "conversation" as const,
       title: sessionLabel(session),
-      subtitle: session.running ? "Running" : "Idle",
+      subtitle: PALETTE_RUNTIME_SUBTITLE[session.runtime.state],
       group: "Conversation",
       keywords: [session.id, session.directory],
       to: `/sessions/${encodeURIComponent(session.id)}?directory=${encodeURIComponent(session.directory)}`,

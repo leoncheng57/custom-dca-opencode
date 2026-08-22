@@ -710,6 +710,10 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
   if (pathname === "/experimental/worktree/reset" && req.method === "POST") return json(res, 200, true);
 
   if (pathname === "/session/status") {
+    // OpenCode 1.18.21 reports ONLY sessions the connected server is actively
+    // working on. Idle sessions are absent from the map entirely — listing them
+    // as `{type:"idle"}` was what let the suite pass while the product
+    // misclassified externally-run sessions as safely idle.
     return json(res, 200, {
       ses_mock_running: { type: "busy" },
       ...(mobileRunning ? { ses_mock_mobile: { type: "busy" } } : {}),

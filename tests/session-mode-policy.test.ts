@@ -29,6 +29,7 @@ function arrange(input: {
 }) {
   requestMock.mockImplementation(async (_config, path: string, options?: { method?: string; body?: { permission?: unknown[]; agent?: string }; query?: Record<string, unknown> }) => {
     if (typeof path !== "string") throw new Error(`request path missing: ${JSON.stringify([_config, path, options])}`);
+    if (path === "/session/status") return { [sessionID]: { type: "idle" } };
     if (path === "/experimental/tool/ids") return tools;
     if (path === "/agent") return agents;
     if (path.endsWith("/message")) return input.messages ?? [];
@@ -55,7 +56,7 @@ describe("session mode policy identity safety", () => {
       messages: [{ info: { role: "user", agent } }],
     });
 
-    await expect(prompt(config, directory, sessionID, { text: "change it", mode: "build" }))
+    await expect(prompt(config, directory, sessionID, { text: "change it", mode: "build", confirmContinue: true }))
       .rejects.toMatchObject<Partial<SessionAgentIdentityError>>({
         code: "SESSION_AGENT_UNSUPPORTED",
         agent,
@@ -72,8 +73,8 @@ describe("session mode policy identity safety", () => {
       ],
     });
 
-    await expect(prompt(config, directory, sessionID, { text: "continue", mode: "build" }))
-      .resolves.toBeUndefined();
+    await expect(prompt(config, directory, sessionID, { text: "continue", mode: "build", confirmContinue: true }))
+      .resolves.toMatchObject({ state: "starting" });
   });
 
   it("rejects unknown identity honestly before mutating or prompting", async () => {
@@ -82,7 +83,7 @@ describe("session mode policy identity safety", () => {
       messages: [{ info: { role: "assistant", agent: "compaction" } }],
     });
 
-    await expect(prompt(config, directory, sessionID, { text: "change it", mode: "build" }))
+    await expect(prompt(config, directory, sessionID, { text: "change it", mode: "build", confirmContinue: true }))
       .rejects.toMatchObject<Partial<SessionAgentIdentityError>>({ code: "SESSION_AGENT_UNKNOWN" });
     expect(mutations()).toEqual([]);
   });
@@ -90,7 +91,7 @@ describe("session mode policy identity safety", () => {
   it.each(["plan", "build"] as const)("prompts an explicitly %s session", async (mode) => {
     arrange({ session: { agent: mode, permission: [] } });
 
-    await prompt(config, directory, sessionID, { text: "continue", mode });
+    await prompt(config, directory, sessionID, { text: "continue", mode, confirmContinue: true });
 
     const promptCall = requestMock.mock.calls.find(([, path]) => String(path).endsWith("/prompt_async"));
     expect(promptCall?.[2]?.body).toMatchObject({ agent: mode });
@@ -110,7 +111,8 @@ describe("session mode policy identity safety", () => {
       ],
     });
 
-    await expect(prompt(config, directory, sessionID, { text: "continue", mode })).resolves.toBeUndefined();
+    await expect(prompt(config, directory, sessionID, { text: "continue", mode, confirmContinue: true }))
+      .resolves.toMatchObject({ state: "starting" });
   });
 
   it("restores Build after Plan and avoids repeating the same appended suffix", async () => {
@@ -127,7 +129,7 @@ describe("session mode policy identity safety", () => {
       ],
     });
 
-    await prompt(config, directory, sessionID, { text: "implement", mode: "build" });
+    await prompt(config, directory, sessionID, { text: "implement", mode: "build", confirmContinue: true });
 
     const patch = requestMock.mock.calls.find(([, path, options]) =>
       path === `/session/${sessionID}` && options?.method === "PATCH");
@@ -149,7 +151,7 @@ describe("session mode policy identity safety", () => {
         { info: { role: "assistant", agent: "compaction" } },
       ],
     });
-    await prompt(config, directory, sessionID, { text: "continue", mode: "build" });
+    await prompt(config, directory, sessionID, { text: "continue", mode: "build", confirmContinue: true });
     expect(requestMock.mock.calls.some(([, path, options]) =>
       path === `/session/${sessionID}` && options?.method === "PATCH")).toBe(false);
   });

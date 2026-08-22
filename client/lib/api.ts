@@ -26,7 +26,27 @@ export interface SessionSummary {
   updatedAt: string;
   archived: boolean;
   shareUrl?: string;
-  running: boolean;
+  runtime: SessionRuntime;
+}
+
+/**
+ * What the BFF can honestly say about a session, mirroring the server union.
+ *
+ * `starting` is the gap between the prompt being accepted and the agent loop
+ * reporting busy. `completed` means the BFF watched its own run end — it is
+ * informational only and still requires an explicit continue to prompt, since
+ * another OpenCode process could have taken the session in the meantime.
+ */
+export type SessionRuntime =
+  | { ownership: "current-server"; state: "starting"; abortable: true }
+  | { ownership: "current-server"; state: "running"; abortable: true }
+  | { ownership: "current-server"; state: "retrying"; abortable: true; attempt?: number; message?: string; next?: number }
+  | { ownership: "current-server"; state: "completed"; abortable: false }
+  | { ownership: "unknown-or-external"; state: "unknown"; abortable: false };
+
+/** The BFF will reject a prompt without `confirmContinue` unless this is true. */
+export function canPromptSilently(runtime: SessionRuntime): boolean {
+  return runtime.state === "starting" || runtime.state === "running" || runtime.state === "retrying";
 }
 
 export interface Todo {
@@ -206,7 +226,7 @@ export interface ReminderSummary {
 
 export interface MessagePage {
   messages: RawMessage[];
-  running: boolean;
+  runtime: SessionRuntime;
   nextCursor: string | null;
 }
 
@@ -216,7 +236,12 @@ export interface MessagePage {
  * The status is attached so callers can distinguish "this session is gone"
  * (404, stop polling) from "the agent server is down" (502, keep retrying).
  */
-export type ApiErrorCode = "SESSION_AGENT_UNKNOWN" | "SESSION_AGENT_UNSUPPORTED";
+export type ApiErrorCode =
+  | "SESSION_AGENT_UNKNOWN"
+  | "SESSION_AGENT_UNSUPPORTED"
+  | "SESSION_RUNTIME_UNKNOWN"
+  | "SESSION_ALREADY_RUNNING"
+  | "SESSION_NOT_ABORTABLE";
 
 export class ApiError extends Error {
   constructor(
@@ -236,7 +261,9 @@ async function json<T>(res: Response): Promise<T> {
     try {
       const body = (await res.json()) as { error?: string; code?: string };
       if (body.error) message = body.error;
-      if (body.code === "SESSION_AGENT_UNKNOWN" || body.code === "SESSION_AGENT_UNSUPPORTED") code = body.code;
+      if (body.code === "SESSION_AGENT_UNKNOWN" || body.code === "SESSION_AGENT_UNSUPPORTED" ||
+          body.code === "SESSION_RUNTIME_UNKNOWN" || body.code === "SESSION_ALREADY_RUNNING" ||
+          body.code === "SESSION_NOT_ABORTABLE") code = body.code;
     } catch {
       /* keep the status-only message */
     }
@@ -351,6 +378,7 @@ export const api = {
     model?: ModelSelection,
     attachments?: Array<{ filename: string; mime: string; url: string }>,
     reminder?: string,
+    confirmContinue = false,
   ) =>
     fetch(scoped(`/sessions/${encodeURIComponent(id)}/prompt`, directory), {
       method: "POST",
@@ -361,8 +389,9 @@ export const api = {
         ...(model ? { model } : {}),
         ...(attachments?.length ? { attachments } : {}),
         ...(reminder ? { reminder } : {}),
+        ...(confirmContinue ? { confirmContinue: true } : {}),
       }),
-    }).then((r) => json<{ accepted: boolean }>(r)),
+    }).then((r) => json<{ accepted: boolean; runtime: SessionRuntime }>(r)),
 
   abort: (directory: string, id: string) =>
     fetch(scoped(`/sessions/${encodeURIComponent(id)}/abort`, directory), { method: "POST" }).then(

@@ -149,12 +149,12 @@ export interface Transcript {
   /** Newest-last, matching `events` order. Drives the status bar. */
   usage: UsageSnapshot[];
   /**
-   * True when the last message is an assistant turn that never completed and
-   * the session is not currently running anywhere.
+   * True when a run this BFF leased ended without completing its last turn.
    *
    * OpenCode never persists "running" state (the session table has no status
-   * column), so a crash mid-turn is invisible unless the UI derives it. We
-   * surface it and let the human decide — see AGENTS.md decision #5.
+   * column), and another process may share the same DB. We only derive this
+   * from a witnessed terminal boundary — the `completed` runtime — never from
+   * an absent status. See AGENTS.md decision #5.
    */
   interrupted: InterruptedState;
 }

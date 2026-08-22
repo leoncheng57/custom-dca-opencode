@@ -302,18 +302,21 @@ function usageFrom(part: RawPart, messageId: string): UsageSnapshot | null {
 /**
  * Detect a run that died without finishing.
  *
- * `isRunning` must come from `GET /session/status`, which only knows about
- * sessions owned by the *current* server process — that is precisely what
- * distinguishes "still working" from "orphaned by a crash".
+ * Only assertable in `completed`: the state where this BFF leased a run and
+ * personally watched it end. An absent process-local status says nothing —
+ * the session may be mid-turn in an external TUI, and calling that "did not
+ * finish" would be a lie. `starting` is excluded for the same reason in
+ * reverse: the loop has not reported busy yet, so an incomplete last turn is
+ * expected rather than evidence of a failure.
  *
  * A deliberate user abort produces an identical signature, so callers should
  * describe the state ("this run did not finish") rather than diagnose a cause.
  */
 export function detectInterrupted(
   messages: RawMessage[],
-  isRunning: boolean,
+  runtime: "starting" | "running" | "retrying" | "completed" | "unknown",
 ): InterruptedState {
-  if (isRunning || messages.length === 0) return { interrupted: false };
+  if (runtime !== "completed" || messages.length === 0) return { interrupted: false };
 
   const last = messages[messages.length - 1]?.info;
   if (!last) return { interrupted: false };
@@ -364,7 +367,7 @@ export function normalizeMessage(message: RawMessage): TranscriptEvent[] {
 /** Map a full transcript fetch. */
 export function normalizeTranscript(
   messages: RawMessage[],
-  options: { isRunning?: boolean } = {},
+  options: { runtime?: "starting" | "running" | "retrying" | "completed" | "unknown" } = {},
 ): Transcript {
   const events: TranscriptEvent[] = [];
   const usage: UsageSnapshot[] = [];
@@ -381,6 +384,6 @@ export function normalizeTranscript(
   return {
     events,
     usage,
-    interrupted: detectInterrupted(messages, options.isRunning ?? false),
+    interrupted: detectInterrupted(messages, options.runtime ?? "unknown"),
   };
 }
