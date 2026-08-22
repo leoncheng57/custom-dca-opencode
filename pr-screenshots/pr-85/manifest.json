@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 2,
+  "prNumber": 85,
+  "sourceSha": "228c3d8e8b5b0f139d159cce47ccc7ef0669e060",
+  "capturedAt": "2026-08-22T14:20:54.041Z",
+  "screenshots": [
+    {
+      "requestedRoute": "/settings",
+      "fullPage": true,
+      "captures": {
+        "desktop": {
+          "filename": "01-settings-ece57764--desktop--full.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 2861
+          },
+          "bytes": 249877,
+          "sha256": "e7701f03c11feeee006f33a0323ff89392d11c2eedd7e1b65acd2b4957d807a1"
+        },
+        "mobile": {
+          "filename": "01-settings-828c3064--mobile--full.png",
+          "dimensions": {
+            "width": 390,
+            "height": 3525
+          },
+          "bytes": 239846,
+          "sha256": "67bfe4c8dd721705e784e3d05afb0c05313cff482d0382b851d6ae482a0bd4ef"
+        }
+      }
+    }
+  ]
+}
