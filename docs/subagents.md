@@ -260,31 +260,44 @@ Known gaps and limits:
 | Independent, read-only research within one turn | Task-tool sub-agents | They isolate context and can return concise evidence to one parent. Split by non-overlapping source or question. |
 | One result is required before the parent can proceed | Foreground task | The parent waits and can consume the result immediately. |
 | Independent work can finish later | Background task | The parent can continue, provided the work needs no immediate back-and-forth and completion uncertainty is acceptable. |
-| Several code changes on different branches | Independent sessions in separate worktrees | Git indexes, branches, and working files are isolated; each worker can test and open its own PR. |
+| Several code changes on different branches | Native Task children in separate worktrees | Git indexes, branches, and working files are isolated while OpenCode retains the parent/child relationship and hand-back behavior. This requires the guarded workflow below. |
 | A checklist inside one session | Todos | Todos express progress only; they do not create concurrency. |
 | A reusable slash-command classification | `subtask` metadata | It describes the command catalogue, not execution state or navigation. |
 
 ### Safe parallel edits
 
-Use task-tool fan-out primarily for read-only or strictly non-overlapping work. Once two workers can
-mutate code, prefer independent sessions in sibling Git worktrees, each on its own branch created
-from current `origin/main`.
+Task children can edit an allowed sibling worktree, but access permission does not move the child
+session into that directory. Relative edits, default shell CWD, LSP, VCS, snapshots, configuration,
+and event envelopes remain scoped to the parent instance. A mutating child must therefore treat its
+assigned absolute worktree path as a hard boundary.
+
+Use a fresh Build-only parent for mutating children. During workflow validation, children launched
+from a parent that had previously activated Plan retained terminal Bash denies even after Build made
+the parent's own tools available again. Until child permission inheritance is fixed and verified,
+failed preflight means stop; do not weaken policy or silently replace the native child with an
+independent root session.
 
 Before launching parallel mutating workers:
 
 1. Assign explicit file ownership and do not let two workers edit the same file.
 2. Give each worker an absolute worktree path, branch, objective, exclusions, and verification
-   commands.
-3. Identify resources that worktrees still share: fixed ports, external services, global caches,
+   commands. Require every Bash call to set that path as `workdir` (or use `git -C`) and require
+   absolute paths for every read, edit, and patch.
+3. Before edits, tests, commit, and push, require `pwd`, `git rev-parse --show-toplevel`, and
+   `git status --short --branch`. Stop without mutation unless both resolved paths equal the
+   assigned worktree.
+4. Identify resources that worktrees still share: fixed ports, external services, global caches,
    credentials, databases, and state outside the worktree.
-4. Allow only one worker to own a fixed-port stack or shared mutable service at a time.
-5. Keep commits scoped to the assigned files; review before combining branches.
-6. Never treat a background launch result as permission to duplicate its work in the parent.
+5. Allow only one worker to own a fixed-port stack or shared mutable service at a time.
+6. Keep commits scoped to the assigned files; review before combining branches.
+7. Never treat a background launch result as permission to duplicate its work in the parent.
 
 The [parallel research handoff reminder](../reminders/parallel-research-handoff/SKILL.md) gives a
 full research-to-worktree workflow. The [background delegation reminder](../reminders/background-subagent/SKILL.md)
 and [deep research reminder](../reminders/deep-research-subagents/SKILL.md) provide narrower prompt
-contracts.
+contracts. For mutating native children, inject the
+[native worktree subagents reminder](../reminders/native-worktree-subagents/SKILL.md) before
+delegating.
 
 ## Contributor verification checklist
 
