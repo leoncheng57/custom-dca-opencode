@@ -1,8 +1,8 @@
 {
   "schemaVersion": 2,
   "prNumber": 60,
-  "sourceSha": "bc02348aea43959a48eabbac7e05bf029fbfb7ad",
-  "capturedAt": "2026-08-22T01:42:08.473Z",
+  "sourceSha": "7599abf9daf120850b91d2f933c5f36ed88c81d6",
+  "capturedAt": "2026-08-22T02:31:46.912Z",
   "screenshots": [
     {
       "requestedRoute": "/?directory=/tmp/mock-subagent-project",
@@ -12,19 +12,19 @@
           "filename": "01-home-directory-tmp-mock-subagent-project-80d1100c--desktop--full.png",
           "dimensions": {
             "width": 1280,
-            "height": 1715
+            "height": 1805
           },
-          "bytes": 152789,
-          "sha256": "3989f75a8fd79f5878ed37b084d46e11e3a94b3cc9230082e6375b3218b6d87a"
+          "bytes": 162279,
+          "sha256": "61a41b99b0ccb35083c34562f0eb173bbd2a98b178197cd31d3f928c4a8b15d1"
         },
         "mobile": {
           "filename": "01-home-directory-tmp-mock-subagent-project-f514245c--mobile--full.png",
           "dimensions": {
             "width": 390,
-            "height": 1873
+            "height": 1963
           },
-          "bytes": 136544,
-          "sha256": "5b8c71f33d72bd5097cb851528d8861dad1af75a63926d7f36ef3ee2f4d10d0d"
+          "bytes": 143948,
+          "sha256": "ff2fa6d50b11b0445a55e9f17d157542acfee2da95f302c9c907976f74c0b396"
         }
       }
     },
@@ -38,8 +38,8 @@
             "width": 1280,
             "height": 800
           },
-          "bytes": 70761,
-          "sha256": "ea4c4791e5b49a109fbfefd4184a33309426910fcadc68dff0c4b620fb103a75"
+          "bytes": 80060,
+          "sha256": "33a42179fb43644633a965fbe7efa2868c56c63977dd71e0f257b5735228c681"
         },
         "mobile": {
           "filename": "02-sessions-ses_mock_parent-directory-tmp-mock-subagent-project-7c089484--mobile--full.png",
@@ -47,8 +47,8 @@
             "width": 390,
             "height": 740
           },
-          "bytes": 51651,
-          "sha256": "9faeb03d26191b4cae332103f87e103c4d946d7f39c545a94cca1dfbbb7d5e94"
+          "bytes": 57732,
+          "sha256": "6e2a5d7d831eee76be7d36273341e0bfcf81a19a2c7e5cade34702b9ed23a884"
         }
       }
     },
@@ -62,8 +62,8 @@
             "width": 1280,
             "height": 800
           },
-          "bytes": 59623,
-          "sha256": "15571bda13dc57a931557e0ab144b6fa51d5f0d490f054eb7ae42e48b3d9f95d"
+          "bytes": 59586,
+          "sha256": "bb7e860d7402237fb6d70fecd35f44cd8fc35802d3c983361fe0d2eac172934f"
         },
         "mobile": {
           "filename": "03-sessions-ses_mock_child_running-directory-tmp-mock-subagent-project-a7716f19--mobile--full.png",
@@ -71,8 +71,56 @@
             "width": 390,
             "height": 740
           },
-          "bytes": 42473,
-          "sha256": "7c36711ff62bd10fe122149f55799d0ee75e7acefc37379e145c44aa17e1cdad"
+          "bytes": 42470,
+          "sha256": "9a070cc12bf4472d07238dd0543e6232e044a025907bb40afb0c959ae9d2e77f"
+        }
+      }
+    },
+    {
+      "requestedRoute": "/sessions/ses_mock_parent?directory=/tmp/mock-subagent-project&panel=agents",
+      "fullPage": true,
+      "captures": {
+        "desktop": {
+          "filename": "04-sessions-ses_mock_parent-directory-tmp-mock-subagent-project-panel-agents-3f094cea--desktop--full.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 800
+          },
+          "bytes": 108943,
+          "sha256": "cd9149f898b6f18bef0cc0a44562f39d84ec38f6edf517a8dfe10a0880aec661"
+        },
+        "mobile": {
+          "filename": "04-sessions-ses_mock_parent-directory-tmp-mock-subagent-project-panel-agents-58736d8d--mobile--full.png",
+          "dimensions": {
+            "width": 390,
+            "height": 740
+          },
+          "bytes": 54097,
+          "sha256": "b0a9ee50cd0615dd7c6ca14fa6ddd49954e4073478f76697ea938c73fe2a6556"
+        }
+      }
+    },
+    {
+      "requestedRoute": "/settings",
+      "fullPage": true,
+      "captures": {
+        "desktop": {
+          "filename": "05-settings-ece57764--desktop--full.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 1025
+          },
+          "bytes": 69734,
+          "sha256": "eaff0a6a8c3ec29aa5be8e7ba5397af84147fc77300036c2f18b0beeae639d1e"
+        },
+        "mobile": {
+          "filename": "05-settings-828c3064--mobile--full.png",
+          "dimensions": {
+            "width": 390,
+            "height": 1081
+          },
+          "bytes": 63897,
+          "sha256": "399f6ae57d4b7a938f1a4773f1fd8e1579afd88c77c2911287112483482517e2"
         }
       }
     }
