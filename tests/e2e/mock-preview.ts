@@ -15,6 +15,51 @@ createServer((req, res) => {
     res.end(JSON.stringify({ detailRequests, mergeBody }));
     return;
   }
+  if (req.url?.startsWith("/repos/leoncheng57/custom-dca-opencode/issues?") && req.method === "GET") {
+    const page = new URL(req.url, `http://${req.headers.host}`).searchParams.get("page");
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(page === "1" ? [
+      {
+        id: 101,
+        number: 101,
+        title: "Improve the mobile planning view",
+        state: "open",
+        labels: [{ name: "frontend", color: "123456" }, { name: "mobile", color: "abcdef" }],
+        user: { login: "maintainer" },
+        html_url: "https://github.com/leoncheng57/custom-dca-opencode/issues/101",
+        created_at: "2026-08-12T09:00:00Z",
+        updated_at: "2026-08-21T16:30:00Z",
+        comments: 4,
+      },
+      {
+        id: 102,
+        number: 102,
+        title: "Add the project planning feed",
+        state: "open",
+        labels: [{ name: "server", color: "654321" }],
+        user: { login: "contributor" },
+        html_url: "https://github.com/leoncheng57/custom-dca-opencode/pull/102",
+        created_at: "2026-08-15T10:00:00Z",
+        updated_at: "2026-08-22T08:15:00Z",
+        comments: 2,
+        pull_request: { merged_at: null },
+      },
+      {
+        id: 99,
+        number: 99,
+        title: "Ship session-first notifications",
+        state: "closed",
+        labels: [{ name: "notifications", color: "fedcba" }],
+        user: { login: "maintainer" },
+        html_url: "https://github.com/leoncheng57/custom-dca-opencode/pull/99",
+        created_at: "2026-08-01T12:00:00Z",
+        updated_at: "2026-08-20T18:45:00Z",
+        comments: 8,
+        pull_request: { merged_at: "2026-08-20T18:45:00Z" },
+      },
+    ] : []));
+    return;
+  }
   if (req.url === "/repos/acme/demo/pulls/7") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ title: "Mock pull request", body: "## Review notes\n\nReady to ship.", number: 7, state: "open", mergeable: true, user: { login: "octocat" }, head: { sha: "abc123" } }));

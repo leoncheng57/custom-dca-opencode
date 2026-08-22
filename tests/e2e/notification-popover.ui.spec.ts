@@ -473,7 +473,7 @@ for (const viewport of VIEWPORTS) {
       }
     });
 
-    test("keeps Phone, Docs, Tools and Settings reachable from More", async ({ page }) => {
+    test("keeps Phone, Docs, Tools, Settings and Planning reachable from More", async ({ page }) => {
       await page.goto(hub);
       const more = page.getByTestId("opencode-nav-more");
       await expect(more).toHaveAttribute("aria-haspopup", "true");
@@ -481,14 +481,14 @@ for (const viewport of VIEWPORTS) {
       await more.click();
       await expect(more).toHaveAttribute("aria-expanded", "true");
       await expect(page.getByTestId("opencode-nav-more-menu")).toBeVisible();
-      for (const testId of ["opencode-phone-transfer-open", "opencode-nav-docs", "opencode-nav-tools", "opencode-nav-settings"]) {
+      for (const testId of ["opencode-phone-transfer-open", "opencode-nav-docs", "opencode-nav-tools", "opencode-nav-settings", "opencode-nav-planning"]) {
         await expect(page.getByTestId(testId)).toBeVisible();
       }
 
       // A disclosure over links, not an APG menu: the three destinations stay
       // real links so assistive tech still lists them as such, and Tab is the
       // traversal model.
-      for (const testId of ["opencode-nav-docs", "opencode-nav-tools", "opencode-nav-settings"]) {
+      for (const testId of ["opencode-nav-docs", "opencode-nav-tools", "opencode-nav-settings", "opencode-nav-planning"]) {
         await expect(page.getByTestId(testId)).toHaveRole("link");
       }
       await expect(page.getByTestId("opencode-phone-transfer-open")).toHaveRole("button");
@@ -510,7 +510,7 @@ for (const viewport of VIEWPORTS) {
     test("still lists the moved destinations in the command palette", async ({ page }) => {
       await page.goto(hub);
       await page.keyboard.press(shortcut);
-      for (const name of [/Docs/, /Tools/, /Settings/, /Notifications/, /Open on phone/]) {
+      for (const name of [/Docs/, /Tools/, /Settings/, /Planning/, /Notifications/, /Open on phone/]) {
         await expect(page.getByRole("option", { name }).first()).toBeVisible();
       }
     });

@@ -10,6 +10,7 @@ import { NotificationsPage } from "./pages/Notifications.js";
 import { ToolsPage } from "./pages/Tools.js";
 import { DocsPage } from "./pages/Docs.js";
 import { DocPage } from "./pages/DocPage.js";
+import { PlanningPage } from "./pages/Planning.js";
 import { AppShell } from "./components/app-shell.js";
 import { ThemeEffects } from "./components/theme-effects.js";
 import { NotificationCenterProvider } from "./lib/useNotificationCenter.js";
@@ -30,6 +31,7 @@ createRoot(document.getElementById("root")!).render(
               <Route path="/tools" element={<ToolsPage />} />
               <Route path="/docs" element={<DocsPage />} />
               <Route path="/docs/:slug" element={<DocPage />} />
+              <Route path="/planning" element={<PlanningPage />} />
             </Route>
           </Routes>
         </NotificationCenterProvider>

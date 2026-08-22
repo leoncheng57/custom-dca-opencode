@@ -102,6 +102,7 @@ export function AppShell() {
         ...(activeCount > 0 ? { subtitle: `${activeCount} unresolved` } : {}),
       },
       { id: "settings", title: "Settings", to: scopedPath("/settings") },
+      { id: "planning", title: "Planning", to: "/planning", keywords: ["issues", "pull requests", "roadmap", "github"] },
     ],
     actions: [
       {
