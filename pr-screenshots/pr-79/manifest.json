@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 2,
+  "prNumber": 79,
+  "sourceSha": "431373728304096acadb89390fd848dc6f831f83",
+  "capturedAt": "2026-08-22T05:50:44.033Z",
+  "screenshots": [
+    {
+      "requestedRoute": "/sessions/ses_mock_modes?directory=/tmp/mock-project",
+      "fullPage": true,
+      "captures": {
+        "desktop": {
+          "filename": "01-sessions-ses_mock_modes-directory-tmp-mock-project-3a88c879--desktop--full.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 800
+          },
+          "bytes": 78681,
+          "sha256": "a4deff25a51a1ef440555b5e406a0eed157f43aff2ceb4389d931dc226108d63"
+        },
+        "mobile": {
+          "filename": "01-sessions-ses_mock_modes-directory-tmp-mock-project-c3a3f22b--mobile--full.png",
+          "dimensions": {
+            "width": 390,
+            "height": 740
+          },
+          "bytes": 42927,
+          "sha256": "2e0fb21670e9bee25f2f9d77ff6d4a2f90ba23926110df457b37a13f91b6e07d"
+        }
+      }
+    },
+    {
+      "requestedRoute": "/sessions/ses_mock_done?directory=/tmp/mock-project",
+      "fullPage": true,
+      "captures": {
+        "desktop": {
+          "filename": "02-sessions-ses_mock_done-directory-tmp-mock-project-383588eb--desktop--full.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 800
+          },
+          "bytes": 64030,
+          "sha256": "0e6765045a6d8a8643158a40ed536d36823329a8b5ccedcdbfe76e9900f11e05"
+        },
+        "mobile": {
+          "filename": "02-sessions-ses_mock_done-directory-tmp-mock-project-f1b9b001--mobile--full.png",
+          "dimensions": {
+            "width": 390,
+            "height": 740
+          },
+          "bytes": 48524,
+          "sha256": "18031c95489366702949be6b6d980d94b570c7598f2d82d07bef70b56c94749d"
+        }
+      }
+    }
+  ]
+}
