@@ -1,8 +1,8 @@
 {
   "schemaVersion": 2,
   "prNumber": 69,
-  "sourceSha": "6dd546fcb5fd0597698bb4b23aed7fd3627cda87",
-  "capturedAt": "2026-08-22T04:05:51.952Z",
+  "sourceSha": "cf137c7b95fcee4584b3b97b353c0d82c27c0bf8",
+  "capturedAt": "2026-08-22T04:40:30.398Z",
   "screenshots": [
     {
       "requestedRoute": "/sessions/ses_mock_parent?directory=/tmp/mock-subagent-project",
@@ -14,8 +14,8 @@
             "width": 1280,
             "height": 800
           },
-          "bytes": 87007,
-          "sha256": "7742e3f1776ae421cb3c4c0ec84f6859b28116323ad7c2679c9435430ff9d72b"
+          "bytes": 92472,
+          "sha256": "8f6a4fbe4403b16241e8698a3fc63a0cd347c51a3a01a7a39e40785ec7347c6c"
         },
         "mobile": {
           "filename": "01-sessions-ses_mock_parent-directory-tmp-mock-subagent-project-7c089484--mobile--full.png",
@@ -23,8 +23,8 @@
             "width": 390,
             "height": 740
           },
-          "bytes": 53276,
-          "sha256": "cd10e9e9da14701e717282cfa89fe9a5d252b24e218c8b3afaf767bd66a50af6"
+          "bytes": 57337,
+          "sha256": "1d324a4c5d78220ac96eca835932e4b8b79cd1359ad2bae9b0f74436328eea8e"
         }
       }
     }
