@@ -214,6 +214,37 @@ interface RawSession {
   time?: { created?: number; updated?: number; archived?: number };
 }
 
+export interface SessionMetadata {
+  id: string;
+  parentID?: string;
+}
+
+export function parseSessionMetadata(value: unknown): SessionMetadata | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as { id?: unknown; parentID?: unknown };
+  if (typeof raw.id !== "string" || !raw.id) return null;
+  if (raw.parentID !== undefined && typeof raw.parentID !== "string") return null;
+  return {
+    id: raw.id,
+    ...(raw.parentID ? { parentID: raw.parentID } : {}),
+  };
+}
+
+/** Fetch only the metadata needed to identify a delegated session. */
+export async function getSessionMetadata(
+  config: OpencodeConfig,
+  directory: string,
+  sessionID: string,
+  signal?: AbortSignal,
+): Promise<SessionMetadata | null> {
+  const raw = await request<unknown>(config, `/session/${encodeURIComponent(sessionID)}`, {
+    directory,
+    signal,
+  });
+  const metadata = parseSessionMetadata(raw);
+  return metadata?.id === sessionID ? metadata : null;
+}
+
 function safeShareUrl(value: unknown): string | undefined {
   if (typeof value !== "string" || value.length > 2_048) return undefined;
   try {
