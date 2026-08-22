@@ -204,16 +204,25 @@ export interface ReminderSummary {
   triggers: string[];
 }
 
+export interface MessagePage {
+  messages: RawMessage[];
+  running: boolean;
+  nextCursor: string | null;
+}
+
 /**
  * Unwrap a response, surfacing the BFF's `{ error }` body when present.
  *
  * The status is attached so callers can distinguish "this session is gone"
  * (404, stop polling) from "the agent server is down" (502, keep retrying).
  */
+export type ApiErrorCode = "SESSION_AGENT_UNKNOWN" | "SESSION_AGENT_UNSUPPORTED";
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    readonly code?: ApiErrorCode,
   ) {
     super(message);
     this.name = "ApiError";
@@ -223,13 +232,15 @@ export class ApiError extends Error {
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let message = `HTTP ${res.status}`;
+    let code: ApiErrorCode | undefined;
     try {
-      const body = (await res.json()) as { error?: string };
+      const body = (await res.json()) as { error?: string; code?: string };
       if (body.error) message = body.error;
+      if (body.code === "SESSION_AGENT_UNKNOWN" || body.code === "SESSION_AGENT_UNSUPPORTED") code = body.code;
     } catch {
       /* keep the status-only message */
     }
-    throw new ApiError(res.status, message);
+    throw new ApiError(res.status, message, code);
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
@@ -291,9 +302,12 @@ export const api = {
       json<{ session: SessionSummary }>(r),
     ),
 
-  messages: (directory: string, id: string) =>
-    fetch(scoped(`/sessions/${encodeURIComponent(id)}/messages`, directory)).then((r) =>
-      json<{ messages: RawMessage[]; running: boolean }>(r),
+  messages: (directory: string, id: string, options: { limit?: number; before?: string } = {}) =>
+    fetch(scoped(`/sessions/${encodeURIComponent(id)}/messages`, directory, {
+      limit: String(options.limit ?? 100),
+      ...(options.before ? { before: options.before } : {}),
+    })).then((r) =>
+      json<MessagePage>(r),
     ),
 
   todos: (directory: string, id: string) =>

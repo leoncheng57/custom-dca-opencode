@@ -13,9 +13,10 @@ import { AgentModeToggle } from "../components/agent-mode-toggle.js";
 import { AutoPermissionsControl } from "../components/auto-permissions-control.js";
 import { ModelPicker } from "../components/model-picker.js";
 import { QuestionRequest } from "../components/question-request.js";
+import { ReminderPicker } from "../components/reminder-picker.js";
 import { ShareExportDialog } from "../components/share-export-dialog.js";
-import { api, formatCost, type ReminderSummary, type SessionSummary } from "../lib/api.js";
-import { latestModeMessageID, modeFromMessages, type AgentMode } from "../lib/agentMode.js";
+import { api, ApiError, formatCost, type ReminderSummary, type SessionSummary } from "../lib/api.js";
+import { latestModeMessageID, modeFromSession, type AgentMode } from "../lib/agentMode.js";
 import { MAX_IMAGE_ATTACHMENTS, readImageAttachment, selectImageFiles, type ImageAttachment } from "../lib/attachments.js";
 import { composerEnterAction } from "../lib/composerKeys.js";
 import { collapseActionGroups, mergeEvents, runningActivity } from "../lib/derive.js";
@@ -53,6 +54,7 @@ export function ConversationPage() {
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [composerError, setComposerError] = useState<string | null>(null);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [contextLimit, setContextLimit] = useState<number | null>(null);
@@ -61,6 +63,7 @@ export function ConversationPage() {
   const [reminderCatalogue, setReminderCatalogue] = useState<ReminderSummary[]>([]);
   const [selectedReminder, setSelectedReminder] = useState("");
   const [mode, setMode] = useState<AgentMode>("build");
+  const [agentIdentityKnown, setAgentIdentityKnown] = useState(false);
   const derivedModeMessage = useRef<string | undefined>(undefined);
   const modeSelectionDirty = useRef(false);
   const [replyingPermission, setReplyingPermission] = useState<string | null>(null);
@@ -83,24 +86,34 @@ export function ConversationPage() {
 
   // Keep event identity stable across polls so memoised rows do not churn.
   const [events, setEvents] = useState<TranscriptEvent[]>([]);
+  const eventScope = useRef(`${directory}\0${id}`);
   const transcript = useMemo(
     () => normalizeTranscript(stream.messages as RawMessage[], { isRunning: stream.running }),
     [stream.messages, stream.running],
   );
   useEffect(() => {
-    setEvents((previous) => mergeEvents(previous, transcript.events));
-  }, [transcript.events]);
+    const scope = `${directory}\0${id}`;
+    setEvents((previous) => {
+      if (eventScope.current !== scope) {
+        eventScope.current = scope;
+        return transcript.events;
+      }
+      return mergeEvents(previous, transcript.events);
+    });
+  }, [directory, id, transcript.events]);
 
   useEffect(() => {
     if (!stream.loaded) return;
-    const messageID = latestModeMessageID(stream.messages as RawMessage[]);
-    if (messageID === derivedModeMessage.current) return;
-    derivedModeMessage.current = messageID;
-    const persistedMode = modeFromMessages(stream.messages as RawMessage[]);
+    const marker = `${session?.agent ?? ""}:${latestModeMessageID(stream.messages as RawMessage[]) ?? ""}`;
+    if (marker === derivedModeMessage.current) return;
+    derivedModeMessage.current = marker;
+    const persistedMode = modeFromSession(session?.agent, stream.messages as RawMessage[]);
+    setAgentIdentityKnown(persistedMode !== undefined);
+    if (!persistedMode) return;
     if (modeSelectionDirty.current && persistedMode !== mode) return;
     modeSelectionDirty.current = false;
     setMode(persistedMode);
-  }, [mode, stream.loaded, stream.messages]);
+  }, [mode, session?.agent, stream.loaded, stream.messages]);
 
   const selectMode = (nextMode: AgentMode) => {
     modeSelectionDirty.current = true;
@@ -280,6 +293,7 @@ export function ConversationPage() {
     const text = draft.trim();
     if (!text) return;
     setSending(true);
+    setComposerError(null);
     try {
       const modelOverride = selectedModel && !sameModel(selectedModel, currentModel) ? selectedModel : undefined;
       await api.prompt(
@@ -300,6 +314,13 @@ export function ConversationPage() {
         modelSelectionDirty.current = false;
       }
       stream.refresh();
+    } catch (error) {
+      if (error instanceof ApiError &&
+          (error.code === "SESSION_AGENT_UNKNOWN" || error.code === "SESSION_AGENT_UNSUPPORTED")) {
+        setComposerError(error.message);
+      } else {
+        setComposerError(`Could not send the prompt: ${error instanceof Error ? error.message : String(error)}`);
+      }
     } finally {
       setSending(false);
     }
@@ -321,7 +342,7 @@ export function ConversationPage() {
         coarsePointer: window.matchMedia("(pointer: coarse)").matches,
         // `send()` has no re-entry guard and prompt_async returns as soon as
         // the turn is queued, so a fast double Enter would post two turns.
-        canSubmit: !sending && draft.trim().length > 0,
+        canSubmit: agentIdentityKnown && !sending && draft.trim().length > 0,
       },
     );
     if (action.preventDefault) event.preventDefault();
@@ -506,6 +527,25 @@ export function ConversationPage() {
             </div>
           )}
           <div ref={transcriptContentRef} className="mx-auto min-w-0 max-w-3xl">
+            {stream.loaded && stream.hasEarlier && (
+              <div className="mb-6 flex justify-center">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={stream.loadingEarlier}
+                  onClick={() => void stream.loadEarlier()}
+                  aria-label="Load earlier transcript messages"
+                  data-testid="opencode-load-earlier"
+                >
+                  {stream.loadingEarlier ? "Loading earlier..." : "Load earlier"}
+                </Button>
+              </div>
+            )}
+            {stream.loadEarlierError && (
+              <div className="mb-6" role="alert" data-testid="opencode-load-earlier-error">
+                <Alert variant="danger">Could not load earlier messages: {stream.loadEarlierError}</Alert>
+              </div>
+            )}
             {!stream.loaded ? (
               <LoadingIndicator />
             ) : items.length === 0 ? (
@@ -531,6 +571,7 @@ export function ConversationPage() {
 
         <SessionInspector
           directory={directory}
+          sessionID={id}
           events={events}
           todos={stream.todos}
           todosLoaded={stream.todosLoaded}
@@ -558,7 +599,7 @@ export function ConversationPage() {
             </button>
           ) : <>
           <div className="mb-2 flex min-w-0 flex-wrap items-center gap-2">
-            <AgentModeToggle mode={mode} onChange={selectMode} testId="opencode-composer-mode" />
+            <AgentModeToggle mode={agentIdentityKnown ? mode : undefined} onChange={selectMode} disabled={!agentIdentityKnown} testId="opencode-composer-mode" />
             <ModelPicker
               catalogue={modelCatalogue}
               value={selectedModel}
@@ -576,8 +617,8 @@ export function ConversationPage() {
             >
               <ChevronDown aria-hidden="true" className="h-4 w-4" />
             </button>
-            <span className={`${selectedModel && !sameModel(selectedModel, currentModel) ? "block" : "hidden"} basis-full text-[11px] text-[var(--color-text-muted)]`} data-testid="opencode-current-model">
-              switches next message
+            <span className={`${!agentIdentityKnown || selectedModel && !sameModel(selectedModel, currentModel) ? "block" : "hidden"} basis-full text-[11px] text-[var(--color-text-muted)]`} data-testid="opencode-current-model">
+              {!agentIdentityKnown ? "Agent identity unavailable; continue in the TUI or create a web session" : "switches next message"}
             </span>
           </div>
           {attachments.length > 0 && <div className="mb-2 flex flex-wrap gap-2">{attachments.map((attachment, index) => <button key={`${attachment.filename}-${index}`} type="button" onClick={() => setAttachments((items) => items.filter((_, itemIndex) => itemIndex !== index))} className="rounded border border-[var(--color-border-default)] px-2 py-1 text-xs" data-testid="opencode-attachment-chip">{attachment.filename} x</button>)}</div>}
@@ -587,6 +628,7 @@ export function ConversationPage() {
             </p>
           )}
           {attachmentError && <p className="mb-2 text-xs text-[var(--color-text-danger)]" role="alert" data-testid="opencode-attachment-error">{attachmentError}</p>}
+          {composerError && <p className="mb-2 text-xs text-[var(--color-text-danger)]" role="alert" data-testid="opencode-composer-error">{composerError}</p>}
           {/* One card owns the border so the textarea and its controls share a
               frame. Laying the controls out on their own rail is what keeps
               them aligned: as flex siblings of the textarea they stretched to
@@ -629,28 +671,14 @@ export function ConversationPage() {
                 }} />
               </label>
               {reminderCatalogue.length > 0 && (
-                <select
+                <ReminderPicker
+                  catalogue={reminderCatalogue}
                   value={selectedReminder}
-                  onChange={(event) => setSelectedReminder(event.target.value)}
-                  className={`min-h-11 min-w-0 max-w-36 shrink rounded-md border px-2 text-base sm:min-h-8 sm:max-w-40 sm:text-xs ${
-                    selectedReminder
-                      ? "border-[var(--color-border-focus)] bg-[var(--color-background-surface)] text-[var(--color-text-default)]"
-                      : "border-transparent bg-transparent text-[var(--color-text-muted)] hover:border-[var(--color-border-default)]"
-                  }`}
-                  data-testid="composer-reminder-select"
-                  aria-label="Attach a reminder to this message"
-                  title="Attach one reminder to the next message only. Cleared after sending."
-                >
-                  <option value="">+ reminder</option>
-                  {reminderCatalogue.map((reminder) => (
-                    <option key={reminder.id} value={reminder.id} title={reminder.description}>
-                      {reminder.title}{reminder.triggers.length ? " (triggers ignored)" : ""}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setSelectedReminder}
+                />
               )}
               <span className="flex-1" aria-hidden="true" />
-              <Button size="sm" className="min-h-11 shrink-0 sm:min-h-8" onClick={() => void send()} disabled={sending || !draft.trim()} data-testid="opencode-send">
+              <Button size="sm" className="min-h-11 shrink-0 sm:min-h-8" onClick={() => void send()} disabled={!agentIdentityKnown || sending || !draft.trim()} data-testid="opencode-send">
                 {sending ? "Sending…" : "Send"}
               </Button>
             </div>

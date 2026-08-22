@@ -67,16 +67,28 @@ test.describe("hub", () => {
     await expect(page.getByTestId("opencode-upstream-badge")).toContainText("1.18.21");
   });
 
-  test("shows a directory-wide auto permissions warning and control", async ({ page }) => {
+  test("shows compact directory-wide auto permissions controls", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 740 });
     await page.goto(hub);
     const control = page.getByTestId("opencode-hub-auto-permissions");
+    const toggle = control.getByTestId("opencode-hub-auto-permissions-toggle");
     await expect(control).toContainText("Auto permissions: OFF");
-    await control.getByTestId("opencode-hub-auto-permissions-toggle").click();
+    await expect(toggle).toHaveAttribute("role", "switch");
+    await expect(toggle).toHaveAttribute("aria-checked", "false");
+    await expect(toggle).toHaveAccessibleName("Turn auto permissions on");
+    expect((await control.boundingBox())?.height).toBeLessThanOrEqual(40);
+    await toggle.click();
     await expect(control).toContainText("Auto permissions: ON");
+    await expect(toggle).toHaveAttribute("aria-checked", "true");
+    await expect(toggle).toHaveAccessibleName("Turn auto permissions off");
+    expect((await control.boundingBox())?.height).toBeLessThanOrEqual(40);
+    await expect(control.getByTestId("opencode-hub-auto-permissions-warning")).toHaveCount(0);
+    await control.getByTestId("opencode-hub-auto-permissions-details").click();
     await expect(control.getByTestId("opencode-hub-auto-permissions-warning")).toContainText("arbitrary shell commands");
     await expect(control).toContainText("every session using this project directory");
-    await control.getByTestId("opencode-hub-auto-permissions-toggle").click();
+    await toggle.click();
     await expect(control).toContainText("Auto permissions: OFF");
+    await expect(control.getByTestId("opencode-hub-auto-permissions-warning")).toHaveCount(0);
   });
 
   test("selects the configured model from the safe catalogue", async ({ page }) => {
@@ -379,6 +391,15 @@ test.describe("phone transfer", () => {
     await expect(dialog).toHaveCount(0);
   });
 
+  test("targets the active conversation", async ({ page }) => {
+    await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
+    await page.getByTestId("opencode-phone-transfer-open").click();
+
+    await expect(page.getByTestId("opencode-phone-transfer-url")).toHaveText(
+      `https://ide.e2e.example.test:8443/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`,
+    );
+  });
+
   test("dialog fits without horizontal overflow at 390px", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 740 });
     await page.goto(hub);
@@ -391,6 +412,15 @@ test.describe("phone transfer", () => {
 
 test.describe("transcript", () => {
   const conversation = `/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`;
+  const mobileConversation = `/sessions/ses_mock_mobile?directory=${encodeURIComponent(DIR)}`;
+  const paginatedConversation = `/sessions/ses_mock_paginated?directory=${encodeURIComponent(DIR)}`;
+
+  const navigateInApp = async (page: import("@playwright/test").Page, url: string) => {
+    await page.evaluate((next) => {
+      history.pushState({}, "", next);
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    }, url);
+  };
 
   test("renders every row kind from the fixture", async ({ page }) => {
     await page.goto(conversation);
@@ -399,6 +429,135 @@ test.describe("transcript", () => {
     await expect(page.getByTestId("opencode-agent-message")).toBeVisible();
     await expect(page.getByTestId("opencode-thought")).toHaveCount(1);
     await expect(page.getByTestId("opencode-status-separator").first()).toBeVisible();
+  });
+
+  test("rejects stale poll completions across A to B to A and hides old actionable state immediately", async ({ page }) => {
+    let releaseMessages!: () => void;
+    let releaseTodos!: () => void;
+    let messagesHeld = false;
+    let todosHeld = false;
+    const messageGate = new Promise<void>((resolve) => { releaseMessages = resolve; });
+    const todoGate = new Promise<void>((resolve) => { releaseTodos = resolve; });
+
+    await page.route("**/api/sessions/ses_mock_done/messages?**", async (route) => {
+      if (!messagesHeld) {
+        messagesHeld = true;
+        await messageGate;
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            messages: [{ info: { id: "msg_stale", role: "assistant", time: { created: 1, completed: 1 } }, parts: [{ id: "prt_stale", messageID: "msg_stale", type: "text", text: "STALE A RESPONSE" }] }],
+            running: false,
+            nextCursor: null,
+          }),
+        });
+        return;
+      }
+      await route.continue();
+    });
+    await page.route("**/api/sessions/ses_mock_done/todos?**", async (route) => {
+      if (!todosHeld) {
+        todosHeld = true;
+        await todoGate;
+        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ todos: [{ content: "STALE TODO", status: "pending", priority: "high" }] }) });
+        return;
+      }
+      await route.continue();
+    });
+
+    await page.goto(conversation);
+    await expect.poll(() => messagesHeld && todosHeld).toBe(true);
+    await navigateInApp(page, mobileConversation);
+    await expect(page.getByTestId("opencode-session-title")).toHaveText("Mobile full session fixture");
+    await expect(page.getByTestId("opencode-permission-request")).toHaveCount(0);
+    await expect(page.getByTestId("opencode-question-request")).toHaveCount(0);
+    await navigateInApp(page, conversation);
+    await expect(page.getByText("Add a health endpoint to the server.")).toBeVisible();
+
+    releaseMessages();
+    releaseTodos();
+    await expect(page.getByText("STALE A RESPONSE", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("STALE TODO", { exact: true })).toHaveCount(0);
+    await expect(page.getByTestId("opencode-todo-list")).toContainText("Add the route");
+  });
+
+  test("hides seeded permission and question state on a session transition", async ({ page }) => {
+    await fetch(`${MOCK_URL}/test/permissions/reset?directory=${encodeURIComponent(DIR)}`, { method: "POST" });
+    await fetch(`${MOCK_URL}/test/questions/reset?scope=ui`, { method: "POST" });
+    await page.goto(conversation);
+    await expect(page.getByTestId("opencode-permission-request")).toBeVisible();
+    await expect(page.getByTestId("opencode-question-request")).toBeVisible();
+    await navigateInApp(page, mobileConversation);
+    await expect(page.getByTestId("opencode-permission-request")).toHaveCount(0);
+    await expect(page.getByTestId("opencode-question-request")).toHaveCount(0);
+  });
+
+  test("rejects stale earlier-page completion after revisiting the same session", async ({ page }) => {
+    let releaseBackfill!: () => void;
+    let held = false;
+    const gate = new Promise<void>((resolve) => { releaseBackfill = resolve; });
+    await page.route("**/api/sessions/ses_mock_paginated/messages?**", async (route) => {
+      const requestUrl = new URL(route.request().url());
+      if (requestUrl.searchParams.has("before") && !held) {
+        held = true;
+        await gate;
+      }
+      await route.continue();
+    });
+
+    await page.goto(paginatedConversation);
+    await page.getByTestId("opencode-load-earlier").click({ noWaitAfter: true });
+    await expect.poll(() => held).toBe(true);
+    await navigateInApp(page, mobileConversation);
+    await expect(page.getByTestId("opencode-session-title")).toHaveText("Mobile full session fixture");
+    await navigateInApp(page, paginatedConversation);
+    await expect(page.getByText("Paged message 126", { exact: true })).toBeVisible();
+    releaseBackfill();
+    await expect(page.getByText("Paged message 1", { exact: true })).toHaveCount(0);
+    await expect(page.getByTestId("opencode-load-earlier")).toBeVisible();
+  });
+
+  test("keeps older pages for newest part updates and cancels backfill for older updates", async ({ page }) => {
+    let release!: () => void;
+    let held = false;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    await page.route("**/api/sessions/ses_mock_paginated/messages?**", async (route) => {
+      const url = new URL(route.request().url());
+      if (url.searchParams.get("before") === "25" && !held) { held = true; await gate; }
+      await route.continue();
+    });
+    await page.goto(paginatedConversation);
+    await page.getByTestId("opencode-load-earlier").click();
+    await expect(page.getByText("Paged message 50", { exact: true })).toBeVisible();
+    await fetch(`${MOCK_URL}/test/paginated/newest-update`, { method: "POST" });
+    await expect(page.getByText("Paged message 50", { exact: true })).toBeVisible();
+    await page.getByTestId("opencode-load-earlier").click({ noWaitAfter: true });
+    await expect.poll(() => held).toBe(true);
+    await fetch(`${MOCK_URL}/test/paginated/pending-update`, { method: "POST" });
+    await expect(page.getByText("Paged message 50", { exact: true })).toBeVisible();
+    release();
+    await expect(page.getByText("Paged message 1", { exact: true })).toHaveCount(0);
+  });
+
+  test("cancels complete command export when the inspector unmounts", async ({ page }) => {
+    let newestRequests = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    await page.route("**/api/sessions/ses_mock_paginated/messages?**", async (route) => {
+      const url = new URL(route.request().url());
+      if (!url.searchParams.has("before") && ++newestRequests === 2) await gate;
+      await route.continue();
+    });
+    let downloads = 0;
+    page.on("download", () => { downloads += 1; });
+    await page.goto(paginatedConversation);
+    await page.getByTestId("opencode-inspector-runlog").click();
+    await page.getByTestId("opencode-export-commands").click({ noWaitAfter: true });
+    await page.getByRole("link", { name: "Sessions" }).click();
+    release();
+    await page.waitForTimeout(200);
+    expect(downloads).toBe(0);
   });
 
   test("shows the reasoning duration OpenHands could not", async ({ page }) => {
@@ -607,6 +766,29 @@ test.describe("composer", () => {
     await expect(page.getByTestId("opencode-send")).toBeDisabled();
   });
 
+  test("shows an actionable identity error when the server rejects a stale bounded client view", async ({ page }) => {
+    await page.route("**/api/sessions/ses_mock_identity_mismatch/messages?**", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          messages: [{ info: { id: "msg_client_build", role: "user", agent: "build" }, parts: [] }],
+          running: false,
+          nextCursor: null,
+        }),
+      });
+    });
+    await page.goto(`/sessions/ses_mock_identity_mismatch?directory=${encodeURIComponent(DIR)}`);
+    await page.getByTestId("opencode-composer").fill("do not silently switch agents");
+    await expect(page.getByTestId("opencode-send")).toBeEnabled();
+    await page.getByTestId("opencode-send").click();
+
+    await expect(page.getByTestId("opencode-composer-error")).toContainText('uses OpenCode agent "explore"');
+    await expect(page.getByTestId("opencode-composer-error")).toContainText("continue it in the TUI");
+    await expect(page.getByTestId("opencode-composer-error")).not.toContainText("Could not send the prompt");
+    await expect(page.getByTestId("opencode-composer")).toHaveValue("do not silently switch agents");
+  });
+
   test("persists the selected mode from the latest message across reload", async ({ page }) => {
     const text = `follow-up plan ${Date.now()}`;
     await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
@@ -677,17 +859,33 @@ test.describe("composer", () => {
     await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
     const picker = page.getByTestId("composer-reminder-select");
     await expect(picker).toBeVisible();
-    await expect(picker.locator('option[value="human-verification-steps"]')).toHaveText("Write Human Verification Steps");
+    await picker.click();
+    await expect(page.getByTestId("composer-reminder-search")).toBeFocused();
+    const humanVerification = page.locator('[data-testid="composer-reminder-option"][data-reminder-id="human-verification-steps"]');
+    await expect(humanVerification).toContainText("Write Human Verification Steps");
+    await expect(humanVerification).toContainText("verifies completed behavior from a user's perspective");
+    await page.getByTestId("composer-reminder-search").fill("Red-Team");
+    await expect(page.getByTestId("composer-reminder-option")).toHaveCount(1);
+    await expect(page.getByTestId("composer-reminder-option")).toContainText("Red-Team This");
+    await page.getByTestId("composer-reminder-search").press("ArrowDown");
+    await page.getByTestId("composer-reminder-search").press("Enter");
+    await expect(picker).toHaveAttribute("value", "red-team-this");
+    await picker.click();
+    await page.getByTestId("composer-reminder-option-none").click();
+    await expect(picker).toHaveAttribute("value", "");
+    await expect(picker).toBeFocused();
 
     const cases = [
       { id: "red-team-this", text: `red team ${Date.now()}`, body: "Explicitly switch from author" },
       { id: "human-verification-steps", text: `manual QA ${Date.now()}`, body: "Run the repository's relevant automated checks" },
     ];
     for (const reminderCase of cases) {
-      await picker.selectOption(reminderCase.id);
+      await picker.click();
+      await page.locator(`[data-testid="composer-reminder-option"][data-reminder-id="${reminderCase.id}"]`).click();
+      await expect(picker).toHaveAttribute("value", reminderCase.id);
       await page.getByTestId("opencode-composer").fill(reminderCase.text);
       await page.getByTestId("opencode-send").click();
-      await expect(picker).toHaveValue("");
+      await expect(picker).toHaveAttribute("value", "");
 
       const user = page.getByTestId("opencode-user-message").filter({ hasText: reminderCase.text });
       await expect(user).toBeVisible();
@@ -763,6 +961,15 @@ test.describe("mobile", () => {
     expect(sendBox?.height).toBeGreaterThanOrEqual(44);
     await expect(composer).toHaveAttribute("enterkeyhint", "enter");
     await expect(composer).toHaveAttribute("autocapitalize", "none");
+    await reminder.click();
+    const panel = page.getByTestId("composer-reminder-panel");
+    await expect(panel).toBeVisible();
+    await expect(page.getByTestId("composer-reminder-option").first()).toContainText("Draw an ASCII Diagram");
+    const panelBox = await panel.boundingBox();
+    expect(panelBox?.width).toBeLessThanOrEqual(390);
+    expect(panelBox?.height).toBeLessThanOrEqual(740);
+    await page.getByTestId("composer-reminder-close").click();
+    await expect(reminder).toBeFocused();
   });
 
   test("collapses the composer without losing its draft", async ({ page }) => {

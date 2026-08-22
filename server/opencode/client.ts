@@ -101,6 +101,11 @@ export interface RequestOptions {
   signal?: AbortSignal;
 }
 
+export interface OpencodeResponse<T> {
+  data: T;
+  headers: Headers;
+}
+
 /**
  * One typed request against the OpenCode server.
  *
@@ -108,11 +113,11 @@ export interface RequestOptions {
  * server rewrites the header form to a query param on GET/HEAD anyway, and the
  * query form is what shows up in logs — much easier to debug.
  */
-export async function request<T>(
+export async function requestWithResponse<T>(
   config: OpencodeConfig,
   path: string,
   options: RequestOptions = {},
-): Promise<T> {
+): Promise<OpencodeResponse<T>> {
   const url = new URL(path, config.baseUrl);
   if (options.directory) url.searchParams.set("directory", options.directory);
   for (const [key, value] of Object.entries(options.query ?? {})) {
@@ -135,9 +140,17 @@ export async function request<T>(
     throw new OpencodeError(res.status, path, await res.text().catch(() => ""));
   }
   // 204 No Content is the success case for /prompt_async.
-  if (res.status === 204) return undefined as T;
+  if (res.status === 204) return { data: undefined as T, headers: res.headers };
   const text = await res.text();
-  return (text ? JSON.parse(text) : undefined) as T;
+  return { data: (text ? JSON.parse(text) : undefined) as T, headers: res.headers };
+}
+
+export async function request<T>(
+  config: OpencodeConfig,
+  path: string,
+  options: RequestOptions = {},
+): Promise<T> {
+  return (await requestWithResponse<T>(config, path, options)).data;
 }
 
 export interface ServerHealth {

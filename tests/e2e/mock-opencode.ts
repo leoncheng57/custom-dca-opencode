@@ -59,9 +59,26 @@ function mobileMessages(): unknown[] {
   return result;
 }
 
+function paginatedMessages(): unknown[] {
+  return Array.from({ length: 225 }, (_, index) => {
+    const number = index + 1;
+    return {
+      info: { id: `msg_page_${number}`, role: number % 2 ? "user" : "assistant", agent: "build", time: { created: 1787300000000 + number, completed: 1787300000000 + number } },
+      parts: [{ id: `prt_page_${number}`, messageID: `msg_page_${number}`, type: "text", text: `Paged message ${number}` }],
+    };
+  });
+}
+
 const messages = new Map<string, unknown[]>([
   ["ses_mock_done", fixture],
   ["ses_mock_mobile", mobileMessages()],
+  ["ses_mock_foreign_agent", [
+    { info: { id: "msg_foreign", role: "user", agent: "explore", time: { created: 1787300000000 } }, parts: [], },
+  ]],
+  ["ses_mock_identity_mismatch", [
+    { info: { id: "msg_mismatch", role: "user", agent: "explore", time: { created: 1787300050000 } }, parts: [], },
+  ]],
+  ["ses_mock_paginated", paginatedMessages()],
 ]);
 const promptPayloads: Array<Record<string, unknown> & { sessionID: string }> = [];
 let sessionListRequests = 0;
@@ -223,12 +240,51 @@ const SESSIONS: Array<Record<string, any>> = [
     time: { created: 1787100000000, updated: 1787100100000, archived: 1787100200000 },
   },
   {
+    id: "ses_mock_paginated",
+    title: "Paginated export fixture",
+    directory: MOCK_DIRECTORY,
+    agent: "build",
+    model: { providerID: "anthropic", id: "claude-opus-5" },
+    cost: 0,
+    tokens: {},
+    time: { created: 1787300000000, updated: 1787300000200, archived: 1787300000300 },
+  },
+  {
     id: "ses_mock_other_directory",
     title: "Other directory session",
     directory: AUTO_DIRECTORY,
     cost: 0,
     tokens: {},
     time: { created: 1787200000000, updated: 1787200000000 },
+  },
+  {
+    id: "ses_mock_foreign_agent",
+    title: "Imported Explore session",
+    directory: MOCK_DIRECTORY,
+    agent: "explore",
+    permission: [],
+    cost: 0,
+    tokens: {},
+    time: { created: 1787300000000, updated: 1787300000000, archived: 1787300001000 },
+  },
+  {
+    id: "ses_mock_unknown_agent",
+    title: "Imported session without agent metadata",
+    directory: MOCK_DIRECTORY,
+    permission: [],
+    cost: 0,
+    tokens: {},
+    time: { created: 1787300100000, updated: 1787300100000, archived: 1787300101000 },
+  },
+  {
+    id: "ses_mock_identity_mismatch",
+    title: "Session with stale browser identity",
+    directory: MOCK_DIRECTORY,
+    agent: "build",
+    permission: [],
+    cost: 0,
+    tokens: {},
+    time: { created: 1787300050000, updated: 1787300050000, archived: 1787300051000 },
   },
   {
     id: "ses_mock_share_failure",
@@ -365,9 +421,9 @@ function emit(type: string, properties: Record<string, unknown>, directory = MOC
   for (const client of eventClients) client.write(frame);
 }
 
-function json(res: ServerResponse, status: number, body: unknown): void {
+function json(res: ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}): void {
   const payload = JSON.stringify(body);
-  res.writeHead(status, { "Content-Type": "application/json" });
+  res.writeHead(status, { "Content-Type": "application/json", ...headers });
   res.end(payload);
 }
 
@@ -498,7 +554,19 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     const live = sessionMessages.find((message) => message.info?.id === "msg_mobile_live");
     const text = live?.parts?.find((part) => part.type === "text");
     if (text) text.text = `${hostileMarkdown}\n\nNew live activity from the running agent.`;
-    emit("message.part.updated", { sessionID: "ses_mock_mobile", partID: "prt_mobile_live" });
+    emit("message.part.updated", { sessionID: "ses_mock_mobile", part: { id: "prt_mobile_live", messageID: "msg_mobile_live" } });
+    return json(res, 200, true);
+  }
+  if (pathname === "/test/paginated/older-update" && req.method === "POST") {
+    emit("message.part.updated", { sessionID: "ses_mock_paginated", part: { id: "prt_page_50", messageID: "msg_page_50" } });
+    return json(res, 200, true);
+  }
+  if (pathname === "/test/paginated/pending-update" && req.method === "POST") {
+    emit("message.part.updated", { sessionID: "ses_mock_paginated", part: { id: "prt_page_1", messageID: "msg_page_1" } });
+    return json(res, 200, true);
+  }
+  if (pathname === "/test/paginated/newest-update" && req.method === "POST") {
+    emit("message.part.updated", { sessionID: "ses_mock_paginated", part: { id: "prt_page_225", messageID: "msg_page_225" } });
     return json(res, 200, true);
   }
   if (pathname === "/test/session-policy") {
@@ -783,7 +851,16 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
       return json(res, 200, session);
     }
     if (rest === "/message") {
-      return json(res, 200, messages.get(id) ?? []);
+      const all = messages.get(id) ?? [];
+      const requestedLimit = Number(url.searchParams.get("limit") ?? 0);
+      const limit = Number.isInteger(requestedLimit) && requestedLimit > 0 ? requestedLimit : all.length;
+      const requestedBefore = Number(url.searchParams.get("before") ?? all.length);
+      const end = Number.isInteger(requestedBefore) && requestedBefore >= 0
+        ? Math.min(requestedBefore, all.length)
+        : all.length;
+      const start = Math.max(0, end - limit);
+      const nextCursor = start > 0 ? String(start) : null;
+      return json(res, 200, all.slice(start, end), nextCursor ? { "X-Next-Cursor": nextCursor } : {});
     }
     if (rest === "/todo") {
       return json(res, 200, id === "ses_mock_done" ? TODOS : []);

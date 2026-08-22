@@ -4,10 +4,12 @@ export function AgentModeToggle({
   mode,
   onChange,
   testId,
+  disabled = false,
 }: {
-  mode: AgentMode;
+  mode?: AgentMode;
   onChange: (mode: AgentMode) => void;
   testId: string;
+  disabled?: boolean;
 }) {
   return (
     <div
@@ -21,9 +23,10 @@ export function AgentModeToggle({
           key={value}
           type="button"
           aria-pressed={mode === value}
+          disabled={disabled}
           title={value === "plan" ? "Plan is read-only" : "Build can modify files"}
           onClick={() => onChange(value)}
-          className={`rounded px-2.5 py-1 text-xs font-semibold capitalize ${
+          className={`rounded px-2.5 py-1 text-xs font-semibold capitalize disabled:cursor-not-allowed disabled:opacity-50 ${
             mode === value
               ? "bg-[var(--color-background-surface-info-muted)] text-[var(--color-text-info)]"
               : "text-[var(--color-text-muted)] hover:text-[var(--color-text-default)]"
