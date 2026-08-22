@@ -20,6 +20,16 @@ function queryState(value: unknown): "all" | "active" | "resolved" {
   return candidate === "active" || candidate === "resolved" ? candidate : "all";
 }
 
+/**
+ * Absent means "do not filter". The noise filters are a UI preference, so the
+ * default has to be the unfiltered log: an omitted flag must never hide a
+ * record from a caller that did not ask.
+ */
+function queryFlag(value: unknown): boolean {
+  const candidate = queryString(value);
+  return candidate === "1" || candidate === "true";
+}
+
 export function notificationRoutes(
   store: PreferenceStore,
   history: HistoryStore,
@@ -52,17 +62,25 @@ export function notificationRoutes(
         const limitParam = Number(queryString(req.query.limit));
         const directory = queryString(req.query.directory);
         const kind = queryKind(req.query.kind);
-        const [records, activeCount] = await Promise.all([
+        // Applied to the rows and the counter together: a badge that counts
+        // records the caller asked not to see just relocates the clutter.
+        const filters = {
+          hideAutoApproved: queryFlag(req.query.hideAutoApproved),
+          hideSubagent: queryFlag(req.query.hideSubagent),
+        };
+        const [records, activeCount, suppressedActive] = await Promise.all([
           history.list({
             ...(Number.isFinite(limitParam) ? { limit: limitParam } : {}),
             ...(kind ? { kind } : {}),
             // History remains global; directory scopes only the nav/header
             // counter returned alongside it.
             state: queryState(req.query.state),
+            ...filters,
           }),
-          history.activeCount(directory),
+          history.activeCount(directory, filters),
+          history.suppressedActiveCounts(directory),
         ]);
-        res.json({ records, activeCount });
+        res.json({ records, activeCount, suppressedActive });
       })
       .catch((error: unknown) =>
         res.status(500).json({ error: error instanceof Error ? error.message : String(error) }),

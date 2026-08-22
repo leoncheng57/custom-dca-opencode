@@ -141,7 +141,7 @@ describe("root session notification filtering", () => {
   it.each([
     ["child", "ses_parent"],
     ["nested child", "ses_child"],
-  ])("suppresses a verified %s without consuming the original event", async (_label, parentID) => {
+  ])("records a verified %s without delivering it or consuming the original event", async (_label, parentID) => {
     const fetchMock = vi.fn(async () => new Response("ok", { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     const lookup = vi.fn(async (_directory: string, sessionID: string) => ({ id: sessionID, parentID }));
@@ -151,11 +151,33 @@ describe("root session notification filtering", () => {
 
     bus.emit("event", idle("/tmp/project", "ses_descendant"));
 
-    await vi.waitFor(() => expect(lookup).toHaveBeenCalledOnce());
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(await history.list()).toEqual([]);
+    // Recorded so "did my delegated child ever finish?" stays answerable, but
+    // never delivered: the parent owns its children's lifecycle.
+    await vi.waitFor(async () => expect(await history.list()).toHaveLength(1));
+    expect(lookup).toHaveBeenCalledOnce();
+    expect((await history.list())[0].delivery).toEqual({ ntfy: "off", desktop: "off", suppressed: "subagent" });
     expect(fetchMock).not.toHaveBeenCalled();
     expect(observed).toHaveBeenCalledWith(idle("/tmp/project", "ses_descendant"));
+    service.stop();
+  });
+
+  it("keeps sub-agent records out of the default badge count", async () => {
+    const fetchMock = vi.fn(async () => new Response("ok", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const lookup = vi.fn(async (_directory: string, sessionID: string) => ({
+      id: sessionID,
+      ...(sessionID === "ses_kid" ? { parentID: "ses_parent" } : {}),
+    }));
+    const { bus, history, service } = startService(lookup);
+
+    bus.emit("event", idle("/tmp/project", "ses_kid"));
+    await vi.waitFor(async () => expect(await history.list()).toHaveLength(1));
+    bus.emit("event", idle("/tmp/project", "ses_top"));
+    await vi.waitFor(async () => expect(await history.list()).toHaveLength(2));
+
+    expect(await history.activeCount("/tmp/project")).toBe(2);
+    expect(await history.activeCount("/tmp/project", { hideSubagent: true })).toBe(1);
+    expect(await history.suppressedActiveCounts("/tmp/project")).toEqual({ "auto-permissions": 0, subagent: 1 });
     service.stop();
   });
 
@@ -199,8 +221,9 @@ describe("root session notification filtering", () => {
     await vi.waitFor(() => expect(lookup).toHaveBeenCalledTimes(1));
     bus.emit("event", idle("/tmp/root-project", "ses_shared"));
 
-    await vi.waitFor(async () => expect(await history.list()).toHaveLength(1));
-    expect((await history.list())[0].directory).toBe("/tmp/root-project");
+    await vi.waitFor(async () => expect(await history.list()).toHaveLength(2));
+    // Same session id, opposite lineage: only the root one may be delivered.
+    expect(await history.list({ hideSubagent: true })).toMatchObject([{ directory: "/tmp/root-project" }]);
     expect(lookup).toHaveBeenCalledTimes(2);
     expect(fetchMock).toHaveBeenCalledOnce();
     service.stop();
@@ -219,10 +242,41 @@ describe("root session notification filtering", () => {
 
     bus.emit("event", idle("/tmp/project", "ses_child"));
 
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await vi.waitFor(async () => expect(await history.list()).toHaveLength(1));
     expect(lookup).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(await history.list()).toEqual([]);
+    expect((await history.list())[0].delivery.suppressed).toBe("subagent");
+    service.stop();
+  });
+
+  it("snapshots the session title observed from lifecycle events", async () => {
+    const fetchMock = vi.fn(async () => new Response("ok", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { bus, history, service } = startService(vi.fn(rootSession));
+    bus.emit("event", {
+      type: "session.updated",
+      directory: "/tmp/project",
+      properties: { info: { id: "ses_titled", title: "  Rewrite the   notification popover  " } },
+    });
+
+    bus.emit("event", idle("/tmp/project", "ses_titled"));
+
+    await vi.waitFor(async () => expect(await history.list()).toHaveLength(1));
+    // Whitespace is normalised on parse; the record keeps what was true when
+    // it fired, because the session may be renamed or deleted later.
+    expect((await history.list())[0].sessionTitle).toBe("Rewrite the   notification popover");
+    service.stop();
+  });
+
+  it("omits the session title rather than inventing one", async () => {
+    const fetchMock = vi.fn(async () => new Response("ok", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { bus, history, service } = startService(vi.fn(rootSession));
+
+    bus.emit("event", idle("/tmp/project", "ses_untitled"));
+
+    await vi.waitFor(async () => expect(await history.list()).toHaveLength(1));
+    expect((await history.list())[0].sessionTitle).toBeUndefined();
     service.stop();
   });
 
@@ -326,7 +380,89 @@ describe("auto permission notification suppression", () => {
     expect(record.delivery.suppressed).toBe("auto-permissions");
     expect(record.resolvedAt).toBeUndefined();
     expect(await history.activeCount()).toBe(1);
+    // Kept in the log so "why was I never asked?" is answerable, but excluded
+    // from the badge the moment the default filter is applied.
+    expect(await history.activeCount(undefined, { hideAutoApproved: true })).toBe(0);
+    expect(await history.list({ hideAutoApproved: true })).toEqual([]);
     service.stop();
+  });
+});
+
+describe("notification noise filters", () => {
+  const delivered = { ntfy: "sent", desktop: "allowed" } as const;
+
+  async function mixedHistory() {
+    const history = historyStore();
+    await history.append({ kind: "idle", directory: "/tmp/a", title: "root idle", body: "", delivery: delivered });
+    await history.append({
+      kind: "permission",
+      directory: "/tmp/a",
+      title: "auto",
+      body: "",
+      delivery: { ntfy: "off", desktop: "off", suppressed: "auto-permissions" },
+    });
+    await history.append({
+      kind: "idle",
+      directory: "/tmp/a",
+      title: "child",
+      body: "",
+      delivery: { ntfy: "off", desktop: "off", suppressed: "subagent" },
+    });
+    await history.append({ kind: "idle", directory: "/tmp/b", title: "other project", body: "", delivery: delivered });
+    return history;
+  }
+
+  it("applies each filter independently to the rows and the count together", async () => {
+    const history = await mixedHistory();
+
+    expect(await history.activeCount("/tmp/a")).toBe(3);
+    expect(await history.activeCount("/tmp/a", { hideAutoApproved: true })).toBe(2);
+    expect(await history.activeCount("/tmp/a", { hideSubagent: true })).toBe(2);
+    expect(await history.activeCount("/tmp/a", { hideAutoApproved: true, hideSubagent: true })).toBe(1);
+
+    const visible = await history.list({ hideAutoApproved: true, hideSubagent: true });
+    expect(visible.map((record) => record.title)).toEqual(["other project", "root idle"]);
+  });
+
+  it("reports what each filter hides so a checkbox can state its own cost", async () => {
+    const history = await mixedHistory();
+
+    expect(await history.suppressedActiveCounts("/tmp/a")).toEqual({ "auto-permissions": 1, subagent: 1 });
+    expect(await history.suppressedActiveCounts("/tmp/b")).toEqual({ "auto-permissions": 0, subagent: 0 });
+
+    // Resolving a suppressed record stops it counting against its filter.
+    const auto = (await history.list()).find((record) => record.title === "auto")!;
+    await history.setResolved(auto.id, true);
+    expect(await history.suppressedActiveCounts("/tmp/a")).toEqual({ "auto-permissions": 0, subagent: 1 });
+  });
+
+  it("defaults to the unfiltered log so an existing caller loses nothing", async () => {
+    const history = await mixedHistory();
+    expect(await history.list()).toHaveLength(4);
+    expect(await history.activeCount()).toBe(4);
+  });
+
+  it("caps unresolved suppressed records while retaining delivered ones", async () => {
+    const history = historyStore(2);
+    for (let index = 0; index < 4; index += 1) {
+      await history.append({
+        kind: "idle",
+        directory: "/tmp/a",
+        title: `child ${index}`,
+        body: "",
+        delivery: { ntfy: "off", desktop: "off", suppressed: "subagent" },
+      });
+    }
+    for (let index = 0; index < 4; index += 1) {
+      await history.append({ kind: "idle", directory: "/tmp/a", title: `root ${index}`, body: "", delivery: delivered });
+    }
+
+    // Suppressed rows are a bounded audit trail, not a checklist: nothing was
+    // ever delivered for them, so they must not grow the log without limit.
+    // Delivered unresolved rows keep the original never-drop guarantee.
+    const titles = (await history.list()).map((record) => record.title);
+    expect(titles.filter((title) => title.startsWith("child"))).toEqual(["child 3", "child 2"]);
+    expect(titles.filter((title) => title.startsWith("root"))).toHaveLength(4);
   });
 });
 

@@ -217,16 +217,33 @@ interface RawSession {
 export interface SessionMetadata {
   id: string;
   parentID?: string;
+  title?: string;
+}
+
+/**
+ * Titles are user- and model-authored, so they are capped before they reach a
+ * cache or a durable notification record. A runaway title must not be able to
+ * grow the history file.
+ */
+export const SESSION_TITLE_LIMIT = 160;
+
+export function truncateSessionTitle(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  return trimmed.length > SESSION_TITLE_LIMIT ? `${trimmed.slice(0, SESSION_TITLE_LIMIT - 1)}\u2026` : trimmed;
 }
 
 export function parseSessionMetadata(value: unknown): SessionMetadata | null {
   if (!value || typeof value !== "object") return null;
-  const raw = value as { id?: unknown; parentID?: unknown };
+  const raw = value as { id?: unknown; parentID?: unknown; title?: unknown };
   if (typeof raw.id !== "string" || !raw.id) return null;
   if (raw.parentID !== undefined && typeof raw.parentID !== "string") return null;
+  const title = truncateSessionTitle(raw.title);
   return {
     id: raw.id,
     ...(raw.parentID ? { parentID: raw.parentID } : {}),
+    ...(title ? { title } : {}),
   };
 }
 
