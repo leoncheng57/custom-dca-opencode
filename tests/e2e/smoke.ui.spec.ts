@@ -373,10 +373,17 @@ test.describe("hub", () => {
 });
 
 test.describe("phone transfer", () => {
+  // Phone transfer moved into the nav "More" overflow menu, so every entry
+  // point has to open that menu first.
+  const openPhoneTransfer = async (page: import("@playwright/test").Page) => {
+    await page.getByTestId("opencode-nav-more").click();
+    await page.getByTestId("opencode-phone-transfer-open").click();
+  };
+
   test("opens with the configured URL, copies it, and closes", async ({ page, context }) => {
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     await page.goto(hub);
-    await page.getByTestId("opencode-phone-transfer-open").click();
+    await openPhoneTransfer(page);
 
     const dialog = page.getByTestId("opencode-phone-transfer-dialog");
     await expect(dialog).toBeVisible();
@@ -393,7 +400,7 @@ test.describe("phone transfer", () => {
 
   test("targets the active conversation", async ({ page }) => {
     await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
-    await page.getByTestId("opencode-phone-transfer-open").click();
+    await openPhoneTransfer(page);
 
     await expect(page.getByTestId("opencode-phone-transfer-url")).toHaveText(
       `https://ide.e2e.example.test:8443/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`,
@@ -403,7 +410,7 @@ test.describe("phone transfer", () => {
   test("dialog fits without horizontal overflow at 390px", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 740 });
     await page.goto(hub);
-    await page.getByTestId("opencode-phone-transfer-open").click();
+    await openPhoneTransfer(page);
     await expect(page.getByTestId("opencode-phone-transfer-dialog")).toBeVisible();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(1);
@@ -1185,7 +1192,9 @@ test.describe("settings and tools UI", () => {
   });
 
   test("keeps browser and ntfy event toggles independent", async ({ page }) => {
-    await page.goto("/settings/notifications");
+    // Delivery preferences now live on the Settings page; /settings/notifications
+    // is history only.
+    await page.goto("/settings");
     const browser = page.getByTestId("opencode-notify-browser-idle");
     const ntfy = page.getByTestId("opencode-notify-ntfy-idle");
     const ntfyBefore = await ntfy.isChecked();
@@ -1204,7 +1213,7 @@ test.describe("settings and tools UI", () => {
     await page.goto("/settings/notifications");
     const badge = page.getByTestId("opencode-nav-notifications-badge");
     await expect(badge).toBeVisible();
-    // The count lives on the link label so it is announced, not just painted.
+    // The count lives on the bell button's label so it is announced, not just painted.
     await expect(page.getByTestId("opencode-nav-notifications")).toHaveAttribute("aria-label", /unresolved/);
     await page.setViewportSize({ width: 390, height: 740 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth))

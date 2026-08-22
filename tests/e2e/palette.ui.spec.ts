@@ -77,8 +77,9 @@ test.describe("command palette", () => {
     await expect(page.locator('[role="option"][data-kind="conversation"]')).toHaveCount(0);
   });
 
-  test("opens the docs center from global navigation", async ({ page }) => {
+  test("opens the docs center from the nav overflow menu", async ({ page }) => {
     await page.goto(settings);
+    await page.getByTestId("opencode-nav-more").click();
     await page.getByTestId("opencode-nav-docs").click();
     await expect(page).toHaveURL(new RegExp(`/docs\\?directory=${encodeURIComponent(DIR)}`));
     await expect(page.getByTestId("opencode-docs")).toBeVisible();

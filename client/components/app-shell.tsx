@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { BookOpen, Search, Smartphone } from "lucide-react";
+import { Search } from "lucide-react";
 import { useTheme } from "next-themes";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 
-import { Badge } from "../ds/badge.js";
 import { Button } from "../ds/button.js";
 import { CommandPalette } from "../ds/command-palette.js";
 import { api, type SessionSummary } from "../lib/api.js";
@@ -17,6 +16,8 @@ import {
 } from "../lib/palette.js";
 import { selectPhoneUrl } from "../lib/phoneTransfer.js";
 import { useNotifyWatcher } from "../lib/useNotifyWatcher.js";
+import { NavOverflowMenu } from "./nav-overflow-menu.js";
+import { NotificationPopover } from "./notification-popover.js";
 import { PhoneTransferDialog } from "./phone-transfer-dialog.js";
 
 export function AppShell() {
@@ -136,67 +137,23 @@ export function AppShell() {
       <div className="flex h-full min-h-0 flex-col" inert={paletteOpen ? true : undefined}>
         <nav className="flex h-11 shrink-0 items-center gap-1 border-b border-[var(--color-border-default)] px-3" aria-label="Main">
           <NavLink to={scopedPath("/")} className="mr-auto text-sm font-bold tracking-tight" data-testid="opencode-nav-home">
-            <span className="sm:hidden">OC</span>
-            <span className="hidden sm:inline">OpenCode</span>
+            DCA
           </NavLink>
           <Button
             aria-label="Search commands"
             aria-keyshortcuts="Meta+K Control+K"
-            className="w-8 shrink-0 px-0"
+            className="size-8 shrink-0 p-0 pointer-coarse:size-11"
             size="sm"
             title="Search commands (Cmd/Ctrl+K)"
             type="button"
-            variant="secondary"
+            variant="ghost"
             onClick={openPalette}
             data-testid="opencode-palette-open"
           >
             <Search aria-hidden="true" size={16} />
           </Button>
-          <Button
-            aria-label="Open on phone"
-            className="gap-1.5 px-2"
-            size="sm"
-            variant="ghost"
-            onClick={() => void openPhoneTransfer()}
-            data-testid="opencode-phone-transfer-open"
-          >
-            <Smartphone aria-hidden="true" size={15} />
-            <span className="hidden sm:inline">Phone</span>
-          </Button>
-          {[
-            ["/docs", "Docs"],
-            ["/tools", "Tools"],
-            ["/settings/notifications", "Notifications"],
-            ["/settings", "Settings"],
-          ].map(([to, label]) => {
-            const badged = label === "Notifications" && activeCount > 0;
-            return (
-              <NavLink
-                key={to}
-                to={scopedPath(to)}
-                // The count is in the label so screen readers announce it; the
-                // badge itself is decorative.
-                aria-label={badged ? `${label}, ${activeCount} unresolved` : undefined}
-                className={({ isActive }) =>
-                  `relative flex items-center rounded px-2 py-1 text-xs ${isActive ? "bg-[var(--color-background-surface-neutral-muted)] font-semibold" : "text-[var(--color-text-muted)]"}`
-                }
-                data-testid={`opencode-nav-${label.toLowerCase()}`}
-              >
-                {label === "Docs" && <BookOpen aria-hidden="true" className="sm:hidden" size={15} />}
-                <span className={label === "Docs" ? "hidden sm:inline" : undefined}>{label}</span>
-                {badged && (
-                  <Badge
-                    variant="counter"
-                    className="absolute -top-1 left-full -translate-x-1/2"
-                    aria-hidden="true"
-                    data-testid="opencode-nav-notifications-badge"
-                  >
-                    {activeCount}
-                  </Badge>
-                )}
-              </NavLink>
-            );
-          })}
+          <NotificationPopover scopedPath={scopedPath} />
+          <NavOverflowMenu scopedPath={scopedPath} onOpenPhoneTransfer={() => void openPhoneTransfer()} />
         </nav>
         <div className="min-h-0 flex-1">
           <Outlet />

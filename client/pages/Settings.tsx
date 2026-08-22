@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Alert } from "../ds/alert.js";
 import { Button } from "../ds/button.js";
 import { AppearanceControl } from "../components/appearance-control.js";
+import { NotificationPreferencesSection } from "../components/notification-preferences.js";
 import { api, type AppSettings } from "../lib/api.js";
 import {
   booleanFromOverride,
@@ -57,7 +58,7 @@ export function SettingsPage() {
   };
 
   return (
-    <main className="mx-auto max-w-2xl space-y-5 p-6" data-testid="opencode-settings">
+    <main className="mx-auto max-w-2xl space-y-5 p-4 sm:p-6" data-testid="opencode-settings">
       <header>
         <h1 className="text-xl font-bold">Agent settings</h1>
         <p className="text-sm text-[var(--color-text-muted)]">Global defaults used by OpenCode projects.</p>
@@ -142,6 +143,8 @@ export function SettingsPage() {
           </div>
         </form>
       )}
+      <hr className="border-[var(--color-border-default)]" />
+      <NotificationPreferencesSection />
     </main>
   );
 }
