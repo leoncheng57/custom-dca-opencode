@@ -1,18 +1,37 @@
 import { Router } from "express";
 
-import { getPlanningSnapshot, planningErrorMessage } from "../github-planning.js";
+import {
+  createPlanningIssue,
+  getPlanningLabels,
+  getPlanningSnapshot,
+  PlanningInputError,
+  planningErrorMessage,
+  planningErrorStatus,
+} from "../github-planning.js";
 
-/**
- * Read-only, and takes no parameters at all — not even ?directory=. The
- * repository is fixed in the service, so there is nothing here for a caller to
- * redirect. Adding a query parameter later would reintroduce that risk.
- */
+/** Fixed-repository planning routes. No route accepts repository identity or directory. */
 export function planningRoutes(): Router {
   const router = Router();
   router.get("/planning/items", (req, res) => {
     void getPlanningSnapshot(req.query.refresh === "1")
       .then((snapshot) => res.json(snapshot))
-      .catch((error: unknown) => res.status(502).json({ error: planningErrorMessage(error) }));
+      .catch((error: unknown) => res.status(planningErrorStatus(error)).json({ error: planningErrorMessage(error) }));
+  });
+  router.get("/planning/labels", (_req, res) => {
+    void getPlanningLabels()
+      .then((result) => res.json(result))
+      .catch((error: unknown) => res.status(planningErrorStatus(error)).json({ error: planningErrorMessage(error) }));
+  });
+  router.post("/planning/issues", (req, res) => {
+    void createPlanningIssue(req.body)
+      .then((issue) => res.status(201).json({ issue }))
+      .catch((error: unknown) => {
+        if (error instanceof PlanningInputError) {
+          res.status(400).json({ error: error.message });
+          return;
+        }
+        res.status(planningErrorStatus(error)).json({ error: planningErrorMessage(error) });
+      });
   });
   return router;
 }

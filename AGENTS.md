@@ -238,7 +238,7 @@ several decisions below.
     a wash underneath them flattens that hierarchy. Mode is part of the prose
     reconciliation fingerprints, so a row first seen without metadata is replaced —
     not frozen neutral — when an authoritative fetch classifies it.
-17. **Project Planning is one fixed, read-only repository feed.** `/planning` is
+17. **Project Planning is one fixed repository feed and issue creator.** `/planning` is
     about improving this application, not whichever project directory is currently
     selected, so the BFF hard-codes `leoncheng57/custom-dca-opencode` and accepts no
     repository or directory from the browser. GitHub issues and pull requests share
@@ -246,7 +246,11 @@ several decisions below.
     time. Label colors are deliberately dropped: GitHub supplies arbitrary hex while
     client primitives require semantic tokens, and the label name already carries
     the meaning. REST pagination is bounded at 500 records and reports `truncated`
-    explicitly rather than silently implying the feed is complete.
+    explicitly rather than silently implying the feed is complete. Creation accepts
+    only a bounded title, Markdown description and names from the bounded label
+    catalogue, posts with the server-only `GITHUB_TOKEN`, and invalidates the read
+    cache only after GitHub confirms the issue. The browser still cannot select a
+    repository or project directory.
 
 ## Client conventions (inherited from the OpenHands runner, still enforced)
 

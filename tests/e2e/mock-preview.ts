@@ -60,6 +60,37 @@ createServer((req, res) => {
     ] : []));
     return;
   }
+  if (req.url?.startsWith("/repos/leoncheng57/custom-dca-opencode/labels?") && req.method === "GET") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify([
+      { name: "frontend", description: "Client-side work", color: "123456" },
+      { name: "mobile", description: "Phone experience", color: "abcdef" },
+      { name: "server", description: "BFF and integration work", color: "654321" },
+    ]));
+    return;
+  }
+  if (req.url === "/repos/leoncheng57/custom-dca-opencode/issues" && req.method === "POST") {
+    let raw = "";
+    req.on("data", (chunk) => (raw += chunk));
+    req.on("end", () => {
+      const input = JSON.parse(raw) as { title: string; body: string; labels: string[] };
+      res.writeHead(201, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        id: 103,
+        number: 103,
+        title: input.title,
+        body: input.body,
+        state: "open",
+        labels: input.labels.map((name) => ({ name, color: "000000" })),
+        user: { login: "issue-author" },
+        html_url: "https://attacker.invalid/not-trusted",
+        created_at: "2026-08-22T19:30:00Z",
+        updated_at: "2026-08-22T19:30:00Z",
+        comments: 0,
+      }));
+    });
+    return;
+  }
   if (req.url === "/repos/acme/demo/pulls/7") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ title: "Mock pull request", body: "## Review notes\n\nReady to ship.", number: 7, state: "open", mergeable: true, user: { login: "octocat" }, head: { sha: "abc123" } }));

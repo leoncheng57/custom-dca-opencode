@@ -43,6 +43,10 @@ test.describe("requested PR screenshots", () => {
         await expect(page.getByTestId(stableRoot)).toBeVisible();
         if (pathname === "/planning") {
           await expect(page.getByTestId("opencode-planning-list")).toBeVisible();
+          if (new URL(request.requestedRoute, "http://screenshot.invalid").searchParams.get("create") === "1") {
+            await expect(page.getByTestId("opencode-planning-create-dialog")).toBeVisible();
+            await expect(page.getByTestId("opencode-planning-label-list")).toContainText("frontend");
+          }
         }
         const url = new URL(request.requestedRoute, "http://screenshot.invalid");
         if (url.searchParams.get("panel") === "subagents") {

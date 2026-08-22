@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
-import { ExternalLink, GitPullRequest, MessageSquare, RefreshCw } from "lucide-react";
+import { ExternalLink, GitPullRequest, MessageSquare, Plus, RefreshCw } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 
 import { Alert } from "../ds/alert.js";
 import { Badge, type BadgeVariant } from "../ds/badge.js";
 import { Button } from "../ds/button.js";
 import { LoadingIndicator } from "../ds/loading-indicator.js";
+import { CreateIssueDialog } from "../components/create-issue-dialog.js";
 import {
   api,
   type PlanningItem,
@@ -116,11 +118,14 @@ function PlanningRow({ item }: { item: PlanningItem }) {
 }
 
 export function PlanningPage() {
+  const [params, setParams] = useSearchParams();
   const [snapshot, setSnapshot] = useState<PlanningSnapshot | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [stateFilter, setStateFilter] = useState<StateFilter>("open");
+  const [createOpen, setCreateOpen] = useState(() => params.get("create") === "1");
+  const [created, setCreated] = useState<PlanningItem | null>(null);
 
   const load = (refresh = false) => {
     setLoading(true);
@@ -176,19 +181,37 @@ export function PlanningPage() {
             </a>
           )}
         </div>
-        <div className="flex items-center gap-3 sm:flex-col sm:items-end sm:gap-1.5">
-          <Button
-            className="gap-2"
-            data-testid="opencode-planning-refresh"
-            disabled={loading}
-            onClick={() => void load(true)}
-            size="sm"
-            type="button"
-            variant="secondary"
-          >
-            <RefreshCw aria-hidden="true" className={loading ? "animate-spin" : ""} size={14} />
-            Refresh
-          </Button>
+        <div className="flex flex-wrap items-center gap-2 sm:flex-col sm:items-end sm:gap-1.5">
+          <div className="flex gap-2">
+            <Button
+              aria-expanded={createOpen}
+              aria-haspopup="dialog"
+              className="gap-2"
+              data-testid="opencode-planning-create"
+              onClick={() => {
+                setCreated(null);
+                setCreateOpen(true);
+                setParams({ create: "1" });
+              }}
+              size="sm"
+              type="button"
+            >
+              <Plus aria-hidden="true" size={14} />
+              New issue
+            </Button>
+            <Button
+              className="gap-2"
+              data-testid="opencode-planning-refresh"
+              disabled={loading}
+              onClick={() => void load(true)}
+              size="sm"
+              type="button"
+              variant="secondary"
+            >
+              <RefreshCw aria-hidden="true" className={loading ? "animate-spin" : ""} size={14} />
+              Refresh
+            </Button>
+          </div>
           {snapshot && (
             <span className="text-xs text-[var(--color-text-muted)]">
               Fetched {formatFetchedAt(snapshot.fetchedAt)}
@@ -234,6 +257,12 @@ export function PlanningPage() {
       </section>
 
       {error && <Alert variant="danger">Planning data is unavailable: {error}</Alert>}
+      {created && (
+        <Alert data-testid="opencode-planning-create-success" role="status" variant="success">
+          Issue #{created.number} created.{" "}
+          <a data-testid="opencode-planning-created-link" href={created.url} rel="noopener noreferrer" target="_blank" className="font-semibold underline">View on GitHub</a>
+        </Alert>
+      )}
       {snapshot?.truncated && (
         <Alert variant="warning">
           GitHub returned more than 500 items. This list shows the 500 most recently active records.
@@ -259,6 +288,18 @@ export function PlanningPage() {
           {items.map((item) => <PlanningRow item={item} key={`${item.type}-${item.id}`} />)}
         </ul>
       ) : null}
+      {createOpen && (
+        <CreateIssueDialog
+          onClose={() => {
+            setCreateOpen(false);
+            setParams({});
+          }}
+          onCreated={(issue) => {
+            setCreated(issue);
+            setSnapshot((current) => current ? { ...current, items: [issue, ...current.items] } : current);
+          }}
+        />
+      )}
     </main>
   );
 }
