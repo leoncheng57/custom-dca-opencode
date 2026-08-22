@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 2,
+  "prNumber": 84,
+  "sourceSha": "b3e5b51ff1b5f453784c7ed2f69cc0f88c53049b",
+  "capturedAt": "2026-08-22T14:00:32.447Z",
+  "screenshots": [
+    {
+      "requestedRoute": "/?directory=/tmp/mock-project",
+      "fullPage": false,
+      "captures": {
+        "desktop": {
+          "filename": "01-home-directory-tmp-mock-project-cd94ccea--desktop.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 800
+          },
+          "bytes": 76712,
+          "sha256": "2f585af2ac45756e6a17f53e84f61a62449536c74a8a598425ed7dc2a5ac00be"
+        },
+        "mobile": {
+          "filename": "01-home-directory-tmp-mock-project-abda7d68--mobile.png",
+          "dimensions": {
+            "width": 390,
+            "height": 740
+          },
+          "bytes": 54980,
+          "sha256": "29e7630062182eb937d2a8cb51910c0c6e566b3085230361261fb6273b4d529d"
+        }
+      }
+    },
+    {
+      "requestedRoute": "/settings/notifications?directory=/tmp/mock-project",
+      "fullPage": true,
+      "captures": {
+        "desktop": {
+          "filename": "02-settings-notifications-directory-tmp-mock-project-1d8c4655--desktop--full.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 800
+          },
+          "bytes": 26590,
+          "sha256": "57c7c7ada2cb8371730b5d832673c5f0dd905bc177c2f1f6cfdda1767320baef"
+        },
+        "mobile": {
+          "filename": "02-settings-notifications-directory-tmp-mock-project-831e19be--mobile--full.png",
+          "dimensions": {
+            "width": 390,
+            "height": 740
+          },
+          "bytes": 22398,
+          "sha256": "2b0135ae69c32a60e8c87bf59fa817fe1d0a7713fe4b18cd9cf934f5e3f3a5c2"
+        }
+      }
+    },
+    {
+      "requestedRoute": "/settings",
+      "fullPage": true,
+      "captures": {
+        "desktop": {
+          "filename": "03-settings-ece57764--desktop--full.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 2350
+          },
+          "bytes": 160804,
+          "sha256": "c725afb683bafc2a4fbbda7024dc3678c9efc17fa2b44efb3eb529a4ca71da7b"
+        },
+        "mobile": {
+          "filename": "03-settings-828c3064--mobile--full.png",
+          "dimensions": {
+            "width": 390,
+            "height": 2650
+          },
+          "bytes": 151622,
+          "sha256": "18dd82911cb3f3db280371b53f227235bba3469b9b3e6c43425751e976c73f2a"
+        }
+      }
+    }
+  ]
+}
