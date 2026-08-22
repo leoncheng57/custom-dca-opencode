@@ -16,9 +16,16 @@ import {
   previewNotificationSound,
   previewNotificationSpeech,
 } from "../lib/notificationMediaBrowser.js";
+import {
+  NEVER_DELIVERED,
+  NOTIFY_EVENT_CATALOGUE,
+  NOTIFY_EVENT_GROUPS,
+  notifyEventsInGroup,
+  RECOMMENDED_NOTIFY_EVENTS,
+} from "../lib/notificationEvents.js";
 import { notifyBrowser } from "../lib/useNotifyWatcher.js";
 
-const EVENTS: NotifyEvent[] = ["idle", "error", "abort", "permission", "question", "parked"];
+const EVENTS: NotifyEvent[] = NOTIFY_EVENT_CATALOGUE.map((descriptor) => descriptor.event);
 
 /**
  * Delivery preferences for notifications. Lives on the Settings page; the
@@ -70,7 +77,9 @@ export function NotificationPreferencesSection() {
     <section className="space-y-5" data-testid="opencode-notification-preferences">
       <header>
         <h2 className="text-lg font-bold">Notifications</h2>
-        <p className="text-sm text-[var(--color-text-muted)]">Choose events independently for browser and ntfy delivery.</p>
+        <p className="text-sm text-[var(--color-text-muted)]">
+          Pick which events reach you, separately for this browser and for ntfy on your phone.
+        </p>
       </header>
       {error && <Alert variant="danger">{error}</Alert>}
       {preferences && (
@@ -131,29 +140,105 @@ export function NotificationPreferencesSection() {
 
             <fieldset className="space-y-2">
               <legend className="text-sm font-medium">Sound by event</legend>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
-                {EVENTS.map((event) => (
-                  <label key={event} className="flex min-w-0 items-center gap-2 text-sm capitalize">
+              <div className="grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-2">
+                {NOTIFY_EVENT_CATALOGUE.map(({ event, label }) => (
+                  <label key={event} className="flex min-w-0 items-center gap-2 text-sm">
                     <input type="checkbox" checked={devicePreferences.sound.events[event]} disabled={!capabilities.audio} onChange={(e) => setDevicePreferences({ ...devicePreferences, sound: { ...devicePreferences.sound, events: { ...devicePreferences.sound.events, [event]: e.target.checked } } })} data-testid={`opencode-sound-event-${event}`} />
-                    <span className="truncate">{event}</span>
+                    <span className="truncate">{label}</span>
                   </label>
                 ))}
               </div>
             </fieldset>
           </section>
 
-          <section className="overflow-x-auto rounded-lg border border-[var(--color-border-default)]">
-            <table className="w-full text-sm">
-              <thead><tr className="border-b border-[var(--color-border-default)]"><th className="p-2 text-left">Event</th><th className="p-2">Browser</th><th className="p-2">ntfy</th></tr></thead>
-              <tbody>{EVENTS.map((event) => (
-                <tr key={event} className="border-b border-[var(--color-border-default)] last:border-0">
-                  <td className="p-2 capitalize">{event}</td>
-                  {(["browser", "ntfy"] as const).map((channel) => (
-                    <td key={channel} className="p-2 text-center"><input type="checkbox" checked={preferences[channel].events[event]} onChange={(e) => setPreferences({ ...preferences, [channel]: { ...preferences[channel], events: { ...preferences[channel].events, [event]: e.target.checked } } })} data-testid={`opencode-notify-${channel}-${event}`} /></td>
-                  ))}
-                </tr>
-              ))}</tbody>
-            </table>
+          <section
+            className="space-y-3 rounded-lg border border-[var(--color-border-default)] p-4"
+            data-testid="opencode-notification-events"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <h3 className="font-semibold">What gets sent</h3>
+                <p className="text-xs text-[var(--color-text-muted)]">
+                  Each channel is independent, so you can page your phone for approvals while the desktop stays quiet.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => setPreferences({
+                  ...preferences,
+                  browser: { ...preferences.browser, events: { ...RECOMMENDED_NOTIFY_EVENTS } },
+                  ntfy: { ...preferences.ntfy, events: { ...RECOMMENDED_NOTIFY_EVENTS } },
+                })}
+                data-testid="opencode-notify-reset-recommended"
+              >
+                Only what needs me
+              </Button>
+            </div>
+
+            {/* A ticked box that stays silent all day looks like a bug unless
+                the two suppressed categories are named right here. */}
+            <div
+              className="rounded-md bg-[var(--color-background-surface-neutral-muted)] p-3 text-xs text-[var(--color-text-muted)]"
+              data-testid="opencode-notify-never-delivered"
+            >
+              <p className="font-medium text-[var(--color-text-default)]">Never sent, whatever is ticked below</p>
+              <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                {NEVER_DELIVERED.map((reason) => <li key={reason}>{reason}</li>)}
+              </ul>
+              <p className="mt-1">
+                Both are still recorded, and the notification history can show them on request.
+              </p>
+            </div>
+
+            {!preferences.ntfy.enabled && (
+              <p className="text-xs text-[var(--color-text-muted)]" data-testid="opencode-notify-ntfy-inactive">
+                ntfy is switched off above, so nothing in the ntfy column will fire yet.
+              </p>
+            )}
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-[var(--color-border-default)] text-xs uppercase tracking-wide text-[var(--color-text-muted)]">
+                    <th className="p-2 text-left font-semibold">Event</th>
+                    <th className="w-20 p-2 font-semibold">Browser</th>
+                    <th className="w-20 p-2 font-semibold">ntfy</th>
+                  </tr>
+                </thead>
+                {NOTIFY_EVENT_GROUPS.map((group) => (
+                  <tbody key={group.id} data-testid={`opencode-notify-group-${group.id}`}>
+                    <tr className="border-b border-[var(--color-border-default)] bg-[var(--color-background-surface-neutral-muted)]">
+                      <th className="p-2 text-left text-xs font-semibold" colSpan={3} scope="colgroup">
+                        {group.title}
+                        <span className="ml-2 font-normal text-[var(--color-text-muted)]">{group.summary}</span>
+                      </th>
+                    </tr>
+                    {notifyEventsInGroup(group.id).map(({ event, label, description }) => (
+                      <tr key={event} className="border-b border-[var(--color-border-default)] last:border-0">
+                        <td className="p-2">
+                          <span className="block font-medium">{label}</span>
+                          <span className="block text-xs text-[var(--color-text-muted)]">{description}</span>
+                        </td>
+                        {(["browser", "ntfy"] as const).map((channel) => (
+                          <td key={channel} className="p-2 text-center align-middle">
+                            <input
+                              type="checkbox"
+                              // The visible label is the row's first cell, which a
+                              // checkbox in another cell cannot claim implicitly.
+                              aria-label={`${label} via ${channel === "ntfy" ? "ntfy" : "browser"}`}
+                              checked={preferences[channel].events[event]}
+                              onChange={(e) => setPreferences({ ...preferences, [channel]: { ...preferences[channel], events: { ...preferences[channel].events, [event]: e.target.checked } } })}
+                              data-testid={`opencode-notify-${channel}-${event}`}
+                            />
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                ))}
+              </table>
+            </div>
           </section>
           <div className="flex flex-wrap items-center gap-2">
             <Button onClick={() => void save()} data-testid="opencode-notifications-save">Save</Button>

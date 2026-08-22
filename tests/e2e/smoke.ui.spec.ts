@@ -1202,6 +1202,55 @@ test.describe("settings and tools UI", () => {
     expect(await ntfy.isChecked()).toBe(ntfyBefore);
   });
 
+  test("explains the delivery matrix in plain language instead of wire values", async ({ page }) => {
+    await page.goto("/settings");
+    const events = page.getByTestId("opencode-notification-events");
+    await expect(events).toBeVisible();
+
+    // Grouped by what the event means for you. `idle` sits with the asks
+    // because a finished turn is still the ball in your court.
+    const waiting = page.getByTestId("opencode-notify-group-waiting");
+    for (const label of [
+      "Needs your permission",
+      "Asked you a question",
+      "Still waiting for permission",
+      "Finished its turn",
+    ]) {
+      await expect(waiting).toContainText(label);
+    }
+    await expect(page.getByTestId("opencode-notify-group-failed")).toContainText("Run failed");
+    await expect(page.getByTestId("opencode-notify-group-expected")).toContainText("You stopped it");
+
+    // The row checkbox sits in a different cell from its label, so it carries
+    // its own accessible name.
+    await expect(page.getByTestId("opencode-notify-ntfy-parked"))
+      .toHaveAttribute("aria-label", "Still waiting for permission via ntfy");
+
+    // A ticked box that never fires is only explicable if the two suppressed
+    // categories are named next to it.
+    const never = page.getByTestId("opencode-notify-never-delivered");
+    await expect(never).toContainText("Sub-agent activity");
+    await expect(never).toContainText("Auto permissions");
+  });
+
+  test("restores the recommended profile in one click", async ({ page }) => {
+    await page.goto("/settings");
+    const abort = page.getByTestId("opencode-notify-browser-abort");
+    const permission = page.getByTestId("opencode-notify-browser-permission");
+    await abort.setChecked(true);
+    await permission.setChecked(false);
+
+    await page.getByTestId("opencode-notify-reset-recommended").click();
+
+    // Everything that is waiting on you, plus failures; nothing you caused.
+    for (const event of ["permission", "question", "parked", "idle", "error"]) {
+      await expect(page.getByTestId(`opencode-notify-browser-${event}`)).toBeChecked();
+      await expect(page.getByTestId(`opencode-notify-ntfy-${event}`)).toBeChecked();
+    }
+    await expect(abort).not.toBeChecked();
+    await expect(page.getByTestId("opencode-notify-ntfy-abort")).not.toBeChecked();
+  });
+
   test("badges unresolved notifications until the user checks them off", async ({ page }) => {
     const requestID = `perm_badge_${Date.now()}`;
     await fetch(`${MOCK_URL}/test/permission?directory=${encodeURIComponent(DIR)}`, {
