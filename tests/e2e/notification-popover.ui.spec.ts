@@ -64,8 +64,8 @@ function seedRecords(): StubRecord[] {
  * from perturbing the counts other specs measure. The real BFF resolution path
  * stays covered by the badge test in smoke.ui.spec.ts.
  */
-async function stubHistory(page: Page) {
-  const state = { records: seedRecords() };
+async function stubHistory(page: Page, records = seedRecords()) {
+  const state = { records };
   await page.route("**/api/notifications/history*", async (route) => {
     await route.fulfill({
       json: {
@@ -93,6 +93,20 @@ async function stubHistory(page: Page) {
       },
     });
   });
+}
+
+/** A backlog past the pill's cap. Manual-only resolution makes this realistic. */
+function overflowRecords(count: number): StubRecord[] {
+  return Array.from({ length: count }, (_unused, index) => ({
+    id: `ntf_overflow_${index}`,
+    kind: "permission",
+    at: Date.UTC(2026, 7, 22, 12, 0, 0) - index * 1_000,
+    directory: DIR,
+    sessionID: "ses_mock_done",
+    title: `OpenCode needs permission ${index}`,
+    body: `bash: npm run overflow-${index}`,
+    delivery: { ntfy: "off", desktop: "off" } as const,
+  }));
 }
 
 const bell = (page: Page) => page.getByTestId("opencode-nav-notifications");
@@ -128,6 +142,32 @@ for (const viewport of VIEWPORTS) {
       await expect(bell(page)).toHaveAttribute("aria-label", `Notifications, ${ACTIVE_COUNT} unresolved`);
       await expect(page.getByTestId("opencode-nav-notifications-badge")).toHaveText(String(ACTIVE_COUNT));
       await expect(page.getByTestId("opencode-nav-notifications-badge")).toHaveAttribute("aria-hidden", "true");
+    });
+
+    test("caps the decorative pill at 99+ while the label keeps the exact count", async ({ page }) => {
+      const overflow = 137;
+      await stubHistory(page, overflowRecords(overflow));
+      await page.goto(hub);
+
+      // The pill is decorative and bounded so it cannot swallow the bell.
+      const badge = page.getByTestId("opencode-nav-notifications-badge");
+      await expect(badge).toHaveText("99+");
+      await expect(badge).toHaveAttribute("aria-hidden", "true");
+
+      // The accessible label is the real contract and is never capped.
+      await expect(bell(page)).toHaveAttribute("aria-label", `Notifications, ${overflow} unresolved`);
+
+      // The capped pill still fits the nav without overflowing the viewport.
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth))
+        .toBeLessThanOrEqual(1);
+      const box = await badge.boundingBox();
+      expect(box?.width ?? 0).toBeLessThanOrEqual(36);
+
+      // Exactly 99 still prints literally: the cap is inclusive.
+      await stubHistory(page, overflowRecords(99));
+      await page.reload();
+      await expect(page.getByTestId("opencode-nav-notifications-badge")).toHaveText("99");
+      await expect(bell(page)).toHaveAttribute("aria-label", "Notifications, 99 unresolved");
     });
 
     test("opens an accessible popover without navigating", async ({ page }) => {
@@ -212,16 +252,27 @@ for (const viewport of VIEWPORTS) {
     test("keeps Phone, Docs, Tools and Settings reachable from More", async ({ page }) => {
       await page.goto(hub);
       const more = page.getByTestId("opencode-nav-more");
-      await expect(more).toHaveAttribute("aria-haspopup", "menu");
+      await expect(more).toHaveAttribute("aria-haspopup", "true");
+      await expect(more).toHaveAttribute("aria-expanded", "false");
       await more.click();
+      await expect(more).toHaveAttribute("aria-expanded", "true");
       await expect(page.getByTestId("opencode-nav-more-menu")).toBeVisible();
       for (const testId of ["opencode-phone-transfer-open", "opencode-nav-docs", "opencode-nav-tools", "opencode-nav-settings"]) {
         await expect(page.getByTestId(testId)).toBeVisible();
       }
 
-      // Keyboard reachable: arrow keys move through the menu items.
+      // A disclosure over links, not an APG menu: the three destinations stay
+      // real links so assistive tech still lists them as such, and Tab is the
+      // traversal model.
+      for (const testId of ["opencode-nav-docs", "opencode-nav-tools", "opencode-nav-settings"]) {
+        await expect(page.getByTestId(testId)).toHaveRole("link");
+      }
+      await expect(page.getByTestId("opencode-phone-transfer-open")).toHaveRole("button");
+      await expect(page.getByTestId("opencode-nav-more-menu").getByRole("menuitem")).toHaveCount(0);
+
+      // Keyboard reachable: the first item takes focus, Tab walks the rest.
       await expect(page.getByTestId("opencode-phone-transfer-open")).toBeFocused();
-      await page.keyboard.press("ArrowDown");
+      await page.keyboard.press("Tab");
       await expect(page.getByTestId("opencode-nav-docs")).toBeFocused();
       await page.keyboard.press("Escape");
       await expect(page.getByTestId("opencode-nav-more-menu")).toHaveCount(0);

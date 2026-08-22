@@ -1212,9 +1212,14 @@ test.describe("settings and tools UI", () => {
 
     await page.goto("/settings/notifications");
     const badge = page.getByTestId("opencode-nav-notifications-badge");
+    const bell = page.getByTestId("opencode-nav-notifications");
+    // The exact count lives on the bell's accessible label, which is the real
+    // contract; the pill is aria-hidden and caps at "99+", so it is only ever
+    // asserted for presence, never parsed.
+    const unresolvedCount = async () =>
+      Number(/(\d+) unresolved/.exec(await bell.getAttribute("aria-label") ?? "")?.[1] ?? 0);
     await expect(badge).toBeVisible();
-    // The count lives on the bell button's label so it is announced, not just painted.
-    await expect(page.getByTestId("opencode-nav-notifications")).toHaveAttribute("aria-label", /unresolved/);
+    await expect(bell).toHaveAttribute("aria-label", /unresolved/);
     await page.setViewportSize({ width: 390, height: 740 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth))
       .toBeLessThanOrEqual(1);
@@ -1225,15 +1230,21 @@ test.describe("settings and tools UI", () => {
 
     const resolved = row.getByTestId("opencode-notification-resolved");
     await expect(resolved).not.toBeChecked();
-    const countBefore = Number(await badge.textContent());
+    const countBefore = await unresolvedCount();
     await resolved.check();
-    if (countBefore > 1) await expect(badge).toHaveText(String(countBefore - 1));
-    else await expect(badge).toBeHidden();
+    if (countBefore > 1) {
+      await expect(bell).toHaveAttribute("aria-label", `Notifications, ${countBefore - 1} unresolved`);
+      await expect(badge).toBeVisible();
+    } else {
+      await expect(bell).toHaveAttribute("aria-label", "Notifications");
+      await expect(badge).toBeHidden();
+    }
 
     await page.reload();
     await expect(row.getByTestId("opencode-notification-resolved")).toBeChecked();
     await row.getByTestId("opencode-notification-resolved").uncheck();
-    await expect(badge).toHaveText(String(countBefore));
+    await expect(bell).toHaveAttribute("aria-label", `Notifications, ${countBefore} unresolved`);
+    await expect(badge).toBeVisible();
     await row.getByTestId("opencode-notification-resolved").check();
 
     await fetch(`${MOCK_URL}/test/permissions/reset?directory=${encodeURIComponent(DIR)}`, { method: "POST" });

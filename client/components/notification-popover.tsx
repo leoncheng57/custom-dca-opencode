@@ -9,6 +9,9 @@ import type { NotificationRecord } from "../lib/api.js";
 import { useNotificationCenter } from "../lib/useNotificationCenter.js";
 import { NotificationRecordRow } from "./notification-record-row.js";
 
+/** Highest number the decorative pill prints literally; above this it reads "99+". */
+const BADGE_CAP = 99;
+
 /**
  * One scrollable column of the popover. Active and Resolved stay in their own
  * bounded, independently scrolling lists so a long backlog on one side never
@@ -103,7 +106,11 @@ export function NotificationPopover({ scopedPath }: { scopedPath: (path: string)
     void setResolved(id, next).catch((e: Error) => setMutationError(e.message));
   };
 
+  // The label carries the exact count and is the real contract; the pill is
+  // decorative and caps, because resolution is manual-only (AGENTS.md decision
+  // 10) so a real backlog reaches three digits and would swallow the bell.
   const label = activeCount > 0 ? `Notifications, ${activeCount} unresolved` : "Notifications";
+  const badgeCount = activeCount > BADGE_CAP ? `${BADGE_CAP}+` : String(activeCount);
 
   return (
     <div
@@ -132,14 +139,14 @@ export function NotificationPopover({ scopedPath }: { scopedPath: (path: string)
         <Bell aria-hidden="true" size={16} />
         {activeCount > 0 && (
           // The count is already in the button label so screen readers
-          // announce it; the pill itself is decorative.
+          // announce it; the pill itself is decorative and capped.
           <Badge
             variant="counter"
             className="absolute -right-1.5 -top-1 h-4 min-w-4 px-1 text-[10px] leading-none"
             aria-hidden="true"
             data-testid="opencode-nav-notifications-badge"
           >
-            {activeCount}
+            {badgeCount}
           </Badge>
         )}
       </Button>
