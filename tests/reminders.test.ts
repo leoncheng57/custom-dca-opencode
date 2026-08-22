@@ -152,6 +152,17 @@ describe("shipped catalogue", () => {
       expect(reminder.body).not.toContain(reminder.source!.repo);
     }
   });
+
+  it("ships the native worktree workflow with fail-closed repository guards", () => {
+    const reminder = reminderCatalogue().find(({ id }) => id === "native-worktree-subagents");
+    expect(reminder).toBeDefined();
+    expect(reminder!.body).toContain("fresh Build-only session");
+    expect(reminder!.body).toContain("every Bash call sets `workdir`");
+    expect(reminder!.body).toContain("every read, edit, and patch uses an absolute path");
+    expect(reminder!.body).toContain("git rev-parse --show-toplevel");
+    expect(reminder!.body).toContain("stop without mutation");
+    expect(reminder!.body).toContain("instead of substituting an independent root session");
+  });
 });
 
 describe("reminderTag / withReminderTag", () => {
