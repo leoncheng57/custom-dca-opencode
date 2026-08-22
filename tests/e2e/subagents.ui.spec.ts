@@ -95,10 +95,10 @@ test.describe("parent transcript", () => {
   });
 });
 
-test.describe("agents panel", () => {
+test.describe("subagents panel", () => {
   test("derives one row per child with honest evidence for each state", async ({ page }) => {
     await page.goto(parentUrl);
-    await page.getByTestId("opencode-inspector-agents").click();
+    await page.getByTestId("opencode-inspector-subagents").click();
 
     const rows = page.getByTestId("opencode-subagent-row");
     await expect(rows).toHaveCount(6);
@@ -135,7 +135,7 @@ test.describe("agents panel", () => {
 
   test("offers Stop only for work the connected server is actually running", async ({ page }) => {
     await page.goto(parentUrl);
-    await page.getByTestId("opencode-inspector-agents").click();
+    await page.getByTestId("opencode-inspector-subagents").click();
     await expect(page.getByTestId("opencode-subagent-row")).toHaveCount(6);
 
     await expect(page.getByTestId("opencode-subagent-abort")).toHaveCount(1);
@@ -145,7 +145,7 @@ test.describe("agents panel", () => {
 
   test("navigates from a panel row to the child transcript", async ({ page }) => {
     await page.goto(parentUrl);
-    await page.getByTestId("opencode-inspector-agents").click();
+    await page.getByTestId("opencode-inspector-subagents").click();
     await page
       .locator(`[data-testid="opencode-subagent-row"][data-session="${CHILD_DONE}"]`)
       .getByTestId("opencode-subagent-open")
@@ -155,15 +155,15 @@ test.describe("agents panel", () => {
 
   test("summarizes states and counts sub-agents on the tab", async ({ page }) => {
     await page.goto(parentUrl);
-    await page.getByTestId("opencode-inspector-agents").click();
+    await page.getByTestId("opencode-inspector-subagents").click();
     await expect(page.getByTestId("opencode-subagents-summary")).toContainText("1 running");
     await expect(page.getByTestId("opencode-subagents-summary")).toContainText("1 unknown");
-    await expect(page.getByTestId("opencode-inspector-agents")).toContainText("6");
+    await expect(page.getByTestId("opencode-inspector-subagents")).toContainText("6");
   });
 
   test("says plainly when a session delegated nothing", async ({ page }) => {
     await page.goto(childUrl);
-    await page.getByTestId("opencode-inspector-agents").click();
+    await page.getByTestId("opencode-inspector-subagents").click();
     await expect(page.getByTestId("opencode-subagents-empty")).toBeVisible();
     await expect(page.getByTestId("opencode-subagent-row")).toHaveCount(0);
   });
@@ -175,19 +175,19 @@ test.describe("agents panel", () => {
     await page.getByTestId("opencode-mobile-inspector-menu-open").click();
     const sheet = page.getByTestId("opencode-mobile-inspector");
     await expect(sheet).toBeVisible();
-    await sheet.getByTestId("opencode-inspector-agents").click();
+    await sheet.getByTestId("opencode-inspector-subagents").click();
     await expect(sheet.getByTestId("opencode-subagent-row")).toHaveCount(6);
   });
 
   test("opens the requested panel directly on desktop", async ({ page }) => {
-    await page.goto(`${parentUrl}&panel=agents`);
+    await page.goto(`${parentUrl}&panel=subagents`);
     await expect(page.getByTestId("opencode-subagent-row")).toHaveCount(6);
-    await expect(page.getByTestId("opencode-inspector-agents")).toHaveClass(/font-semibold/);
+    await expect(page.getByTestId("opencode-inspector-subagents")).toHaveClass(/font-semibold/);
   });
 
   test("opens the requested panel as a mobile sheet", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 740 });
-    await page.goto(`${parentUrl}&panel=agents`);
+    await page.goto(`${parentUrl}&panel=subagents`);
     const sheet = page.getByTestId("opencode-mobile-inspector");
     await expect(sheet).toBeVisible();
     await expect(sheet.getByTestId("opencode-subagent-row")).toHaveCount(6);

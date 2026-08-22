@@ -40,7 +40,7 @@ test.describe("requested PR screenshots", () => {
                     : "opencode-hub";
         await expect(page.getByTestId(stableRoot)).toBeVisible();
         const url = new URL(request.requestedRoute, "http://screenshot.invalid");
-        if (url.searchParams.get("panel") === "agents") {
+        if (url.searchParams.get("panel") === "subagents") {
           await expect(page.locator('[data-testid="opencode-subagents"]:visible')).toBeVisible();
           await expect(page.locator('[data-testid="opencode-subagent-row"]:visible')).toHaveCount(6);
         }

@@ -33,7 +33,7 @@ interface SessionInspectorProps {
 const TAB_LABELS: Record<InspectorTab, string> = {
   todo: "Todo",
   runlog: "Run log",
-  agents: "Agents",
+  subagents: "Subagents",
   reviews: "Reviews",
   catalog: "Catalog",
 };
@@ -220,7 +220,7 @@ function InspectorContent({
             {TAB_LABELS[name]}
             {name === "todo" && todos.length ? ` ${todos.length}` : ""}
             {name === "runlog" && commands.length ? ` ${commands.length}` : ""}
-            {name === "agents" && subagentCount ? ` ${subagentCount}` : ""}
+            {name === "subagents" && subagentCount ? ` ${subagentCount}` : ""}
             {name === "reviews" && links.length ? ` ${links.length}` : ""}
           </button>
         ))}
@@ -277,7 +277,7 @@ function InspectorContent({
           </section>
         )}
 
-        {tab === "agents" && (
+        {tab === "subagents" && (
           <SubagentPanel
             directory={directory}
             report={subagents.report}
@@ -392,7 +392,7 @@ export function SessionInspector({ directory, sessionID, events, todos, todosLoa
   // Owned here rather than inside the panel: the panel renders twice on a
   // phone (desktop aside plus mobile sheet share this parent), and a
   // self-fetching panel would run two poll loops against the same session.
-  const subagents = useSubagents(directory, sessionID, tab === "agents");
+  const subagents = useSubagents(directory, sessionID, tab === "subagents");
   const catalogRequest = useRef<{ id: number; controller: AbortController } | null>(null);
   const catalogueRef = useRef(catalogue);
   const directoryRef = useRef(directory);

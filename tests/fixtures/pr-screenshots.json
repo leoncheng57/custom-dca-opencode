@@ -24,7 +24,7 @@
     "fullPage": true
   },
   {
-    "requestedRoute": "/sessions/ses_mock_parent?directory=/tmp/mock-subagent-project&panel=agents",
+    "requestedRoute": "/sessions/ses_mock_parent?directory=/tmp/mock-subagent-project&panel=subagents",
     "fullPage": true
   },
   {
