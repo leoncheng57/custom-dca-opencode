@@ -18,7 +18,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { api, ApiError, type PermissionRequest, type QuestionRequest } from "./api.js";
+import { api, ApiError, type PermissionRequest, type QuestionRequest, type SessionRuntime } from "./api.js";
 import type { RawMessage } from "./events.js";
 import {
   appendOlderPage,
@@ -42,7 +42,7 @@ export function streamRetryDelay(retries: number): number {
 
 export interface SessionStreamState {
   messages: RawMessage[];
-  running: boolean;
+  runtime: SessionRuntime;
   todos: Array<{ content: string; status: string; priority: string }>;
   todosLoaded: boolean;
   todosError: string | null;
@@ -85,7 +85,7 @@ export function useSessionStream(directory: string, sessionId: string): SessionS
   const [pages, setPages] = useState<TranscriptPages>(emptyTranscriptPages);
   const pagesRef = useRef(pages);
   pagesRef.current = pages;
-  const [running, setRunning] = useState(false);
+  const [runtime, setRuntime] = useState<SessionRuntime>({ ownership: "unknown-or-external", state: "unknown", abortable: false });
   const [todos, setTodos] = useState<Array<{ content: string; status: string; priority: string }>>([]);
   const [todosLoaded, setTodosLoaded] = useState(false);
   const [todosError, setTodosError] = useState<string | null>(null);
@@ -131,7 +131,7 @@ export function useSessionStream(directory: string, sessionId: string): SessionS
             100,
           ));
           newestCursor.current = messageResult.value.nextCursor;
-          setRunning(messageResult.value.running);
+          setRuntime(messageResult.value.runtime);
           if (!backfillStarted.current || messageResult.value.messages.length === 0 || messageResult.value.nextCursor === null) {
             earlierCursor.current = messageResult.value.nextCursor;
             setHasEarlier(messageResult.value.nextCursor !== null);
@@ -166,7 +166,7 @@ export function useSessionStream(directory: string, sessionId: string): SessionS
   useEffect(() => {
     setStateGeneration(generation);
     setPages(emptyTranscriptPages());
-    setRunning(false);
+    setRuntime({ ownership: "unknown-or-external", state: "unknown", abortable: false });
     setTodos([]);
     setTodosLoaded(false);
     setTodosError(null);
@@ -348,7 +348,7 @@ export function useSessionStream(directory: string, sessionId: string): SessionS
   const messages = useMemo(() => transcriptMessages(pages), [pages]);
   return {
     messages: currentScope ? messages : [],
-    running: currentScope && running,
+    runtime: currentScope ? runtime : { ownership: "unknown-or-external", state: "unknown", abortable: false },
     todos: currentScope ? todos : [],
     todosLoaded: currentScope && todosLoaded,
     todosError: currentScope ? todosError : null,

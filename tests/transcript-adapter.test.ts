@@ -155,12 +155,12 @@ describe("toolDetail", () => {
 
 describe("detectInterrupted", () => {
   it("reports nothing while the session is running", () => {
-    expect(detectInterrupted(messages, true)).toEqual({ interrupted: false });
+    expect(detectInterrupted(messages, "running")).toEqual({ interrupted: false });
   });
 
   // The last fixture message is an assistant turn with no time.completed.
   it("flags an assistant turn that never completed", () => {
-    expect(detectInterrupted(messages, false)).toEqual({
+    expect(detectInterrupted(messages, "idle")).toEqual({
       interrupted: true,
       reason: "incomplete-turn",
     });
@@ -170,7 +170,7 @@ describe("detectInterrupted", () => {
     const trailing: RawMessage[] = [
       { info: { id: "m1", role: "user", time: { created: 1 } }, parts: [] },
     ];
-    expect(detectInterrupted(trailing, false)).toEqual({
+    expect(detectInterrupted(trailing, "idle")).toEqual({
       interrupted: true,
       reason: "never-answered",
     });
@@ -180,11 +180,15 @@ describe("detectInterrupted", () => {
     const done: RawMessage[] = [
       { info: { id: "m1", role: "assistant", time: { created: 1, completed: 2 } }, parts: [] },
     ];
-    expect(detectInterrupted(done, false)).toEqual({ interrupted: false });
+    expect(detectInterrupted(done, "idle")).toEqual({ interrupted: false });
   });
 
   it("handles an empty transcript", () => {
-    expect(detectInterrupted([], false)).toEqual({ interrupted: false });
+    expect(detectInterrupted([], "idle")).toEqual({ interrupted: false });
+  });
+
+  it("suppresses false interruption when ownership is unknown or external", () => {
+    expect(detectInterrupted(messages, "unknown")).toEqual({ interrupted: false });
   });
 });
 

@@ -72,7 +72,7 @@ export function buildPaletteCommands(input: {
       id: optionId("conversation", session.id),
       kind: "conversation" as const,
       title: sessionLabel(session),
-      subtitle: session.running ? "Running" : "Idle",
+      subtitle: session.runtime.state === "unknown" ? "Status unavailable" : session.runtime.state === "retrying" ? "Retrying" : session.runtime.state === "running" ? "Running" : "Idle",
       group: "Conversation",
       keywords: [session.id, session.directory],
       to: `/sessions/${encodeURIComponent(session.id)}?directory=${encodeURIComponent(session.directory)}`,

@@ -14,6 +14,7 @@ import {
   formatCost,
   type DiscoveredProject,
   type HealthResponse,
+  type SessionRuntime,
   type SessionSummary,
   type Worktree,
 } from "../lib/api.js";
@@ -32,17 +33,20 @@ const POLL_MS = 10_000;
 // rather than riding the per-directory session poll.
 const RECENTS_POLL_MS = 60_000;
 
-export function StatusPill({ running }: { running: boolean }) {
+export function StatusPill({ runtime }: { runtime: SessionRuntime }) {
+  const active = runtime.state === "running" || runtime.state === "retrying";
+  const label = runtime.state === "unknown" ? "status unavailable" : runtime.state;
   return (
     <span
       className={
-        running
+        active
           ? "inline-flex shrink-0 items-center rounded-full bg-[var(--color-background-surface-info-muted)] px-2 py-0.5 text-[11px] font-medium text-[var(--color-text-info)]"
           : "inline-flex shrink-0 items-center rounded-full bg-[var(--color-background-surface-neutral-muted)] px-2 py-0.5 text-[11px] font-medium text-[var(--color-text-muted)]"
       }
       data-testid="opencode-status-pill"
+      title={runtime.state === "unknown" ? "This session is not controlled by this server; its live status is unavailable." : undefined}
     >
-      {running ? "running" : "idle"}
+      {label}
     </span>
   );
 }
@@ -262,7 +266,8 @@ export function HubPage() {
     });
   const selectedProject = projectByDirectory.get(directory);
   const showOtherWorkspace = Boolean(directory && projects && !selectedProject);
-  const hasRunningSession = sessions?.some((session) => session.running) ?? false;
+  const hasRunningSession = sessions?.some((session) => session.runtime.abortable) ?? false;
+  const hasUnknownSession = sessions?.some((session) => session.runtime.state === "unknown") ?? false;
   const recentlyOpened = recents ? recentlyOpenedSessions(recents, recentOpens) : [];
   const recentlyActive = recents ? recentlyActiveSessions(recents) : [];
 
@@ -288,7 +293,7 @@ export function HubPage() {
               className="flex min-h-11 min-w-0 items-center gap-3 px-4 py-2 text-sm hover:bg-[var(--hh-row-hover)]"
               data-testid={`${testId}-row`}
             >
-              <StatusPill running={session.running} />
+              <StatusPill runtime={session.runtime} />
               <span className="min-w-0 flex-1 truncate">{session.title}</span>
               <span
                 className="max-w-[40%] shrink-0 truncate text-[11px] text-[var(--color-text-muted)]"
@@ -503,6 +508,11 @@ export function HubPage() {
             Another agent is running in this workspace. Starting here may cause overlapping changes.
           </Alert>
         )}
+        {!hasRunningSession && hasUnknownSession && !isolated && (
+          <Alert variant="warning" data-testid="opencode-session-status-unavailable-warning">
+            Existing session activity is unavailable because those sessions are not controlled by this server. Starting here could overlap another OpenCode process.
+          </Alert>
+        )}
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <AgentModeToggle mode={mode} onChange={setMode} testId="opencode-hub-mode" />
           <ModelPicker
@@ -579,7 +589,7 @@ export function HubPage() {
                   to={`/sessions/${session.id}?directory=${encodeURIComponent(session.directory)}`}
                   className="flex min-w-0 items-center gap-3 px-4 py-3 text-sm hover:bg-[var(--hh-row-hover)]"
                 >
-                  <StatusPill running={session.running} />
+                  <StatusPill runtime={session.runtime} />
                   <span className="min-w-0 flex-1 truncate">{session.title}</span>
                   {session.cost > 0 && (
                     <span className="shrink-0 text-xs tabular-nums text-[var(--color-text-muted)]">

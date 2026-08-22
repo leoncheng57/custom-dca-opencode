@@ -29,6 +29,7 @@ function arrange(input: {
 }) {
   requestMock.mockImplementation(async (_config, path: string, options?: { method?: string; body?: { permission?: unknown[]; agent?: string }; query?: Record<string, unknown> }) => {
     if (typeof path !== "string") throw new Error(`request path missing: ${JSON.stringify([_config, path, options])}`);
+    if (path === "/session/status") return { [sessionID]: { type: "idle" } };
     if (path === "/experimental/tool/ids") return tools;
     if (path === "/agent") return agents;
     if (path.endsWith("/message")) return input.messages ?? [];

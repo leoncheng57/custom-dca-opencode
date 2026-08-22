@@ -72,12 +72,15 @@ several decisions below.
    whatever credentials the host has. The old `OPENHANDS_GIT_TOKEN` / `OPENHANDS_GITHUB_TOKEN`
    split retires with the container.
 5. **R2 (no auto-resume) is an accepted risk, detection-only.** OpenCode never persists
-   "running" state — the `session` table has no status column, and `/api/session/active`
-   is explicitly scoped to the owning process. A crash mid-turn kills the run silently.
-   We do **not** auto-re-prompt (that can replay destructive work). Instead the UI flags
-   a session as interrupted when it is absent from `GET /session/status` **and** its last
-   message is an assistant turn with no `time.completed`, and offers a Resume that
-   **prefills the composer** rather than auto-sending.
+   "running" state — the `session` table has no status column, and `/session/status`
+   is explicitly scoped to the owning process. Separate TUI and serve processes can
+   share the same DB, so an absent status is not proof of idle. The BFF keeps only
+   process-lifetime ownership evidence for sessions it creates, prompts, or observes
+   busy on its connected server. Pre-existing sessions are shown as status unavailable,
+   do not get an interrupted banner, and require explicit confirmation before prompting.
+   Stop is offered only for work currently reported by the connected server. For known
+   owned sessions that become idle, an incomplete last turn still gets the manual Resume
+   affordance; it **prefills the composer** rather than auto-sending.
 6. **Classic API surface only.** `/api/**` (v2) is newer, event-sourced and 401-gated;
    everything needed exists on the classic surface. Revisit if we want replayable
    per-session streams (`/api/session/{id}/event?after=`).

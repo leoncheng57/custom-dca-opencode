@@ -30,7 +30,7 @@ function session(id: string, directory: string, updatedAt: string): SessionSumma
     createdAt: updatedAt,
     updatedAt,
     archived: false,
-    running: false,
+    runtime: { ownership: "unknown-or-external", state: "unknown", abortable: false },
   };
 }
 

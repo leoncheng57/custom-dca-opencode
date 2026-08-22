@@ -25,6 +25,7 @@ import {
   unshareSession,
   ModePolicyActivationError,
   SessionAgentIdentityError,
+  SessionRuntimeConflictError,
   type AgentMode,
 } from "../opencode/sessions.js";
 import { createWorktree } from "../opencode/worktrees.js";
@@ -152,6 +153,10 @@ function fail(res: Response, error: unknown, options: { notFoundOn5xx?: boolean 
   }
   if (error instanceof SessionAgentIdentityError) {
     res.status(409).json({ error: error.message, code: error.code, agent: error.agent });
+    return;
+  }
+  if (error instanceof SessionRuntimeConflictError) {
+    res.status(409).json({ error: error.message, code: error.code });
     return;
   }
   if (error instanceof ModelCatalogueError) {
@@ -321,7 +326,10 @@ export function sessionRoutes(
         }),
         getSession(config, directory, paramOf(req, "id")).catch(() => null),
       ]);
-      res.json({ ...page, running: session?.running ?? false });
+      res.json({
+        ...page,
+        runtime: session?.runtime ?? { ownership: "unknown-or-external", state: "unknown", abortable: false },
+      });
     }),
   );
 
@@ -361,6 +369,7 @@ export function sessionRoutes(
         model: await selectedModel(config, directory, model),
         attachments: promptAttachments(attachments),
         reminder: promptReminder(reminder),
+        claimUnknown: req.body?.claimUnknown === true,
       });
       // 202: accepted, running server-side. Progress arrives over SSE.
       res.status(202).json({ accepted: true });

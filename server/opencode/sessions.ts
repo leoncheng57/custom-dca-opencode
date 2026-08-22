@@ -9,8 +9,8 @@
 //   - Every call is directory-scoped. One OpenCode server hosts every project;
 //     omitting ?directory= silently targets whichever directory the server was
 //     started in.
-//   - status() only reports sessions owned by the current server process,
-//     which is exactly what makes crash detection possible (detectInterrupted).
+//   - status() only reports work owned by the current server process. A missing
+//     entry says nothing about another process sharing OpenCode's SQLite DB.
 
 import { withReminderTag, type ReminderPreset } from "../reminders/reminders.js";
 import { request, requestWithResponse, type OpencodeConfig } from "./client.js";
@@ -55,6 +55,36 @@ interface RawMessage {
 
 const EDIT_TOOL_ALIASES = new Set(["edit", "write", "apply_patch"]);
 const sessionPromptTails = new Map<string, Promise<void>>();
+
+export type SessionRuntime =
+  | { ownership: "current-server"; state: "running"; abortable: true }
+  | { ownership: "current-server"; state: "retrying"; abortable: true; attempt?: number; message?: string; next?: number }
+  | { ownership: "current-server"; state: "idle"; abortable: false }
+  | { ownership: "unknown-or-external"; state: "unknown"; abortable: false };
+
+/** Volatile evidence only: this intentionally resets whenever the BFF restarts. */
+export class SessionRuntimeRegistry {
+  private readonly owned = new Set<string>();
+
+  claim(directory: string, sessionID: string): void {
+    this.owned.add(`${directory}\0${sessionID}`);
+  }
+
+  owns(directory: string, sessionID: string): boolean {
+    return this.owned.has(`${directory}\0${sessionID}`);
+  }
+}
+
+export const sessionRuntimeRegistry = new SessionRuntimeRegistry();
+
+export type SessionRuntimeConflictCode = "SESSION_RUNTIME_UNKNOWN" | "SESSION_ALREADY_RUNNING" | "SESSION_NOT_ABORTABLE";
+
+export class SessionRuntimeConflictError extends Error {
+  constructor(readonly code: SessionRuntimeConflictCode, message: string) {
+    super(message);
+    this.name = "SessionRuntimeConflictError";
+  }
+}
 
 export class ModePolicyActivationError extends Error {
   constructor(mode: AgentMode) {
@@ -180,8 +210,7 @@ export interface SessionSummary {
   updatedAt: string;
   archived: boolean;
   shareUrl?: string;
-  /** Derived from GET /session/status. False also means "owned by nobody". */
-  running: boolean;
+  runtime: SessionRuntime;
 }
 
 interface RawSession {
@@ -269,7 +298,7 @@ async function activateModePolicy(
   }
 }
 
-export function toSummary(raw: RawSession, running: boolean): SessionSummary {
+export function toSummary(raw: RawSession, runtime: SessionRuntime): SessionSummary {
   const now = Date.now();
   return {
     id: raw.id ?? "",
@@ -292,31 +321,70 @@ export function toSummary(raw: RawSession, running: boolean): SessionSummary {
     updatedAt: new Date(raw.time?.updated ?? raw.time?.created ?? now).toISOString(),
     archived: typeof raw.time?.archived === "number",
     shareUrl: safeShareUrl(raw.share?.url),
-    running,
+    runtime,
   };
 }
 
-type StatusMap = Record<string, { type?: string } | undefined>;
+interface RawStatus {
+  type?: string;
+  attempt?: number;
+  message?: string;
+  next?: number;
+}
 
-/** IDs the current server process is actively working on. */
-export async function runningSessions(
+type StatusMap = Record<string, RawStatus | undefined>;
+
+const UNKNOWN_RUNTIME: SessionRuntime = {
+  ownership: "unknown-or-external",
+  state: "unknown",
+  abortable: false,
+};
+
+export function sessionRuntime(
+  directory: string,
+  sessionID: string,
+  status: RawStatus | undefined,
+  registry: SessionRuntimeRegistry = sessionRuntimeRegistry,
+): SessionRuntime {
+  if (status?.type === "busy") {
+    registry.claim(directory, sessionID);
+    return { ownership: "current-server", state: "running", abortable: true };
+  }
+  if (status?.type === "retry") {
+    registry.claim(directory, sessionID);
+    return {
+      ownership: "current-server",
+      state: "retrying",
+      abortable: true,
+      ...(typeof status.attempt === "number" ? { attempt: status.attempt } : {}),
+      ...(typeof status.message === "string" ? { message: status.message } : {}),
+      ...(typeof status.next === "number" ? { next: status.next } : {}),
+    };
+  }
+  if (status?.type === "idle") {
+    registry.claim(directory, sessionID);
+    return { ownership: "current-server", state: "idle", abortable: false };
+  }
+  return registry.owns(directory, sessionID)
+    ? { ownership: "current-server", state: "idle", abortable: false }
+    : UNKNOWN_RUNTIME;
+}
+
+/** Process-local statuses. Missing entries are not proof that a session is idle. */
+export async function sessionStatuses(
   config: OpencodeConfig,
   directory: string,
-): Promise<Set<string>> {
-  const data = await request<StatusMap>(config, "/session/status", { directory });
-  return new Set(
-    Object.entries(data ?? {})
-      .filter(([, value]) => value?.type === "busy" || value?.type === "retry")
-      .map(([id]) => id),
-  );
+): Promise<StatusMap> {
+  return await request<StatusMap>(config, "/session/status", { directory }) ?? {};
 }
 
 export async function listSessions(
   config: OpencodeConfig,
   directory: string,
   options: { limit?: number; rootsOnly?: boolean; search?: string } = {},
+  registry: SessionRuntimeRegistry = sessionRuntimeRegistry,
 ): Promise<SessionSummary[]> {
-  const [raw, running] = await Promise.all([
+  const [raw, statuses] = await Promise.all([
     request<RawSession[]>(config, "/session", {
       directory,
       query: {
@@ -326,11 +394,14 @@ export async function listSessions(
       },
     }),
     // A status failure must not blank the whole list.
-    runningSessions(config, directory).catch(() => new Set<string>()),
+    sessionStatuses(config, directory).catch(() => null),
   ]);
   return (raw ?? [])
     .filter((s) => !s.time?.archived)
-    .map((s) => toSummary(s, running.has(s.id ?? "")));
+    .map((s) => {
+      const id = s.id ?? "";
+      return toSummary(s, statuses ? sessionRuntime(directory, id, statuses[id], registry) : UNKNOWN_RUNTIME);
+    });
 }
 
 /** Upstream calls in flight during a cross-project fan-out. */
@@ -358,6 +429,7 @@ export async function listSessionsAcross(
   config: OpencodeConfig,
   directories: string[],
   options: { perDirectoryLimit?: number } = {},
+  registry: SessionRuntimeRegistry = sessionRuntimeRegistry,
 ): Promise<SessionSummary[]> {
   const targets = [...new Set(directories.filter((directory) => directory))];
   const collected: SessionSummary[][] = targets.map(() => []);
@@ -369,7 +441,7 @@ export async function listSessionsAcross(
       cursor += 1;
       collected[index] = await listSessions(config, targets[index], {
         limit: options.perDirectoryLimit ?? 20,
-      }).catch(() => []);
+      }, registry).catch(() => []);
     }
   };
 
@@ -394,12 +466,13 @@ export async function getSession(
   config: OpencodeConfig,
   directory: string,
   sessionID: string,
+  registry: SessionRuntimeRegistry = sessionRuntimeRegistry,
 ): Promise<SessionSummary> {
-  const [raw, running] = await Promise.all([
+  const [raw, statuses] = await Promise.all([
     request<RawSession>(config, `/session/${encodeURIComponent(sessionID)}`, { directory }),
-    runningSessions(config, directory).catch(() => new Set<string>()),
+    sessionStatuses(config, directory).catch(() => null),
   ]);
-  return toSummary(raw ?? {}, running.has(sessionID));
+  return toSummary(raw ?? {}, statuses ? sessionRuntime(directory, sessionID, statuses[sessionID], registry) : UNKNOWN_RUNTIME);
 }
 
 export interface CreateSessionInput {
@@ -413,6 +486,7 @@ export interface CreateSessionInput {
 export async function createSession(
   config: OpencodeConfig,
   input: CreateSessionInput,
+  registry: SessionRuntimeRegistry = sessionRuntimeRegistry,
 ): Promise<SessionSummary> {
   const raw = await request<RawSession>(config, "/session", {
     method: "POST",
@@ -430,7 +504,8 @@ export async function createSession(
       ...(input.parentID ? { parentID: input.parentID } : {}),
     },
   });
-  return toSummary(raw ?? {}, false);
+  registry.claim(input.directory, raw?.id ?? "");
+  return toSummary(raw ?? {}, { ownership: "current-server", state: "idle", abortable: false });
 }
 
 export interface PromptInput {
@@ -439,6 +514,7 @@ export interface PromptInput {
   model?: ModelSelection;
   attachments?: Array<{ filename: string; mime: string; url: string }>;
   reminder?: Pick<ReminderPreset, "id" | "body">;
+  claimUnknown?: boolean;
 }
 
 /**
@@ -453,8 +529,23 @@ export async function prompt(
   directory: string,
   sessionID: string,
   input: PromptInput,
+  registry: SessionRuntimeRegistry = sessionRuntimeRegistry,
 ): Promise<void> {
   await withSessionPromptLock(directory, sessionID, async () => {
+    const statuses = await sessionStatuses(config, directory);
+    const runtime = sessionRuntime(directory, sessionID, statuses[sessionID], registry);
+    if (runtime.abortable) {
+      throw new SessionRuntimeConflictError(
+        "SESSION_ALREADY_RUNNING",
+        "This session already has a run controlled by this server. Wait for it to finish or stop it first.",
+      );
+    }
+    if (runtime.ownership === "unknown-or-external" && !input.claimUnknown) {
+      throw new SessionRuntimeConflictError(
+        "SESSION_RUNTIME_UNKNOWN",
+        "This session is not controlled by this server. It may be active in another OpenCode process; confirm before starting a concurrent run here.",
+      );
+    }
     await activateModePolicy(config, directory, sessionID, input.mode);
     await request<void>(config, `/session/${encodeURIComponent(sessionID)}/prompt_async`, {
       method: "POST",
@@ -479,6 +570,7 @@ export async function prompt(
         ],
       },
     });
+    registry.claim(directory, sessionID);
   });
 }
 
@@ -486,7 +578,18 @@ export async function abortSession(
   config: OpencodeConfig,
   directory: string,
   sessionID: string,
+  registry: SessionRuntimeRegistry = sessionRuntimeRegistry,
 ): Promise<void> {
+  const statuses = await sessionStatuses(config, directory);
+  const runtime = sessionRuntime(directory, sessionID, statuses[sessionID], registry);
+  if (!runtime.abortable) {
+    throw new SessionRuntimeConflictError(
+      "SESSION_NOT_ABORTABLE",
+      runtime.ownership === "unknown-or-external"
+        ? "This session is not controlled by this server. Stop it from the OpenCode process that owns it."
+        : "This session has no run that this server can stop.",
+    );
+  }
   await request<unknown>(config, `/session/${encodeURIComponent(sessionID)}/abort`, {
     method: "POST",
     directory,
@@ -513,7 +616,7 @@ export async function shareSession(
     method: "POST",
     directory,
   });
-  return toSummary(raw ?? {}, false);
+  return toSummary(raw ?? {}, UNKNOWN_RUNTIME);
 }
 
 export async function unshareSession(
@@ -525,7 +628,7 @@ export async function unshareSession(
     method: "DELETE",
     directory,
   });
-  return toSummary(raw ?? {}, false);
+  return toSummary(raw ?? {}, UNKNOWN_RUNTIME);
 }
 
 export interface MessagePage {

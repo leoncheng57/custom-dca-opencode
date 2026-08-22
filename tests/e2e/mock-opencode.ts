@@ -711,6 +711,7 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
 
   if (pathname === "/session/status") {
     return json(res, 200, {
+      ...Object.fromEntries(SESSIONS.filter((session) => session.directory === directory).map((session) => [session.id, { type: "idle" }])),
       ses_mock_running: { type: "busy" },
       ...(mobileRunning ? { ses_mock_mobile: { type: "busy" } } : {}),
     });

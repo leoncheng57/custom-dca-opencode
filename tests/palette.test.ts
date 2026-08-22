@@ -18,7 +18,7 @@ function session(overrides: Partial<SessionSummary> = {}): SessionSummary {
     createdAt: "2026-08-21T00:00:00.000Z",
     updatedAt: "2026-08-21T00:00:00.000Z",
     archived: false,
-    running: false,
+    runtime: { ownership: "unknown-or-external", state: "unknown", abortable: false },
     ...overrides,
   };
 }
@@ -36,7 +36,7 @@ describe("palette model", () => {
     const commands = buildPaletteCommands({
       navigation: [{ id: "home", title: "Home", to: "/" }],
       actions: [{ id: "phone", title: "Open on phone", run }],
-      sessions: [session({ running: true })],
+      sessions: [session({ runtime: { ownership: "current-server", state: "running", abortable: true } })],
     });
     expect(commands.map((command) => command.kind)).toEqual(["navigation", "action", "conversation"]);
     expect(commands[2]).toMatchObject({
