@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { Bell } from "lucide-react";
 import { Link } from "react-router-dom";
 
@@ -23,12 +23,14 @@ function RecordColumn({
   emptyLabel,
   testId,
   onResolvedChange,
+  footer,
 }: {
   title: string;
   records: NotificationRecord[];
   emptyLabel: string;
   testId: string;
   onResolvedChange: (id: string, resolved: boolean) => void;
+  footer?: ReactNode;
 }) {
   const headingId = `${testId}-heading`;
   return (
@@ -56,8 +58,16 @@ function RecordColumn({
           ))}
         </ul>
       )}
+      {footer}
     </section>
   );
+}
+
+/** Plural-safe copy for the count of unresolved records outside the window. */
+function outsideWindowNotice(hidden: number): string {
+  return hidden === 1
+    ? "1 older unresolved record is outside this view. Open the full notification history below to see it."
+    : `${hidden} older unresolved records are outside this view. Open the full notification history below to see them.`;
 }
 
 /**
@@ -105,6 +115,13 @@ export function NotificationPopover({ scopedPath }: { scopedPath: (path: string)
   const onResolvedChange = (id: string, next: boolean) => {
     void setResolved(id, next).catch((e: Error) => setMutationError(e.message));
   };
+
+  // The centre loads only the newest page of history, while activeCount is the
+  // server's unwindowed total. Manual-only resolution (AGENTS.md decision 10)
+  // retains every unresolved record, so exceeding the window is the steady
+  // state, not an edge case. The column header must keep counting the rows it
+  // actually renders; the gap is named here instead of being papered over.
+  const hiddenActive = Math.max(0, activeCount - active.length);
 
   // The label carries the exact count and is the real contract; the pill is
   // decorative and caps, because resolution is manual-only (AGENTS.md decision
@@ -166,9 +183,27 @@ export function NotificationPopover({ scopedPath }: { scopedPath: (path: string)
             <RecordColumn
               title="Active"
               records={active}
-              emptyLabel={loading ? "Loading..." : "Nothing unresolved."}
+              emptyLabel={
+                loading
+                  ? "Loading..."
+                  : hiddenActive > 0
+                    // "Nothing unresolved" would be a confident falsehood when
+                    // the server says otherwise.
+                    ? "No unresolved records in this view."
+                    : "Nothing unresolved."
+              }
               testId="opencode-notification-popover-active"
               onResolvedChange={onResolvedChange}
+              footer={
+                hiddenActive > 0 ? (
+                  <p
+                    className="shrink-0 border-t border-[var(--color-border-default)] p-2 text-[11px] text-[var(--color-text-muted)]"
+                    data-testid="opencode-notification-popover-active-outside-window"
+                  >
+                    {outsideWindowNotice(hiddenActive)}
+                  </p>
+                ) : undefined
+              }
             />
             <RecordColumn
               title="Resolved"

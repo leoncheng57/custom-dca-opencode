@@ -64,15 +64,16 @@ function seedRecords(): StubRecord[] {
  * from perturbing the counts other specs measure. The real BFF resolution path
  * stays covered by the badge test in smoke.ui.spec.ts.
  */
-async function stubHistory(page: Page, records = seedRecords()) {
+async function stubHistory(page: Page, records = seedRecords(), outsideWindowActive = 0) {
   const state = { records };
+  // The server's activeCount is unwindowed while `records` is only the newest
+  // page, so the real total is the window's unresolved rows plus any older
+  // unresolved records the window cannot reach. That divergence is the steady
+  // state once the backlog outgrows HISTORY_LIMIT.
+  const activeCount = () =>
+    outsideWindowActive + state.records.filter((record) => record.resolvedAt === undefined).length;
   await page.route("**/api/notifications/history*", async (route) => {
-    await route.fulfill({
-      json: {
-        records: state.records,
-        activeCount: state.records.filter((record) => record.resolvedAt === undefined).length,
-      },
-    });
+    await route.fulfill({ json: { records: state.records, activeCount: activeCount() } });
   });
   await page.route(/\/api\/notifications\/ntf_[^/]+$/, async (route) => {
     const { resolved } = route.request().postDataJSON() as { resolved: boolean };
@@ -86,12 +87,7 @@ async function stubHistory(page: Page, records = seedRecords()) {
       delete record.resolvedAt;
       delete record.resolvedBy;
     }
-    await route.fulfill({
-      json: {
-        record,
-        activeCount: state.records.filter((candidate) => candidate.resolvedAt === undefined).length,
-      },
-    });
+    await route.fulfill({ json: { record, activeCount: activeCount() } });
   });
 }
 
@@ -202,6 +198,41 @@ for (const viewport of VIEWPORTS) {
       );
       expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth))
         .toBeLessThanOrEqual(1);
+    });
+
+    test("names unresolved records the loaded window cannot reach", async ({ page }) => {
+      const outside = 10;
+      await stubHistory(page, seedRecords(), outside);
+      await page.goto(hub);
+      await bell(page).click();
+
+      // The bell reports the server total; the column header reports what it
+      // actually rendered. Both are honest, so the gap has to be explained.
+      await expect(bell(page)).toHaveAttribute("aria-label", `Notifications, ${ACTIVE_COUNT + outside} unresolved`);
+      await expect(page.getByTestId("opencode-notification-popover-active-count")).toHaveText(String(ACTIVE_COUNT));
+
+      const notice = page.getByTestId("opencode-notification-popover-active-outside-window");
+      await expect(notice).toBeVisible();
+      await expect(notice).toContainText(`${outside} older unresolved records are outside this view`);
+      await expect(notice).toContainText("full notification history");
+
+      // The history page reconciles its own badge the same way.
+      await page.goto(`/settings/notifications?directory=${encodeURIComponent(DIR)}`);
+      await expect(page.getByTestId("opencode-notifications-active-count")).toHaveText(String(ACTIVE_COUNT + outside));
+      await expect(page.getByTestId("opencode-notification-history-outside-window"))
+        .toContainText(`${outside} older unresolved records are outside this page`);
+    });
+
+    test("stays quiet when the window holds every unresolved record", async ({ page }) => {
+      await page.goto(hub);
+      await bell(page).click();
+
+      await expect(bell(page)).toHaveAttribute("aria-label", `Notifications, ${ACTIVE_COUNT} unresolved`);
+      await expect(page.getByTestId("opencode-notification-popover-active-count")).toHaveText(String(ACTIVE_COUNT));
+      await expect(page.getByTestId("opencode-notification-popover-active-outside-window")).toHaveCount(0);
+
+      await page.goto(`/settings/notifications?directory=${encodeURIComponent(DIR)}`);
+      await expect(page.getByTestId("opencode-notification-history-outside-window")).toHaveCount(0);
     });
 
     test("closes on Escape with focus restored, and on an outside click", async ({ page }) => {

@@ -36,6 +36,15 @@ export function NotificationsPage() {
     return records.filter((record) => (record.resolvedAt === undefined) === wantActive);
   }, [records, historyState]);
 
+  // The badge above is the server's unwindowed total, but this list is the
+  // newest page only. Unresolved records are retained forever and there is no
+  // bulk clear, so the two diverge in normal use; name the gap rather than let
+  // the badge silently contradict the rows.
+  const hiddenActive = Math.max(
+    0,
+    activeCount - records.filter((record) => record.resolvedAt === undefined).length,
+  );
+
   return (
     <main className="mx-auto max-w-3xl space-y-5 p-4 sm:p-6" data-testid="opencode-notifications">
       <header>
@@ -74,6 +83,17 @@ export function NotificationsPage() {
           ))}
         </header>
         {historyError && <Alert variant="danger">{historyError}</Alert>}
+        {hiddenActive > 0 && (
+          <p
+            className="border-b border-[var(--color-border-default)] p-3 text-xs text-[var(--color-text-muted)]"
+            data-testid="opencode-notification-history-outside-window"
+          >
+            Showing the newest {records.length} records.{" "}
+            {hiddenActive === 1
+              ? "1 older unresolved record is outside this page."
+              : `${hiddenActive} older unresolved records are outside this page.`}
+          </p>
+        )}
         {visible.length === 0 ? (
           <p className="p-3 text-sm text-[var(--color-text-muted)]" data-testid="opencode-history-empty">
             {loading ? "Loading history..." : "No notifications recorded yet."}
