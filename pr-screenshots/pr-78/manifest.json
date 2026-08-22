@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 2,
+  "prNumber": 78,
+  "sourceSha": "fa1b652ceb6492aa4d4af5c59a60382fd7732ef9",
+  "capturedAt": "2026-08-22T05:34:45.354Z",
+  "screenshots": [
+    {
+      "requestedRoute": "/?directory=/tmp/mock-project",
+      "fullPage": false,
+      "captures": {
+        "desktop": {
+          "filename": "01-home-directory-tmp-mock-project-cd94ccea--desktop.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 800
+          },
+          "bytes": 76724,
+          "sha256": "779a5c7e557a73316315f132968eb67cb8941ea44e763f5b46a379274dac66f4"
+        },
+        "mobile": {
+          "filename": "01-home-directory-tmp-mock-project-abda7d68--mobile.png",
+          "dimensions": {
+            "width": 390,
+            "height": 740
+          },
+          "bytes": 54980,
+          "sha256": "29e7630062182eb937d2a8cb51910c0c6e566b3085230361261fb6273b4d529d"
+        }
+      }
+    },
+    {
+      "requestedRoute": "/settings?directory=/tmp/mock-project",
+      "fullPage": false,
+      "captures": {
+        "desktop": {
+          "filename": "02-settings-directory-tmp-mock-project-7f6a7c1d--desktop.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 800
+          },
+          "bytes": 55433,
+          "sha256": "efb8f113f06708ac56878ea8fe76a5e53c9080fee679f512589dde1a8c519a02"
+        },
+        "mobile": {
+          "filename": "02-settings-directory-tmp-mock-project-563e50f7--mobile.png",
+          "dimensions": {
+            "width": 390,
+            "height": 740
+          },
+          "bytes": 48908,
+          "sha256": "2dcab6735f6d706e635626ceb7ad21f7a297c91a8845c99c2c45cabe9b1b46e1"
+        }
+      }
+    },
+    {
+      "requestedRoute": "/settings/notifications?directory=/tmp/mock-project",
+      "fullPage": true,
+      "captures": {
+        "desktop": {
+          "filename": "03-settings-notifications-directory-tmp-mock-project-1d8c4655--desktop--full.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 800
+          },
+          "bytes": 23359,
+          "sha256": "2b3425bd124caa9250084ae8a97d10c17f031954fe1a16f376c9faf48cb3738f"
+        },
+        "mobile": {
+          "filename": "03-settings-notifications-directory-tmp-mock-project-831e19be--mobile--full.png",
+          "dimensions": {
+            "width": 390,
+            "height": 740
+          },
+          "bytes": 19457,
+          "sha256": "a3218247a3ed7053983deec6b0a4a255d36b61e2b23a1edc45922d052e33ddcd"
+        }
+      }
+    }
+  ]
+}
