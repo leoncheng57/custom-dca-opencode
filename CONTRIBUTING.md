@@ -4,7 +4,8 @@ Thank you for improving custom-dca-opencode. This guide covers the repository's
 development workflow and the checks that pull requests must pass.
 
 Use the self-contained [visual reading index](docs/contributing/index.html) to choose a
-contributor pathway, or continue here for the canonical workflow.
+contributor pathway, open `/docs` in the running app for the architecture-focused docs center,
+or continue here for the canonical workflow.
 
 ## Before you start
 
@@ -54,6 +55,9 @@ The request path is:
 ```text
 Browser -> React/Vite SPA -> Express BFF -> opencode serve
 ```
+
+See [docs/architecture.md](docs/architecture.md) for the detailed request and event flows,
+state ownership, safety boundaries, and extension map.
 
 - [`client/`](client/) contains the React SPA and design-system primitives.
 - [`server/`](server/) contains API routes, credentials, directory validation, SSE

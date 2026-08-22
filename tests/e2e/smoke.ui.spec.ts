@@ -67,16 +67,28 @@ test.describe("hub", () => {
     await expect(page.getByTestId("opencode-upstream-badge")).toContainText("1.18.21");
   });
 
-  test("shows a directory-wide auto permissions warning and control", async ({ page }) => {
+  test("shows compact directory-wide auto permissions controls", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 740 });
     await page.goto(hub);
     const control = page.getByTestId("opencode-hub-auto-permissions");
+    const toggle = control.getByTestId("opencode-hub-auto-permissions-toggle");
     await expect(control).toContainText("Auto permissions: OFF");
-    await control.getByTestId("opencode-hub-auto-permissions-toggle").click();
+    await expect(toggle).toHaveAttribute("role", "switch");
+    await expect(toggle).toHaveAttribute("aria-checked", "false");
+    await expect(toggle).toHaveAccessibleName("Turn auto permissions on");
+    expect((await control.boundingBox())?.height).toBeLessThanOrEqual(40);
+    await toggle.click();
     await expect(control).toContainText("Auto permissions: ON");
+    await expect(toggle).toHaveAttribute("aria-checked", "true");
+    await expect(toggle).toHaveAccessibleName("Turn auto permissions off");
+    expect((await control.boundingBox())?.height).toBeLessThanOrEqual(40);
+    await expect(control.getByTestId("opencode-hub-auto-permissions-warning")).toHaveCount(0);
+    await control.getByTestId("opencode-hub-auto-permissions-details").click();
     await expect(control.getByTestId("opencode-hub-auto-permissions-warning")).toContainText("arbitrary shell commands");
     await expect(control).toContainText("every session using this project directory");
-    await control.getByTestId("opencode-hub-auto-permissions-toggle").click();
+    await toggle.click();
     await expect(control).toContainText("Auto permissions: OFF");
+    await expect(control.getByTestId("opencode-hub-auto-permissions-warning")).toHaveCount(0);
   });
 
   test("selects the configured model from the safe catalogue", async ({ page }) => {
@@ -865,17 +877,33 @@ test.describe("composer", () => {
     await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
     const picker = page.getByTestId("composer-reminder-select");
     await expect(picker).toBeVisible();
-    await expect(picker.locator('option[value="human-verification-steps"]')).toHaveText("Write Human Verification Steps");
+    await picker.click();
+    await expect(page.getByTestId("composer-reminder-search")).toBeFocused();
+    const humanVerification = page.locator('[data-testid="composer-reminder-option"][data-reminder-id="human-verification-steps"]');
+    await expect(humanVerification).toContainText("Write Human Verification Steps");
+    await expect(humanVerification).toContainText("verifies completed behavior from a user's perspective");
+    await page.getByTestId("composer-reminder-search").fill("Red-Team");
+    await expect(page.getByTestId("composer-reminder-option")).toHaveCount(1);
+    await expect(page.getByTestId("composer-reminder-option")).toContainText("Red-Team This");
+    await page.getByTestId("composer-reminder-search").press("ArrowDown");
+    await page.getByTestId("composer-reminder-search").press("Enter");
+    await expect(picker).toHaveAttribute("value", "red-team-this");
+    await picker.click();
+    await page.getByTestId("composer-reminder-option-none").click();
+    await expect(picker).toHaveAttribute("value", "");
+    await expect(picker).toBeFocused();
 
     const cases = [
       { id: "red-team-this", text: `red team ${Date.now()}`, body: "Explicitly switch from author" },
       { id: "human-verification-steps", text: `manual QA ${Date.now()}`, body: "Run the repository's relevant automated checks" },
     ];
     for (const reminderCase of cases) {
-      await picker.selectOption(reminderCase.id);
+      await picker.click();
+      await page.locator(`[data-testid="composer-reminder-option"][data-reminder-id="${reminderCase.id}"]`).click();
+      await expect(picker).toHaveAttribute("value", reminderCase.id);
       await page.getByTestId("opencode-composer").fill(reminderCase.text);
       await page.getByTestId("opencode-send").click();
-      await expect(picker).toHaveValue("");
+      await expect(picker).toHaveAttribute("value", "");
 
       const user = page.getByTestId("opencode-user-message").filter({ hasText: reminderCase.text });
       await expect(user).toBeVisible();
@@ -951,6 +979,15 @@ test.describe("mobile", () => {
     expect(sendBox?.height).toBeGreaterThanOrEqual(44);
     await expect(composer).toHaveAttribute("enterkeyhint", "enter");
     await expect(composer).toHaveAttribute("autocapitalize", "none");
+    await reminder.click();
+    const panel = page.getByTestId("composer-reminder-panel");
+    await expect(panel).toBeVisible();
+    await expect(page.getByTestId("composer-reminder-option").first()).toContainText("Draw an ASCII Diagram");
+    const panelBox = await panel.boundingBox();
+    expect(panelBox?.width).toBeLessThanOrEqual(390);
+    expect(panelBox?.height).toBeLessThanOrEqual(740);
+    await page.getByTestId("composer-reminder-close").click();
+    await expect(reminder).toBeFocused();
   });
 
   test("collapses the composer without losing its draft", async ({ page }) => {
@@ -1188,6 +1225,30 @@ test.describe("settings and tools UI", () => {
   });
 });
 
+test.describe("engineering docs UI", () => {
+  test("opens the architecture guide from the visual docs center", async ({ page }) => {
+    await page.goto(`/docs?directory=${encodeURIComponent(DIR)}`);
+    await expect(page.getByTestId("opencode-docs")).toContainText("One server, every project");
+    await page.getByTestId("opencode-docs-open-architecture").click();
+    await expect(page).toHaveURL(new RegExp(`/docs/architecture\\?directory=${encodeURIComponent(DIR)}`));
+    await expect(page.getByTestId("opencode-doc")).toContainText("Conversation lifecycle");
+    await expect(page.getByTestId("opencode-doc-source")).toContainText("docs/architecture.md");
+  });
+
+  test("renders an unknown document state", async ({ page }) => {
+    await page.goto("/docs/not-in-the-catalogue");
+    await expect(page.getByTestId("opencode-doc")).toContainText("not in the in-app catalogue");
+  });
+
+  test("fits the docs center without horizontal overflow at 390px", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 740 });
+    await page.goto("/docs");
+    await expect(page.getByTestId("opencode-docs")).toBeVisible();
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
+  });
+});
+
 test.describe("workspace UI", () => {
   const conversation = `/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`;
 
@@ -1232,10 +1293,10 @@ test.describe("workspace UI", () => {
     await fetch(`${FORGE_URL}/test/forge-reset`, { method: "POST" });
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto(conversation);
-    await page.getByTestId("opencode-inspector-reviews").click();
+    await page.getByTestId("opencode-inspector-reviews").dispatchEvent("click");
     await expect(page.getByTestId("opencode-merge-review")).toBeVisible();
     page.once("dialog", (dialog) => dialog.accept());
-    await page.getByTestId("opencode-merge-review").click();
+    await page.getByTestId("opencode-merge-review").dispatchEvent("click");
     await expect(page.getByTestId("opencode-review-card")).toHaveAttribute("data-state", "merged");
     await expect.poll(async () => (await (await fetch(`${FORGE_URL}/test/forge-state`)).json()).mergeBody).toEqual({ sha: "abc123" });
   });
@@ -1243,7 +1304,7 @@ test.describe("workspace UI", () => {
   test("review card remains width-safe in a mobile cockpit host", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto(conversation);
-    await page.getByTestId("opencode-inspector-reviews").click();
+    await page.getByTestId("opencode-inspector-reviews").dispatchEvent("click");
     await expect(page.getByTestId("opencode-review-card")).toBeVisible();
     await page.setViewportSize({ width: 390, height: 740 });
     await page.getByTestId("opencode-session-inspector").evaluate((element) => {

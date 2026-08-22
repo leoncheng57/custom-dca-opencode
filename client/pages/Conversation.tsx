@@ -13,6 +13,7 @@ import { AgentModeToggle } from "../components/agent-mode-toggle.js";
 import { AutoPermissionsControl } from "../components/auto-permissions-control.js";
 import { ModelPicker } from "../components/model-picker.js";
 import { QuestionRequest } from "../components/question-request.js";
+import { ReminderPicker } from "../components/reminder-picker.js";
 import { ShareExportDialog } from "../components/share-export-dialog.js";
 import { api, ApiError, formatCost, type ReminderSummary, type SessionSummary } from "../lib/api.js";
 import { latestModeMessageID, modeFromSession, type AgentMode } from "../lib/agentMode.js";
@@ -685,25 +686,11 @@ export function ConversationPage() {
                 }} />
               </label>
               {reminderCatalogue.length > 0 && (
-                <select
+                <ReminderPicker
+                  catalogue={reminderCatalogue}
                   value={selectedReminder}
-                  onChange={(event) => setSelectedReminder(event.target.value)}
-                  className={`min-h-11 min-w-0 max-w-36 shrink rounded-md border px-2 text-base sm:min-h-8 sm:max-w-40 sm:text-xs ${
-                    selectedReminder
-                      ? "border-[var(--color-border-focus)] bg-[var(--color-background-surface)] text-[var(--color-text-default)]"
-                      : "border-transparent bg-transparent text-[var(--color-text-muted)] hover:border-[var(--color-border-default)]"
-                  }`}
-                  data-testid="composer-reminder-select"
-                  aria-label="Attach a reminder to this message"
-                  title="Attach one reminder to the next message only. Cleared after sending."
-                >
-                  <option value="">+ reminder</option>
-                  {reminderCatalogue.map((reminder) => (
-                    <option key={reminder.id} value={reminder.id} title={reminder.description}>
-                      {reminder.title}{reminder.triggers.length ? " (triggers ignored)" : ""}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setSelectedReminder}
+                />
               )}
               <span className="flex-1" aria-hidden="true" />
               <Button size="sm" className="min-h-11 shrink-0 sm:min-h-8" onClick={() => void send()} disabled={!agentIdentityKnown || sending || !draft.trim()} data-testid="opencode-send">

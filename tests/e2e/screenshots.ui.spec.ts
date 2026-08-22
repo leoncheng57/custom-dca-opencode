@@ -33,7 +33,11 @@ test.describe("requested PR screenshots", () => {
               ? "opencode-settings"
               : pathname === "/tools"
                 ? "opencode-tools"
-                : "opencode-hub";
+                : pathname === "/docs"
+                  ? "opencode-docs"
+                  : pathname.startsWith("/docs/")
+                    ? "opencode-doc"
+                    : "opencode-hub";
         await expect(page.getByTestId(stableRoot)).toBeVisible();
         await expect(page.locator("html")).toHaveClass(/dark/);
         await page.addStyleTag({ content: "*, *::before, *::after { animation: none !important; transition: none !important; caret-color: transparent !important; }" });

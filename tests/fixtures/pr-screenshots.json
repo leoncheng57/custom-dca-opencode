@@ -6,5 +6,9 @@
   {
     "requestedRoute": "/sessions/ses_mock_done?directory=/tmp/mock-project",
     "fullPage": true
+  },
+  {
+    "requestedRoute": "/docs?directory=/tmp/mock-project",
+    "fullPage": true
   }
 ]

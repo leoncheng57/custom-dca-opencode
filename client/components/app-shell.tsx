@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Search, Smartphone } from "lucide-react";
+import { BookOpen, Search, Smartphone } from "lucide-react";
 import { useTheme } from "next-themes";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 
@@ -93,6 +93,7 @@ export function AppShell() {
     navigation: [
       { id: "home", title: "Home", to: scopedPath("/"), keywords: ["sessions"] },
       { id: "tools", title: "Tools", to: scopedPath("/tools"), keywords: ["mcp", "lsp", "permissions"] },
+      { id: "docs", title: "Docs", to: scopedPath("/docs"), keywords: ["architecture", "contributing", "internals"] },
       {
         id: "notifications",
         title: "Notifications",
@@ -135,7 +136,8 @@ export function AppShell() {
       <div className="flex h-full min-h-0 flex-col" inert={paletteOpen ? true : undefined}>
         <nav className="flex h-11 shrink-0 items-center gap-1 border-b border-[var(--color-border-default)] px-3" aria-label="Main">
           <NavLink to={scopedPath("/")} className="mr-auto text-sm font-bold tracking-tight" data-testid="opencode-nav-home">
-            OpenCode
+            <span className="sm:hidden">OC</span>
+            <span className="hidden sm:inline">OpenCode</span>
           </NavLink>
           <Button
             aria-label="Search commands"
@@ -162,6 +164,7 @@ export function AppShell() {
             <span className="hidden sm:inline">Phone</span>
           </Button>
           {[
+            ["/docs", "Docs"],
             ["/tools", "Tools"],
             ["/settings/notifications", "Notifications"],
             ["/settings", "Settings"],
@@ -179,7 +182,8 @@ export function AppShell() {
                 }
                 data-testid={`opencode-nav-${label.toLowerCase()}`}
               >
-                {label}
+                {label === "Docs" && <BookOpen aria-hidden="true" className="sm:hidden" size={15} />}
+                <span className={label === "Docs" ? "hidden sm:inline" : undefined}>{label}</span>
                 {badged && (
                   <Badge
                     variant="counter"
