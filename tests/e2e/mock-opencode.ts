@@ -157,6 +157,12 @@ function parentMessages(): unknown[] {
 
 const messages = new Map<string, unknown[]>([
   ["ses_mock_done", fixture],
+  // Deep-cloned, not shared: the mock appends to these arrays when a prompt or
+  // permission lands, so aliasing the fixture would leak one session's turns
+  // into the other — the same class of shared-state bug this session exists to
+  // avoid. The toolbar spec asserts on the cost and context readouts, which are
+  // derived from message usage, so an empty transcript would not do.
+  ["ses_mock_toolbar", structuredClone(fixture)],
   [PARENT_ID, parentMessages()],
   [CHILD_RUNNING, [
     { info: { id: "msg_cr_1", role: "user", agent: "explore", time: { created: 1787400001500 } }, parts: [{ id: "prt_cr_1", messageID: "msg_cr_1", type: "text", text: "Audit the parser" }] },
@@ -254,6 +260,11 @@ const MOCK_DIRECTORY_INPUT = "/tmp/mock-project";
 // directory so adding sessions here cannot perturb those tests.
 const SECOND_DIRECTORY_INPUT = "/tmp/mock-second-project";
 const AUTO_DIRECTORY_INPUT = "/tmp/mock-auto-project";
+// Auto permissions is per-directory in-memory BFF state, and Playwright runs
+// spec files in parallel against one BFF. Any two files that toggle the flag on
+// the same directory will flip it under each other, so each such file owns a
+// directory of its own. This one belongs to conversation-toolbar.ui.spec.ts.
+const TOOLBAR_DIRECTORY_INPUT = "/tmp/mock-toolbar-project";
 const TOOL_FAILURE_DIRECTORY_INPUT = "/tmp/mock-tool-failure";
 const CATALOGUE_FAILURE_DIRECTORY_INPUT = "/tmp/mock-catalogue-failure";
 const POLICY_FAILURE_DIRECTORY_INPUT = "/tmp/mock-policy-failure";
@@ -262,6 +273,7 @@ mkdirSync(SUBAGENT_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(MOCK_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(SECOND_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(AUTO_DIRECTORY_INPUT, { recursive: true });
+mkdirSync(TOOLBAR_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(TOOL_FAILURE_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(CATALOGUE_FAILURE_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(POLICY_FAILURE_DIRECTORY_INPUT, { recursive: true });
@@ -269,6 +281,7 @@ mkdirSync(path.join(MOCK_DIRECTORY_INPUT, "src"), { recursive: true });
 export const MOCK_DIRECTORY = realpathSync(MOCK_DIRECTORY_INPUT);
 export const SECOND_DIRECTORY = realpathSync(SECOND_DIRECTORY_INPUT);
 const AUTO_DIRECTORY = realpathSync(AUTO_DIRECTORY_INPUT);
+export const TOOLBAR_DIRECTORY = realpathSync(TOOLBAR_DIRECTORY_INPUT);
 const TOOL_FAILURE_DIRECTORY = realpathSync(TOOL_FAILURE_DIRECTORY_INPUT);
 const CATALOGUE_FAILURE_DIRECTORY = realpathSync(CATALOGUE_FAILURE_DIRECTORY_INPUT);
 const POLICY_FAILURE_DIRECTORY = realpathSync(POLICY_FAILURE_DIRECTORY_INPUT);
@@ -285,6 +298,19 @@ const SESSIONS: Array<Record<string, any>> = [
     id: "ses_mock_done",
     title: "Add a health endpoint",
     directory: MOCK_DIRECTORY,
+    agent: "build",
+    model: { providerID: "anthropic", id: "claude-opus-5" },
+    cost: 0.0431,
+    tokens: { input: 110, output: 940, reasoning: 250, cache: { read: 10400, write: 800 } },
+    time: { created: 1787000000000, updated: 1787000012000 },
+  },
+  {
+    // Mirrors ses_mock_done in a directory only conversation-toolbar.ui.spec.ts
+    // uses, so that file can toggle auto permissions without racing the UI and
+    // API specs that toggle it on MOCK_DIRECTORY.
+    id: "ses_mock_toolbar",
+    title: "Add a health endpoint",
+    directory: TOOLBAR_DIRECTORY,
     agent: "build",
     model: { providerID: "anthropic", id: "claude-opus-5" },
     cost: 0.0431,

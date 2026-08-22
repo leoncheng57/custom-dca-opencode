@@ -401,12 +401,16 @@ test.describe("prompting", () => {
     expect((await policyProbe(sessionID)).permission).toHaveLength(restored.permission.length);
   });
 
+  // Runs against AUTO_DIR, not DIR. Auto permissions is per-directory in-memory
+  // BFF state and Playwright runs spec files in parallel, so a test that both
+  // enables the flag and asserts on it has to own its directory. AUTO_DIR is
+  // only ever touched from this file, and tests within a file are serial.
   test("keeps Plan session policy activation independent from auto permissions", async ({ request }) => {
-    const sessionID = await freshSession(request);
+    const sessionID = await freshSession(request, AUTO_DIR);
     const text = `plan auto api ${Date.now()}`;
-    await request.patch(`/api/auto-approve?directory=${DIR}`, { data: { enabled: true } });
+    await request.patch(`/api/auto-approve?directory=${AUTO_DIR}`, { data: { enabled: true } });
     try {
-      const response = await request.post(`/api/sessions/${sessionID}/prompt?directory=${DIR}`, {
+      const response = await request.post(`/api/sessions/${sessionID}/prompt?directory=${AUTO_DIR}`, {
         data: { text, mode: "plan" },
       });
       expect(response.status()).toBe(202);
@@ -414,10 +418,10 @@ test.describe("prompting", () => {
       expect(await promptPayload(text)).not.toHaveProperty("tools");
       expect((await policyProbe(sessionID)).disabledTools)
         .toEqual(expect.arrayContaining(["bash", "edit", "write", "apply_patch"]));
-      expect(await (await request.get(`/api/auto-approve?directory=${DIR}`)).json())
+      expect(await (await request.get(`/api/auto-approve?directory=${AUTO_DIR}`)).json())
         .toEqual({ enabled: true, error: null });
     } finally {
-      await request.patch(`/api/auto-approve?directory=${DIR}`, { data: { enabled: false } });
+      await request.patch(`/api/auto-approve?directory=${AUTO_DIR}`, { data: { enabled: false } });
     }
   });
 
@@ -862,7 +866,10 @@ test.describe("permission remote control", () => {
     expect((await (await request.get(`/api/permission-requests?directory=${AUTO_DIR}`)).json()).requests).toEqual([]);
     const questions = await (await request.get(`/api/sessions/ses_mock_done/questions?directory=${AUTO_DIR}`)).json();
     expect(questions.requests).toContainEqual(expect.objectContaining({ id: "que_mock" }));
-    expect((await (await request.get(`/api/auto-approve?directory=${DIR}`)).json()).enabled).toBe(false);
+    // Enabling one directory must not enable another. Probed against a
+    // directory no spec ever toggles: DIR is driven by the UI specs in
+    // parallel, so reading it here asserted their state, not this one's.
+    expect((await (await request.get(`/api/auto-approve?directory=${SUBAGENT_DIR}`)).json()).enabled).toBe(false);
 
     await request.patch(`/api/auto-approve?directory=${AUTO_DIR}`, { data: { enabled: false } });
     const manualID = `perm_manual_${Date.now()}`;
