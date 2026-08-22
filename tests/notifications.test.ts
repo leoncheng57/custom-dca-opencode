@@ -9,6 +9,7 @@ import {
   NTFY_BODY_LIMIT,
   NTFY_TITLE_LIMIT,
   NotificationService,
+  inAppMessage,
   outboundMessage,
 } from "../server/notifications/service.js";
 import type { EventBus } from "../server/opencode/events.js";
@@ -137,7 +138,7 @@ describe("outbound ntfy copy", () => {
     }), "permission", "ses_private");
     const question = outboundMessage(event("question.asked", {
       id: "que_1",
-      questions: [{ question: "Use /tmp/private/output.txt with sk-secret-token?", header: "Secret", options: [] }],
+      questions: [{ question: "Use output=/tmp/private/output.txt with sk-secret-token?", header: "Secret", options: [] }],
     }), "question", undefined);
     const error = outboundMessage(event("session.error", {
       error: { name: "ProviderError", message: "failed at /tmp/private/output.txt with sk-secret-token" },
@@ -146,6 +147,10 @@ describe("outbound ntfy copy", () => {
     expect(permission).toMatchObject({ title: "OpenCode needs permission", body: "\u{1F510} Needs your approval" });
     expect(question.body).toBe("\u{2753} Needs your answer");
     expect(error.body).toBe("\u{26A0}\u{FE0F} Stopped with an error: ProviderError");
+    expect(inAppMessage(event("question.asked", {
+      id: "que_1",
+      questions: [{ question: "Use output=/tmp/private/output.txt with sk-secret-token?", header: "Secret", options: [] }],
+    }), "question")).toBe("Needs your answer");
     for (const message of [permission, question, error]) {
       expect(`${message.title} ${message.body}`).not.toMatch(/ses_private|\/tmp\/private|sk-secret-token|output\.txt/u);
     }
@@ -158,6 +163,17 @@ describe("outbound ntfy copy", () => {
       body: "\u{23F3} Still waiting 1 minute 30 seconds for approval: bash",
       priority: "high",
     });
+  });
+
+  it("keeps the authenticated-app question context separate from the lock-screen cap", () => {
+    const question = `Should I proceed with ${"the requested migration ".repeat(7)}?`;
+    const notificationEvent = event("question.asked", {
+      id: "que_1",
+      questions: [{ question, header: "Migration", options: [] }],
+    });
+
+    expect(outboundMessage(notificationEvent, "question", "Release work").body).toBe("\u{2753} Needs your answer");
+    expect(inAppMessage(notificationEvent, "question")).toBe(`Needs your answer: ${question}`);
   });
 
   it("keeps the explicit test-route title and revised confirmation copy", () => {
@@ -346,6 +362,7 @@ describe("root session notification filtering", () => {
     // Whitespace is normalised on parse; the record keeps what was true when
     // it fired, because the session may be renamed or deleted later.
     expect((await history.list())[0].sessionTitle).toBe("Rewrite the   notification popover");
+    expect((await history.list())[0].displayBody).toBe("Finished its turn and is waiting for you");
     expect(fetchMock.mock.calls[0][1]?.headers).toMatchObject({ Title: "Rewrite the notification popover" });
     service.stop();
   });

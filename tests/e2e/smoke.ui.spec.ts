@@ -1407,7 +1407,7 @@ test.describe("settings and tools UI", () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth))
       .toBeLessThanOrEqual(1);
 
-    const row = page.getByTestId("opencode-notification-record").filter({ hasText: "OpenCode needs permission" }).first();
+    const row = page.getByTestId("opencode-notification-record").filter({ hasText: "Needs approval to run bash" }).first();
     await expect(row).toHaveAttribute("data-active", "true");
     await expect(row).toContainText("ntfy off");
 

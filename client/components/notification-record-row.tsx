@@ -53,6 +53,19 @@ export function resolutionSummary(record: NotificationRecord): string {
   return `${record.resolvedBy ?? "resolved"}`;
 }
 
+/** Safe action copy for new records, plus durable fallbacks for v1 history. */
+export function notificationAction(record: NotificationRecord): string {
+  if (record.delivery.suppressed === "auto-permissions") return "Auto-approved before you were notified";
+  if (record.delivery.suppressed === "subagent") return "Sub-agent activity was recorded but not sent";
+  if (record.displayBody) return record.displayBody;
+  if (record.kind === "permission") return "Needs your approval";
+  if (record.kind === "question") return "Needs your answer";
+  if (record.kind === "idle") return "Finished its turn and is waiting for you";
+  if (record.kind === "error") return "Stopped with an error";
+  if (record.kind === "parked") return "Still waiting for approval";
+  return "Stopped at your request";
+}
+
 /**
  * One history row, shared by the full history page and the nav popover so both
  * surfaces stay consistent. `compact` folds the fixed timestamp column into the
@@ -72,12 +85,13 @@ export function NotificationRecordRow({
   const resolution = resolutionSummary(record);
   const relative = formatRelative(timestamp) || formatClockTime(timestamp);
   const suppressed = record.delivery.suppressed;
-  // The notification title is generic ("OpenCode needs permission"); the
-  // session title is what says which piece of work is waiting. Fall back to
-  // the session id so the row never loses its identifier entirely.
+  // The session title identifies the work. IDs remain structural link data and
+  // are intentionally never rendered in the normal notification copy.
   const sessionLabel = record.sessionTitle
     ? truncateSessionTitle(record.sessionTitle, compact ? 40 : 64)
-    : record.sessionID;
+    : undefined;
+  const primary = sessionLabel ?? record.title;
+  const action = notificationAction(record);
   return (
     <li
       className={cn(
@@ -103,13 +117,16 @@ export function NotificationRecordRow({
       </Badge>
       <div className="min-w-0 flex-1">
         <p className="flex items-center gap-1.5 text-sm">
-          <span className="min-w-0 truncate">
+          <span
+            className="min-w-0 truncate"
+            {...(sessionLabel ? { title: record.sessionTitle, "data-testid": "opencode-notification-session" } : {})}
+          >
             {record.click ? (
               <a className="underline underline-offset-2" href={record.click} data-testid="opencode-notification-link">
-                {record.title}
+                {primary}
               </a>
             ) : (
-              record.title
+              primary
             )}
           </span>
           {/* Names why a suppressed row is on screen at all — without it, an
@@ -121,7 +138,7 @@ export function NotificationRecordRow({
             </Badge>
           )}
         </p>
-        <p className="truncate text-xs text-[var(--color-text-muted)]">{record.body}</p>
+        <p className="truncate text-xs text-[var(--color-text-muted)]" data-testid="opencode-notification-action">{action}</p>
         <p className="mt-0.5 truncate text-[11px] text-[var(--color-text-muted)]">
           {compact && (
             <>
@@ -132,18 +149,6 @@ export function NotificationRecordRow({
             </>
           )}
           {projectName(record.directory)}
-          {sessionLabel && (
-            <>
-              {" · "}
-              <span
-                className="text-[var(--color-text-default)]"
-                title={record.sessionTitle ?? record.sessionID}
-                data-testid="opencode-notification-session"
-              >
-                {sessionLabel}
-              </span>
-            </>
-          )}
           {/* The popover row has one line to spend and the session title is
               the field that says which work is waiting, so delivery and
               resolution detail stays on the full history page — the chip and

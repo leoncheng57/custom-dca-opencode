@@ -8,6 +8,7 @@ import {
 } from "../client/lib/notificationView.js";
 import {
   deliverySummary,
+  notificationAction,
   SUPPRESSION_LABEL,
   truncateSessionTitle,
 } from "../client/components/notification-record-row.js";
@@ -86,5 +87,40 @@ describe("notification row formatting", () => {
       .toBe("suppressed as sub-agent activity");
     expect(deliverySummary(base)).toBe("ntfy off · desktop off");
     expect(SUPPRESSION_LABEL.subagent).toBe("sub-agent");
+  });
+
+  it("uses safe event action copy without rendering session IDs", () => {
+    const base: NotificationRecord = {
+      id: "n1",
+      kind: "permission",
+      at: 0,
+      sessionID: "ses_private",
+      sessionTitle: "Review notification copy",
+      title: "OpenCode needs permission",
+      body: "bash requires review",
+      displayBody: "Needs approval to run bash",
+      delivery: { ntfy: "sent", desktop: "allowed" },
+    };
+    expect(notificationAction(base)).toBe("Needs approval to run bash");
+    expect(notificationAction({ ...base, kind: "question", displayBody: undefined })).toBe("Needs your answer");
+    expect(notificationAction({ ...base, kind: "idle", displayBody: undefined })).toBe("Finished its turn and is waiting for you");
+    expect(notificationAction({ ...base, kind: "error", displayBody: undefined })).toBe("Stopped with an error");
+    expect(notificationAction({ ...base, kind: "parked", displayBody: undefined })).toBe("Still waiting for approval");
+    expect(notificationAction({ ...base, kind: "abort", displayBody: undefined })).toBe("Stopped at your request");
+  });
+
+  it("marks suppressed rows as status records rather than pending decisions", () => {
+    const base: NotificationRecord = {
+      id: "n1",
+      kind: "permission",
+      at: 0,
+      title: "OpenCode needs permission",
+      body: "bash requires review",
+      displayBody: "Needs approval to run bash",
+      delivery: { ntfy: "off", desktop: "off", suppressed: "auto-permissions" },
+    };
+    expect(notificationAction(base)).toBe("Auto-approved before you were notified");
+    expect(notificationAction({ ...base, delivery: { ...base.delivery, suppressed: "subagent" } }))
+      .toBe("Sub-agent activity was recorded but not sent");
   });
 });

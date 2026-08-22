@@ -66,21 +66,21 @@ function safeToolName(event: OpencodeEvent): string | undefined {
   return typeof value === "string" && /^[a-z][a-z0-9_-]{0,31}$/u.test(value) ? value : undefined;
 }
 
-function safePreview(value: unknown): string | undefined {
+function safePreview(value: unknown, limit: number): string | undefined {
   if (typeof value !== "string") return undefined;
   const preview = compact(value);
-  if (!preview || preview.length > 100) return undefined;
+  if (!preview || preview.length > limit) return undefined;
   // Details come from an upstream agent. Reject identifiers, credentials, URLs,
   // and filesystem references instead of trying to redact arbitrary tool output.
-  if (/(?:^|[\s("'`])(?:\/|~\/)|(?:https?|file):\/\/|\b(?:ses|perm|que)_[A-Za-z0-9_-]+|\b(?:sk|ghp|github_pat)_[A-Za-z0-9_-]+|\bBearer\s+[A-Za-z0-9._-]+/iu.test(preview)) {
+  if (/(?:^|[\s("'`=])(?:\/|~\/)|\b[A-Za-z]:[\\/]|(?:https?|file):\/\/|\b(?:ses|perm|que)_[A-Za-z0-9_-]+|\b(?:sk|ghp|github_pat)_[A-Za-z0-9_-]+|\bBearer\s+[A-Za-z0-9._-]+/iu.test(preview)) {
     return undefined;
   }
   return preview;
 }
 
-function safeQuestionPreview(event: OpencodeEvent): string | undefined {
+function safeQuestionPreview(event: OpencodeEvent, limit: number): string | undefined {
   try {
-    return safePreview(parseQuestionRequests([event.properties])[0]?.questions[0]?.question);
+    return safePreview(parseQuestionRequests([event.properties])[0]?.questions[0]?.question, limit);
   } catch {
     return undefined;
   }
@@ -90,7 +90,7 @@ function safeErrorReason(event: OpencodeEvent): string | undefined {
   const error = event.properties.error;
   if (!error || typeof error !== "object" || Array.isArray(error)) return undefined;
   const name = (error as Record<string, unknown>).name;
-  return typeof name === "string" && /^[A-Za-z][A-Za-z0-9 ._-]{0,47}$/u.test(name) && safePreview(name)
+  return typeof name === "string" && /^[A-Za-z][A-Za-z0-9 ._-]{0,47}$/u.test(name) && safePreview(name, 48)
     ? name
     : undefined;
 }
@@ -117,7 +117,7 @@ export function outboundMessage(
     const tool = safeToolName(event);
     body = tool ? `\u{1F510} Needs approval to run ${tool}` : "\u{1F510} Needs your approval";
   } else if (kind === "question") {
-    const question = safeQuestionPreview(event);
+    const question = safeQuestionPreview(event, 100);
     body = question ? `\u{2753} Needs your answer: ${question}` : "\u{2753} Needs your answer";
   } else if (kind === "idle") {
     body = "Finished its turn and is waiting for you";
@@ -134,6 +134,32 @@ export function outboundMessage(
     body = "Stopped at your request";
   }
   return { event: kind, title, body: truncate(body, NTFY_BODY_LIMIT), ...(kind === "parked" ? { priority: "high" as const } : {}) };
+}
+
+/**
+ * Authenticated history can carry a longer safe question preview than a phone
+ * lock screen, but it still accepts only parsed fields and never raw metadata.
+ */
+export function inAppMessage(event: OpencodeEvent, kind: NotifyEvent, parkedSeconds?: number): string {
+  if (kind === "permission") {
+    const tool = safeToolName(event);
+    return tool ? `Needs approval to run ${tool}` : "Needs your approval";
+  }
+  if (kind === "question") {
+    const question = safeQuestionPreview(event, 240);
+    return question ? `Needs your answer: ${question}` : "Needs your answer";
+  }
+  if (kind === "idle") return "Finished its turn and is waiting for you";
+  if (kind === "error") {
+    const reason = safeErrorReason(event);
+    return reason ? `Stopped with an error: ${reason}` : "Stopped with an error";
+  }
+  if (kind === "parked") {
+    const tool = safeToolName(event);
+    const prefix = `Still waiting ${humanDuration(parkedSeconds ?? 0)} for approval`;
+    return tool ? `${prefix}: ${tool}` : prefix;
+  }
+  return "Stopped at your request";
 }
 
 export class NotificationService {
@@ -232,6 +258,7 @@ export class NotificationService {
       ...(requestID ? { requestID } : {}),
       title: historyTitle,
       body: historyBody,
+      displayBody: inAppMessage(event, kind),
       ...(message.click ? { click: message.click } : {}),
     };
 
@@ -438,6 +465,7 @@ export class NotificationService {
               requestID: pending.id,
               title: "OpenCode is parked",
               body: `${pending.permission} has waited ${seconds}s for a reply`,
+              displayBody: inAppMessage(parkedEvent, "parked", seconds),
               ...(message.click ? { click: message.click } : {}),
               delivery,
             });

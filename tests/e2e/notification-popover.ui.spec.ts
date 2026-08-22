@@ -27,6 +27,7 @@ interface StubRecord {
   sessionTitle?: string;
   title: string;
   body: string;
+  displayBody?: string;
   resolvedAt?: number;
   resolvedBy?: string;
   delivery: { ntfy: "off"; desktop: "off"; suppressed?: "auto-permissions" | "subagent" };
@@ -45,6 +46,7 @@ function seedRecords(): StubRecord[] {
       sessionTitle: SESSION_TITLE,
       title: `OpenCode needs permission ${index}`,
       body: `bash: npm run seeded-${index}`,
+      displayBody: `Needs approval to run bash ${index}`,
       delivery: { ntfy: "off", desktop: "off" },
     });
   }
@@ -58,6 +60,7 @@ function seedRecords(): StubRecord[] {
       sessionTitle: SESSION_TITLE,
       title: `Session finished ${index}`,
       body: `seeded resolved ${index}`,
+      displayBody: "Finished its turn and is waiting for you",
       resolvedAt: base,
       resolvedBy: "checked",
       delivery: { ntfy: "off", desktop: "off" },
@@ -76,6 +79,7 @@ function seedRecords(): StubRecord[] {
       sessionTitle: SESSION_TITLE,
       title: `Preapproved permission ${index}`,
       body: `bash: npm run auto-${index}`,
+      displayBody: `Needs approval to run bash ${index}`,
       delivery: { ntfy: "off", desktop: "off", suppressed: "auto-permissions" },
     });
   }
@@ -89,6 +93,7 @@ function seedRecords(): StubRecord[] {
       sessionTitle: `Audit the delegated worktree ${index}`,
       title: `Sub-agent finished ${index}`,
       body: `child session ${index}`,
+      displayBody: "Finished its turn and is waiting for you",
       delivery: { ntfy: "off", desktop: "off", suppressed: "subagent" },
     });
   }
@@ -330,7 +335,8 @@ for (const viewport of VIEWPORTS) {
       const activeList = page.getByTestId("opencode-notification-popover-active");
       const row = activeList.getByTestId("opencode-notification-record").first();
       await expect(row).toHaveAttribute("data-active", "true");
-      await expect(row).toContainText("OpenCode needs permission 0");
+      await expect(row.getByTestId("opencode-notification-session")).toHaveAttribute("title", SESSION_TITLE);
+      await expect(row.getByTestId("opencode-notification-action")).toHaveText("Needs approval to run bash 0");
       // click(), not check(): resolving moves the row into the Resolved column,
       // so check()'s post-click verification would re-resolve to the next
       // unresolved row and click forever.
@@ -345,7 +351,7 @@ for (const viewport of VIEWPORTS) {
       await expandResolved(page);
       const resolvedList = page.getByTestId("opencode-notification-popover-resolved");
       const resolvedRow = resolvedList.getByTestId("opencode-notification-record").first();
-      await expect(resolvedRow).toContainText("OpenCode needs permission 0");
+      await expect(resolvedRow.getByTestId("opencode-notification-session")).toHaveAttribute("title", SESSION_TITLE);
       await expect(resolvedRow.getByTestId("opencode-notification-resolved")).toBeChecked();
       await resolvedRow.getByTestId("opencode-notification-resolved").click();
       await expect(page.getByTestId("opencode-nav-notifications-badge")).toHaveText(String(ACTIVE_COUNT));
@@ -380,7 +386,8 @@ for (const viewport of VIEWPORTS) {
         ACTIVE_COUNT + AUTO_APPROVED_COUNT,
       );
       const preapproved = popover(page).locator('[data-suppressed="auto-permissions"]').first();
-      await expect(preapproved).toContainText("Preapproved permission");
+      await expect(preapproved.getByTestId("opencode-notification-session")).toHaveAttribute("title", SESSION_TITLE);
+      await expect(preapproved.getByTestId("opencode-notification-action")).toHaveText("Auto-approved before you were notified");
       // The chip explains why a row nobody was asked about is on screen.
       await expect(preapproved.getByTestId("opencode-notification-suppression")).toHaveText("auto-approved");
 
@@ -403,8 +410,7 @@ for (const viewport of VIEWPORTS) {
       await page.goto(hub);
       await bell(page).click();
 
-      // The notification title is generic; the session title is what says
-      // which piece of work is waiting.
+      // The session title is the primary row label, ahead of generic event copy.
       const session = popover(page).getByTestId("opencode-notification-session").first();
       await expect(session).toHaveAttribute("title", SESSION_TITLE);
       const shown = (await session.textContent()) ?? "";
