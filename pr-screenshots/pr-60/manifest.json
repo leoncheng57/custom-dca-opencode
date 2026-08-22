@@ -1,8 +1,8 @@
 {
   "schemaVersion": 2,
   "prNumber": 60,
-  "sourceSha": "7599abf9daf120850b91d2f933c5f36ed88c81d6",
-  "capturedAt": "2026-08-22T02:31:46.912Z",
+  "sourceSha": "00d3d63bb96e9377fff527f811f0b02b083abf5b",
+  "capturedAt": "2026-08-22T02:45:21.833Z",
   "screenshots": [
     {
       "requestedRoute": "/?directory=/tmp/mock-subagent-project",
@@ -38,8 +38,8 @@
             "width": 1280,
             "height": 800
           },
-          "bytes": 80060,
-          "sha256": "33a42179fb43644633a965fbe7efa2868c56c63977dd71e0f257b5735228c681"
+          "bytes": 80443,
+          "sha256": "8c4043e4f34dab9ca705dccd60d21fb00714075f779bfee3b680cce9ec0c140a"
         },
         "mobile": {
           "filename": "02-sessions-ses_mock_parent-directory-tmp-mock-subagent-project-7c089484--mobile--full.png",
@@ -62,8 +62,8 @@
             "width": 1280,
             "height": 800
           },
-          "bytes": 59586,
-          "sha256": "bb7e860d7402237fb6d70fecd35f44cd8fc35802d3c983361fe0d2eac172934f"
+          "bytes": 59820,
+          "sha256": "ab0fcdeb1765601d821bec5aa83cab6c64b517564edee292e9a4624af70bc92e"
         },
         "mobile": {
           "filename": "03-sessions-ses_mock_child_running-directory-tmp-mock-subagent-project-a7716f19--mobile--full.png",
@@ -71,32 +71,32 @@
             "width": 390,
             "height": 740
           },
-          "bytes": 42470,
-          "sha256": "9a070cc12bf4472d07238dd0543e6232e044a025907bb40afb0c959ae9d2e77f"
+          "bytes": 42468,
+          "sha256": "467c51029a812a6715b221d2605e112640ea7d6b0201233940a3edd9478178ad"
         }
       }
     },
     {
-      "requestedRoute": "/sessions/ses_mock_parent?directory=/tmp/mock-subagent-project&panel=agents",
+      "requestedRoute": "/sessions/ses_mock_parent?directory=/tmp/mock-subagent-project&panel=subagents",
       "fullPage": true,
       "captures": {
         "desktop": {
-          "filename": "04-sessions-ses_mock_parent-directory-tmp-mock-subagent-project-panel-agents-3f094cea--desktop--full.png",
+          "filename": "04-sessions-ses_mock_parent-directory-tmp-mock-subagent-project-panel-subagents-59937065--desktop--full.png",
           "dimensions": {
             "width": 1280,
             "height": 800
           },
-          "bytes": 108943,
-          "sha256": "cd9149f898b6f18bef0cc0a44562f39d84ec38f6edf517a8dfe10a0880aec661"
+          "bytes": 109394,
+          "sha256": "4037e8ff4f4272a16eb6413983124a68ad4f465d69a31b54f1a957cfe7580481"
         },
         "mobile": {
-          "filename": "04-sessions-ses_mock_parent-directory-tmp-mock-subagent-project-panel-agents-58736d8d--mobile--full.png",
+          "filename": "04-sessions-ses_mock_parent-directory-tmp-mock-subagent-project-panel-subagents-27386bf1--mobile--full.png",
           "dimensions": {
             "width": 390,
             "height": 740
           },
-          "bytes": 54097,
-          "sha256": "b0a9ee50cd0615dd7c6ca14fa6ddd49954e4073478f76697ea938c73fe2a6556"
+          "bytes": 54513,
+          "sha256": "20f4653907f62af8a0aecc49b28f5e351b021dc63ccfd54524aadbdc61db62eb"
         }
       }
     },
