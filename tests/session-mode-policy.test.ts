@@ -12,14 +12,19 @@ import {
 const config = { baseUrl: "http://opencode.test" };
 const directory = "/tmp/project";
 const sessionID = "ses_test";
-const tools = ["read", "bash", "edit"];
+const tools = ["read", "bash", "edit", "write", "apply_patch", "task"];
 const buildRules = [
   { permission: "*", pattern: "*", action: "ask" },
   { permission: "read", pattern: "*", action: "allow" },
   { permission: "edit", pattern: "*", action: "allow" },
+  { permission: "task", pattern: "general", action: "allow" },
+] as const;
+const planTaskRules = [
+  { permission: "task", pattern: "*", action: "deny" },
+  { permission: "task", pattern: "explore", action: "allow" },
 ] as const;
 const agents = [
-  { name: "plan", permission: buildRules },
+  { name: "plan", permission: [...buildRules, ...planTaskRules] },
   { name: "build", permission: buildRules },
 ];
 
@@ -42,6 +47,11 @@ function arrange(input: {
 function mutations() {
   return requestMock.mock.calls.filter(([, path, options]) =>
     options?.method === "PATCH" || String(path).endsWith("/prompt_async"));
+}
+
+function taskAction(rules: ReadonlyArray<{ pattern: string; action: string }>, pattern: string) {
+  return rules.reduce((action, rule) =>
+    rule.pattern === "*" || rule.pattern === pattern ? rule.action : action, "ask");
 }
 
 describe("session mode policy identity safety", () => {
@@ -113,10 +123,55 @@ describe("session mode policy identity safety", () => {
     await expect(prompt(config, directory, sessionID, { text: "continue", mode })).resolves.toBeUndefined();
   });
 
+  it("keeps task governed by safe and unsafe Plan patterns while denying mutating tools", async () => {
+    arrange({
+      session: { agent: "plan", permission: [...planTaskRules] },
+      messages: [{ info: { role: "user", agent: "plan" } }],
+    });
+
+    await prompt(config, directory, sessionID, { text: "research it", mode: "plan" });
+
+    const patch = requestMock.mock.calls.find(([, path, options]) =>
+      path === `/session/${sessionID}` && options?.method === "PATCH");
+    expect(patch?.[2]?.body).toEqual({
+      permission: [
+        { permission: "bash", pattern: "*", action: "deny" },
+        { permission: "edit", pattern: "*", action: "deny" },
+        { permission: "write", pattern: "*", action: "deny" },
+        { permission: "apply_patch", pattern: "*", action: "deny" },
+      ],
+    });
+    expect(patch?.[2]?.body.permission).not.toContainEqual(
+      expect.objectContaining({ permission: "task" }),
+    );
+    expect(taskAction(planTaskRules, "explore")).toBe("allow");
+    expect(taskAction(planTaskRules, "general")).toBe("deny");
+  });
+
+  it("does not append the same Plan denial suffix twice", async () => {
+    const planDenials = [
+      { permission: "bash", pattern: "*", action: "deny" },
+      { permission: "edit", pattern: "*", action: "deny" },
+      { permission: "write", pattern: "*", action: "deny" },
+      { permission: "apply_patch", pattern: "*", action: "deny" },
+    ];
+    arrange({
+      session: { agent: "plan", permission: [...planTaskRules, ...planDenials] },
+      messages: [{ info: { role: "user", agent: "plan" } }],
+    });
+
+    await prompt(config, directory, sessionID, { text: "continue planning", mode: "plan" });
+
+    expect(requestMock.mock.calls.some(([, path, options]) =>
+      path === `/session/${sessionID}` && options?.method === "PATCH")).toBe(false);
+  });
+
   it("restores Build after Plan and avoids repeating the same appended suffix", async () => {
     const planRules = [
       { permission: "bash", pattern: "*", action: "deny" },
       { permission: "edit", pattern: "*", action: "deny" },
+      { permission: "write", pattern: "*", action: "deny" },
+      { permission: "apply_patch", pattern: "*", action: "deny" },
     ];
     arrange({
       session: { agent: "plan", permission: planRules },
@@ -138,8 +193,17 @@ describe("session mode policy identity safety", () => {
         { permission: "bash", pattern: "*", action: "ask" },
         { permission: "edit", pattern: "*", action: "ask" },
         { permission: "edit", pattern: "*", action: "allow" },
+        { permission: "write", pattern: "*", action: "ask" },
+        { permission: "write", pattern: "*", action: "allow" },
+        { permission: "apply_patch", pattern: "*", action: "ask" },
+        { permission: "apply_patch", pattern: "*", action: "allow" },
+        { permission: "task", pattern: "*", action: "ask" },
+        { permission: "task", pattern: "general", action: "allow" },
       ],
     });
+    expect(patch?.[2]?.body.permission).not.toContainEqual(
+      { permission: "task", pattern: "*", action: "allow" },
+    );
 
     requestMock.mockClear();
     arrange({

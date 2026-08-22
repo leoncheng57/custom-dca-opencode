@@ -30,6 +30,7 @@ const PLAN_TOOL_ALLOWLIST = new Set([
   "webfetch",
   "websearch",
   "question",
+  "task",
   "todowrite",
   "skill",
 ]);
