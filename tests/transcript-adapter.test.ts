@@ -214,6 +214,8 @@ describe("messageMode", () => {
     // An unrecognized label says nothing about who authored the turn, so it
     // does not disqualify the identity underneath it.
     expect(messageMode({ role: "assistant", mode: "chat", agent: "build" })).toBe("build");
+    // …and it does not resurrect an identity that is not a mode either.
+    expect(messageMode({ role: "assistant", mode: "chat", agent: "explore" })).toBeUndefined();
   });
 
   it("omits mode when a recognized mode and agent disagree", () => {
@@ -221,12 +223,19 @@ describe("messageMode", () => {
     expect(messageMode({ role: "assistant", mode: "build", agent: "plan" })).toBeUndefined();
   });
 
-  it("stays neutral for internal and sub-agent identities", () => {
+  it("stays neutral for an internal or sub-agent identity with no mode", () => {
     for (const agent of ["general", "explore", "compaction", "some-future-agent"]) {
       expect(messageMode({ role: "assistant", agent }), agent).toBeUndefined();
-      // Even with a mode present: a badge here would attribute an internal
-      // turn to a mode the human selected for a different message.
-      expect(messageMode({ role: "assistant", agent, mode: "build" }), agent).toBeUndefined();
+    }
+  });
+
+  // `info.mode` is the primary signal, so it classifies the row even when the
+  // author is internal. The badge is provenance, not proof of policy: per #75
+  // a child can report Build while retaining a parent's historical Plan denies.
+  it("lets a recognized mode classify an internal or sub-agent turn", () => {
+    for (const agent of ["general", "explore", "compaction", "some-future-agent"]) {
+      expect(messageMode({ role: "assistant", agent, mode: "build" }), agent).toBe("build");
+      expect(messageMode({ role: "assistant", agent, mode: "plan" }), agent).toBe("plan");
     }
   });
 

@@ -39,9 +39,11 @@
   /* ── Message provenance (Plan / Build)
    * Own semantic family rather than reusing warning/info: these mean "produced
    * under read-only planning policy" and "produced under mutating policy", not
-   * "warning" and "information", and the two must be free to diverge. Borders
-   * are darker than the matching text so the accent rail stays visible when a
-   * high-contrast environment flattens the muted fill. */
+   * "warning" and "information", and the two must be free to diverge.
+   *
+   * The muted surfaces fill the mode pill only. Message bodies are never
+   * tinted — the rail marks the row without putting a wash behind prose that
+   * already uses surface fills for code blocks and tables. */
   --color-background-surface-plan-muted: #fffbeb;
   --color-border-plan: #b45309;
   --color-text-plan: #92400e;

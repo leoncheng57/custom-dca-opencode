@@ -144,21 +144,27 @@ function TaskPills({ event }: { event: ToolEvent }) {
 // and painting half the transcript in two colours costs more legibility than
 // the extra provenance buys.
 //
-// Three redundant cues per row: a tinted surface, an accent rail, and a text
-// pill. The pill is what carries the meaning; colour alone must never have to.
+// Two cues per row: an accent rail and a text pill. The pill is what carries
+// the meaning; colour alone must never have to.
+//
+// The message body is deliberately NOT tinted. A full-width wash behind prose
+// competes with the content it is annotating — markdown already uses surface
+// fills for code blocks and tables, and a second background underneath them
+// flattens that hierarchy. A rail marks the row just as unambiguously while
+// leaving the reading surface alone.
 
 const MODE_LABEL: Record<MessageMode, string> = { plan: "Plan", build: "Build" };
 
 /**
- * Rail plus fill for the message body.
+ * Accent rail for the message body.
  *
- * The rail is on the inline-start edge for both roles, including the
- * right-aligned user bubble: a consistent edge is what lets a reader scan a
- * long transcript for mode changes without re-reading each row.
+ * On the inline-start edge for both roles, including the right-aligned user
+ * bubble: a consistent edge is what lets a reader scan a long transcript for
+ * mode changes without re-reading each row.
  */
-const MODE_SURFACE: Record<MessageMode, string> = {
-  plan: "border-l-4 border-[var(--color-border-plan)] bg-[var(--color-background-surface-plan-muted)]",
-  build: "border-l-4 border-[var(--color-border-build)] bg-[var(--color-background-surface-build-muted)]",
+const MODE_RAIL: Record<MessageMode, string> = {
+  plan: "border-l-4 border-[var(--color-border-plan)]",
+  build: "border-l-4 border-[var(--color-border-build)]",
 };
 
 const MODE_PILL: Record<MessageMode, string> = {
@@ -235,8 +241,8 @@ function UserBubble({ event, onExport }: { event: UserEvent; onExport?: (event: 
           className={cn(
             // The 90%/75% ceilings are load-bearing: they are what stops a
             // pasted stack trace from spanning the whole viewport.
-            "max-w-[90%] rounded-2xl px-4 py-2.5 text-sm sm:max-w-[75%]",
-            event.mode ? MODE_SURFACE[event.mode] : "bg-[var(--color-background-muted)]",
+            "max-w-[90%] rounded-2xl bg-[var(--color-background-muted)] px-4 py-2.5 text-sm sm:max-w-[75%]",
+            event.mode && MODE_RAIL[event.mode],
           )}
           data-testid="opencode-user-message-body"
         >
@@ -265,13 +271,10 @@ function AgentProse({ event, onExport }: { event: AgentEvent; onExport?: (event:
           <ModePill mode={event.mode} />
         </div>
       )}
-      {/* min-w-0 survives the tint wrapper so the markdown renderer keeps its
+      {/* min-w-0 survives the rail wrapper so the markdown renderer keeps its
           own overflow handling for wide code blocks and tables. */}
       <div
-        className={cn(
-          "min-w-0 max-w-full",
-          event.mode && `${MODE_SURFACE[event.mode]} rounded-r-lg py-1.5 pl-3 pr-2`,
-        )}
+        className={cn("min-w-0 max-w-full", event.mode && `${MODE_RAIL[event.mode]} pl-3`)}
         data-testid="opencode-agent-message-body"
       >
         <Markdown source={event.text} />

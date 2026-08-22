@@ -271,10 +271,10 @@ export function subagentNotice(text: string): SubagentNotice | null {
 //   - `info.agent` is an IDENTITY, so it is frequently an internal or sub-agent
 //     name (`general`, `explore`, `compaction`) rather than a mode.
 //
-// Everything here is deliberately conservative. Mode is never inherited from a
-// neighbouring message, the session, or a parent: pagination can omit the
-// initiating prompt, and a wrong Plan badge on a mutating turn is exactly the
-// misreading this feature exists to prevent. Unclassifiable stays neutral.
+// Mode is never inherited from a neighbouring message, the session, or a
+// parent: pagination can omit the initiating prompt, and a wrong Plan badge on
+// a mutating turn is exactly the misreading this feature exists to prevent.
+// Unclassifiable stays neutral.
 
 function exactMode(value: unknown): MessageMode | undefined {
   return value === "plan" || value === "build" ? value : undefined;
@@ -283,27 +283,31 @@ function exactMode(value: unknown): MessageMode | undefined {
 /**
  * Classify one message's mode, or return undefined to render it neutral.
  *
- * The asymmetry between the two fields is intentional:
+ * `info.mode` is the primary signal for an assistant turn and `info.agent` is
+ * only a fallback, so a recognized mode classifies the row even when the agent
+ * naming it is an internal or sub-agent identity. Two consequences of that
+ * ordering are worth stating outright rather than discovering later:
  *
- *   - An `info.agent` that is present but not exactly `plan`/`build` names a
- *     non-primary author (sub-agent, compaction, or an agent added after this
- *     was written). Those rows are disqualified outright, even when a mode is
- *     also present, because a badge there would attribute an internal turn to
- *     a mode the human selected.
- *   - An unrecognized `info.mode` only means we do not know that label. It
- *     says nothing about authorship, so classification falls through to the
- *     agent identity rather than being discarded.
+ *   - A `compaction` summary, or a child session's `explore` turn, is badged
+ *     with whatever mode upstream stamped on it. Neither was authored by the
+ *     mode the human selected for their own prompt.
+ *   - The badge is PROVENANCE, not a policy guarantee. Per issue #75 a child
+ *     can retain a parent's historical Plan denies while reporting Build, so a
+ *     Build pill never proves the turn could actually mutate anything.
  *
- * When both fields are recognized and disagree, neither wins.
+ * In the live 1.18.21 capture in tests/fixtures, `info.mode` only ever appears
+ * alongside an agreeing `info.agent`, so today this ordering and a stricter one
+ * produce identical output; it is a forward-compatibility choice.
+ *
+ * An unrecognized `info.mode` only means we do not know that label, so it falls
+ * through to the agent rather than being treated as a disqualification. When
+ * both fields are recognized and disagree, neither wins.
  */
 export function messageMode(info: RawMessageInfo): MessageMode | undefined {
   const agent = exactMode(info.agent);
   // A user prompt's mode is the primary agent it selected. `info.mode` is not
   // read here: it is not populated for user messages on the observed server.
   if (info.role === "user") return agent;
-
-  const hasForeignIdentity = typeof info.agent === "string" && info.agent.length > 0 && !agent;
-  if (hasForeignIdentity) return undefined;
 
   const mode = exactMode(info.mode);
   if (mode && agent && mode !== agent) return undefined;

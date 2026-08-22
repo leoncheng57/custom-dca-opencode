@@ -63,9 +63,10 @@ function mobileMessages(): unknown[] {
 //
 // Every classification path the adapter distinguishes, in one session: the two
 // user prompts, the assistant `mode` field, the assistant `agent` fallback, a
-// sub-agent identity that must stay neutral even though it carries a mode, and
-// a mode/agent conflict. The last message is deliberately hostile markdown so
-// the mode surface is proven not to reintroduce horizontal overflow.
+// sub-agent identity carrying a mode (classified, because mode is primary), a
+// sub-agent identity carrying none (neutral), and a mode/agent conflict
+// (neutral). The last message is deliberately hostile markdown so the rail is
+// proven not to reintroduce horizontal overflow.
 function modeMessages(): unknown[] {
   const prose = (
     id: string,
@@ -82,12 +83,15 @@ function modeMessages(): unknown[] {
     prose("msg_mode_user_build", { role: "user", agent: "build" }, "Go ahead and implement it.", 1787500002000),
     // No `mode` field: exercises the exact-agent fallback.
     prose("msg_mode_agent_build", { role: "assistant", agent: "build" }, "Build response: applying the change now.", 1787500003000),
-    // A sub-agent identity. Neutral despite carrying a recognized mode.
-    prose("msg_mode_agent_subagent", { role: "assistant", agent: "explore", mode: "build" }, "Subagent response: surveying the tree.", 1787500004000),
+    // A sub-agent identity carrying a mode: `info.mode` is the primary signal,
+    // so it classifies the row even though `explore` is not a primary agent.
+    prose("msg_mode_agent_subagent", { role: "assistant", agent: "explore", mode: "build" }, "Delegated response: surveying the tree.", 1787500004000),
+    // The same identity with nothing to classify it. Neutral.
+    prose("msg_mode_agent_unstamped", { role: "assistant", agent: "explore" }, "Unstamped response: no mode metadata.", 1787500004500),
     // Recognized mode and agent disagree. Neutral rather than a guess.
     prose("msg_mode_agent_conflict", { role: "assistant", agent: "plan", mode: "build" }, "Conflicted response: metadata disagrees.", 1787500005000),
     // Text chosen not to collide with the substring matchers above.
-    prose("msg_mode_agent_wide", { role: "assistant", mode: "build" }, `Containment fixture for a tinted row.\n\n${hostileMarkdown}`, 1787500006000),
+    prose("msg_mode_agent_wide", { role: "assistant", mode: "build" }, `Containment fixture for a mode-marked row.\n\n${hostileMarkdown}`, 1787500006000),
   ];
 }
 

@@ -66,15 +66,21 @@ mode is never inherited from a neighbouring row, a parent, or the session's curr
 because pagination can omit the prompt that set it.
 
 User prompts are classified from an exactly recognized `info.agent`. Assistant turns prefer
-`info.mode` and fall back to that same exact agent. An `info.agent` naming a non-primary author
-— `general`, `explore`, `compaction`, or any agent added later — disqualifies the row even when
-a mode is present, and recognized values that disagree yield nothing. Unclassifiable rows render
-neutral rather than guessing.
+`info.mode` and fall back to that same exact agent, so a recognized mode classifies the row even
+when the agent naming it is internal or a sub-agent. An unrecognized `info.mode` is only an
+unknown label and falls through to the identity; recognized values that disagree yield nothing.
+Unclassifiable rows render neutral rather than guessing.
+
+The pill is **provenance, not a policy guarantee**. A child session can report Build while still
+carrying a parent's historical Plan denies, so a Build pill never proves the turn could mutate
+anything. "What could this turn actually do?" is answered by the sub-agent ledger, not here.
 
 Only user and assistant prose carries the treatment. Thoughts, tool chips, task cards, status
 separators and errors belong to the same message but are operational detail, so they stay
-untinted. Each marked row uses three redundant cues — surface, accent rail, and a text pill with
-an explicit `Message mode:` label — so the meaning never depends on colour.
+unmarked. Each marked row uses an accent rail plus a text pill whose accessible name states
+`Message mode: Plan` or `Message mode: Build`, so the meaning never depends on colour. Message
+bodies are deliberately left untinted: markdown already uses surface fills for code blocks and
+tables, and a second wash underneath them flattens that hierarchy.
 
 ## Derived sub-agent state
 
