@@ -17,14 +17,19 @@ import type { ToolEvent, TranscriptEvent } from "./transcript.js";
  * predecessor's log was append-only, so it could treat "is this id new?" as
  * "did anything change?". Doing that here freezes tool chips at `running`
  * forever. Compare content, not just presence.
+ *
+ * Mode is part of the prose fingerprints for the same reason: a first sight of
+ * a message can lack the metadata that classifies it, and without mode here a
+ * later authoritative fetch would leave the row rendering neutral forever.
  */
 function fingerprint(event: TranscriptEvent): string {
   switch (event.kind) {
     case "tool":
       return `${event.status}|${event.output ?? ""}|${event.error ?? ""}|${event.durationMs ?? ""}`;
     case "user":
-      return `${event.text}|${event.reminders.map((reminder) => `${reminder.name}:${reminder.body}`).join("|")}`;
+      return `${event.mode ?? ""}|${event.text}|${event.reminders.map((reminder) => `${reminder.name}:${reminder.body}`).join("|")}`;
     case "agent":
+      return `${event.mode ?? ""}|${event.text}`;
     case "thought":
       return event.text;
     case "status":

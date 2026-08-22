@@ -179,6 +179,24 @@ several decisions below.
     read. Child endpoints verify the parent link before acting — upstream will abort
     any id, so `/sessions/{parent}/subagents/{child}/abort` would otherwise be a
     general-purpose abort endpoint wearing a sub-agent costume.
+16. **Per-message Plan/Build provenance is classified from that message alone.**
+    A session switches modes, so the session's *current* mode says nothing about a
+    row already on screen, and pagination can drop the prompt that set it — which
+    rules out inheriting mode from a neighbour, a parent, or the session. Raw
+    metadata is inconsistent: user messages name the primary agent in `info.agent`,
+    some assistant messages carry `info.mode` and others only `info.agent`. The two
+    fields are read asymmetrically because they mean different things. `info.agent`
+    is an *identity*, so a value that is not exactly `plan`/`build` (`general`,
+    `explore`, `compaction`, anything added later) disqualifies the row outright
+    even when a mode is present — badging an internal turn would attribute it to a
+    mode the human picked for a different message. An unrecognized `info.mode` is
+    just an unknown *label*, says nothing about authorship, and falls through to the
+    identity. Recognized values that disagree yield nothing. Only user and assistant
+    prose is marked; thoughts, tools, task cards, separators and errors share the
+    message id but are operational detail, and tinting them costs more legibility
+    than the provenance is worth. Mode is part of the prose reconciliation
+    fingerprints, so a row first seen without metadata is replaced — not frozen
+    neutral — when an authoritative fetch classifies it.
 
 ## Client conventions (inherited from the OpenHands runner, still enforced)
 

@@ -3,13 +3,14 @@ import { describe, expect, it } from "vitest";
 import fixture from "./fixtures/session-messages.json" with { type: "json" };
 import {
   detectInterrupted,
+  messageMode,
   normalizeMessage,
   normalizeTranscript,
   taskMetadataOf,
   toolDetail,
   type RawMessage,
 } from "../client/lib/events.js";
-import type { ThoughtEvent, ToolEvent, UserEvent } from "../client/lib/transcript.js";
+import type { AgentEvent, ThoughtEvent, ToolEvent, UserEvent } from "../client/lib/transcript.js";
 
 const messages = fixture as RawMessage[];
 
@@ -188,6 +189,112 @@ describe("task metadata", () => {
   });
 });
 
+describe("messageMode", () => {
+  // A conversation can switch modes, so every case below is decided from ONE
+  // message. Anything that cannot be decided that way must stay neutral.
+
+  it("reads a user prompt's mode from its exact primary agent", () => {
+    expect(messageMode({ role: "user", agent: "plan" })).toBe("plan");
+    expect(messageMode({ role: "user", agent: "build" })).toBe("build");
+  });
+
+  it("ignores a user prompt's mode field, which upstream does not populate", () => {
+    expect(messageMode({ role: "user", mode: "plan" })).toBeUndefined();
+    expect(messageMode({ role: "user", agent: "explore", mode: "plan" })).toBeUndefined();
+  });
+
+  it("prefers an assistant message's recognized mode", () => {
+    expect(messageMode({ role: "assistant", mode: "plan" })).toBe("plan");
+    expect(messageMode({ role: "assistant", mode: "build" })).toBe("build");
+    expect(messageMode({ role: "assistant", mode: "build", agent: "build" })).toBe("build");
+  });
+
+  it("falls back to an assistant message's exact agent when mode is absent or unknown", () => {
+    expect(messageMode({ role: "assistant", agent: "plan" })).toBe("plan");
+    // An unrecognized label says nothing about who authored the turn, so it
+    // does not disqualify the identity underneath it.
+    expect(messageMode({ role: "assistant", mode: "chat", agent: "build" })).toBe("build");
+  });
+
+  it("omits mode when a recognized mode and agent disagree", () => {
+    expect(messageMode({ role: "assistant", mode: "plan", agent: "build" })).toBeUndefined();
+    expect(messageMode({ role: "assistant", mode: "build", agent: "plan" })).toBeUndefined();
+  });
+
+  it("stays neutral for internal and sub-agent identities", () => {
+    for (const agent of ["general", "explore", "compaction", "some-future-agent"]) {
+      expect(messageMode({ role: "assistant", agent }), agent).toBeUndefined();
+      // Even with a mode present: a badge here would attribute an internal
+      // turn to a mode the human selected for a different message.
+      expect(messageMode({ role: "assistant", agent, mode: "build" }), agent).toBeUndefined();
+    }
+  });
+
+  it("stays neutral for missing, empty and non-string metadata", () => {
+    expect(messageMode({ role: "assistant" })).toBeUndefined();
+    expect(messageMode({ role: "user" })).toBeUndefined();
+    expect(messageMode({})).toBeUndefined();
+    expect(messageMode({ role: "assistant", agent: "" })).toBeUndefined();
+    expect(messageMode({ role: "user", agent: "" })).toBeUndefined();
+    expect(messageMode({ role: "assistant", mode: "Plan" })).toBeUndefined();
+    expect(messageMode({ role: "user", agent: "Build" })).toBeUndefined();
+    expect(messageMode({ role: "assistant", agent: 1 as unknown as string })).toBeUndefined();
+    expect(messageMode({ role: "assistant", mode: 1 as unknown as string })).toBeUndefined();
+  });
+});
+
+describe("mode on transcript rows", () => {
+  const prose = (info: RawMessage["info"], text: string): RawMessage => ({
+    info,
+    parts: [{ id: `prt_${info?.id}`, messageID: info?.id, type: "text", text }],
+  });
+
+  it("attaches the normalized mode to user and assistant prose", () => {
+    const [user] = normalizeMessage(
+      prose({ id: "m1", role: "user", agent: "plan", time: { created: 1 } }, "Draft an approach"),
+    ) as UserEvent[];
+    const [assistant] = normalizeMessage(
+      prose({ id: "m2", role: "assistant", mode: "build", time: { created: 2 } }, "Editing now"),
+    ) as AgentEvent[];
+
+    expect(user.mode).toBe("plan");
+    expect(assistant.mode).toBe("build");
+  });
+
+  it("omits the key entirely when nothing classifies the message", () => {
+    const [assistant] = normalizeMessage(
+      prose({ id: "m3", role: "assistant", agent: "explore", time: { created: 3 } }, "Reading files"),
+    );
+    expect(assistant).not.toHaveProperty("mode");
+  });
+
+  it("does not mark thoughts, tools or status rows", () => {
+    const events = normalizeMessage({
+      info: { id: "m4", role: "assistant", agent: "plan", time: { created: 4 } },
+      parts: [
+        { id: "p1", messageID: "m4", type: "reasoning", text: "Considering options", time: { start: 4, end: 5 } },
+        { id: "p2", messageID: "m4", type: "tool", tool: "read", state: { status: "completed" } },
+        { id: "p3", messageID: "m4", type: "patch", hash: "h", files: ["a.ts"] },
+      ],
+    });
+    expect(events.map((event) => event.kind)).toEqual(["thought", "tool", "status"]);
+    for (const event of events) expect(event).not.toHaveProperty("mode");
+  });
+
+  // A hand-back is machine-authored; a Plan/Build badge would claim the human
+  // chose a mode for a message they never sent.
+  it("does not mark a sub-agent hand-back notice", () => {
+    const [notice] = normalizeMessage(
+      prose(
+        { id: "m5", role: "user", agent: "build", time: { created: 5 } },
+        "Background task ses_child_abc123 completed successfully.",
+      ),
+    );
+    expect(notice.kind).toBe("status");
+    expect(notice).not.toHaveProperty("mode");
+  });
+});
+
 describe("status rows", () => {
   const { events } = normalizeTranscript(messages);
 
@@ -283,8 +390,8 @@ describe("frozen contract", () => {
   // Verified against 1,133 real messages / 1,592 events from a live 1.18.19
   // server before being written down.
   const ALLOWED: Record<string, string[]> = {
-    user: ["kind", "id", "messageId", "timestamp", "text", "reminders", "attachments"],
-    agent: ["kind", "id", "messageId", "timestamp", "text"],
+    user: ["kind", "id", "messageId", "timestamp", "text", "reminders", "attachments", "mode"],
+    agent: ["kind", "id", "messageId", "timestamp", "text", "mode"],
     thought: ["kind", "id", "messageId", "timestamp", "text", "durationMs"],
     tool: [
       "kind", "id", "messageId", "timestamp", "status", "name",

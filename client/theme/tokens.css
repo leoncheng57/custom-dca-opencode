@@ -36,6 +36,19 @@
   --color-foreground-qr: #000000;
   --color-browser-chrome: #16a34a;
 
+  /* ── Message provenance (Plan / Build)
+   * Own semantic family rather than reusing warning/info: these mean "produced
+   * under read-only planning policy" and "produced under mutating policy", not
+   * "warning" and "information", and the two must be free to diverge. Borders
+   * are darker than the matching text so the accent rail stays visible when a
+   * high-contrast environment flattens the muted fill. */
+  --color-background-surface-plan-muted: #fffbeb;
+  --color-border-plan: #b45309;
+  --color-text-plan: #92400e;
+  --color-background-surface-build-muted: #eff6ff;
+  --color-border-build: #1d4ed8;
+  --color-text-build: #1e40af;
+
   /* ── Actions */
   --color-background-action-primary: #16a34a;
   --color-background-action-primary-hover: #15803d;
@@ -86,6 +99,13 @@
   --color-background-qr: #ffffff;
   --color-foreground-qr: #000000;
   --color-browser-chrome: #16181d;
+
+  --color-background-surface-plan-muted: #3b2a06;
+  --color-border-plan: #fbbf24;
+  --color-text-plan: #fcd34d;
+  --color-background-surface-build-muted: #172554;
+  --color-border-build: #60a5fa;
+  --color-text-build: #93c5fd;
 
   --color-background-action-primary: #22c55e;
   --color-background-action-primary-hover: #16a34a;

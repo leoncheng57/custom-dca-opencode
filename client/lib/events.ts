@@ -20,6 +20,7 @@
 import type {
   Attachment,
   InterruptedState,
+  MessageMode,
   TaskExecution,
   ToolStatus,
   Transcript,
@@ -90,6 +91,8 @@ export interface RawMessageInfo {
   role?: string;
   time?: RawTime;
   agent?: string;
+  /** Present on some assistant messages only; see `messageMode`. */
+  mode?: string;
   providerID?: string;
   modelID?: string;
   variant?: string;
@@ -257,6 +260,56 @@ export function subagentNotice(text: string): SubagentNotice | null {
   return null;
 }
 
+// ── Per-message Plan / Build provenance ─────────────────────────────────────
+//
+// A conversation can switch modes mid-session, so "which policy produced this
+// row?" is a per-message question and cannot be answered by the session's
+// current mode. Raw metadata is inconsistent about where the answer lives:
+//
+//   - User messages name the selected primary agent in `info.agent`.
+//   - Some assistant messages carry `info.mode`; others carry only `info.agent`.
+//   - `info.agent` is an IDENTITY, so it is frequently an internal or sub-agent
+//     name (`general`, `explore`, `compaction`) rather than a mode.
+//
+// Everything here is deliberately conservative. Mode is never inherited from a
+// neighbouring message, the session, or a parent: pagination can omit the
+// initiating prompt, and a wrong Plan badge on a mutating turn is exactly the
+// misreading this feature exists to prevent. Unclassifiable stays neutral.
+
+function exactMode(value: unknown): MessageMode | undefined {
+  return value === "plan" || value === "build" ? value : undefined;
+}
+
+/**
+ * Classify one message's mode, or return undefined to render it neutral.
+ *
+ * The asymmetry between the two fields is intentional:
+ *
+ *   - An `info.agent` that is present but not exactly `plan`/`build` names a
+ *     non-primary author (sub-agent, compaction, or an agent added after this
+ *     was written). Those rows are disqualified outright, even when a mode is
+ *     also present, because a badge there would attribute an internal turn to
+ *     a mode the human selected.
+ *   - An unrecognized `info.mode` only means we do not know that label. It
+ *     says nothing about authorship, so classification falls through to the
+ *     agent identity rather than being discarded.
+ *
+ * When both fields are recognized and disagree, neither wins.
+ */
+export function messageMode(info: RawMessageInfo): MessageMode | undefined {
+  const agent = exactMode(info.agent);
+  // A user prompt's mode is the primary agent it selected. `info.mode` is not
+  // read here: it is not populated for user messages on the observed server.
+  if (info.role === "user") return agent;
+
+  const hasForeignIdentity = typeof info.agent === "string" && info.agent.length > 0 && !agent;
+  if (hasForeignIdentity) return undefined;
+
+  const mode = exactMode(info.mode);
+  if (mode && agent && mode !== agent) return undefined;
+  return mode ?? agent;
+}
+
 function toolStatus(raw: string | undefined): ToolStatus {
   switch (raw) {
     case "pending":
@@ -282,6 +335,7 @@ function normalizePart(
   const id = part.id || `${messageId}:${index}`;
   const created = info.time?.created ?? Date.now();
   const isUser = info.role === "user";
+  const mode = messageMode(info);
 
   switch (part.type) {
     case "text": {
@@ -315,9 +369,17 @@ function normalizePart(
           text: split.text,
           reminders: split.reminders,
           attachments: [],
+          ...(mode ? { mode } : {}),
         };
       }
-      return { kind: "agent", id, messageId, timestamp: iso(created, created), text };
+      return {
+        kind: "agent",
+        id,
+        messageId,
+        timestamp: iso(created, created),
+        text,
+        ...(mode ? { mode } : {}),
+      };
     }
 
     case "reasoning": {

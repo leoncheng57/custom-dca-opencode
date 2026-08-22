@@ -9,7 +9,7 @@ import {
   mergeEvents,
   runningActivity,
 } from "../client/lib/derive.js";
-import type { ToolEvent, TranscriptEvent } from "../client/lib/transcript.js";
+import type { MessageMode, ToolEvent, TranscriptEvent, UserEvent } from "../client/lib/transcript.js";
 
 const at = (n: number) => new Date(1787000000000 + n * 1000).toISOString();
 
@@ -28,6 +28,19 @@ function tool(id: string, over: Partial<ToolEvent> = {}): ToolEvent {
 
 function agent(id: string, text: string, ts = at(1)): TranscriptEvent {
   return { kind: "agent", id, messageId: "m1", timestamp: ts, text };
+}
+
+function user(id: string, text: string, mode?: MessageMode): UserEvent {
+  return {
+    kind: "user",
+    id,
+    messageId: "m1",
+    timestamp: at(1),
+    text,
+    reminders: [],
+    attachments: [],
+    ...(mode ? { mode } : {}),
+  };
 }
 
 describe("mergeEvents", () => {
@@ -82,6 +95,25 @@ describe("mergeEvents", () => {
   it("lets incoming replace an existing event", () => {
     const merged = mergeEvents([agent("a", "old")], [agent("a", "much newer text")]);
     expect((merged[0] as { text: string }).text).toBe("much newer text");
+  });
+
+  // A first sight of a message can arrive without the metadata that classifies
+  // it. Without mode in the fingerprint the row would render neutral forever.
+  it("replaces a neutral row when a later fetch establishes its mode", () => {
+    const neutralUser = [user("u1", "same text")];
+    const classifiedUser = mergeEvents(neutralUser, [user("u1", "same text", "plan")]);
+    expect(classifiedUser).not.toBe(neutralUser);
+    expect((classifiedUser[0] as UserEvent).mode).toBe("plan");
+
+    const planAgent: TranscriptEvent = { ...(agent("a1", "same text") as TranscriptEvent), mode: "plan" };
+    const buildAgent: TranscriptEvent = { ...(agent("a1", "same text") as TranscriptEvent), mode: "build" };
+    const corrected = mergeEvents([planAgent], [buildAgent]);
+    expect(corrected[0]).toBe(buildAgent);
+  });
+
+  it("still holds the reference when mode and text are both unchanged", () => {
+    const previous = [user("u1", "same text", "build")];
+    expect(mergeEvents(previous, [user("u1", "same text", "build")])).toBe(previous);
   });
 
   it("preserves unchanged row identity when a sibling changes", () => {
