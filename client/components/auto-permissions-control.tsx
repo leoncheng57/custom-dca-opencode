@@ -2,11 +2,30 @@ import { useEffect, useState } from "react";
 import { ShieldAlert } from "lucide-react";
 
 import { Alert } from "../ds/alert.js";
+import { cn } from "../ds/utils.js";
 import { api, type AutoPermissionStatus } from "../lib/api.js";
 
 const POLL_MS = 3_000;
 
-export function AutoPermissionsControl({ directory, testId }: { directory: string; testId: string }) {
+/**
+ * `block` is the original full-width banner (the Hub still uses it).
+ * `compact` shrinks the control to a toolbar chip so it can sit inline beside
+ * the conversation action buttons instead of eating a row of its own. Both
+ * variants keep the same danger treatment, the same Details disclosure and the
+ * same error paragraph — compactness is only allowed to cost padding, never
+ * discoverability.
+ */
+type AutoPermissionsVariant = "block" | "compact";
+
+export function AutoPermissionsControl({
+  directory,
+  testId,
+  variant = "block",
+}: {
+  directory: string;
+  testId: string;
+  variant?: AutoPermissionsVariant;
+}) {
   const [status, setStatus] = useState<AutoPermissionStatus | null>(null);
   const [saving, setSaving] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
@@ -50,19 +69,41 @@ export function AutoPermissionsControl({ directory, testId }: { directory: strin
   };
 
   const enabled = status?.enabled ?? false;
+  const compact = variant === "compact";
+  // Hit area is decided by pointer type, never by viewport width — the same
+  // mechanism `COMPACT_ACTION` in Conversation.tsx uses for the action buttons
+  // sitting beside this control in the same toolbar row. A touch tablet at
+  // 768px is still a touch tablet, and this toggle is the most dangerous
+  // control in the row, so it must not be the one that shrinks.
+  //
+  // styles.css already floors every `button` at 44px under `(pointer: coarse)`,
+  // but that is a global net this component must not silently depend on: the
+  // utility below keeps the control correct on its own.
+  const touchTarget = compact ? "min-h-7 pointer-coarse:min-h-11" : "";
   return (
-    <div data-testid={testId}>
-      <Alert variant={enabled ? "danger" : "info"} className="border border-current px-3 py-2">
-        <div className="flex min-h-5 items-center gap-2">
-          <ShieldAlert aria-hidden="true" className="h-4 w-4 shrink-0" />
-          <strong className="min-w-0 flex-1 truncate text-xs sm:text-sm">
+    <div data-testid={testId} className={cn(compact && "min-w-0")}>
+      <Alert
+        variant={enabled ? "danger" : "info"}
+        className={cn(
+          "border border-current",
+          compact
+            ? "flex min-w-0 flex-wrap items-center gap-x-2 rounded-md px-2 py-0 text-xs"
+            : "px-3 py-2",
+        )}
+      >
+        <div className={cn("flex items-center gap-2", compact ? `min-w-0 ${touchTarget}` : "min-h-5")}>
+          <ShieldAlert aria-hidden="true" className={cn("shrink-0", compact ? "h-3.5 w-3.5" : "h-4 w-4")} />
+          <strong className={cn("min-w-0 truncate", compact ? "text-[11px] sm:text-xs" : "flex-1 text-xs sm:text-sm")}>
             Auto permissions: {status ? (enabled ? "ON" : "OFF") : "loading"}
           </strong>
           {enabled && <button
             type="button"
             aria-expanded={showDetails}
             onClick={() => setShowDetails((visible) => !visible)}
-            className="shrink-0 text-xs font-medium underline underline-offset-2"
+            className={cn(
+              "shrink-0 font-medium underline underline-offset-2",
+              compact ? `inline-flex items-center text-[11px] sm:text-xs ${touchTarget}` : "text-xs",
+            )}
             data-testid={`${testId}-details`}
           >
             Details
@@ -75,22 +116,41 @@ export function AutoPermissionsControl({ directory, testId }: { directory: strin
             aria-busy={saving}
             disabled={!status || saving || !directory}
             onClick={() => void toggle()}
-            className={`relative h-5 w-9 shrink-0 rounded-full border border-current transition-colors disabled:opacity-50 ${enabled ? "bg-current" : "bg-transparent"}`}
+            className={cn(
+              "inline-flex shrink-0 items-center justify-center disabled:opacity-50",
+              compact ? `w-9 pointer-coarse:w-11 ${touchTarget}` : "h-5 w-9",
+            )}
             data-testid={`${testId}-toggle`}
           >
             <span
               aria-hidden="true"
-              className={`absolute left-0.5 top-0.5 h-3.5 w-3.5 rounded-full bg-[var(--color-background-surface)] transition-transform ${enabled ? "translate-x-4" : "translate-x-0"}`}
-            />
+              className={cn(
+                "relative block h-5 w-9 rounded-full border border-current transition-colors",
+                enabled ? "bg-current" : "bg-transparent",
+              )}
+            >
+              <span
+                className={cn(
+                  "absolute left-0.5 top-0.5 h-3.5 w-3.5 rounded-full bg-[var(--color-background-surface)] transition-transform",
+                  enabled ? "translate-x-4" : "translate-x-0",
+                )}
+              />
+            </span>
           </button>
         </div>
-        {enabled && showDetails && <p className="mt-2 text-xs font-medium" data-testid={`${testId}-warning`}>
+        {enabled && showDetails && <p
+          className={cn("text-xs font-medium", compact ? "basis-full pb-1.5" : "mt-2")}
+          data-testid={`${testId}-warning`}
+        >
           Danger: every asked permission is approved once automatically, including arbitrary shell commands,
           external-directory access, and repeated requests from a doom loop. This affects every session using
           this project directory and resets to off when the BFF restarts.
         </p>}
         {(status?.error || requestError) && (
-          <p className="mt-2 text-xs font-medium" data-testid={`${testId}-error`}>
+          <p
+            className={cn("text-xs font-medium", compact ? "basis-full pb-1.5" : "mt-2")}
+            data-testid={`${testId}-error`}
+          >
             Auto permissions error: {status?.error ?? requestError}
           </p>
         )}
