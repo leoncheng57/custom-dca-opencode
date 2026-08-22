@@ -847,17 +847,33 @@ test.describe("composer", () => {
     await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
     const picker = page.getByTestId("composer-reminder-select");
     await expect(picker).toBeVisible();
-    await expect(picker.locator('option[value="human-verification-steps"]')).toHaveText("Write Human Verification Steps");
+    await picker.click();
+    await expect(page.getByTestId("composer-reminder-search")).toBeFocused();
+    const humanVerification = page.locator('[data-testid="composer-reminder-option"][data-reminder-id="human-verification-steps"]');
+    await expect(humanVerification).toContainText("Write Human Verification Steps");
+    await expect(humanVerification).toContainText("verifies completed behavior from a user's perspective");
+    await page.getByTestId("composer-reminder-search").fill("Red-Team");
+    await expect(page.getByTestId("composer-reminder-option")).toHaveCount(1);
+    await expect(page.getByTestId("composer-reminder-option")).toContainText("Red-Team This");
+    await page.getByTestId("composer-reminder-search").press("ArrowDown");
+    await page.getByTestId("composer-reminder-search").press("Enter");
+    await expect(picker).toHaveAttribute("value", "red-team-this");
+    await picker.click();
+    await page.getByTestId("composer-reminder-option-none").click();
+    await expect(picker).toHaveAttribute("value", "");
+    await expect(picker).toBeFocused();
 
     const cases = [
       { id: "red-team-this", text: `red team ${Date.now()}`, body: "Explicitly switch from author" },
       { id: "human-verification-steps", text: `manual QA ${Date.now()}`, body: "Run the repository's relevant automated checks" },
     ];
     for (const reminderCase of cases) {
-      await picker.selectOption(reminderCase.id);
+      await picker.click();
+      await page.locator(`[data-testid="composer-reminder-option"][data-reminder-id="${reminderCase.id}"]`).click();
+      await expect(picker).toHaveAttribute("value", reminderCase.id);
       await page.getByTestId("opencode-composer").fill(reminderCase.text);
       await page.getByTestId("opencode-send").click();
-      await expect(picker).toHaveValue("");
+      await expect(picker).toHaveAttribute("value", "");
 
       const user = page.getByTestId("opencode-user-message").filter({ hasText: reminderCase.text });
       await expect(user).toBeVisible();
@@ -933,6 +949,15 @@ test.describe("mobile", () => {
     expect(sendBox?.height).toBeGreaterThanOrEqual(44);
     await expect(composer).toHaveAttribute("enterkeyhint", "enter");
     await expect(composer).toHaveAttribute("autocapitalize", "none");
+    await reminder.click();
+    const panel = page.getByTestId("composer-reminder-panel");
+    await expect(panel).toBeVisible();
+    await expect(page.getByTestId("composer-reminder-option").first()).toContainText("Draw an ASCII Diagram");
+    const panelBox = await panel.boundingBox();
+    expect(panelBox?.width).toBeLessThanOrEqual(390);
+    expect(panelBox?.height).toBeLessThanOrEqual(740);
+    await page.getByTestId("composer-reminder-close").click();
+    await expect(reminder).toBeFocused();
   });
 
   test("collapses the composer without losing its draft", async ({ page }) => {
