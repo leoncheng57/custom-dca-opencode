@@ -39,6 +39,11 @@ import {
 
 const WRAP_KEY = "opencode.wrapOutput.v1";
 
+// Issue #72: the conversation actions read as a toolbar, not as five buttons.
+// Only the pointer-fine rendering shrinks — a coarse pointer still gets a 44px
+// hit area, which is larger than the 40px the shared `sm` size gives it.
+const COMPACT_ACTION = "h-7 px-2 text-[11px] pointer-coarse:h-11 pointer-coarse:px-3";
+
 export function ConversationPage() {
   const { id = "" } = useParams();
   const [params] = useSearchParams();
@@ -410,61 +415,74 @@ export function ConversationPage() {
 
   return (
     <main className="flex h-full min-h-0 flex-col overflow-hidden" data-testid="opencode-conversation">
-      <header className="flex shrink-0 items-center gap-2 border-b border-[var(--color-border-default)] px-3 py-2 sm:flex-wrap sm:gap-3 sm:px-4 sm:py-3">
-        <Link to={`/?directory=${encodeURIComponent(directory)}`} className="shrink-0 text-sm underline">
-          ← Sessions
-        </Link>
-        <h1 className="min-w-0 flex-1 truncate text-sm font-semibold" data-testid="opencode-session-title">
-          {session?.title ?? "Session"}
-        </h1>
-        {parentID && <Badge variant="neutral" data-testid="opencode-subagent-badge">sub</Badge>}
-        {stream.running && <Badge variant="info">running</Badge>}
-        {session && session.cost > 0 && (
-          <span className="hidden text-xs tabular-nums text-[var(--color-text-muted)] sm:inline" data-testid="opencode-session-cost">
-            {formatCost(session.cost)}
-          </span>
-        )}
-        {contextTokens > 0 && (
-          <span className="hidden text-xs tabular-nums text-[var(--color-text-muted)] sm:inline" data-testid="opencode-context-tokens" title="Latest turn context tokens">
-            context {Intl.NumberFormat(undefined, { notation: "compact" }).format(contextTokens)}
-            {displayedContextLimit ? ` / ${Math.round((contextTokens / displayedContextLimit) * 100)}%` : ""}
-          </span>
-        )}
-        <div className="hidden items-center gap-3 sm:flex">
-          <Button size="sm" variant="secondary" onClick={toggleWrap} data-testid="opencode-wrap-toggle">
-            {wrap ? "Wrap: on" : "Wrap: off"}
-          </Button>
-          <Button size="sm" variant="secondary" onClick={() => setShareTarget({ kind: "session" })} data-testid="opencode-share-export-open">
-            Share
-          </Button>
-          <Button size="sm" variant="secondary" onClick={() => setWorkspaceOpen(true)} data-testid="opencode-workspace-open">
-            Workspace
-          </Button>
-          <Button className="min-h-11 lg:hidden" size="sm" variant="secondary" onClick={() => setInspectorOpen(true)} data-testid="opencode-mobile-inspector-open">
-            Details
-          </Button>
+      {/* Two rows on purpose (issue #72). The title is the most important
+          element on the page and used to be squeezed between a back link and
+          five controls; it now owns a full-width line of its own. Everything
+          actionable — including auto permissions, which used to claim a
+          third full-width row — collapses into one compact toolbar below. */}
+      <header className="flex shrink-0 flex-col gap-1.5 border-b border-[var(--color-border-default)] px-3 py-2 sm:px-4 sm:py-2.5">
+        <div className="flex min-w-0 items-center gap-2">
+          <Link to={`/?directory=${encodeURIComponent(directory)}`} className="shrink-0 text-sm underline">
+            ← Sessions
+          </Link>
+          <h1 className="min-w-0 flex-1 truncate text-sm font-semibold sm:text-base" data-testid="opencode-session-title">
+            {session?.title ?? "Session"}
+          </h1>
+          {parentID && <Badge variant="neutral" data-testid="opencode-subagent-badge">sub</Badge>}
+          {stream.running && <Badge variant="info">running</Badge>}
         </div>
-        {stream.running && (
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => void api.abort(directory, id).then(stream.refresh)}
-            data-testid="opencode-abort"
-          >
-            Stop
-          </Button>
-        )}
-        <details className="relative sm:hidden" data-testid="opencode-mobile-session-menu">
-          <summary className="flex h-10 w-10 cursor-pointer list-none items-center justify-center rounded-md text-[var(--color-text-muted)] hover:bg-[var(--hh-row-hover)] [&::-webkit-details-marker]:hidden" aria-label="Session actions">
-            <Ellipsis aria-hidden="true" className="h-5 w-5" />
-          </summary>
-          <div className="absolute right-0 z-30 mt-1 grid min-w-40 overflow-hidden rounded-lg border border-[var(--color-border-default)] bg-[var(--color-background-surface)] p-1 shadow-xl">
-            <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); toggleWrap(); }} data-testid="opencode-mobile-wrap-toggle">{wrap ? "Disable wrapping" : "Enable wrapping"}</button>
-            <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setShareTarget({ kind: "session" }); }} data-testid="opencode-mobile-share-export-open">Share</button>
-            <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setWorkspaceOpen(true); }} data-testid="opencode-mobile-workspace-open">Workspace</button>
-            <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setInspectorOpen(true); }} data-testid="opencode-mobile-inspector-menu-open">Details</button>
+
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1" data-testid="opencode-conversation-toolbar">
+          {session && session.cost > 0 && (
+            <span className="hidden text-xs tabular-nums text-[var(--color-text-muted)] sm:inline" data-testid="opencode-session-cost">
+              {formatCost(session.cost)}
+            </span>
+          )}
+          {contextTokens > 0 && (
+            <span className="hidden text-xs tabular-nums text-[var(--color-text-muted)] sm:inline" data-testid="opencode-context-tokens" title="Latest turn context tokens">
+              context {Intl.NumberFormat(undefined, { notation: "compact" }).format(contextTokens)}
+              {displayedContextLimit ? ` / ${Math.round((contextTokens / displayedContextLimit) * 100)}%` : ""}
+            </span>
+          )}
+          <AutoPermissionsControl directory={directory} testId="opencode-conversation-auto-permissions" variant="compact" />
+          <span className="flex-1" aria-hidden="true" />
+          <div className="hidden items-center gap-1.5 sm:flex">
+            <Button size="sm" variant="secondary" className={COMPACT_ACTION} onClick={toggleWrap} data-testid="opencode-wrap-toggle">
+              {wrap ? "Wrap: on" : "Wrap: off"}
+            </Button>
+            <Button size="sm" variant="secondary" className={COMPACT_ACTION} onClick={() => setShareTarget({ kind: "session" })} data-testid="opencode-share-export-open">
+              Share
+            </Button>
+            <Button size="sm" variant="secondary" className={COMPACT_ACTION} onClick={() => setWorkspaceOpen(true)} data-testid="opencode-workspace-open">
+              Workspace
+            </Button>
+            <Button className={`${COMPACT_ACTION} lg:hidden`} size="sm" variant="secondary" onClick={() => setInspectorOpen(true)} data-testid="opencode-mobile-inspector-open">
+              Details
+            </Button>
           </div>
-        </details>
+          {stream.running && (
+            <Button
+              size="sm"
+              variant="secondary"
+              className={COMPACT_ACTION}
+              onClick={() => void api.abort(directory, id).then(stream.refresh)}
+              data-testid="opencode-abort"
+            >
+              Stop
+            </Button>
+          )}
+          <details className="relative sm:hidden" data-testid="opencode-mobile-session-menu">
+            <summary className="flex h-11 w-11 cursor-pointer list-none items-center justify-center rounded-md text-[var(--color-text-muted)] hover:bg-[var(--hh-row-hover)] [&::-webkit-details-marker]:hidden" aria-label="Session actions">
+              <Ellipsis aria-hidden="true" className="h-5 w-5" />
+            </summary>
+            <div className="absolute right-0 z-30 mt-1 grid min-w-40 overflow-hidden rounded-lg border border-[var(--color-border-default)] bg-[var(--color-background-surface)] p-1 shadow-xl">
+              <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); toggleWrap(); }} data-testid="opencode-mobile-wrap-toggle">{wrap ? "Disable wrapping" : "Enable wrapping"}</button>
+              <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setShareTarget({ kind: "session" }); }} data-testid="opencode-mobile-share-export-open">Share</button>
+              <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setWorkspaceOpen(true); }} data-testid="opencode-mobile-workspace-open">Workspace</button>
+              <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setInspectorOpen(true); }} data-testid="opencode-mobile-inspector-menu-open">Details</button>
+            </div>
+          </details>
+        </div>
       </header>
 
       {parentID && (
@@ -482,10 +500,6 @@ export function ConversationPage() {
           </p>
         </div>
       )}
-
-      <div className="px-3 pt-2 sm:px-4 sm:pt-3">
-        <AutoPermissionsControl directory={directory} testId="opencode-conversation-auto-permissions" />
-      </div>
 
       {/* R2: OpenCode never persists "running" state, so a crash mid-turn is
           invisible unless derived. We surface it and let the human decide —
