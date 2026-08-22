@@ -16,6 +16,7 @@ import type {
   Attachment,
   AgentEvent,
   ErrorEvent,
+  MessageMode,
   StatusEvent,
   ThoughtEvent,
   ToolEvent,
@@ -135,6 +136,67 @@ function TaskPills({ event }: { event: ToolEvent }) {
   );
 }
 
+// ── Plan / Build provenance ─────────────────────────────────────────────────
+//
+// Only prose rows are marked. Thoughts, tools, task cards, separators and
+// errors belong to the same message and could be tinted from `messageId`, but
+// they are operational detail rather than the thing a reader is attributing —
+// and painting half the transcript in two colours costs more legibility than
+// the extra provenance buys.
+//
+// Two cues per row: an accent rail and a text pill. The pill is what carries
+// the meaning; colour alone must never have to.
+//
+// The message body is deliberately NOT tinted. A full-width wash behind prose
+// competes with the content it is annotating — markdown already uses surface
+// fills for code blocks and tables, and a second background underneath them
+// flattens that hierarchy. A rail marks the row just as unambiguously while
+// leaving the reading surface alone.
+
+const MODE_LABEL: Record<MessageMode, string> = { plan: "Plan", build: "Build" };
+
+/**
+ * Accent rail for the message body.
+ *
+ * On the inline-start edge for both roles, including the right-aligned user
+ * bubble: a consistent edge is what lets a reader scan a long transcript for
+ * mode changes without re-reading each row.
+ */
+const MODE_RAIL: Record<MessageMode, string> = {
+  plan: "border-l-4 border-[var(--color-border-plan)]",
+  build: "border-l-4 border-[var(--color-border-build)]",
+};
+
+const MODE_PILL: Record<MessageMode, string> = {
+  plan: "border-[var(--color-border-plan)] bg-[var(--color-background-surface-plan-muted)] text-[var(--color-text-plan)]",
+  build: "border-[var(--color-border-build)] bg-[var(--color-background-surface-build-muted)] text-[var(--color-text-build)]",
+};
+
+/**
+ * The mode label.
+ *
+ * Rendered on its own compact line rather than inline with the prose so a long
+ * message keeps its full measure — assistant markdown already fights for
+ * horizontal space at 390px.
+ */
+function ModePill({ mode }: { mode: MessageMode }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center rounded-full border px-2 py-px text-[10px] font-semibold uppercase tracking-wide",
+        MODE_PILL[mode],
+      )}
+      data-testid="opencode-message-mode"
+      data-mode={mode}
+    >
+      {/* Screen readers get the field name, not just the value: "Plan" alone
+          reads as a stray noun next to a message. */}
+      <span className="sr-only">Message mode: </span>
+      {MODE_LABEL[mode]}
+    </span>
+  );
+}
+
 // ── Rows ────────────────────────────────────────────────────────────────────
 
 function ShareAction({ event, onShare }: { event: UserEvent | AgentEvent; onShare?: (event: UserEvent | AgentEvent) => void }) {
@@ -154,7 +216,12 @@ function ShareAction({ event, onShare }: { event: UserEvent | AgentEvent; onShar
 
 function UserBubble({ event, onExport }: { event: UserEvent; onExport?: (event: UserEvent | AgentEvent) => void }) {
   return (
-    <div className="flex flex-col items-end gap-1" data-kind="user" data-testid="opencode-user-message">
+    <div
+      className="flex flex-col items-end gap-1"
+      data-kind="user"
+      data-testid="opencode-user-message"
+      {...(event.mode ? { "data-mode": event.mode } : {})}
+    >
       {event.reminders.map((reminder, index) => (
         <details
           open
@@ -168,8 +235,17 @@ function UserBubble({ event, onExport }: { event: UserEvent; onExport?: (event: 
           <pre className="mt-1 whitespace-pre-wrap break-words font-sans leading-relaxed">{reminder.body}</pre>
         </details>
       ))}
+      {event.mode && <ModePill mode={event.mode} />}
       {(event.text || event.attachments.length > 0) && (
-        <div className="max-w-[90%] rounded-2xl bg-[var(--color-background-muted)] px-4 py-2.5 text-sm sm:max-w-[75%]" data-testid="opencode-user-message-body">
+        <div
+          className={cn(
+            // The 90%/75% ceilings are load-bearing: they are what stops a
+            // pasted stack trace from spanning the whole viewport.
+            "max-w-[90%] rounded-2xl bg-[var(--color-background-muted)] px-4 py-2.5 text-sm sm:max-w-[75%]",
+            event.mode && MODE_RAIL[event.mode],
+          )}
+          data-testid="opencode-user-message-body"
+        >
           {event.text && <pre className="whitespace-pre-wrap break-words font-sans leading-relaxed">{event.text}</pre>}
           <Attachments items={event.attachments} />
         </div>
@@ -184,8 +260,25 @@ function UserBubble({ event, onExport }: { event: UserEvent; onExport?: (event: 
 
 function AgentProse({ event, onExport }: { event: AgentEvent; onExport?: (event: UserEvent | AgentEvent) => void }) {
   return (
-    <div className="min-w-0 text-sm leading-relaxed" data-kind="agent" data-testid="opencode-agent-message">
-      <Markdown source={event.text} />
+    <div
+      className="min-w-0 max-w-full text-sm leading-relaxed"
+      data-kind="agent"
+      data-testid="opencode-agent-message"
+      {...(event.mode ? { "data-mode": event.mode } : {})}
+    >
+      {event.mode && (
+        <div className="mb-1">
+          <ModePill mode={event.mode} />
+        </div>
+      )}
+      {/* min-w-0 survives the rail wrapper so the markdown renderer keeps its
+          own overflow handling for wide code blocks and tables. */}
+      <div
+        className={cn("min-w-0 max-w-full", event.mode && `${MODE_RAIL[event.mode]} pl-3`)}
+        data-testid="opencode-agent-message-body"
+      >
+        <Markdown source={event.text} />
+      </div>
       <div className="mt-1 flex justify-end">
         <ShareAction event={event} onShare={onExport} />
         <TimeLabel timestamp={event.timestamp} />

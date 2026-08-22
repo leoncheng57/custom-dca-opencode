@@ -179,6 +179,32 @@ several decisions below.
     read. Child endpoints verify the parent link before acting — upstream will abort
     any id, so `/sessions/{parent}/subagents/{child}/abort` would otherwise be a
     general-purpose abort endpoint wearing a sub-agent costume.
+16. **Per-message Plan/Build provenance is classified from that message alone,
+    and is provenance rather than policy.**
+    A session switches modes, so the session's *current* mode says nothing about a
+    row already on screen, and pagination can drop the prompt that set it — which
+    rules out inheriting mode from a neighbour, a parent, or the session. Raw
+    metadata is inconsistent: user messages name the primary agent in `info.agent`,
+    some assistant messages carry `info.mode` and others only `info.agent`. For an
+    assistant turn `info.mode` is primary and `info.agent` is only a fallback, so a
+    recognized mode classifies the row even when the agent naming it is internal or
+    a sub-agent (`compaction`, `explore`, anything added later); those identities go
+    neutral only when nothing else classifies them. An unrecognized `info.mode` is
+    an unknown *label*, says nothing about authorship, and falls through to the
+    identity. Recognized values that disagree yield nothing. The live 1.18.21
+    capture in `tests/fixtures` only ever pairs `info.mode` with an agreeing
+    `info.agent`, so this ordering is a forward-compatibility choice rather than an
+    observed behaviour. Consequence to accept: a Build pill never proves the turn
+    could mutate anything — per #75 a child can report Build while retaining a
+    parent's historical Plan denies. "What could this turn do?" belongs on the
+    sub-agent ledger, not here. Only user and assistant prose is marked; thoughts,
+    tools, task cards, separators and errors share the message id but are
+    operational detail, and marking them costs more legibility than the provenance
+    is worth. The treatment is an accent rail plus a text pill and deliberately no
+    body tint: markdown already uses surface fills for code blocks and tables, and
+    a wash underneath them flattens that hierarchy. Mode is part of the prose
+    reconciliation fingerprints, so a row first seen without metadata is replaced —
+    not frozen neutral — when an authoritative fetch classifies it.
 
 ## Client conventions (inherited from the OpenHands runner, still enforced)
 

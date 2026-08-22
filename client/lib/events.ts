@@ -20,6 +20,7 @@
 import type {
   Attachment,
   InterruptedState,
+  MessageMode,
   TaskExecution,
   ToolStatus,
   Transcript,
@@ -90,6 +91,8 @@ export interface RawMessageInfo {
   role?: string;
   time?: RawTime;
   agent?: string;
+  /** Present on some assistant messages only; see `messageMode`. */
+  mode?: string;
   providerID?: string;
   modelID?: string;
   variant?: string;
@@ -257,6 +260,60 @@ export function subagentNotice(text: string): SubagentNotice | null {
   return null;
 }
 
+// ── Per-message Plan / Build provenance ─────────────────────────────────────
+//
+// A conversation can switch modes mid-session, so "which policy produced this
+// row?" is a per-message question and cannot be answered by the session's
+// current mode. Raw metadata is inconsistent about where the answer lives:
+//
+//   - User messages name the selected primary agent in `info.agent`.
+//   - Some assistant messages carry `info.mode`; others carry only `info.agent`.
+//   - `info.agent` is an IDENTITY, so it is frequently an internal or sub-agent
+//     name (`general`, `explore`, `compaction`) rather than a mode.
+//
+// Mode is never inherited from a neighbouring message, the session, or a
+// parent: pagination can omit the initiating prompt, and a wrong Plan badge on
+// a mutating turn is exactly the misreading this feature exists to prevent.
+// Unclassifiable stays neutral.
+
+function exactMode(value: unknown): MessageMode | undefined {
+  return value === "plan" || value === "build" ? value : undefined;
+}
+
+/**
+ * Classify one message's mode, or return undefined to render it neutral.
+ *
+ * `info.mode` is the primary signal for an assistant turn and `info.agent` is
+ * only a fallback, so a recognized mode classifies the row even when the agent
+ * naming it is an internal or sub-agent identity. Two consequences of that
+ * ordering are worth stating outright rather than discovering later:
+ *
+ *   - A `compaction` summary, or a child session's `explore` turn, is badged
+ *     with whatever mode upstream stamped on it. Neither was authored by the
+ *     mode the human selected for their own prompt.
+ *   - The badge is PROVENANCE, not a policy guarantee. Per issue #75 a child
+ *     can retain a parent's historical Plan denies while reporting Build, so a
+ *     Build pill never proves the turn could actually mutate anything.
+ *
+ * In the live 1.18.21 capture in tests/fixtures, `info.mode` only ever appears
+ * alongside an agreeing `info.agent`, so today this ordering and a stricter one
+ * produce identical output; it is a forward-compatibility choice.
+ *
+ * An unrecognized `info.mode` only means we do not know that label, so it falls
+ * through to the agent rather than being treated as a disqualification. When
+ * both fields are recognized and disagree, neither wins.
+ */
+export function messageMode(info: RawMessageInfo): MessageMode | undefined {
+  const agent = exactMode(info.agent);
+  // A user prompt's mode is the primary agent it selected. `info.mode` is not
+  // read here: it is not populated for user messages on the observed server.
+  if (info.role === "user") return agent;
+
+  const mode = exactMode(info.mode);
+  if (mode && agent && mode !== agent) return undefined;
+  return mode ?? agent;
+}
+
 function toolStatus(raw: string | undefined): ToolStatus {
   switch (raw) {
     case "pending":
@@ -282,6 +339,7 @@ function normalizePart(
   const id = part.id || `${messageId}:${index}`;
   const created = info.time?.created ?? Date.now();
   const isUser = info.role === "user";
+  const mode = messageMode(info);
 
   switch (part.type) {
     case "text": {
@@ -315,9 +373,17 @@ function normalizePart(
           text: split.text,
           reminders: split.reminders,
           attachments: [],
+          ...(mode ? { mode } : {}),
         };
       }
-      return { kind: "agent", id, messageId, timestamp: iso(created, created), text };
+      return {
+        kind: "agent",
+        id,
+        messageId,
+        timestamp: iso(created, created),
+        text,
+        ...(mode ? { mode } : {}),
+      };
     }
 
     case "reasoning": {

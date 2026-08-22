@@ -629,6 +629,113 @@ test.describe("transcript", () => {
   });
 });
 
+test.describe("message mode", () => {
+  const modes = `/sessions/ses_mock_modes?directory=${encodeURIComponent(DIR)}`;
+
+  const prompt = (page: Page, text: string) =>
+    page.getByTestId("opencode-user-message").filter({ hasText: text });
+  const reply = (page: Page, text: string) =>
+    page.getByTestId("opencode-agent-message").filter({ hasText: text });
+
+  test("labels Plan and Build prose and leaves unclassifiable rows neutral", async ({ page }) => {
+    await page.goto(modes);
+    await expect(page.getByTestId("opencode-transcript")).toBeVisible();
+
+    await expect(prompt(page, "Draft the migration approach.")).toHaveAttribute("data-mode", "plan");
+    await expect(prompt(page, "Go ahead and implement it.")).toHaveAttribute("data-mode", "build");
+    await expect(reply(page, "Planned response")).toHaveAttribute("data-mode", "plan");
+    // No `mode` field on this message: the exact-agent fallback classified it.
+    await expect(reply(page, "Build response")).toHaveAttribute("data-mode", "build");
+
+    // Redundant with colour: a visible word, and a named field for AT.
+    const planPill = reply(page, "Planned response").getByTestId("opencode-message-mode");
+    await expect(planPill).toContainText("Message mode: Plan");
+    await expect(planPill).toHaveAttribute("data-mode", "plan");
+    await expect(reply(page, "Build response").getByTestId("opencode-message-mode"))
+      .toContainText("Message mode: Build");
+
+    // `info.mode` is the primary signal, so a sub-agent identity carrying one
+    // is still classified. The pill is provenance, not proof of policy.
+    await expect(reply(page, "Delegated response")).toHaveAttribute("data-mode", "build");
+
+    // Nothing to classify, and a mode/agent conflict: both stay neutral.
+    for (const text of ["Unstamped response", "Conflicted response"]) {
+      const neutral = reply(page, text);
+      await expect(neutral).toHaveCount(1);
+      await expect(neutral).not.toHaveAttribute("data-mode");
+      await expect(neutral.getByTestId("opencode-message-mode")).toHaveCount(0);
+    }
+  });
+
+  test("gives Plan and Build distinct rails and pills in light and dark", async ({ page }) => {
+    const surfaces = async () => {
+      await expect(page.locator('[data-testid="opencode-agent-message"][data-mode="build"]').first()).toBeVisible();
+      return page.evaluate(() => {
+        const read = (mode: string) => {
+          const body = document.querySelector(
+            `[data-testid="opencode-agent-message"][data-mode="${mode}"] [data-testid="opencode-agent-message-body"]`,
+          )!;
+          const pill = document.querySelector(`[data-testid="opencode-message-mode"][data-mode="${mode}"]`)!;
+          const style = getComputedStyle(body);
+          const pillStyle = getComputedStyle(pill);
+          return {
+            background: style.backgroundColor,
+            rail: style.borderLeftColor,
+            railWidth: Number.parseFloat(style.borderLeftWidth),
+            pillColor: pillStyle.color,
+            pillBackground: pillStyle.backgroundColor,
+          };
+        };
+        const neutralBody = document.querySelector(
+          '[data-testid="opencode-agent-message"]:not([data-mode]) [data-testid="opencode-agent-message-body"]',
+        )!;
+        return {
+          plan: read("plan"),
+          build: read("build"),
+          neutralBackground: getComputedStyle(neutralBody).backgroundColor,
+        };
+      });
+    };
+
+    await page.emulateMedia({ colorScheme: "light" });
+    await page.goto(modes);
+    await expect(page.locator("html")).not.toHaveClass(/dark/);
+    const light = await surfaces();
+
+    await page.emulateMedia({ colorScheme: "dark" });
+    await expect(page.locator("html")).toHaveClass(/dark/);
+    const dark = await surfaces();
+
+    for (const [name, theme] of [["light", light], ["dark", dark]] as const) {
+      expect(theme.plan.rail, `${name} rails differ`).not.toBe(theme.build.rail);
+      expect(theme.plan.pillColor, `${name} pill text differs`).not.toBe(theme.build.pillColor);
+      expect(theme.plan.pillBackground, `${name} pill fill differs`).not.toBe(theme.build.pillBackground);
+      for (const mode of ["plan", "build"] as const) {
+        expect(theme[mode].railWidth, `${name} ${mode} has a rail`).toBeGreaterThanOrEqual(2);
+        // The rail is the whole treatment: a marked body must read exactly like
+        // an unmarked one, with no wash behind the prose.
+        expect(theme[mode].background, `${name} ${mode} body is untinted`).toBe(theme.neutralBackground);
+      }
+    }
+    // Every token needs a .dark counterpart, or the accent survives the theme
+    // switch and lands unreadable on the opposite surface.
+    expect(dark.plan.rail).not.toBe(light.plan.rail);
+    expect(dark.build.rail).not.toBe(light.build.rail);
+    expect(dark.plan.pillBackground).not.toBe(light.plan.pillBackground);
+    expect(dark.build.pillBackground).not.toBe(light.build.pillBackground);
+  });
+
+  test("keeps the user bubble inside its existing width ceiling", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(modes);
+    const transcript = page.getByTestId("opencode-transcript");
+    await expect(transcript).toBeVisible();
+    const bubble = prompt(page, "Go ahead and implement it.").getByTestId("opencode-user-message-body");
+    const [bubbleBox, transcriptBox] = await Promise.all([bubble.boundingBox(), transcript.boundingBox()]);
+    expect(bubbleBox!.width).toBeLessThanOrEqual((transcriptBox?.width ?? 0) * 0.8);
+  });
+});
+
 test.describe("interrupted runs", () => {
   // The mock's running session has no completed assistant turn, and the mock
   // reports it busy — so it must NOT be flagged.
@@ -1031,6 +1138,30 @@ test.describe("mobile", () => {
     expect(containment.proseOverflow).toBeLessThanOrEqual(1);
     expect(containment.codeScrollsLocally).toBe(true);
     expect(containment.tableScrollsLocally).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+  });
+
+  // The mode rail adds a border and horizontal padding inside the prose
+  // column, which is exactly the kind of change that reintroduces a document
+  // scrollbar on a phone.
+  test("contains a mode-marked assistant row at 390px", async ({ page }) => {
+    await page.goto(`/sessions/ses_mock_modes?directory=${encodeURIComponent(DIR)}`);
+    const transcript = page.getByTestId("opencode-transcript");
+    await expect(transcript.getByText("Containment fixture for a mode-marked row.")).toBeVisible();
+    const marked = page.locator('[data-testid="opencode-agent-message"][data-mode="build"]').last();
+    const containment = await marked.evaluate((element) => {
+      const body = element.querySelector('[data-testid="opencode-agent-message-body"]') as HTMLElement;
+      const code = element.querySelector(".prose-markdown pre") as HTMLElement;
+      return {
+        rowOverflow: element.scrollWidth - element.clientWidth,
+        bodyOverflow: body.scrollWidth - body.clientWidth,
+        codeScrollsLocally: code.scrollWidth > code.clientWidth,
+      };
+    });
+    expect(containment.rowOverflow).toBeLessThanOrEqual(1);
+    expect(containment.bodyOverflow).toBeLessThanOrEqual(1);
+    expect(containment.codeScrollsLocally).toBe(true);
+    expect(await transcript.evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
   });
 

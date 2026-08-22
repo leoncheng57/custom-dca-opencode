@@ -58,6 +58,30 @@ Raw OpenCode response and event shapes cross the application at two deliberate s
 That separation keeps transport churn out of the UI and made the migration from the OpenHands
 backend an adapter rewrite instead of a transcript rebuild.
 
+## Per-message Plan and Build provenance
+
+A conversation switches between Plan and Build, so "which policy produced this row?" is a
+per-message question. The adapter answers it from one message's own metadata and nothing else:
+mode is never inherited from a neighbouring row, a parent, or the session's current selection,
+because pagination can omit the prompt that set it.
+
+User prompts are classified from an exactly recognized `info.agent`. Assistant turns prefer
+`info.mode` and fall back to that same exact agent, so a recognized mode classifies the row even
+when the agent naming it is internal or a sub-agent. An unrecognized `info.mode` is only an
+unknown label and falls through to the identity; recognized values that disagree yield nothing.
+Unclassifiable rows render neutral rather than guessing.
+
+The pill is **provenance, not a policy guarantee**. A child session can report Build while still
+carrying a parent's historical Plan denies, so a Build pill never proves the turn could mutate
+anything. "What could this turn actually do?" is answered by the sub-agent ledger, not here.
+
+Only user and assistant prose carries the treatment. Thoughts, tool chips, task cards, status
+separators and errors belong to the same message but are operational detail, so they stay
+unmarked. Each marked row uses an accent rail plus a text pill whose accessible name states
+`Message mode: Plan` or `Message mode: Build`, so the meaning never depends on colour. Message
+bodies are deliberately left untinted: markdown already uses surface fills for code blocks and
+tables, and a second wash underneath them flattens that hierarchy.
+
 ## Derived sub-agent state
 
 OpenCode delegates work to child sessions but exposes no durable background-job API, so

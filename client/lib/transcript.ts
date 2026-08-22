@@ -21,6 +21,19 @@
 /** Discriminator for the row a transcript entry renders as. */
 export type TranscriptKind = "user" | "agent" | "thought" | "tool" | "status" | "error";
 
+/**
+ * Primary agent mode a prose message was produced under.
+ *
+ * Structurally identical to `AgentMode` in lib/agentMode.ts and deliberately
+ * declared separately: that module reads raw OpenCode messages, and importing
+ * it here would put a backend-aware module on the frozen contract's import
+ * graph. Two words is a cheaper price than that seam.
+ *
+ * Absent means "not established", never "neither" — see `messageMode` in
+ * events.ts for why missing metadata is never inferred away.
+ */
+export type MessageMode = "plan" | "build";
+
 interface TranscriptBase {
   /** Stable across refetches. Used for React keys, dedupe and scroll anchors. */
   id: string;
@@ -39,12 +52,16 @@ export interface UserEvent extends TranscriptBase {
   reminders: Array<{ name: string; body: string }>;
   /** Files the user referenced or attached, if any. */
   attachments: Attachment[];
+  /** Mode this prompt was sent under, when the backend states it exactly. */
+  mode?: MessageMode;
 }
 
 /** Assistant prose. */
 export interface AgentEvent extends TranscriptBase {
   kind: "agent";
   text: string;
+  /** Mode this response was produced under, when the backend states it exactly. */
+  mode?: MessageMode;
 }
 
 /**

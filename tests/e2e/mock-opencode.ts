@@ -59,6 +59,42 @@ function mobileMessages(): unknown[] {
   return result;
 }
 
+// ── Plan / Build provenance fixture ─────────────────────────────────────────
+//
+// Every classification path the adapter distinguishes, in one session: the two
+// user prompts, the assistant `mode` field, the assistant `agent` fallback, a
+// sub-agent identity carrying a mode (classified, because mode is primary), a
+// sub-agent identity carrying none (neutral), and a mode/agent conflict
+// (neutral). The last message is deliberately hostile markdown so the rail is
+// proven not to reintroduce horizontal overflow.
+function modeMessages(): unknown[] {
+  const prose = (
+    id: string,
+    info: Record<string, unknown>,
+    text: string,
+    created: number,
+  ): unknown => ({
+    info: { id, time: { created, completed: created + 500 }, ...info },
+    parts: [{ id: `prt_${id}`, messageID: id, type: "text", text }],
+  });
+  return [
+    prose("msg_mode_user_plan", { role: "user", agent: "plan" }, "Draft the migration approach.", 1787500000000),
+    prose("msg_mode_agent_plan", { role: "assistant", mode: "plan" }, "Planned response: nothing will be written yet.", 1787500001000),
+    prose("msg_mode_user_build", { role: "user", agent: "build" }, "Go ahead and implement it.", 1787500002000),
+    // No `mode` field: exercises the exact-agent fallback.
+    prose("msg_mode_agent_build", { role: "assistant", agent: "build" }, "Build response: applying the change now.", 1787500003000),
+    // A sub-agent identity carrying a mode: `info.mode` is the primary signal,
+    // so it classifies the row even though `explore` is not a primary agent.
+    prose("msg_mode_agent_subagent", { role: "assistant", agent: "explore", mode: "build" }, "Delegated response: surveying the tree.", 1787500004000),
+    // The same identity with nothing to classify it. Neutral.
+    prose("msg_mode_agent_unstamped", { role: "assistant", agent: "explore" }, "Unstamped response: no mode metadata.", 1787500004500),
+    // Recognized mode and agent disagree. Neutral rather than a guess.
+    prose("msg_mode_agent_conflict", { role: "assistant", agent: "plan", mode: "build" }, "Conflicted response: metadata disagrees.", 1787500005000),
+    // Text chosen not to collide with the substring matchers above.
+    prose("msg_mode_agent_wide", { role: "assistant", mode: "build" }, `Containment fixture for a mode-marked row.\n\n${hostileMarkdown}`, 1787500006000),
+  ];
+}
+
 function paginatedMessages(): unknown[] {
   return Array.from({ length: 225 }, (_, index) => {
     const number = index + 1;
@@ -184,6 +220,7 @@ const messages = new Map<string, unknown[]>([
   ]],
   [CHILD_LAUNCHED, []],
   ["ses_mock_mobile", mobileMessages()],
+  ["ses_mock_modes", modeMessages()],
   ["ses_mock_foreign_agent", [
     { info: { id: "msg_foreign", role: "user", agent: "explore", time: { created: 1787300000000 } }, parts: [], },
   ]],
@@ -353,6 +390,18 @@ const SESSIONS: Array<Record<string, any>> = [
     // Keep the purpose-built long fixture out of ordinary hub assertions while
     // retaining direct route access for mobile transcript tests.
     time: { created: 1787100000000, updated: 1787100100000, archived: 1787100200000 },
+  },
+  {
+    id: "ses_mock_modes",
+    title: "Plan and Build provenance fixture",
+    directory: MOCK_DIRECTORY,
+    agent: "build",
+    model: { providerID: "anthropic", id: "claude-opus-5" },
+    cost: 0,
+    tokens: {},
+    // Archived for the same reason as the other purpose-built fixtures: hub
+    // assertions count rows, and this session is only ever reached by route.
+    time: { created: 1787500000000, updated: 1787500006500, archived: 1787500007000 },
   },
   {
     id: "ses_mock_paginated",
