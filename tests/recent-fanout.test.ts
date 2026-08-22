@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import type { OpencodeConfig } from "../server/opencode/client.js";
 import { listSessionsAcross, RECENT_FANOUT_CONCURRENCY } from "../server/opencode/sessions.js";
-import { resolveRecentDirectories } from "../server/routes/recents.js";
+import { recentSessionContext, resolveRecentDirectories } from "../server/routes/recents.js";
 
 const servers: Server[] = [];
 
@@ -137,6 +137,40 @@ describe("recent directory resolution", () => {
     }
     expect(await resolveRecentDirectories(directories, [], 2)).toHaveLength(2);
     delete process.env.PROJECTS_DIR;
+  });
+});
+
+describe("recent session context", () => {
+  it("retains ancestors, descendants, and siblings around limited matches", () => {
+    const pool = [
+      { id: "grandchild", directory: "/repo", parentID: "child" },
+      { id: "other", directory: "/repo" },
+      { id: "root", directory: "/repo" },
+      { id: "child", directory: "/repo", parentID: "root" },
+      { id: "sibling", directory: "/repo", parentID: "root" },
+    ];
+    expect(recentSessionContext(pool, [pool[0]]).map(({ id }) => id)).toEqual([
+      "grandchild",
+      "root",
+      "child",
+      "sibling",
+    ]);
+  });
+
+  it("does not cross project boundaries or duplicate corrupt cycles", () => {
+    const pool = [
+      { id: "root", directory: "/one" },
+      { id: "child", directory: "/one", parentID: "root" },
+      { id: "root", directory: "/two" },
+      { id: "a", directory: "/cycle", parentID: "b" },
+      { id: "b", directory: "/cycle", parentID: "a" },
+    ];
+    expect(recentSessionContext(pool, [pool[1], pool[3]]).map(({ directory, id }) => `${directory}:${id}`)).toEqual([
+      "/one:root",
+      "/one:child",
+      "/cycle:a",
+      "/cycle:b",
+    ]);
   });
 });
 

@@ -482,6 +482,16 @@ const SESSIONS: Array<Record<string, any>> = [
     time: { created: 1787400004300, updated: 1787400004300 },
   },
   {
+    id: "ses_mock_orphan",
+    title: "Detached delegated session",
+    directory: SUBAGENT_DIRECTORY,
+    parentID: "ses_missing_parent",
+    agent: "explore",
+    cost: 0,
+    tokens: {},
+    time: { created: 1787390000000, updated: 1787390000000 },
+  },
+  {
     id: "ses_mock_share_failure",
     title: "Share service failure",
     directory: MOCK_DIRECTORY,

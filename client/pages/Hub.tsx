@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { Pin, Search } from "lucide-react";
+import { ChevronRight, Pin, Search } from "lucide-react";
 
 import { Alert } from "../ds/alert.js";
 import { Badge } from "../ds/badge.js";
@@ -25,7 +25,13 @@ import {
   recentlyActiveSessions,
   recentlyOpenedSessions,
 } from "../lib/recentSessions.js";
-import { buildSessionRows, isSubagentSession, MAX_SESSION_DEPTH } from "../lib/subagents.js";
+import {
+  buildSessionTree,
+  isSubagentSession,
+  MAX_SESSION_DEPTH,
+  sessionTreeKey,
+  type SessionTreeNode,
+} from "../lib/subagents.js";
 
 const DIRECTORY_KEY = "opencode.directory.v1";
 const POLL_MS = 10_000;
@@ -65,6 +71,83 @@ export function SubagentPill() {
       sub
     </span>
   );
+}
+
+interface SessionTreeListProps {
+  sessions: SessionSummary[];
+  selected?: SessionSummary[];
+  testId: string;
+  projectLabel?: (directory: string) => string;
+  showCost?: boolean;
+}
+
+function SessionTreeList({ sessions, selected, testId, projectLabel, showCost = false }: SessionTreeListProps) {
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const tree = buildSessionTree(sessions, selected);
+
+  const renderNode = (node: SessionTreeNode, depth: number) => {
+    const { session, children } = node;
+    const key = sessionTreeKey(session);
+    const isExpanded = expanded.has(key);
+    const childLabel = `${children.length} ${children.length === 1 ? "child session" : "child sessions"}`;
+    return (
+      <li key={key} data-testid={testId === "opencode-session-list" ? "opencode-session-row" : `${testId}-item`} data-depth={depth}>
+        <div
+          className="flex min-w-0 items-stretch border-b border-[var(--color-border-default)]"
+          style={{ paddingLeft: `${Math.min(depth, MAX_SESSION_DEPTH) * 0.75}rem` }}
+        >
+          {children.length > 0 ? (
+            <button
+              type="button"
+              className="flex min-h-11 w-20 shrink-0 items-center gap-1 rounded-md px-2 text-[11px] text-[var(--color-text-muted)] hover:bg-[var(--color-background-action-ghost-hover)] hover:text-[var(--color-text-default)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]"
+              onClick={() => setExpanded((current) => {
+                const next = new Set(current);
+                if (next.has(key)) next.delete(key);
+                else next.add(key);
+                return next;
+              })}
+              aria-expanded={isExpanded}
+              aria-label={`${isExpanded ? "Hide" : "Show"} ${childLabel} for ${session.title}`}
+              data-testid={`${testId}-disclosure`}
+            >
+              <ChevronRight aria-hidden="true" className={`h-4 w-4 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+              <span data-testid="opencode-session-child-count">{children.length} sub</span>
+            </button>
+          ) : (
+            <span className={`${depth > 0 ? "w-20" : "w-4"} shrink-0`} aria-hidden="true" />
+          )}
+          <Link
+            to={`/sessions/${session.id}?directory=${encodeURIComponent(session.directory)}`}
+            className="flex min-h-11 min-w-0 flex-1 items-center gap-2 px-2 py-2 text-sm hover:bg-[var(--hh-row-hover)] sm:gap-3"
+            data-testid={`${testId}-row`}
+          >
+            <StatusPill running={session.running} />
+            <span className="min-w-0 flex-1 truncate">{session.title}</span>
+            {isSubagentSession(session) && <SubagentPill />}
+            {projectLabel && (
+              <span
+                className="max-w-[30%] shrink-0 truncate text-[11px] text-[var(--color-text-muted)] sm:max-w-[40%]"
+                title={session.directory}
+                data-testid={`${testId}-project`}
+              >
+                {projectLabel(session.directory)}
+              </span>
+            )}
+            {showCost && session.cost > 0 && (
+              <span className="shrink-0 text-xs tabular-nums text-[var(--color-text-muted)]">
+                {formatCost(session.cost)}
+              </span>
+            )}
+          </Link>
+        </div>
+        {children.length > 0 && isExpanded && (
+          <ul role="group">{children.map((child) => renderNode(child, depth + 1))}</ul>
+        )}
+      </li>
+    );
+  };
+
+  return <ul data-testid={testId}>{tree.map((node) => renderNode(node, 0))}</ul>;
 }
 
 export function HubPage() {
@@ -294,39 +377,18 @@ export function HubPage() {
     ?? sessionDirectory.split(/[\\/]/).filter(Boolean).at(-1)
     ?? sessionDirectory;
 
-  // Roots first, each immediately followed by the work it delegated. Kept as
-  // one flat row list rather than nested <ul>s so every session stays a single
-  // click target and the list keeps one uniform row rhythm.
-  const sessionRows = sessions ? buildSessionRows(sessions) : [];
-
   const recentList = (items: SessionSummary[], emptyMessage: string, testId: string) => (
     items.length === 0 ? (
       <p className="px-4 py-5 text-sm text-[var(--color-text-muted)]" data-testid={`${testId}-empty`}>
         {emptyMessage}
       </p>
     ) : (
-      <ul className="divide-y divide-[var(--color-border-default)]" data-testid={testId}>
-        {items.map((session) => (
-          <li key={`${session.directory}\u0000${session.id}`}>
-            <Link
-              to={`/sessions/${session.id}?directory=${encodeURIComponent(session.directory)}`}
-              className="flex min-h-11 min-w-0 items-center gap-3 px-4 py-2 text-sm hover:bg-[var(--hh-row-hover)]"
-              data-testid={`${testId}-row`}
-            >
-              <StatusPill running={session.running} />
-              <span className="min-w-0 flex-1 truncate">{session.title}</span>
-              {isSubagentSession(session) && <SubagentPill />}
-              <span
-                className="max-w-[40%] shrink-0 truncate text-[11px] text-[var(--color-text-muted)]"
-                title={session.directory}
-                data-testid={`${testId}-project`}
-              >
-                {projectLabel(session.directory)}
-              </span>
-            </Link>
-          </li>
-        ))}
-      </ul>
+      <SessionTreeList
+        sessions={recents ?? []}
+        selected={items}
+        testId={testId}
+        projectLabel={projectLabel}
+      />
     )
   );
 
@@ -594,42 +656,7 @@ export function HubPage() {
             No sessions in this directory yet — start one above.
           </p>
         ) : (
-          <ul data-testid="opencode-session-list">
-            {sessionRows.map(({ session, depth }) => (
-              <li
-                key={session.id}
-                className="border-b border-[var(--color-border-default)] last:border-0"
-                data-testid="opencode-session-row"
-                data-depth={depth}
-              >
-                <Link
-                  to={`/sessions/${session.id}?directory=${encodeURIComponent(session.directory)}`}
-                  className="flex min-w-0 items-center gap-3 py-3 pr-4 text-sm hover:bg-[var(--hh-row-hover)]"
-                  // Indent stops at MAX_SESSION_DEPTH so a deep delegation
-                  // chain cannot squeeze the title out of the row.
-                  style={{ paddingLeft: `${1 + Math.min(depth, MAX_SESSION_DEPTH) * 1.5}rem` }}
-                >
-                  <StatusPill running={session.running} />
-                  <span className="min-w-0 flex-1 truncate">{session.title}</span>
-                  {isSubagentSession(session) && <SubagentPill />}
-                  {session.childCount > 0 && (
-                    <span
-                      className="shrink-0 text-[11px] text-[var(--color-text-muted)]"
-                      title={`${session.childCount} delegated sub-agent sessions`}
-                      data-testid="opencode-session-child-count"
-                    >
-                      {session.childCount} sub
-                    </span>
-                  )}
-                  {session.cost > 0 && (
-                    <span className="shrink-0 text-xs tabular-nums text-[var(--color-text-muted)]">
-                      {formatCost(session.cost)}
-                    </span>
-                  )}
-                </Link>
-              </li>
-            ))}
-          </ul>
+          <SessionTreeList sessions={sessions} testId="opencode-session-list" showCost />
         )}
       </section>
     </main>
