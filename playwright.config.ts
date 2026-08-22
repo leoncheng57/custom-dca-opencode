@@ -52,6 +52,11 @@ export default defineConfig({
         NOTIFICATION_PREFS_FILE: "/tmp/custom-dca-opencode-e2e-notifications.json",
         NOTIFICATION_HISTORY_FILE: "/tmp/custom-dca-opencode-e2e-notification-history.json",
         PREVIEW_ALLOWED_PORTS: String(PREVIEW_PORT),
+        // Exercised in the mode that is a superset of read-only. The read-only
+        // and disabled modes are covered in tests/pty-server.test.ts, which can
+        // stand up a BFF per mode in-process without a second webServer.
+        PTY_ENABLED: "interactive",
+        PTY_ALLOWED_ORIGINS: `http://127.0.0.1:${PORT}`,
         PUBLIC_APP_URL: "https://ide.e2e.example.test:8443",
         GITHUB_API_URL: `http://127.0.0.1:${PREVIEW_PORT}`,
       },

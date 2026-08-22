@@ -58,6 +58,11 @@ several decisions below.
 | `PATCH /session/{id}` appends `permission` rules | Compare the current suffix before patching so repeated same-mode prompts do not grow the ruleset |
 | Mode policy and `prompt_async` are one critical section | Serialize them process-locally by directory + session so concurrent opposite-mode prompts cannot run under each other's policy |
 | Classic SSE has no replay cursor | Refetch state on reconnect |
+| `POST /pty` overwrites `args` with `["-l"]` and accepts any `cwd` | It is always a login shell with the host env; confinement is the BFF's job |
+| `Pty` has **no `directory`**, yet the directory is the partition key | `GET /pty/{id}?directory=<other>` 404s — use that to prove ownership |
+| `POST /pty/{id}/connect-token` is **403 even with valid auth** in 1.18.21 | Do not build on tickets; the BFF sends `Authorization` on the upgrade instead |
+| The PTY socket mixes text output frames with **binary NUL-prefixed JSON control frames** | Swallow the control frames; xterm.js renders them as garbage |
+| Upstream does **not** validate `Origin` on the PTY upgrade | WS ignores CORS, so the BFF must, or any visited page gets a shell |
 
 ## Decisions
 
@@ -91,9 +96,8 @@ several decisions below.
    *inside* the container, or is better served by tools already open:
    - Preview **lifecycle** (start/stop/logs/status) — dropped; the **reverse proxy** is
      kept for mobile.
-   - Terminal page — dropped; the Commands panel (derived from the transcript, with
-     `.sh` export) covers the read case.
-   - Web PTY, disk usage bar, providers/models settings page — dropped.
+   - Terminal page and Web PTY — **reversed by #16**; see there for what it costs.
+   - Disk usage bar, providers/models settings page — dropped.
    - Manager runs — dropped; the `manager-children` cmux skill covers it.
    - MCP/LSP **latency probes** — dropped; `GET /mcp` already reports
      `failed{error}` / `needs_auth`, which is the diagnostic that mattered.
@@ -180,12 +184,99 @@ several decisions below.
     any id, so `/sessions/{parent}/subagents/{child}/abort` would otherwise be a
     general-purpose abort endpoint wearing a sub-agent costume.
 
+16. **The PTY terminal is a deliberate hole in decision #3, fenced by four gates.**
+    This reverses "Web PTY — dropped" in #8. It is worth stating what that costs
+    rather than filing it as a feature: **#3 does not apply to a PTY.** The
+    permission map in `opencode.json` governs *agent tool calls*, so `bash "*":
+    "ask"`, `sudo *: deny` and the read-denies on `.env`, `~/.ssh`, `~/.aws` and
+    `auth.json` never execute for a shell. Verified against 1.18.21: `POST /pty`
+    overwrites `args` with `["-l"]`, so it is always a **login shell** reading the
+    host profile with the host environment, and it accepts any `cwd` including
+    `/etc`. Combined with #4 (host git identity) and the deliberate `0.0.0.0` bind,
+    an unfenced terminal would make "anything on the tailnet" mean "interactive
+    shell as the host user". The four gates are therefore the feature:
+
+    1. **Off by default, and absent rather than refusing.** `PTY_ENABLED` is
+       `off` | `read-only` | `interactive`; unset means the routes are not mounted
+       and no WebSocket server exists. This departs from the `PREVIEW_ALLOWED_PORTS`
+       precedent of always-mounted-then-403 because preview's inert state is a port
+       list and this one is a shell. A malformed value **throws at boot** like
+       `PUBLIC_APP_URL`. `1`/`true`/`yes` resolve to **read-only**, never
+       interactive: the dangerous mode must be asked for by name.
+    2. **`Origin` allowlist on upgrade.** Browsers do not apply CORS to WebSocket
+       handshakes, and upstream accepts `Origin: http://evil.example` without
+       complaint (verified live), so any page the user visits could otherwise open
+       a shell at the app's tailnet origin. The allowlist is `PUBLIC_APP_URL` plus
+       `PTY_ALLOWED_ORIGINS` plus loopback **on the ports this app serves** — never
+       derived from the `Host` header, which is what DNS rebinding would forge, and
+       never blanket loopback, because a dev server rendering a third-party
+       frontend is attacker-influenced content served from localhost. An absent
+       `Origin` is rejected; accepting it would make the check opt-out.
+    3. **Confinement is ours.** `cwd` is workspace-relative and resolved through
+       `requireWorkspaceSubdirectory` (containment after `realpath`, not the
+       gitignore/secrets rules, which are about serving file *contents*). Attach
+       re-fetches `GET /pty/{id}?directory=` because upstream 404s a PTY addressed
+       through the wrong project — that is what makes the directory mean something
+       for a caller-supplied id. `command` is restricted to shells the host reports
+       as `acceptable` (or pinned by `PTY_SHELL`), and `env` and `args` are never
+       forwarded from the browser. The shell allowlist is not pretending to be a
+       security control — interactive input is arbitrary execution however you
+       spell it; its job is to stop this endpoint from *also* being a
+       general-purpose "run this binary" API.
+    4. **The BFF proxies the socket, and no ticket exists.** Issue #59 proposed
+       minting `POST /pty/{id}/connect-token` per connection. That route answers
+       **403 in 1.18.21 even on a secured server with valid basic auth**, so it is
+       not implementable — and it is not needed: the ticket exists so a *browser*
+       can authenticate a WebSocket, which cannot carry custom headers. The BFF is
+       a Node client and sends `Authorization` on the upgrade (verified: 401
+       without, 101 with). The upstream origin, the credential and any
+       credential-equivalent therefore never come into existence browser-side.
+
+    Consequences accepted, not glossed:
+    - **Read-only is the base mode and interactive is layered on it**, as #59
+       asked. Read-only may list, inspect, attach and **kill** — cancelling a
+       runaway process is the point of the surface (#58) and terminating a process
+       strictly reduces what is running. It may not create, type, resize or
+       retitle: the last two mutate state every attached viewer sees.
+    - **`GET /api/pty/capabilities` is the single source of truth for the UI.** The
+       page renders from it rather than guessing, so a read-only deployment never
+       shows an input caret it cannot honour.
+    - **Mobile is read-only regardless of server mode.** A soft keyboard cannot
+       send Ctrl, Tab or arrow keys, so "interactive" on a phone is a terminal you
+       can break something in but not work in. Read-only viewing of long-running
+       output is the phone case #58 actually described. The launcher is hidden
+       there too: a shell you cannot type into is not worth spawning, and
+       spawning one is the more consequential half of the pair.
+    - **The byte stream is not retained.** Terminal *lifecycle* — started,
+       attached (with origin and mode), exited (with code) — is appended to the
+       notification history as kind `pty`, defaulting to **no delivery**: the
+       record is the audit trail, the ping is opt-in. Recording keystrokes and
+       output would capture secrets typed at a prompt and printed by tools, and
+       this app has nowhere safe to keep that. `pty.deleted` is not recorded
+       because a kill already produced `pty.exited`.
+    - **Registering an `upgrade` listener suppressed Node's default destruction of
+       every other upgrade**, leaving unrelated paths hanging open. The handler
+       restores it explicitly; a second upgrade consumer must route through
+       `ptySocket.ts` rather than adding its own listener.
+    - **Resize is HTTP (`PUT /api/pty/:id`), not a socket message.** The socket
+       stays a pure byte pipe and resizing passes the same mode check as every
+       other mutation.
+    - **Terminal is a conditional entry in the nav overflow menu**, present only
+       when `/api/app-config` reports the feature on. A destination that exists
+       but refuses is worse than one that is honestly absent.
+
 ## Client conventions (inherited from the OpenHands runner, still enforced)
 
 - `client/ds/` primitives are forwardRef + `cn()` + semantic `var(--color-*)` tokens
   only. **Never raw hex.**
 - Every interactive element carries a `data-testid`.
 - No new runtime dependencies without a reason recorded here.
+- `ws` (server) and `@xterm/xterm` + `@xterm/addon-fit` (client) exist only for the
+  PTY terminal (#16). Express 5 cannot handle a WebSocket upgrade, and writing a VT
+  emulator — control sequences, wide characters, reflow — is not in scope. All three
+  are inert when `PTY_ENABLED` is unset: the router is not mounted, no WebSocket
+  server is created, and `/terminal` is the **one lazily loaded route**, so the
+  ~300 kB xterm chunk is never fetched by a deployment that has the feature off.
 - `qrcode-generator@2.0.4` is the sole QR runtime dependency: it creates the
   phone-transfer matrix entirely in the browser, avoiding URL disclosure to an
   external image service. The app reads its matrix API and renders a React SVG

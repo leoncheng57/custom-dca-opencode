@@ -101,6 +101,30 @@ The BFF adds narrower boundaries around browser-controlled input:
 - Unknown event types are tolerated because the global stream contains events outside the
   typed client union.
 
+### The PTY terminal is outside that guardrail
+
+The permission policy governs *agent tool calls*. A PTY spawns a login shell with the host
+environment, so none of it applies: `POST /pty` overwrites `args` with `["-l"]` and accepts
+any `cwd`, both verified against 1.18.21. The feature is therefore off unless `PTY_ENABLED`
+names a mode, and when on it is fenced by four checks the BFF owns end to end:
+
+| Gate | Where | Why the BFF has to do it |
+|---|---|---|
+| Mode | `server/ptyPolicy.ts` | Unset means the router is never mounted and no WebSocket server is created |
+| `Origin` allowlist | `server/routes/ptySocket.ts` | Browsers do not apply CORS to WebSocket handshakes, and upstream accepts any `Origin` |
+| `cwd` containment | `requireWorkspaceSubdirectory` in `server/paths.ts` | Upstream performs none; `cwd: /etc` succeeds |
+| PTY ownership | `GET /pty/{id}?directory=` on attach | `Pty` carries no directory, but a foreign directory 404s |
+
+The socket itself is proxied: the browser holds a same-origin `ws://…/api/pty/:id/attach` and
+never learns the OpenCode origin or credential. No connect ticket is minted — `connect-token`
+answers 403 in 1.18.21 even with valid auth, and the BFF can send `Authorization` on the
+upgrade because it is not a browser. In read-only mode every browser→BFF frame is dropped at
+the proxy, not merely disabled in the UI.
+
+Terminal lifecycle (started, attached with its origin, exited with its code) is appended to the
+notification history as kind `pty` with delivery off by default. The byte stream is deliberately
+not retained: it would capture secrets typed at a prompt and printed by tools.
+
 ## Extension map
 
 | Change | Start here | Preserve |
@@ -112,6 +136,7 @@ The BFF adds narrower boundaries around browser-controlled input:
 | Notifications | `server/notifications.ts`, `client/lib/useNotificationCenter.tsx` | Manual-only resolution semantics |
 | Sub-agent state or controls | `server/opencode/subagents.ts` | Evidence precedence and honest `unknown` rows |
 | Preview behavior | `server/preview.ts` | Port allowlist and stripped credentials |
+| Terminal behavior | `server/ptyPolicy.ts`, `server/routes/pty.ts`, `server/routes/ptySocket.ts` | Off by default, `Origin` allowlist, `cwd` containment, no credential or ticket in the browser |
 | Deployment | `deploy/README.md`, `scripts/launchd.ts` | One supervised BFF and one existing OpenCode server |
 
 ## Verification architecture

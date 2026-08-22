@@ -216,6 +216,33 @@ cookies, authorization, host headers or OpenCode credentials.
 Note that permission precedence is **last-match-wins**, the opposite of most ACL
 systems. Broad rules first, specific overrides after.
 
+### The terminal is the exception
+
+`PTY_ENABLED` is **off by default**, and it is the one feature the paragraph above
+does not protect. A PTY spawns a **login shell as your user with the host
+environment**; the `permission` block governs *agent tool calls*, so `sudo *: deny`
+and the `~/.ssh` read-denies simply do not run for a shell. Enabling it on a
+`0.0.0.0` bind means anything that can reach the app can reach a shell.
+
+| `PTY_ENABLED` | What it permits |
+| --- | --- |
+| unset / `off` | Nothing. The routes are not mounted and no WebSocket server exists. |
+| `read-only` | List, inspect, attach (view only) and kill. |
+| `interactive` | The above, plus create, type and resize. |
+
+`1`, `true` and `yes` resolve to `read-only`; interactive must be spelled out. An
+unrecognised value fails at boot rather than guessing.
+
+When enabled, the BFF proxies the terminal WebSocket so the browser never sees the
+OpenCode origin or credential, validates the handshake `Origin` against
+`PUBLIC_APP_URL` + `PTY_ALLOWED_ORIGINS` + this app's own loopback ports (browsers
+do not apply CORS to WebSocket handshakes), confines `cwd` to the project, and
+restricts the command to shells the host reports as acceptable. Terminals started,
+attached and exited are recorded in notification history; the byte stream is not,
+because it would capture whatever secrets get typed and printed.
+
+Full rationale and the trade-offs accepted: AGENTS.md decision #16.
+
 ## License
 
 MIT

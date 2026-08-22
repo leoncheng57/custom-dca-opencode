@@ -31,7 +31,24 @@ export function AppShell() {
   const [paletteQuery, setPaletteQuery] = useState("");
   const [paletteSessions, setPaletteSessions] = useState<SessionSummary[]>([]);
   const [paletteStatus, setPaletteStatus] = useState<string | undefined>();
+  // Terminals are off by default, so the nav entry only exists when the server
+  // says the feature does. Cheap static route, fetched once per mount.
+  const [ptyEnabled, setPtyEnabled] = useState(false);
   const paletteRequest = useRef(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .appConfig()
+      .then((config) => {
+        if (!cancelled) setPtyEnabled(config.pty?.enabled === true);
+      })
+      // An older BFF has no `pty` field; absent means off, which is the default.
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const directory = resolvePaletteDirectory(location.search, localStorage.getItem(DIRECTORY_STORAGE_KEY));
   const scopedPath = (path: string) =>
@@ -94,6 +111,16 @@ export function AppShell() {
     navigation: [
       { id: "home", title: "Home", to: scopedPath("/"), keywords: ["sessions"] },
       { id: "tools", title: "Tools", to: scopedPath("/tools"), keywords: ["mcp", "lsp", "permissions"] },
+      ...(ptyEnabled
+        ? [
+            {
+              id: "terminal",
+              title: "Terminal",
+              to: scopedPath("/terminal"),
+              keywords: ["pty", "shell", "console", "bash", "zsh"],
+            },
+          ]
+        : []),
       { id: "docs", title: "Docs", to: scopedPath("/docs"), keywords: ["architecture", "contributing", "internals"] },
       {
         id: "notifications",
@@ -153,7 +180,11 @@ export function AppShell() {
             <Search aria-hidden="true" size={16} />
           </Button>
           <NotificationPopover scopedPath={scopedPath} />
-          <NavOverflowMenu scopedPath={scopedPath} onOpenPhoneTransfer={() => void openPhoneTransfer()} />
+          <NavOverflowMenu
+            scopedPath={scopedPath}
+            showTerminal={ptyEnabled}
+            onOpenPhoneTransfer={() => void openPhoneTransfer()}
+          />
         </nav>
         <div className="min-h-0 flex-1">
           <Outlet />

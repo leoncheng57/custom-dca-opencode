@@ -37,8 +37,11 @@ export interface Tone {
   type: OscillatorType;
 }
 
-const EVENTS: NotifyEvent[] = ["idle", "error", "abort", "permission", "question", "parked"];
-const DEFAULT_EVENTS = Object.fromEntries(EVENTS.map((event) => [event, event !== "abort"])) as Record<NotifyEvent, boolean>;
+const EVENTS: NotifyEvent[] = ["idle", "error", "abort", "permission", "question", "parked", "pty"];
+// "abort" is noise on a deliberate stop; "pty" is an audit kind whose ping is
+// opt-in, matching the server default in notifications/preferences.ts.
+const QUIET_BY_DEFAULT = new Set<NotifyEvent>(["abort", "pty"]);
+const DEFAULT_EVENTS = Object.fromEntries(EVENTS.map((event) => [event, !QUIET_BY_DEFAULT.has(event)])) as Record<NotifyEvent, boolean>;
 
 export const DEFAULT_DEVICE_NOTIFICATION_PREFERENCES: DeviceNotificationPreferences = {
   version: 1,
@@ -141,6 +144,7 @@ export function notificationPhrase(event: NotifyEvent): string | null {
     case "permission": return "OpenCode needs permission";
     case "question": return "OpenCode asked a question";
     case "parked": return "Session is waiting for approval";
+    case "pty": return "Terminal activity";
     case "abort": return null;
   }
 }
@@ -152,6 +156,7 @@ const DISTINCT_FREQUENCIES: Record<NotifyEvent, number[]> = {
   permission: [440, 587],
   question: [494, 659, 587],
   parked: [392, 392, 523],
+  pty: [349, 466],
 };
 
 export function tonePattern(event: NotifyEvent, profile: SoundProfile): Tone[] {

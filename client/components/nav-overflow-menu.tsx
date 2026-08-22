@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { BookOpen, MoreHorizontal, Settings, Smartphone, Wrench } from "lucide-react";
+import { BookOpen, MoreHorizontal, Settings, Smartphone, SquareTerminal, Wrench } from "lucide-react";
 import { NavLink } from "react-router-dom";
 
 import { Button } from "../ds/button.js";
@@ -17,6 +17,19 @@ const LINKS = [
 ] as const;
 
 /**
+ * Terminals are off by default (AGENTS.md #16), so this entry appears only when
+ * the server reports the feature enabled. Kept out of LINKS rather than
+ * rendered disabled: a destination that exists but refuses is worse than one
+ * that is honestly absent.
+ */
+const TERMINAL_LINK = {
+  to: "/terminal",
+  label: "Terminal",
+  testId: "opencode-nav-terminal",
+  Icon: SquareTerminal,
+} as const;
+
+/**
  * Secondary navigation. These destinations stay reachable — and stay in the
  * command palette unchanged — but they no longer compete with the brand,
  * search and the notification centre for the top bar.
@@ -30,10 +43,13 @@ const LINKS = [
 export function NavOverflowMenu({
   scopedPath,
   onOpenPhoneTransfer,
+  showTerminal = false,
 }: {
   scopedPath: (path: string) => string;
   onOpenPhoneTransfer: () => void;
+  showTerminal?: boolean;
 }) {
+  const links = showTerminal ? [...LINKS, TERMINAL_LINK] : LINKS;
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -109,7 +125,7 @@ export function NavOverflowMenu({
                 Phone
               </button>
             </li>
-            {LINKS.map(({ to, label, testId, Icon }) => (
+            {links.map(({ to, label, testId, Icon }) => (
               <li key={to}>
                 <NavLink
                   className={({ isActive }) => cn(ITEM_CLASS, isActive && "bg-[var(--color-background-surface-neutral-muted)] font-semibold")}

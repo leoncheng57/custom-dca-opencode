@@ -35,6 +35,10 @@ import { appConfigRoutes } from "./routes/appConfig.js";
 import { projectRoutes } from "./routes/projects.js";
 import { modelPinRoutes } from "./routes/modelPins.js";
 import { recentRoutes } from "./routes/recents.js";
+import { ptyRoutes } from "./routes/pty.js";
+import { attachPtySocket } from "./routes/ptySocket.js";
+import { PtyAuditService } from "./notifications/ptyAudit.js";
+import { parsePtyAllowedOrigins, parsePtyMode, ptyOriginAllowlist } from "./ptyPolicy.js";
 import { parsePublicAppUrl } from "./publicAppUrl.js";
 
 dotenv.config();
@@ -43,6 +47,22 @@ const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const opencode = readOpencodeConfig();
 const publicAppUrl = parsePublicAppUrl(process.env.PUBLIC_APP_URL);
+// Parsed at boot, before listen(), so a malformed value fails loudly here
+// rather than silently downgrading the most dangerous feature in the app to a
+// different mode — or half-starting a server that is already accepting traffic.
+const ptyMode = parsePtyMode(process.env.PTY_ENABLED);
+const ptyShell = process.env.PTY_SHELL?.trim() || null;
+const ptyOrigins =
+  ptyMode === "off"
+    ? []
+    : ptyOriginAllowlist({
+        publicAppUrl,
+        extra: parsePtyAllowedOrigins(process.env.PTY_ALLOWED_ORIGINS),
+        // The BFF's own port, plus the Vite dev server that proxies to it
+        // (vite.config.ts pins 5173). Loopback is NOT trusted wholesale — see
+        // ptyPolicy.ts. Any other origin needs PTY_ALLOWED_ORIGINS.
+        loopbackPorts: [PORT, 5173],
+      });
 
 app.use(express.json({ limit: "20mb" }));
 
@@ -64,6 +84,11 @@ const notificationService = new NotificationService(
   (directory) => autoPermissions.isEnabled(directory),
 );
 notificationService.start();
+// A terminal is the one action in this app that would otherwise leave no trace
+// (AGENTS.md #16). Only started when the feature is on, so an `off` deployment
+// gains no listener.
+const ptyAudit = ptyMode === "off" ? null : new PtyAuditService(bus, notificationStore, notificationHistory);
+ptyAudit?.start();
 bus.start();
 
 app.use("/api", sessionRoutes(opencode, bus, publicAppUrl, autoPermissions));
@@ -74,12 +99,17 @@ app.use("/api", worktreeRoutes(opencode, bus));
 app.use("/api", notificationRoutes(notificationStore, notificationHistory));
 app.use("/api", forgeRoutes());
 app.use("/api", reminderRoutes());
-app.use("/api", appConfigRoutes(publicAppUrl));
+app.use("/api", appConfigRoutes({ publicAppUrl, ptyMode }));
 app.use("/api", projectRoutes());
 app.use("/api", modelPinRoutes());
 app.use("/api", recentRoutes(opencode));
 const opencodePort = Number(new URL(opencode.baseUrl).port || 80);
 app.use("/api", previewRoutes(parseAllowedPorts(process.env.PREVIEW_ALLOWED_PORTS, [PORT, opencodePort])));
+// Mounted conditionally, unlike previewRoutes: issue #59 asked that an absent
+// flag mean the routes do not exist, not that they exist and refuse.
+if (ptyMode !== "off") {
+  app.use("/api", ptyRoutes(opencode, { mode: ptyMode, shell: ptyShell }));
+}
 
 /**
  * Liveness for this BFF plus reachability of the OpenCode server behind it.
@@ -123,7 +153,22 @@ app.get(/^\/(?!api\/).*/, (_req, res) => {
   res.sendFile("index.html", { root: clientDir });
 });
 
-app.listen(PORT, "0.0.0.0", () => {
+const server = app.listen(PORT, "0.0.0.0", () => {
   // 0.0.0.0 so the app is reachable over the tailnet from a phone.
   console.log(`[bff] listening on :${PORT} -> opencode ${opencode.baseUrl}`);
 });
+
+// Express 5 cannot handle an upgrade, so the WebSocket proxy binds to the
+// http.Server directly. The return value of app.listen() is retained purely
+// for this; nothing else needs it.
+if (ptyMode !== "off") {
+  attachPtySocket(server, opencode, {
+    mode: ptyMode,
+    allowedOrigins: ptyOrigins,
+    ...(ptyAudit ? { onAttach: (event) => ptyAudit.recordAttach(event) } : {}),
+  });
+  console.warn(
+    `[pty] terminal enabled in ${ptyMode} mode — a PTY bypasses opencode.json permissions ` +
+      `(AGENTS.md #16). Origins: ${ptyOrigins.join(", ") || "none"}`,
+  );
+}

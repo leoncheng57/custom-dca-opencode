@@ -15,6 +15,9 @@ function classify(type: string, properties: Record<string, unknown>): NotifyEven
   if (type === "permission.asked") return "permission";
   if (type === "question.asked") return "question";
   if (type === "notification.parked") return "parked";
+  // Terminal lifecycle. Off by default in preferences; recording it as
+  // "desktop allowed" would be a lie if nothing here could ever render it.
+  if (type === "pty.created" || type === "pty.exited") return "pty";
   if (type === "session.error") {
     const error = properties.error;
     return error && typeof error === "object" && (error as Record<string, unknown>).name === "MessageAbortedError"
