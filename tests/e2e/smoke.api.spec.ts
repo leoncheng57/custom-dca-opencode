@@ -647,6 +647,12 @@ test.describe("prompting", () => {
     }));
     expect(payload.reminders[0]).not.toHaveProperty("body");
     expect(payload.reminders[0]).not.toHaveProperty("enabled");
+    expect(payload.reminders).toContainEqual({
+      id: "native-worktree-subagent",
+      title: "Delegate in an Isolated Worktree",
+      description: expect.stringContaining("native Task child"),
+      triggers: [],
+    });
   });
 
   test("rejects malformed and unknown reminder ids", async ({ request }) => {

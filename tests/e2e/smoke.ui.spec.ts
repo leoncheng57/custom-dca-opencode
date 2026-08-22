@@ -850,7 +850,7 @@ test.describe("composer", () => {
     await expect(picker).toContainText("unknown");
   });
 
-  test("round-trips two imported reminders by ID and resets the picker", async ({ page }) => {
+  test("round-trips imported and local reminders by ID and resets the picker", async ({ page }) => {
     const sent: Array<Record<string, unknown>> = [];
     await page.route("**/api/sessions/*/prompt?*", async (route) => {
       sent.push(route.request().postDataJSON() as Record<string, unknown>);
@@ -864,6 +864,9 @@ test.describe("composer", () => {
     const humanVerification = page.locator('[data-testid="composer-reminder-option"][data-reminder-id="human-verification-steps"]');
     await expect(humanVerification).toContainText("Write Human Verification Steps");
     await expect(humanVerification).toContainText("verifies completed behavior from a user's perspective");
+    const nativeWorktree = page.locator('[data-testid="composer-reminder-option"][data-reminder-id="native-worktree-subagent"]');
+    await expect(nativeWorktree).toContainText("Delegate in an Isolated Worktree");
+    await expect(nativeWorktree).toContainText("native Task child");
     await page.getByTestId("composer-reminder-search").fill("Red-Team");
     await expect(page.getByTestId("composer-reminder-option")).toHaveCount(1);
     await expect(page.getByTestId("composer-reminder-option")).toContainText("Red-Team This");
@@ -878,6 +881,7 @@ test.describe("composer", () => {
     const cases = [
       { id: "red-team-this", text: `red team ${Date.now()}`, body: "Explicitly switch from author" },
       { id: "human-verification-steps", text: `manual QA ${Date.now()}`, body: "Run the repository's relevant automated checks" },
+      { id: "native-worktree-subagent", text: `native worktree ${Date.now()}`, body: "child session directory remains the parent's directory" },
     ];
     for (const reminderCase of cases) {
       await picker.click();
@@ -897,7 +901,7 @@ test.describe("composer", () => {
       await expect(user).not.toContainText("<reminder");
     }
 
-    expect(sent).toHaveLength(2);
+    expect(sent).toHaveLength(cases.length);
     expect(sent.map(({ reminder }) => reminder)).toEqual(cases.map(({ id }) => id));
     for (const payload of sent) {
       expect(Object.keys(payload).sort()).toEqual(["mode", "reminder", "text"]);

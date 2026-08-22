@@ -152,6 +152,28 @@ describe("shipped catalogue", () => {
       expect(reminder.body).not.toContain(reminder.source!.repo);
     }
   });
+
+  it("ships the guarded native worktree subagent workflow", () => {
+    const reminder = reminderCatalogue().find(({ id }) => id === "native-worktree-subagent");
+    expect(reminder).toMatchObject({
+      title: "Delegate in an Isolated Worktree",
+      description: expect.stringContaining("native Task child"),
+      triggers: [],
+      source: undefined,
+    });
+    expect(reminder!.body).toContain("child `parentID`");
+    expect(reminder!.body).toContain("child session directory remains the parent's directory");
+    expect(reminder!.body).toContain("absolute paths");
+    expect(reminder!.body).toContain("Bash `workdir` or `git -C <worktree>`");
+    expect(reminder!.body).toContain("Before editing, testing, committing, and pushing");
+    expect(reminder!.body).toContain("`pwd`");
+    expect(reminder!.body).toContain("`git rev-parse --show-toplevel`");
+    expect(reminder!.body).toContain("`git status --short --branch`");
+    expect(reminder!.body).toContain("Stop immediately on any mismatch");
+    expect(reminder!.body).toContain("assigned `external_directory`");
+    expect(reminder!.body).toContain("precedence is last-match-wins");
+    expect(reminder!.body).toContain("replace targeted worktree allowlists with `*`");
+  });
 });
 
 describe("reminderTag / withReminderTag", () => {

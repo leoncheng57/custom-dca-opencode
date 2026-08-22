@@ -16,6 +16,7 @@ durable background-job scheduler.
 | **Parent session** | The session whose agent invoked the delegation tool. Parent and child remain separate transcripts. |
 | **Foreground task** | A synchronous delegation. The repository's adapter treats a completed foreground task part as terminal because its supported contract says the parent call waited for the child. |
 | **Background task** | An asynchronous delegation. Launch returns quickly and the workflow reports a task identifier; completion arrives later. A completed launch part does **not** prove that the child finished. |
+| **External-worktree Task child** | A task-tool child assigned to a sibling Git worktree. It preserves native `parentID`, foreground/background, sidebar, and hand-back behavior, but its session directory remains the parent's directory. Every operation must explicitly target the assigned absolute worktree path. |
 | **Independent worker session** | A separately started OpenCode session, usually in its own Git worktree and branch. It is not a task-tool child unless it was created with a `parentID`. |
 | **Session todo** | A checklist item from `GET /session/{id}/todo`. Todos organize one session; they do not execute work or create sessions. OpenCode 1.18.21 todos have no stable `id`. |
 | **`subtask` command** | Catalogue metadata on a slash command. The UI displays whether a command is `subtask` or `primary`, but that flag is not child-session navigation and does not itself create or track a child. |
@@ -192,6 +193,16 @@ There are two evidence limits to preserve when changing this code:
   creation-time snapshot. Existing children retaining stale permissions after a parent mode change
   is a risk to test, not established behavior.
 
+For an external-worktree Task child, distinguish filesystem access from session scoping. Allowing
+the sibling path through `external_directory` lets tools address it, but does not move the child
+session there. Relative file operations, default shell CWD, LSP/VCS/snapshot context, and
+directory-scoped events remain tied to the parent directory. Before launch, activate Build for
+mutating work and verify `task`, Bash, edit/write/apply-patch, and the assigned external path are
+allowed. If access still fails, inspect the effective project policy and the addressed session's
+permission-rule tail: precedence is last-match-wins, so a late Plan wildcard denial can override an
+earlier project allow. Keep targeted worktree allowlists; do not add an unconditional Task allow or
+broaden external filesystem access to `*`.
+
 ## Events, polling, and completion
 
 The BFF owns one upstream `GET /global/event` connection. Unlike directory-scoped `/event`, the
@@ -260,30 +271,40 @@ Known gaps and limits:
 | Independent, read-only research within one turn | Task-tool sub-agents | They isolate context and can return concise evidence to one parent. Split by non-overlapping source or question. |
 | One result is required before the parent can proceed | Foreground task | The parent waits and can consume the result immediately. |
 | Independent work can finish later | Background task | The parent can continue, provided the work needs no immediate back-and-forth and completion uncertainty is acceptable. |
+| Code changes need native parent-child semantics | External-worktree Task child | It preserves `parentID`, sidebar visibility, foreground/background behavior, and result hand-back while isolating Git state. Absolute targeting is mandatory because the child directory does not change. |
 | Several code changes on different branches | Independent sessions in separate worktrees | Git indexes, branches, and working files are isolated; each worker can test and open its own PR. |
 | A checklist inside one session | Todos | Todos express progress only; they do not create concurrency. |
 | A reusable slash-command classification | `subtask` metadata | It describes the command catalogue, not execution state or navigation. |
 
 ### Safe parallel edits
 
-Use task-tool fan-out primarily for read-only or strictly non-overlapping work. Once two workers can
-mutate code, prefer independent sessions in sibling Git worktrees, each on its own branch created
-from current `origin/main`.
+Use task-tool fan-out primarily for read-only or strictly non-overlapping work. For mutating work,
+independent sessions in sibling worktrees provide true directory scoping. When native Task
+relationships are required, a Task child may instead operate in an allowed external worktree, with
+the limitations and guards below.
 
 Before launching parallel mutating workers:
 
-1. Assign explicit file ownership and do not let two workers edit the same file.
-2. Give each worker an absolute worktree path, branch, objective, exclusions, and verification
-   commands.
-3. Identify resources that worktrees still share: fixed ports, external services, global caches,
-   credentials, databases, and state outside the worktree.
-4. Allow only one worker to own a fixed-port stack or shared mutable service at a time.
-5. Keep commits scoped to the assigned files; review before combining branches.
-6. Never treat a background launch result as permission to duplicate its work in the parent.
+1. Fetch the remote and create one sibling worktree per mutating child from fresh `origin/main`.
+2. Assign explicit, non-overlapping file ownership and do not edit those files in the parent.
+3. Launch through the native Task tool. Include the absolute worktree path, branch, issue, objective,
+   owned files, non-goals, exact verification, and explicit commit/push/PR deliverables.
+4. Require absolute paths for file tools and an explicit Bash `workdir` or `git -C <worktree>` for
+   every command.
+5. Before editing, testing, committing, and pushing, require the child to run `pwd`,
+   `git rev-parse --show-toplevel`, and `git status --short --branch` in the assigned worktree.
+6. Stop immediately if the resolved repository root differs from the assigned absolute path.
+7. Identify resources that worktrees still share: fixed ports, external services, global caches,
+   credentials, databases, and state outside the worktree. Give one worker ownership of each shared
+   mutable resource.
+8. Never treat a background launch result as permission to duplicate its work in the parent.
+   Monitor the native child, review its PR, and clean up only after merge.
 
-The [parallel research handoff reminder](../reminders/parallel-research-handoff/SKILL.md) gives a
-full research-to-worktree workflow. The [background delegation reminder](../reminders/background-subagent/SKILL.md)
-and [deep research reminder](../reminders/deep-research-subagents/SKILL.md) provide narrower prompt
+The [native worktree subagent reminder](../reminders/native-worktree-subagent/SKILL.md) injects this
+guarded Task-child workflow. The [parallel research handoff reminder](../reminders/parallel-research-handoff/SKILL.md)
+covers independent root sessions with true worktree directory scoping. The
+[background delegation reminder](../reminders/background-subagent/SKILL.md) and
+[deep research reminder](../reminders/deep-research-subagents/SKILL.md) provide narrower prompt
 contracts.
 
 ## Contributor verification checklist
