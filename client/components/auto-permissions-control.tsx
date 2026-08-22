@@ -70,9 +70,16 @@ export function AutoPermissionsControl({
 
   const enabled = status?.enabled ?? false;
   const compact = variant === "compact";
-  // Below `sm` every hit area stays a full 44px even in the compact variant;
-  // only the pointer-fine/desktop rendering is allowed to shrink.
-  const touchTarget = compact ? "min-h-11 sm:min-h-7" : "";
+  // Hit area is decided by pointer type, never by viewport width — the same
+  // mechanism `COMPACT_ACTION` in Conversation.tsx uses for the action buttons
+  // sitting beside this control in the same toolbar row. A touch tablet at
+  // 768px is still a touch tablet, and this toggle is the most dangerous
+  // control in the row, so it must not be the one that shrinks.
+  //
+  // styles.css already floors every `button` at 44px under `(pointer: coarse)`,
+  // but that is a global net this component must not silently depend on: the
+  // utility below keeps the control correct on its own.
+  const touchTarget = compact ? "min-h-7 pointer-coarse:min-h-11" : "";
   return (
     <div data-testid={testId} className={cn(compact && "min-w-0")}>
       <Alert
@@ -111,7 +118,7 @@ export function AutoPermissionsControl({
             onClick={() => void toggle()}
             className={cn(
               "inline-flex shrink-0 items-center justify-center disabled:opacity-50",
-              compact ? `w-11 sm:h-5 sm:w-9 ${touchTarget}` : "h-5 w-9",
+              compact ? `w-9 pointer-coarse:w-11 ${touchTarget}` : "h-5 w-9",
             )}
             data-testid={`${testId}-toggle`}
           >

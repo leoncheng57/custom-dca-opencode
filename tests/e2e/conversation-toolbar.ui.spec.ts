@@ -26,6 +26,47 @@ async function resetAutoPermissions(page: Page): Promise<void> {
   });
 }
 
+/**
+ * `client/styles.css` floors every `button` at 44px under `(pointer: coarse)`,
+ * and that unlayered rule outranks Tailwind's layered utilities. It is a good
+ * net, but it also hides the difference between a component that earns its own
+ * hit area and one that only inherits it — a breakpoint-keyed control renders
+ * at 44px on a touch tablet purely because of this rule. Dropping the rule from
+ * the CSSOM is what makes the component's own sizing observable.
+ */
+async function dropGlobalCoarsePointerFloor(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    let removed = 0;
+    const targetsBareButton = (rule: CSSMediaRule) =>
+      Array.from(rule.cssRules).some(
+        (inner) =>
+          inner instanceof CSSStyleRule &&
+          inner.selectorText.split(",").some((selector) => selector.trim() === "button"),
+      );
+    const scan = (group: CSSGroupingRule | CSSStyleSheet) => {
+      const rules = group.cssRules;
+      for (let index = rules.length - 1; index >= 0; index -= 1) {
+        const rule = rules[index];
+        if (rule instanceof CSSMediaRule && /pointer\s*:\s*coarse/.test(rule.conditionText) && targetsBareButton(rule)) {
+          group.deleteRule(index);
+          removed += 1;
+          continue;
+        }
+        if ("cssRules" in rule) scan(rule as CSSGroupingRule);
+      }
+    };
+    for (const sheet of Array.from(document.styleSheets)) {
+      try {
+        void sheet.cssRules;
+      } catch {
+        continue;
+      }
+      scan(sheet);
+    }
+    return removed;
+  });
+}
+
 async function box(locator: Locator) {
   const rect = await locator.boundingBox();
   expect(rect, "element should have a layout box").not.toBeNull();
@@ -171,6 +212,79 @@ test.describe("conversation header layout", () => {
         const rect = await box(page.getByTestId(id));
         expect(rect.height, `${id} must keep a 44px touch target`).toBeGreaterThanOrEqual(44);
       }
+      await resetAutoPermissions(page);
+    });
+  });
+
+  // Regression guard for the review of PR #77: the compact variant originally
+  // keyed its hit area off the `sm` breakpoint, so a touch tablet at >=640px
+  // (iPad portrait is 768px) collapsed the auto-permissions toggle to 28px
+  // while the Wrap/Share/Workspace buttons beside it — which key off pointer
+  // type — correctly stayed 44px. A breakpoint is not a pointer type.
+  test.describe("touch tablet at desktop width", () => {
+    test.use({ viewport: DESKTOP, hasTouch: true });
+
+    test("keeps the auto-permissions controls at 44px on a coarse pointer at any width", async ({ page }) => {
+      await resetAutoPermissions(page);
+      await page.goto(conversation);
+
+      const control = page.getByTestId("opencode-conversation-auto-permissions");
+      const toggle = control.getByTestId("opencode-conversation-auto-permissions-toggle");
+
+      const toggleRect = await box(toggle);
+      expect(
+        toggleRect.height,
+        "the auto-permissions toggle must keep a 44px touch target on a coarse pointer, not only below sm",
+      ).toBeGreaterThanOrEqual(44);
+
+      // Sanity: the sibling action buttons in the same row already do this, so
+      // the two mechanisms must agree rather than disagree by 16px.
+      const wrapRect = await box(page.getByTestId("opencode-wrap-toggle"));
+      expect(wrapRect.height, "action buttons already honour the coarse pointer").toBeGreaterThanOrEqual(44);
+
+      await toggle.click();
+      await expect(control).toContainText("Auto permissions: ON");
+      const detailsRect = await box(control.getByTestId("opencode-conversation-auto-permissions-details"));
+      expect(
+        detailsRect.height,
+        "Details must keep a 44px touch target on a coarse pointer, not only below sm",
+      ).toBeGreaterThanOrEqual(44);
+
+      await toggle.click();
+      await expect(control).toContainText("Auto permissions: OFF");
+      await resetAutoPermissions(page);
+    });
+
+    // The assertion above cannot fail while styles.css floors every button at
+    // 44px on a coarse pointer, so it does not actually prove the control earns
+    // its own hit area. This one does: with the global net removed, a
+    // breakpoint-keyed control collapses to 28px at this width and a
+    // pointer-keyed one does not.
+    test("earns its 44px hit area without leaning on the global coarse-pointer floor", async ({ page }) => {
+      await resetAutoPermissions(page);
+      await page.goto(conversation);
+
+      const control = page.getByTestId("opencode-conversation-auto-permissions");
+      const toggle = control.getByTestId("opencode-conversation-auto-permissions-toggle");
+      await expect(toggle).toBeVisible();
+
+      const removed = await dropGlobalCoarsePointerFloor(page);
+      expect(removed, "the global coarse-pointer floor in styles.css should have been found").toBeGreaterThan(0);
+
+      expect(
+        (await box(toggle)).height,
+        "the toggle must size itself on pointer type, not on the sm breakpoint",
+      ).toBeGreaterThanOrEqual(44);
+
+      await toggle.click();
+      await expect(control).toContainText("Auto permissions: ON");
+      expect(
+        (await box(control.getByTestId("opencode-conversation-auto-permissions-details"))).height,
+        "Details must size itself on pointer type, not on the sm breakpoint",
+      ).toBeGreaterThanOrEqual(44);
+
+      await toggle.click();
+      await expect(control).toContainText("Auto permissions: OFF");
       await resetAutoPermissions(page);
     });
   });
