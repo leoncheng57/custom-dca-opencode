@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  buildSessionRows,
+  buildSessionTree,
   isSubagentSession,
+  sessionTreeKey,
   subagentEvidenceLabel,
   summarizeSubagentStates,
   SUBAGENT_STATE_LABELS,
@@ -30,11 +31,21 @@ function session(over: Partial<SessionSummary> & { id: string }): SessionSummary
   };
 }
 
-describe("buildSessionRows", () => {
-  const ids = (rows: ReturnType<typeof buildSessionRows>) => rows.map((row) => [row.session.id, row.depth]);
+describe("buildSessionTree", () => {
+  const ids = (tree: ReturnType<typeof buildSessionTree>) => {
+    const rows: Array<[string, number]> = [];
+    const walk = (nodes: typeof tree, depth: number) => {
+      for (const node of nodes) {
+        rows.push([node.session.id, depth]);
+        walk(node.children, depth + 1);
+      }
+    };
+    walk(tree, 0);
+    return rows;
+  };
 
   it("orders each root immediately before the work it delegated", () => {
-    expect(ids(buildSessionRows([
+    expect(ids(buildSessionTree([
       session({ id: "root" }),
       session({ id: "a", parentID: "root" }),
       session({ id: "b", parentID: "root" }),
@@ -44,7 +55,7 @@ describe("buildSessionRows", () => {
 
   it("keeps nesting a grandchild instead of dropping it", () => {
     // Sub-agents can delegate further; a one-level grouping loses this row.
-    expect(ids(buildSessionRows([
+    expect(ids(buildSessionTree([
       session({ id: "root" }),
       session({ id: "child", parentID: "root" }),
       session({ id: "grandchild", parentID: "child" }),
@@ -52,7 +63,7 @@ describe("buildSessionRows", () => {
   });
 
   it("keeps the listing order of roots and of each sibling group", () => {
-    expect(ids(buildSessionRows([
+    expect(ids(buildSessionTree([
       session({ id: "z" }),
       session({ id: "z2", parentID: "z" }),
       session({ id: "a" }),
@@ -63,7 +74,7 @@ describe("buildSessionRows", () => {
   it("promotes an orphan child to a root rather than hiding it", () => {
     // Its parent is archived or lives in another directory. Dropping the row
     // would make the session unreachable from the only page that lists it.
-    expect(ids(buildSessionRows([session({ id: "orphan", parentID: "missing" })]))).toEqual([["orphan", 0]]);
+    expect(ids(buildSessionTree([session({ id: "orphan", parentID: "missing" })]))).toEqual([["orphan", 0]]);
   });
 
   it("emits every session exactly once, including a corrupt parent cycle", () => {
@@ -73,12 +84,43 @@ describe("buildSessionRows", () => {
       session({ id: "cycle1", parentID: "cycle2" }),
       session({ id: "cycle2", parentID: "cycle1" }),
     ];
-    const rows = buildSessionRows(sessions);
-    expect(rows.map((row) => row.session.id).sort()).toEqual(sessions.map((item) => item.id).sort());
+    const rows = ids(buildSessionTree(sessions));
+    expect(rows.map(([id]) => id).sort()).toEqual(sessions.map((item) => item.id).sort());
   });
 
   it("handles an empty listing", () => {
-    expect(buildSessionRows([])).toEqual([]);
+    expect(buildSessionTree([])).toEqual([]);
+  });
+
+  it("keeps parent and sibling context around a limited child match", () => {
+    const root = session({ id: "root" });
+    const matching = session({ id: "matching", parentID: "root" });
+    expect(ids(buildSessionTree([
+      root,
+      matching,
+      session({ id: "sibling", parentID: "root" }),
+      session({ id: "other" }),
+    ], [matching]))).toEqual([["root", 0], ["matching", 1], ["sibling", 1]]);
+  });
+
+  it("orders filtered roots by the selected list rather than source activity", () => {
+    const first = session({ id: "first" });
+    const second = session({ id: "second" });
+    expect(ids(buildSessionTree([first, second], [second, first]))).toEqual([
+      ["second", 0],
+      ["first", 0],
+    ]);
+  });
+
+  it("deduplicates by project and id without merging cross-project collisions", () => {
+    const first = session({ id: "same", directory: "/one" });
+    const duplicate = session({ id: "same", directory: "/one", title: "duplicate" });
+    const other = session({ id: "same", directory: "/two" });
+    const tree = buildSessionTree([first, duplicate, other]);
+    expect(tree.map(({ session: item }) => sessionTreeKey(item))).toEqual([
+      "/one\u0000same",
+      "/two\u0000same",
+    ]);
   });
 });
 

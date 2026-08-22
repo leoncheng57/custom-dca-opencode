@@ -27,8 +27,46 @@ import type { OpencodeConfig } from "../opencode/client.js";
 /** Upper bound on directories fanned out to, after dedupe. */
 export const RECENT_DIRECTORY_LIMIT = 40;
 export const RECENT_SESSION_LIMIT = 5;
+/** Match the full Hub list so an older parent can still contextualize a recent child. */
+export const RECENT_SESSION_CONTEXT_LIMIT = 100;
 /** Upper bound on ids the client may ask to have resolved by name. */
 export const RECENT_LOOKUP_LIMIT = 50;
+
+function sessionKey(session: { directory: string; id: string }): string {
+  return `${session.directory}\u0000${session.id}`;
+}
+
+/** Keep the loaded family around each limited result so the client can render context. */
+export function recentSessionContext<T extends { directory: string; id: string; parentID?: string }>(
+  pool: T[],
+  selected: T[],
+): T[] {
+  const byKey = new Map(pool.map((session) => [sessionKey(session), session]));
+  const children = new Map<string, string[]>();
+  for (const session of pool) {
+    if (!session.parentID) continue;
+    const parentKey = `${session.directory}\u0000${session.parentID}`;
+    if (!byKey.has(parentKey)) continue;
+    children.set(parentKey, [...(children.get(parentKey) ?? []), sessionKey(session)]);
+  }
+  const included = new Set(selected.map(sessionKey));
+  const pending = [...included];
+  while (pending.length > 0) {
+    const key = pending.shift();
+    if (!key) continue;
+    const session = byKey.get(key);
+    const related = [
+      ...(session?.parentID ? [`${session.directory}\u0000${session.parentID}`] : []),
+      ...(children.get(key) ?? []),
+    ];
+    for (const next of related) {
+      if (!byKey.has(next) || included.has(next)) continue;
+      included.add(next);
+      pending.push(next);
+    }
+  }
+  return pool.filter((session) => included.has(sessionKey(session)));
+}
 
 function stringList(value: unknown, limit: number): string[] {
   const raw = typeof value === "string"
@@ -88,16 +126,18 @@ export function recentRoutes(config: OpencodeConfig, store = new ProjectPinStore
     }
 
     try {
-      const pool = await listSessionsAcross(config, directories);
+      const pool = await listSessionsAcross(config, directories, {
+        perDirectoryLimit: RECENT_SESSION_CONTEXT_LIMIT,
+      });
       // Two panels, two selections, one fan-out. "Recently active" wants the
       // newest few; "recently opened" wants specific sessions the browser
       // remembers, which are usually NOT the newest. Sending only the newest
       // would leave the opened panel permanently empty.
-      const selected = new Map(pool.slice(0, limit).map((session) => [session.id, session]));
+      const selected = new Map(pool.slice(0, limit).map((session) => [sessionKey(session), session]));
       for (const session of pool) {
-        if (lookupIDs.has(session.id)) selected.set(session.id, session);
+        if (lookupIDs.has(session.id)) selected.set(sessionKey(session), session);
       }
-      res.json({ sessions: [...selected.values()], directories });
+      res.json({ sessions: recentSessionContext(pool, [...selected.values()]), directories });
     } catch (error) {
       res.status(502).json({ error: error instanceof Error ? error.message : String(error) });
     }

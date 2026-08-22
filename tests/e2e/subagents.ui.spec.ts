@@ -24,29 +24,77 @@ const parentUrl = `/sessions/${PARENT}?directory=${encodeURIComponent(DIR)}`;
 const childUrl = `/sessions/${CHILD_RUNNING}?directory=${encodeURIComponent(DIR)}`;
 
 test.describe("hub hierarchy", () => {
-  test("nests delegated sessions under the root that started them", async ({ page }) => {
+  test("collapses nested sessions by default and expands each level", async ({ page }) => {
     await page.goto(hub);
     const rows = page.getByTestId("opencode-session-row");
     await expect(rows.first()).toContainText("Parallel investigation");
     await expect(rows.first()).toHaveAttribute("data-depth", "0");
+    await expect(rows).toHaveCount(2);
+    await expect(rows.nth(1)).toContainText("Detached delegated session");
 
-    // Children follow their parent, indented, and never appear before it.
-    // The "2" is a sub-agent that delegated further: nested work must not be
-    // dropped from the only page that lists it.
+    const rootDisclosure = page.getByTestId("opencode-session-list-disclosure").first();
+    await expect(rootDisclosure).toHaveAttribute("aria-expanded", "false");
+    await expect(rootDisclosure).toHaveAccessibleName("Show 6 child sessions for Parallel investigation");
+    await rootDisclosure.click();
+    await expect(rootDisclosure).toHaveAttribute("aria-expanded", "true");
+    await expect(rows).toHaveCount(8);
     const depths = await rows.evaluateAll((items) => items.map((item) => item.getAttribute("data-depth")));
-    expect(depths.slice(0, 8)).toEqual(["0", "1", "1", "2", "1", "1", "1", "1"]);
-    await expect(rows.nth(3)).toContainText("Reproduce the flake");
+    expect(depths).toEqual(["0", "1", "1", "1", "1", "1", "1", "0"]);
+    await expect(page.getByText("Reproduce the flake", { exact: true })).toHaveCount(0);
+
+    const nestedDisclosure = page.getByRole("button", { name: "Show 1 child session for Check the tests", exact: true });
+    await nestedDisclosure.click();
+    await expect(page.getByText("Reproduce the flake", { exact: true })).toBeVisible();
+    await expect(rows).toHaveCount(9);
   });
 
   test("marks children with a sub pill and the root with its child count", async ({ page }) => {
     await page.goto(hub);
     const rows = page.getByTestId("opencode-session-row");
     await expect(rows.first().getByTestId("opencode-session-child-count")).toHaveText("6 sub");
+    await page.getByTestId("opencode-session-list-disclosure").first().click();
     // The count is direct children only, so the nested delegation shows on the
     // sub-agent that actually made it.
     await expect(rows.nth(2).getByTestId("opencode-session-child-count")).toHaveText("1 sub");
-    await expect(rows.first().getByTestId("opencode-subagent-pill")).toHaveCount(0);
+    await expect(rows.first().getByTestId("opencode-session-list-row").first().getByTestId("opencode-subagent-pill")).toHaveCount(0);
     await expect(page.getByTestId("opencode-session-list").getByTestId("opencode-subagent-pill")).toHaveCount(7);
+  });
+
+  test("uses the same collapsed tree for recently opened and recently active", async ({ page }) => {
+    await page.addInitScript(({ directory }) => {
+      localStorage.setItem("opencode.recentSessions.v1", JSON.stringify({
+        version: 1,
+        entries: [{ id: "ses_mock_child_done", directory, openedAt: 1 }],
+      }));
+    }, { directory: DIR });
+    await page.goto(hub);
+
+    for (const testId of ["opencode-recently-opened", "opencode-recently-active"]) {
+      const list = page.getByTestId(testId);
+      await expect(list.getByText("Parallel investigation", { exact: true })).toBeVisible();
+      await expect(list.getByText("Check the tests", { exact: true })).toHaveCount(0);
+      await list.getByTestId(`${testId}-disclosure`).first().click();
+      await expect(list.getByText("Check the tests", { exact: true })).toBeVisible();
+      await list.getByText("Check the tests", { exact: true }).click();
+      await expect(page).toHaveURL(new RegExp("/sessions/ses_mock_child_done"));
+      if (testId === "opencode-recently-opened") await page.goto(hub);
+    }
+  });
+});
+
+test.describe("mobile hub hierarchy", () => {
+  test.use({ viewport: { width: 390, height: 740 }, hasTouch: true });
+
+  test("keeps disclosure touch targets and deep indentation mobile-safe", async ({ page }) => {
+    await page.goto(hub);
+    const rootDisclosure = page.getByTestId("opencode-session-list-disclosure").first();
+    expect((await rootDisclosure.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+    await rootDisclosure.click();
+    const nestedDisclosure = page.getByRole("button", { name: "Show 1 child session for Check the tests", exact: true });
+    expect((await nestedDisclosure.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+    await nestedDisclosure.click();
+    await expect(page.getByText("Reproduce the flake", { exact: true })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
   });
 });
 

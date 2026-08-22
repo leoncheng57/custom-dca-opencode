@@ -13,18 +13,16 @@
 
 import type { SessionSummary, SubagentEvidence, SubagentState } from "./api.js";
 
-export interface SessionRow {
+export interface SessionTreeNode {
   session: SessionSummary;
-  /** 0 for a root; one more than its parent otherwise. */
-  depth: number;
+  children: SessionTreeNode[];
 }
 
 /** Indent stops. Beyond this the rows would have no usable title column left. */
 export const MAX_SESSION_DEPTH = 3;
 
 /**
- * Order a directory listing depth-first: each root followed by everything it
- * delegated, recursively.
+ * Project a session list into stable roots and nested descendants.
  *
  * Three properties this guarantees, each of which a naive one-level grouping
  * gets wrong:
@@ -41,36 +39,97 @@ export const MAX_SESSION_DEPTH = 3;
  *   - **Order is stable.** Roots and siblings keep listing order, so the list
  *     does not reshuffle under the reader on every poll.
  */
-export function buildSessionRows(sessions: SessionSummary[]): SessionRow[] {
-  const present = new Set(sessions.map((session) => session.id));
-  const childrenByParent = new Map<string, SessionSummary[]>();
+export function sessionTreeKey(session: Pick<SessionSummary, "directory" | "id">): string {
+  return `${session.directory}\u0000${session.id}`;
+}
 
+export function buildSessionTree(
+  sessions: SessionSummary[],
+  selected: SessionSummary[] = sessions,
+): SessionTreeNode[] {
+  const sessionsByKey = new Map<string, SessionSummary>();
   for (const session of sessions) {
-    if (!session.parentID || !present.has(session.parentID)) continue;
-    const siblings = childrenByParent.get(session.parentID);
-    if (siblings) siblings.push(session);
-    else childrenByParent.set(session.parentID, [session]);
+    const key = sessionTreeKey(session);
+    if (!sessionsByKey.has(key)) sessionsByKey.set(key, session);
   }
 
-  const rows: SessionRow[] = [];
-  const seen = new Set<string>();
+  const parentByChild = new Map<string, string>();
+  const childrenByParent = new Map<string, string[]>();
 
-  const walk = (session: SessionSummary, depth: number): void => {
-    if (seen.has(session.id)) return;
-    seen.add(session.id);
-    rows.push({ session, depth });
-    for (const child of childrenByParent.get(session.id) ?? []) walk(child, depth + 1);
+  for (const [key, session] of sessionsByKey) {
+    if (!session.parentID) continue;
+    const parentKey = `${session.directory}\u0000${session.parentID}`;
+    if (parentKey === key || !sessionsByKey.has(parentKey)) continue;
+    parentByChild.set(key, parentKey);
+    const siblings = childrenByParent.get(parentKey);
+    if (siblings) siblings.push(key);
+    else childrenByParent.set(parentKey, [key]);
+  }
+
+  const included = new Set(
+    selected
+      .map(sessionTreeKey)
+      .filter((key) => sessionsByKey.has(key)),
+  );
+  const selectedOrder = new Map(selected.map((session, index) => [sessionTreeKey(session), index]));
+  const includeFamily = (key: string): void => {
+    if (!sessionsByKey.has(key)) return;
+    let ancestor = parentByChild.get(key);
+    const ancestors = new Set([key]);
+    while (ancestor && !ancestors.has(ancestor)) {
+      included.add(ancestor);
+      ancestors.add(ancestor);
+      ancestor = parentByChild.get(ancestor);
+    }
+    const descendants = [...(childrenByParent.get(key) ?? [])];
+    while (descendants.length > 0) {
+      const child = descendants.shift();
+      if (!child || included.has(child)) continue;
+      included.add(child);
+      descendants.push(...(childrenByParent.get(child) ?? []));
+    }
+  };
+  for (const key of [...included]) includeFamily(key);
+  // Ancestor context is itself expandable, so include its loaded descendants
+  // as well. This keeps sibling navigation and child counts honest.
+  for (const key of [...included]) includeFamily(key);
+
+  const seen = new Set<string>();
+  const walk = (key: string): SessionTreeNode | null => {
+    if (seen.has(key) || !included.has(key)) return null;
+    const session = sessionsByKey.get(key);
+    if (!session) return null;
+    seen.add(key);
+    return {
+      session,
+      children: (childrenByParent.get(key) ?? [])
+        .map(walk)
+        .filter((child): child is SessionTreeNode => child !== null),
+    };
   };
 
-  for (const session of sessions) {
-    if (session.parentID && present.has(session.parentID)) continue;
-    walk(session, 0);
+  const roots: SessionTreeNode[] = [];
+  for (const key of sessionsByKey.keys()) {
+    if (!included.has(key)) continue;
+    const parentKey = parentByChild.get(key);
+    if (parentKey && included.has(parentKey)) continue;
+    const root = walk(key);
+    if (root) roots.push(root);
   }
   // A parent cycle leaves members unreachable from any root. Surface them
   // rather than letting a data fault silently hide live work.
-  for (const session of sessions) walk(session, 0);
+  for (const key of sessionsByKey.keys()) {
+    const root = walk(key);
+    if (root) roots.push(root);
+  }
 
-  return rows;
+  const priority = (node: SessionTreeNode): number => Math.min(
+    selectedOrder.get(sessionTreeKey(node.session)) ?? Number.POSITIVE_INFINITY,
+    ...node.children.map(priority),
+  );
+  roots.sort((left, right) => priority(left) - priority(right));
+
+  return roots;
 }
 
 /** True when this session was delegated to by another one. */
