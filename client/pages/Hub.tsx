@@ -417,6 +417,10 @@ export function HubPage() {
         </div>
       </header>
 
+      <Alert variant="info" className="py-3" data-testid="screenshot-demo-hub">
+        Screenshot demo: the session hub is ready for visual review.
+      </Alert>
+
       {health && !health.upstream.reachable && (
         <Alert variant="danger" data-testid="opencode-upstream-down">
           Cannot reach the OpenCode server at {health.upstream.url}. Start one with{" "}

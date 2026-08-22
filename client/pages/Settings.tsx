@@ -63,6 +63,9 @@ export function SettingsPage() {
         <h1 className="text-xl font-bold">Agent settings</h1>
         <p className="text-sm text-[var(--color-text-muted)]">Global defaults used by OpenCode projects.</p>
       </header>
+      <Alert variant="info" className="py-3" data-testid="screenshot-demo-settings">
+        Screenshot demo: global agent defaults are ready for visual review.
+      </Alert>
       <AppearanceControl />
       <Alert variant="warning">Saving global settings restarts OpenCode project instances. Avoid saving during an active run.</Alert>
       {error && <Alert variant="danger">{error}</Alert>}
