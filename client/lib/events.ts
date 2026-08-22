@@ -20,6 +20,7 @@
 import type {
   Attachment,
   InterruptedState,
+  TaskExecution,
   ToolStatus,
   Transcript,
   TranscriptEvent,
@@ -171,6 +172,60 @@ export function childSessionIdOf(part: RawPart): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+interface NormalizedTaskMetadata {
+  taskExecution?: TaskExecution;
+  taskAgent?: string;
+  taskModel?: string;
+}
+
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+/**
+ * Normalize only fields the task tool itself reports.
+ *
+ * OpenCode 1.18.21 reports the child model and optional background marker in
+ * state metadata. The requested agent is in input.subagent_type. It does not
+ * report child effort, so effort is intentionally absent rather than copied
+ * from the parent message, which may use a different model configuration.
+ */
+export function taskMetadataOf(part: RawPart): NormalizedTaskMetadata {
+  if (part.type !== "tool" || part.tool !== "task") return {};
+
+  const input = part.state?.input;
+  const metadata = part.state?.metadata;
+  if (!input || !metadata) return {};
+
+  const taskAgent = nonEmptyString(input.subagent_type);
+  const model = metadata.model;
+  const modelRecord = model && typeof model === "object" ? model as Record<string, unknown> : undefined;
+  const providerID = nonEmptyString(modelRecord?.providerID);
+  const taskModel = providerID ? nonEmptyString(modelRecord?.modelID) : undefined;
+  const verifiedTask = Boolean(
+    nonEmptyString(input.description) &&
+    nonEmptyString(input.prompt) &&
+    taskAgent &&
+    nonEmptyString(metadata.parentSessionId) &&
+    nonEmptyString(metadata.sessionId) &&
+    providerID &&
+    taskModel &&
+    (input.background === undefined || typeof input.background === "boolean") &&
+    (metadata.background === undefined || metadata.background === true),
+  );
+  if (!verifiedTask) return {};
+
+  let taskExecution: TaskExecution | undefined;
+  if (metadata.background === true || input.background === true) taskExecution = "background";
+  else taskExecution = "foreground";
+
+  return {
+    ...(taskExecution ? { taskExecution } : {}),
+    ...(taskAgent ? { taskAgent } : {}),
+    ...(taskModel ? { taskModel } : {}),
+  };
+}
+
 // ── Sub-agent hand-back notices ─────────────────────────────────────────────
 //
 // A background child reports back by injecting a USER-role message into its
@@ -283,6 +338,7 @@ function normalizePart(
     case "tool": {
       const state = part.state || {};
       const status = toolStatus(state.status);
+      const taskMetadata = taskMetadataOf(part);
       const childSessionId = childSessionIdOf(part);
       return {
         kind: "tool",
@@ -300,6 +356,7 @@ function normalizePart(
         error: state.error,
         durationMs: duration(state.time),
         attachments: [],
+        ...taskMetadata,
         ...(childSessionId ? { childSessionId } : {}),
       };
     }

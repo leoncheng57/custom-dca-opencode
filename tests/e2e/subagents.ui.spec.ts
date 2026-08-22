@@ -71,12 +71,38 @@ test.describe("child session identity", () => {
 });
 
 test.describe("parent transcript", () => {
+  test("renders task-only cards with verified execution metadata", async ({ page }) => {
+    await page.goto(parentUrl);
+    const cards = page.getByTestId("opencode-task-card");
+    await expect(cards).toHaveCount(6);
+    await expect(cards.first().getByTestId("opencode-task-metadata")).toContainText("Foreground");
+    await expect(cards.first().getByTestId("opencode-task-metadata")).toContainText("Agent: explore");
+    await expect(cards.first().getByTestId("opencode-task-metadata")).toContainText("claude-opus-5-with-an-intentionally-long-unbroken-model-name");
+    await expect(cards.nth(2).getByTestId("opencode-task-metadata")).toContainText("Background");
+    await expect(cards.nth(2).getByTestId("opencode-task-metadata")).toContainText("Agent: general");
+  });
+
+  test("keeps disclosure and child navigation as accessible sibling controls", async ({ page }) => {
+    await page.goto(parentUrl);
+    const card = page.locator(`[data-testid="opencode-task-card"][data-child-session="${CHILD_DONE}"]`);
+    const toggle = card.getByTestId("opencode-task-toggle");
+    const link = card.getByTestId("opencode-subagent-link");
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(toggle).toHaveAccessibleName(/completed: Expand task Check the tests/);
+    await toggle.press("Enter");
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await expect(toggle).toHaveAccessibleName(/completed: Collapse task Check the tests/);
+    await expect(link).toBeVisible();
+    await expect(toggle.locator("a")).toHaveCount(0);
+  });
+
   test("links each delegation to the session that ran it", async ({ page }) => {
     await page.goto(parentUrl);
     const delegation = page.locator(`[data-child-session="${CHILD_DONE}"]`).first();
     await expect(delegation).toBeVisible();
     await delegation.getByTestId("opencode-subagent-link").first().click();
     await expect(page).toHaveURL(new RegExp(`/sessions/${CHILD_DONE}`));
+    expect(new URL(page.url()).searchParams.get("directory")).toBe(DIR);
   });
 
   test("keeps a successful delegation out of a collapsed action group", async ({ page }) => {
@@ -84,7 +110,16 @@ test.describe("parent transcript", () => {
     // Six task calls in a row would otherwise fold into one "N actions
     // completed" chevron, hiding every link to the child work.
     await expect(page.getByTestId("opencode-action-group")).toHaveCount(0);
-    await expect(page.getByTestId("opencode-tool")).toHaveCount(6);
+    await expect(page.getByTestId("opencode-task-card")).toHaveCount(6);
+  });
+
+  test("wraps task metadata without horizontal overflow on mobile", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 740 });
+    await page.goto(parentUrl);
+    const card = page.getByTestId("opencode-task-card").first();
+    await expect(card).toBeVisible();
+    expect(await card.evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
   });
 
   test("renders a machine-authored hand-back as a status row, not a user message", async ({ page }) => {

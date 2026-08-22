@@ -82,7 +82,7 @@ function isCollapsible(event: TranscriptEvent): event is ToolEvent {
   // A delegation stays visible even when it succeeded: it is the only route
   // from a parent transcript to the child that did the work, and folding it
   // into "3 actions completed" makes that work unreachable from here.
-  return event.kind === "tool" && event.status === "completed" && !event.childSessionId;
+  return event.kind === "tool" && event.status === "completed" && event.name !== "task" && !event.childSessionId;
 }
 
 /**

@@ -9,6 +9,7 @@ import { memo, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { Markdown } from "../ds/markdown.js";
+import { Badge } from "../ds/badge.js";
 import { cn } from "../ds/utils.js";
 import { formatClockTime, formatDurationMs, formatRelative, type DisplayItem, type RunningActivity } from "../lib/derive.js";
 import type {
@@ -113,6 +114,24 @@ function SubagentLink({
     >
       {label} →
     </Link>
+  );
+}
+
+function TaskPills({ event }: { event: ToolEvent }) {
+  const pills = [
+    event.taskExecution && { label: event.taskExecution === "background" ? "Background" : "Foreground", variant: "info" as const },
+    event.taskAgent && { label: `Agent: ${event.taskAgent}`, variant: "neutral" as const },
+    event.taskModel && { label: event.taskModel, variant: "neutral" as const },
+  ].filter((value): value is { label: string; variant: "info" | "neutral" } => Boolean(value));
+  if (pills.length === 0) return null;
+  return (
+    <div className="flex min-w-0 flex-wrap gap-1.5" data-testid="opencode-task-metadata">
+      {pills.map((pill, index) => (
+        <Badge key={`${pill.label}-${index}`} variant={pill.variant} className="max-w-full normal-case">
+          <span className="truncate">{pill.label}</span>
+        </Badge>
+      ))}
+    </div>
   );
 }
 
@@ -234,6 +253,56 @@ export function ToolCallRow({ event, wrap, directory }: { event: ToolEvent; wrap
   const failed = event.status === "error";
   const duration = formatDurationMs(event.durationMs);
   const preClass = wrap ? "whitespace-pre-wrap break-words" : "thin-scrollbar overflow-x-auto";
+
+  if (event.name === "task") {
+    return (
+      <div
+        data-kind="tool"
+        data-testid="opencode-task-card"
+        data-status={event.status}
+        {...(event.childSessionId ? { "data-child-session": event.childSessionId } : {})}
+        className={cn(
+          "min-w-0 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-background-muted)] p-2.5",
+          failed && "border-[var(--color-border-danger)]",
+        )}
+      >
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setExpanded((value) => !value)}
+            aria-expanded={expanded}
+            aria-label={`${event.status}: ${expanded ? "Collapse" : "Expand"} task ${event.title ?? event.detail ?? "output"}`}
+            className="flex min-w-0 flex-1 items-center gap-1.5 rounded text-left text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-default)]"
+            data-testid="opencode-task-toggle"
+          >
+            <span aria-hidden>{expanded ? "▾" : "▸"}</span>
+            <span className={TOOL_BULLET[event.status]} aria-hidden>●</span>
+            <span className="shrink-0 font-semibold">Task</span>
+            <span className="min-w-0 truncate font-medium text-[var(--color-text-default)]" data-testid="opencode-tool-summary">
+              {event.title ?? event.detail ?? "Delegated work"}
+            </span>
+            {duration && <span className="shrink-0 tabular-nums opacity-70" title="Execution time">{duration}</span>}
+            <TimeLabel timestamp={event.timestamp} />
+          </button>
+          {event.childSessionId && (
+            <SubagentLink directory={directory} sessionId={event.childSessionId} label="Open subagent" />
+          )}
+        </div>
+        <div className="mt-2">
+          <TaskPills event={event} />
+        </div>
+        {expanded && (
+          <div className="mt-2 space-y-1">
+            {event.detail && event.title && <pre className={cn("rounded bg-[var(--color-background-surface)] p-2 font-mono text-[11px]", preClass)}><code>{event.detail}</code></pre>}
+            <pre className={cn("rounded p-2 font-mono text-[11px]", preClass, failed ? "bg-[var(--color-background-surface-danger-muted)]" : "bg-[var(--color-background-surface)]")}>
+              <code>{event.error ?? event.output ?? "(no output)"}</code>
+            </pre>
+            <Attachments items={event.attachments} />
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div

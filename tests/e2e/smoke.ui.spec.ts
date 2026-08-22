@@ -586,6 +586,12 @@ test.describe("transcript", () => {
     await expect(tool).toContainText("export const app = express()");
   });
 
+  test("keeps generic tool calls on the compact renderer", async ({ page }) => {
+    await page.goto(conversation);
+    await expect(page.getByTestId("opencode-tool")).toHaveCount(3);
+    await expect(page.getByTestId("opencode-task-card")).toHaveCount(0);
+  });
+
   test("marks a failed tool call", async ({ page }) => {
     await page.goto(conversation);
     const failed = page.getByTestId("opencode-tool").filter({ hasText: "webfetch" });

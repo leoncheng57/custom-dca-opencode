@@ -121,6 +121,16 @@ describe("collapseActionGroups", () => {
     expect(items.every((i) => i.type === "event")).toBe(true);
   });
 
+  it("keeps task cards visible even when exact child metadata is unavailable", () => {
+    const items = collapseActionGroups([
+      tool("ok1"),
+      tool("task", { name: "task" }),
+      tool("ok2"),
+    ]);
+    expect(items.map((item) => item.id)).toEqual(["ok1", "task", "ok2"]);
+    expect(items.every((item) => item.type === "event")).toBe(true);
+  });
+
   it("leaves a single call ungrouped", () => {
     const items = collapseActionGroups([tool("t1"), agent("a", "hi")]);
     expect(items.map((i) => i.type)).toEqual(["event", "event"]);

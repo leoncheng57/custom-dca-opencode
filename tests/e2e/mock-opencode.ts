@@ -88,7 +88,7 @@ const CHILD_LAUNCHED = "ses_mock_child_launched";
 function taskPart(
   index: number,
   sessionId: string,
-  over: { status: string; description: string; agent: string; background?: boolean },
+  over: { status: string; description: string; agent: string; background?: boolean; modelID?: string },
 ): Record<string, unknown> {
   return {
     id: `prt_task_${index}`,
@@ -98,9 +98,19 @@ function taskPart(
     tool: "task",
     state: {
       status: over.status,
-      input: { description: over.description, subagent_type: over.agent },
+      input: {
+        description: over.description,
+        prompt: `Complete this delegated work: ${over.description}`,
+        subagent_type: over.agent,
+        ...(over.background ? { background: true } : {}),
+      },
       title: over.description,
-      metadata: { sessionId, ...(over.background ? { background: true } : {}) },
+      metadata: {
+        parentSessionId: PARENT_ID,
+        sessionId,
+        model: { providerID: "anthropic", modelID: over.modelID ?? "claude-opus-5" },
+        ...(over.background ? { background: true } : {}),
+      },
       time: { start: 1787400001000 + index, end: 1787400002000 + index },
     },
   };
@@ -115,7 +125,12 @@ function parentMessages(): unknown[] {
     {
       info: { id: "msg_parent_plan", role: "assistant", agent: "build", time: { created: 1787400001000, completed: 1787400003000 } },
       parts: [
-        taskPart(1, CHILD_RUNNING, { status: "running", description: "Audit the parser", agent: "explore" }),
+        taskPart(1, CHILD_RUNNING, {
+          status: "running",
+          description: "Audit the parser",
+          agent: "explore",
+          modelID: "claude-opus-5-with-an-intentionally-long-unbroken-model-name",
+        }),
         taskPart(2, CHILD_DONE, { status: "completed", description: "Check the tests", agent: "explore" }),
         taskPart(3, CHILD_REPORTED, { status: "running", description: "Summarize the docs", agent: "general", background: true }),
         taskPart(4, CHILD_UNKNOWN, { status: "completed", description: "Crawl the changelog", agent: "general", background: true }),
