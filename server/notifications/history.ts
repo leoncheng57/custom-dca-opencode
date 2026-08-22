@@ -68,6 +68,8 @@ export interface NotificationRecord {
   requestID?: string;
   title: string;
   body: string;
+  /** Safe, event-specific copy for authenticated in-app notification rows. */
+  displayBody?: string;
   click?: string;
   resolvedAt?: number;
   resolvedBy?: ResolutionReason;
@@ -84,6 +86,7 @@ export interface AppendRecord {
   requestID?: string;
   title: string;
   body: string;
+  displayBody?: string;
   click?: string;
   delivery: NotificationDelivery;
 }
@@ -165,6 +168,7 @@ function normalizeRecord(value: unknown): NotificationRecord | null {
     ...(optionalString(source.requestID) ? { requestID: String(source.requestID) } : {}),
     title: typeof source.title === "string" ? source.title : "",
     body: typeof source.body === "string" ? source.body : "",
+    ...(optionalString(source.displayBody) ? { displayBody: String(source.displayBody) } : {}),
     ...(optionalString(source.click) ? { click: String(source.click) } : {}),
     ...(Number.isFinite(resolvedAt) ? { resolvedAt } : {}),
     ...(optionalString(source.resolvedBy) ? { resolvedBy: source.resolvedBy as ResolutionReason } : {}),
@@ -277,6 +281,7 @@ export class HistoryStore {
       ...(entry.requestID ? { requestID: entry.requestID } : {}),
       title: entry.title,
       body: entry.body,
+      ...(entry.displayBody ? { displayBody: entry.displayBody } : {}),
       ...(entry.click ? { click: entry.click } : {}),
       delivery: entry.delivery,
     };

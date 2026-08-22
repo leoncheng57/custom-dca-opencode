@@ -146,6 +146,8 @@ export interface NotificationRecord {
   requestID?: string;
   title: string;
   body: string;
+  /** Safe event copy for authenticated in-app notification rows. */
+  displayBody?: string;
   click?: string;
   resolvedAt?: number;
   resolvedBy?: "checked" | "replied" | "reconciled" | "dismissed" | "suppressed";
