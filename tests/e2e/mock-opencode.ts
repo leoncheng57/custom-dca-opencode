@@ -302,6 +302,11 @@ const AUTO_DIRECTORY_INPUT = "/tmp/mock-auto-project";
 // the same directory will flip it under each other, so each such file owns a
 // directory of its own. This one belongs to conversation-toolbar.ui.spec.ts.
 const TOOLBAR_DIRECTORY_INPUT = "/tmp/mock-toolbar-project";
+// Parked-permission state is per-directory too, and the same parallel-files rule
+// applies to it: smoke.ui.spec.ts owns MOCK_DIRECTORY, smoke.api.spec.ts owns this
+// one. Only an owner can assert an exact pending list, because any other file
+// posting or resetting the same directory would change it mid-assertion.
+const API_PERMISSION_DIRECTORY_INPUT = "/tmp/mock-api-permissions";
 const TOOL_FAILURE_DIRECTORY_INPUT = "/tmp/mock-tool-failure";
 const CATALOGUE_FAILURE_DIRECTORY_INPUT = "/tmp/mock-catalogue-failure";
 const POLICY_FAILURE_DIRECTORY_INPUT = "/tmp/mock-policy-failure";
@@ -311,6 +316,7 @@ mkdirSync(MOCK_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(SECOND_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(AUTO_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(TOOLBAR_DIRECTORY_INPUT, { recursive: true });
+mkdirSync(API_PERMISSION_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(TOOL_FAILURE_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(CATALOGUE_FAILURE_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(POLICY_FAILURE_DIRECTORY_INPUT, { recursive: true });
@@ -319,6 +325,7 @@ export const MOCK_DIRECTORY = realpathSync(MOCK_DIRECTORY_INPUT);
 export const SECOND_DIRECTORY = realpathSync(SECOND_DIRECTORY_INPUT);
 const AUTO_DIRECTORY = realpathSync(AUTO_DIRECTORY_INPUT);
 export const TOOLBAR_DIRECTORY = realpathSync(TOOLBAR_DIRECTORY_INPUT);
+const API_PERMISSION_DIRECTORY = realpathSync(API_PERMISSION_DIRECTORY_INPUT);
 const TOOL_FAILURE_DIRECTORY = realpathSync(TOOL_FAILURE_DIRECTORY_INPUT);
 const CATALOGUE_FAILURE_DIRECTORY = realpathSync(CATALOGUE_FAILURE_DIRECTORY_INPUT);
 const POLICY_FAILURE_DIRECTORY = realpathSync(POLICY_FAILURE_DIRECTORY_INPUT);
@@ -567,6 +574,19 @@ const SESSIONS: Array<Record<string, any>> = [
     time: { created: 1787390000000, updated: 1787390000000 },
   },
   {
+    // Lives in a directory only smoke.api.spec.ts drives, so that file can park,
+    // answer and count permission requests without smoke.ui.spec.ts resetting
+    // MOCK_DIRECTORY under it.
+    id: "ses_mock_api_permission",
+    title: "API permission fixture",
+    directory: API_PERMISSION_DIRECTORY,
+    agent: "build",
+    model: { providerID: "anthropic", id: "claude-opus-5" },
+    cost: 0,
+    tokens: {},
+    time: { created: 1787200500000, updated: 1787200500000 },
+  },
+  {
     id: "ses_mock_share_failure",
     title: "Share service failure",
     directory: MOCK_DIRECTORY,
@@ -626,19 +646,28 @@ interface MockPermission {
   tool?: { messageID: string; callID: string };
 }
 
-const permissionFixture = (): MockPermission => ({
-  id: "perm_mock",
-  sessionID: "ses_mock_done",
+const permissionFixture = (id: string, sessionID: string): MockPermission => ({
+  id,
+  sessionID,
   permission: "bash",
   patterns: ["npm test"],
   metadata: { command: "npm test" },
   always: ["npm *"],
-  tool: { messageID: "msg_mock", callID: "call_mock" },
+  tool: { messageID: `msg_${id}`, callID: `call_${id}` },
 });
-const pendingPermissions = new Map<string, MockPermission[]>([
-  [MOCK_DIRECTORY, [permissionFixture()]],
-  [AUTO_DIRECTORY, []],
-]);
+// One seeded parked request per owning spec file. `/test/permissions/reset`
+// restores exactly the seed for the directory it was asked about, so an owner
+// gets a known list back without touching anybody else's directory.
+const PERMISSION_SEEDS: Array<[string, () => MockPermission[]]> = [
+  [MOCK_DIRECTORY, () => [permissionFixture("perm_mock", "ses_mock_done")]],
+  [API_PERMISSION_DIRECTORY, () => [permissionFixture("perm_api", "ses_mock_api_permission")]],
+  [AUTO_DIRECTORY, () => []],
+];
+const permissionSeed = (scope: string): MockPermission[] =>
+  PERMISSION_SEEDS.find(([directory]) => directory === scope)?.[1]() ?? [];
+const pendingPermissions = new Map<string, MockPermission[]>(
+  PERMISSION_SEEDS.map(([directory, seed]) => [directory, seed()]),
+);
 const permissionReplies: Array<{ id: string; reply: unknown }> = [];
 const questionFixture = () => [
   {
@@ -826,7 +855,24 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
   }
   if (pathname === "/test/session-payloads") return json(res, 200, sessionPayloads);
   if (pathname === "/test/sharing/reset" && req.method === "POST") {
-    for (const session of SESSIONS) delete session.share;
+    // Scoped by session on purpose. `share` lives on the fixture objects this one
+    // mock process serves to every Playwright worker, and Playwright runs spec
+    // files in parallel, so the previous `for (const session of SESSIONS) delete
+    // session.share` revoked the URL whichever *other* file was mid-assertion on.
+    // A caller must name the sessions it owns; naming none is a programming error
+    // rather than a silent global wipe, and an unknown id fails loudly so renaming
+    // a fixture cannot quietly turn a reset into a no-op.
+    const ids = url.searchParams.getAll("session").flatMap((value) => value.split(",")).map((value) => value.trim()).filter(Boolean);
+    if (ids.length === 0) {
+      return json(res, 400, { error: "mock-opencode: /test/sharing/reset needs at least one ?session= id; it must not reset sessions another spec file owns" });
+    }
+    const unknown = ids.filter((id) => !SESSIONS.some((session) => session.id === id));
+    if (unknown.length > 0) {
+      return json(res, 404, { error: `mock-opencode: /test/sharing/reset got unknown session id(s) ${unknown.join(", ")}` });
+    }
+    for (const session of SESSIONS) {
+      if (ids.includes(session.id)) delete session.share;
+    }
     return json(res, 200, true);
   }
   if (pathname === "/test/mobile/reset" && req.method === "POST") {
@@ -893,7 +939,7 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
   }
   if (pathname === "/test/permissions/reset" && req.method === "POST") {
     const scope = directory ?? MOCK_DIRECTORY;
-    pendingPermissions.set(scope, scope === MOCK_DIRECTORY ? [permissionFixture()] : []);
+    pendingPermissions.set(scope, permissionSeed(scope));
     return json(res, 200, true);
   }
 

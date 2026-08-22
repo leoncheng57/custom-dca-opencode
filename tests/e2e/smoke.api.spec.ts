@@ -5,6 +5,11 @@ import { expect, test, type APIRequestContext } from "@playwright/test";
 
 const DIR = process.platform === "darwin" ? "/private/tmp/mock-project" : "/tmp/mock-project";
 const AUTO_DIR = process.platform === "darwin" ? "/private/tmp/mock-auto-project" : "/tmp/mock-auto-project";
+// Parked permissions are per-directory mock state and smoke.ui.spec.ts drives DIR
+// on another worker, so this file parks, answers and counts its requests in a
+// directory nothing else touches. Without that, an exact "nothing is pending"
+// assertion is really an assertion about the other file's timing.
+const PERMISSION_DIR = process.platform === "darwin" ? "/private/tmp/mock-api-permissions" : "/tmp/mock-api-permissions";
 const TOOL_FAILURE_DIR = process.platform === "darwin" ? "/private/tmp/mock-tool-failure" : "/tmp/mock-tool-failure";
 const CATALOGUE_FAILURE_DIR = process.platform === "darwin" ? "/private/tmp/mock-catalogue-failure" : "/tmp/mock-catalogue-failure";
 const POLICY_FAILURE_DIR = process.platform === "darwin" ? "/private/tmp/mock-policy-failure" : "/tmp/mock-policy-failure";
@@ -165,7 +170,10 @@ test.describe("sessions", () => {
 
 test.describe.serial("session sharing", () => {
   test.beforeEach(async () => {
-    await fetch(`${MOCK_URL}/test/sharing/reset`, { method: "POST" });
+    // Only this file's share fixtures. share-export.ui.spec.ts owns ses_mock_done
+    // and resets it from its own beforeEach on another worker; an unscoped reset
+    // from either side revoked the URL the other one was mid-assertion on.
+    await fetch(`${MOCK_URL}/test/sharing/reset?session=ses_mock_share_api&session=ses_mock_share_failure&session=ses_mock_bad_share_url`, { method: "POST" });
   });
 
   test("creates, persists, and revokes a safe full-session share URL", async ({ request }) => {
@@ -817,12 +825,12 @@ test.describe("worktrees", () => {
 
 test.describe("permission remote control", () => {
   test("lists and answers a parked permission", async ({ request }) => {
-    await fetch(`${MOCK_URL}/test/permissions/reset`, { method: "POST" });
-    const before = await (await request.get(`/api/permission-requests?directory=${DIR}`)).json();
-    expect(before.requests).toContainEqual(expect.objectContaining({ id: "perm_mock" }));
-    const reply = await request.post(`/api/permission-requests/perm_mock/reply?directory=${DIR}`, { data: { reply: "once" } });
+    await fetch(`${MOCK_URL}/test/permissions/reset?directory=${encodeURIComponent(PERMISSION_DIR)}`, { method: "POST" });
+    const before = await (await request.get(`/api/permission-requests?directory=${PERMISSION_DIR}`)).json();
+    expect(before.requests).toContainEqual(expect.objectContaining({ id: "perm_api" }));
+    const reply = await request.post(`/api/permission-requests/perm_api/reply?directory=${PERMISSION_DIR}`, { data: { reply: "once" } });
     expect(reply.ok()).toBe(true);
-    const after = await (await request.get(`/api/permission-requests?directory=${DIR}`)).json();
+    const after = await (await request.get(`/api/permission-requests?directory=${PERMISSION_DIR}`)).json();
     expect(after.requests).toEqual([]);
   });
 
@@ -905,21 +913,21 @@ test.describe("notification history", () => {
 
   test("records an ask and keeps it unresolved after the permission reply", async ({ request }) => {
     const requestID = `perm_history_${Date.now()}`;
-    await fetch(`${MOCK_URL}/test/permission?directory=${encodeURIComponent(DIR)}`, {
+    await fetch(`${MOCK_URL}/test/permission?directory=${encodeURIComponent(PERMISSION_DIR)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: requestID, sessionID: "ses_mock_done", permission: "bash", patterns: ["npm test"] }),
+      body: JSON.stringify({ id: requestID, sessionID: "ses_mock_api_permission", permission: "bash", patterns: ["npm test"] }),
     });
 
     await expect.poll(async () => record((await history(request)).records, requestID))
-      .toMatchObject({ kind: "permission", directory: DIR });
+      .toMatchObject({ kind: "permission", directory: PERMISSION_DIR });
     const asked = record((await history(request)).records, requestID)!;
     // ntfy is disabled in e2e, and the BFF must never claim a desktop
     // notification rendered or infer device-local sound/speech settings.
     expect(asked.delivery).toMatchObject({ ntfy: "off", desktop: "allowed" });
     expect(asked.resolvedAt).toBeUndefined();
 
-    await request.post(`/api/permission-requests/${requestID}/reply?directory=${DIR}`, { data: { reply: "once" } });
+    await request.post(`/api/permission-requests/${requestID}/reply?directory=${PERMISSION_DIR}`, { data: { reply: "once" } });
     expect(record((await history(request)).records, requestID)?.resolvedAt).toBeUndefined();
     await request.patch(`/api/notifications/${asked.id}`, { data: { resolved: true } });
   });
@@ -969,10 +977,10 @@ test.describe("notification history", () => {
 
   test("persists a reversible user-only resolved checkbox", async ({ request }) => {
     const requestID = `perm_dismiss_${Date.now()}`;
-    await fetch(`${MOCK_URL}/test/permission?directory=${encodeURIComponent(DIR)}`, {
+    await fetch(`${MOCK_URL}/test/permission?directory=${encodeURIComponent(PERMISSION_DIR)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: requestID, sessionID: "ses_mock_done", permission: "bash", patterns: ["npm run lint"] }),
+      body: JSON.stringify({ id: requestID, sessionID: "ses_mock_api_permission", permission: "bash", patterns: ["npm run lint"] }),
     });
     await expect.poll(async () => Boolean(record((await history(request)).records, requestID))).toBe(true);
 
@@ -990,19 +998,19 @@ test.describe("notification history", () => {
     expect((await request.patch("/api/notifications/nope", { data: { resolved: true } })).status()).toBe(404);
     expect((await request.patch(`/api/notifications/${id}`, { data: { resolved: "yes" } })).status()).toBe(400);
     await request.patch(`/api/notifications/${id}`, { data: { resolved: true } });
-    await fetch(`${MOCK_URL}/test/permissions/reset?directory=${encodeURIComponent(DIR)}`, { method: "POST" });
+    await fetch(`${MOCK_URL}/test/permissions/reset?directory=${encodeURIComponent(PERMISSION_DIR)}`, { method: "POST" });
   });
 
   test("scopes the badge count without filtering the history", async ({ request }) => {
     const requestID = `perm_scoped_${Date.now()}`;
-    await fetch(`${MOCK_URL}/test/permission?directory=${encodeURIComponent(DIR)}`, {
+    await fetch(`${MOCK_URL}/test/permission?directory=${encodeURIComponent(PERMISSION_DIR)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: requestID, sessionID: "ses_mock_done", permission: "bash", patterns: ["npm test"] }),
+      body: JSON.stringify({ id: requestID, sessionID: "ses_mock_api_permission", permission: "bash", patterns: ["npm test"] }),
     });
     await expect.poll(async () => record((await history(request)).records, requestID)).toBeTruthy();
 
-    const current = await (await request.get(`/api/notifications/history?directory=${encodeURIComponent(DIR)}`)).json();
+    const current = await (await request.get(`/api/notifications/history?directory=${encodeURIComponent(PERMISSION_DIR)}`)).json();
     const other = await (await request.get("/api/notifications/history?directory=/tmp/unrelated-project")).json();
     expect(current.activeCount).toBeGreaterThan(0);
     expect(other.activeCount).toBe(0);
