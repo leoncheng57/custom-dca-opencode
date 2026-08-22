@@ -411,6 +411,14 @@ for (const viewport of VIEWPORTS) {
       expect(shown.length).toBeLessThan(SESSION_TITLE.length);
       expect(shown.endsWith("\u2026")).toBe(true);
       expect(SESSION_TITLE.startsWith(shown.slice(0, -1).trimEnd())).toBe(true);
+
+      // The popover row has one line to spend, so delivery detail is dropped
+      // there and kept on the full history page.
+      const compactRow = popover(page).getByTestId("opencode-notification-record").first();
+      await expect(compactRow).not.toContainText("ntfy");
+      await page.goto(`/settings/notifications?directory=${encodeURIComponent(DIR)}`);
+      await expect(page.getByTestId("opencode-notification-record").first()).toContainText("ntfy");
+      await expect(page.getByTestId("opencode-notification-session").first()).toHaveAttribute("title", SESSION_TITLE);
     });
 
     test("keeps the resolved archive collapsed until asked, and remembers that", async ({ page }) => {

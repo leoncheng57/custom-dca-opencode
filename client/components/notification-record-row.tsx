@@ -144,7 +144,16 @@ export function NotificationRecordRow({
               </span>
             </>
           )}
-          {` · ${deliverySummary(record)}${resolution ? ` · ${resolution}` : ""}`}
+          {/* The popover row has one line to spend and the session title is
+              the field that says which work is waiting, so delivery and
+              resolution detail stays on the full history page — the chip and
+              the checkbox already carry their headline. Parking is the
+              exception: it is the only escalation this row can report. */}
+          {compact
+            ? record.parkedAt
+              ? " · parked"
+              : ""
+            : ` · ${deliverySummary(record)}${resolution ? ` · ${resolution}` : ""}`}
         </p>
       </div>
       <label className="flex min-h-11 shrink-0 items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
