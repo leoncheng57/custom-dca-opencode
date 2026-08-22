@@ -1,12 +1,24 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useLocation } from "react-router-dom";
 
-import { api, type NotificationRecord } from "./api.js";
+import { api, type NotificationRecord, type SuppressedActiveCounts } from "./api.js";
 import { DIRECTORY_STORAGE_KEY, resolvePaletteDirectory } from "./palette.js";
+import {
+  DEFAULT_NOTIFICATION_VIEW,
+  loadNotificationView,
+  saveNotificationView,
+  type NotificationViewPreferences,
+} from "./notificationView.js";
+
+const NO_SUPPRESSED_ACTIVE: SuppressedActiveCounts = { "auto-permissions": 0, subagent: 0 };
 
 interface NotificationCenter {
   activeCount: number;
   records: NotificationRecord[];
+  /** Unresolved rows each filter is hiding, reported whether or not it is on. */
+  suppressedActive: SuppressedActiveCounts;
+  view: NotificationViewPreferences;
+  setView: (patch: Partial<NotificationViewPreferences>) => void;
   loading: boolean;
   error: string;
   refresh: () => void;
@@ -34,19 +46,34 @@ export function NotificationCenterProvider({ children }: { children: ReactNode }
   const directory = resolvePaletteDirectory(location.search, localStorage.getItem(DIRECTORY_STORAGE_KEY));
   const [records, setRecords] = useState<NotificationRecord[]>([]);
   const [activeCount, setActiveCount] = useState(0);
+  const [suppressedActive, setSuppressedActive] = useState<SuppressedActiveCounts>(NO_SUPPRESSED_ACTIVE);
+  const [view, setViewState] = useState<NotificationViewPreferences>(loadNotificationView);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   // Guards against a slow early response overwriting a newer one.
   const generation = useRef(0);
+  const { hideAutoApproved, hideSubagent } = view;
 
+  const setView = useCallback((patch: Partial<NotificationViewPreferences>) => {
+    setViewState((current) => saveNotificationView({ ...current, ...patch }));
+  }, []);
+
+  // The filters are applied server-side so the badge and the rows cannot
+  // disagree; changing one therefore has to refetch rather than filter locally.
   const refresh = useCallback(() => {
     const request = ++generation.current;
     return api
-      .notificationHistory({ limit: HISTORY_LIMIT, ...(directory ? { directory } : {}) })
+      .notificationHistory({
+        limit: HISTORY_LIMIT,
+        ...(directory ? { directory } : {}),
+        hideAutoApproved,
+        hideSubagent,
+      })
       .then((result) => {
         if (request !== generation.current) return;
         setRecords(result.records);
         setActiveCount(result.activeCount);
+        setSuppressedActive(result.suppressedActive ?? NO_SUPPRESSED_ACTIVE);
         setError("");
       })
       .catch((e: Error) => {
@@ -56,7 +83,7 @@ export function NotificationCenterProvider({ children }: { children: ReactNode }
       .finally(() => {
         if (request === generation.current) setLoading(false);
       });
-  }, [directory]);
+  }, [directory, hideAutoApproved, hideSubagent]);
 
   // Live updates arrive via useNotifyWatcher, which already holds the one
   // app-level EventSource; opening a second stream here would double every
@@ -91,8 +118,18 @@ export function NotificationCenterProvider({ children }: { children: ReactNode }
   );
 
   const value = useMemo(
-    () => ({ activeCount, records, loading, error, refresh: () => void refresh(), setResolved }),
-    [activeCount, records, loading, error, refresh, setResolved],
+    () => ({
+      activeCount,
+      records,
+      suppressedActive,
+      view,
+      setView,
+      loading,
+      error,
+      refresh: () => void refresh(),
+      setResolved,
+    }),
+    [activeCount, records, suppressedActive, view, setView, loading, error, refresh, setResolved],
   );
 
   return <NotificationCenterContext.Provider value={value}>{children}</NotificationCenterContext.Provider>;
@@ -107,6 +144,9 @@ export function useNotificationCenter(): NotificationCenter {
     useContext(NotificationCenterContext) ?? {
       activeCount: 0,
       records: [],
+      suppressedActive: NO_SUPPRESSED_ACTIVE,
+      view: DEFAULT_NOTIFICATION_VIEW,
+      setView: () => {},
       loading: false,
       error: "",
       refresh: () => {},

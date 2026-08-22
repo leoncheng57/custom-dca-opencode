@@ -883,12 +883,18 @@ test.describe("notification history", () => {
   const record = (records: Array<Record<string, unknown>>, requestID: string) =>
     records.find((item) => item.requestID === requestID);
 
-  async function history(request: APIRequestContext): Promise<{
+  async function history(
+    request: APIRequestContext,
+    query = "",
+  ): Promise<{
     records: Array<Record<string, unknown>>;
     activeCount: number;
+    suppressedActive: Record<string, number>;
   }> {
-    return await (await request.get("/api/notifications/history?limit=200")).json();
+    return await (await request.get(`/api/notifications/history?limit=200${query}`)).json();
   }
+
+  const activeCount = async (request: APIRequestContext, query: string) => (await history(request, query)).activeCount;
 
   test("records an ask and keeps it unresolved after the permission reply", async ({ request }) => {
     const requestID = `perm_history_${Date.now()}`;
@@ -911,7 +917,7 @@ test.describe("notification history", () => {
     await request.patch(`/api/notifications/${asked.id}`, { data: { resolved: true } });
   });
 
-  test("records only root-session asks and suppresses nested descendants", async ({ request }) => {
+  test("delivers only root-session asks and records descendants as filterable noise", async ({ request }) => {
     const childID = `perm_child_${Date.now()}`;
     const nestedID = `perm_nested_${Date.now()}`;
     const rootID = `perm_root_${Date.now()}`;
@@ -930,12 +936,27 @@ test.describe("notification history", () => {
     await expect.poll(async () => record((await history(request)).records, rootID))
       .toMatchObject({ kind: "permission", directory: SUBAGENT_DIR, sessionID: "ses_mock_parent" });
     await new Promise((resolve) => setTimeout(resolve, 50));
-    const records = (await history(request)).records;
-    expect(record(records, childID)).toBeUndefined();
-    expect(record(records, nestedID)).toBeUndefined();
 
-    const root = record(records, rootID)!;
-    await request.patch(`/api/notifications/${root.id}`, { data: { resolved: true } });
+    // Descendants are recorded so a delegated child's asks stay auditable,
+    // but marked suppressed: nothing was delivered for them.
+    const records = (await history(request)).records;
+    expect(record(records, childID)).toMatchObject({ delivery: { suppressed: "subagent", ntfy: "off", desktop: "off" } });
+    expect(record(records, nestedID)).toMatchObject({ delivery: { suppressed: "subagent" } });
+    expect(record(records, rootID)).toMatchObject({ delivery: { desktop: "allowed" } });
+
+    // With the default filter applied they leave both the list and the count,
+    // which is the state the UI actually renders.
+    const filtered = await history(request, "&hideSubagent=1");
+    expect(record(filtered.records, childID)).toBeUndefined();
+    expect(record(filtered.records, nestedID)).toBeUndefined();
+    expect(record(filtered.records, rootID)).toBeTruthy();
+    expect(filtered.suppressedActive.subagent).toBeGreaterThanOrEqual(2);
+    expect(await activeCount(request, `&directory=${encodeURIComponent(SUBAGENT_DIR)}&hideSubagent=1`))
+      .toBeLessThan(await activeCount(request, `&directory=${encodeURIComponent(SUBAGENT_DIR)}`));
+
+    for (const id of [childID, nestedID, rootID]) {
+      await request.patch(`/api/notifications/${record(records, id)!.id}`, { data: { resolved: true } });
+    }
     await fetch(`${MOCK_URL}/test/permissions/reset?directory=${encodeURIComponent(SUBAGENT_DIR)}`, { method: "POST" });
   });
 

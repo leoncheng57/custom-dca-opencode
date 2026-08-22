@@ -48,6 +48,15 @@ export class NotificationService {
   private timers = new Map<string, NodeJS.Timeout>();
   private seen = new Map<string, number>();
   private sessionKinds = new Map<string, { kind: SessionKind; expiresAt: number }>();
+  /**
+   * Best-effort session titles, populated only from data the service already
+   * had — session lifecycle events and the parent/child lookups below. It
+   * never issues a request of its own: a missing title costs the row a nicer
+   * label, while an extra round trip per event would cost every notification
+   * latency. Sessions are titled early, so in practice this is warm by the
+   * time anything notifies.
+   */
+  private sessionTitles = new Map<string, { title: string; expiresAt: number }>();
   private sessionLookups = new Map<string, Promise<SessionKind>>();
   private activeSessionLookups = 0;
   private readonly onEvent = (event: OpencodeEvent) => void this.handle(event);
@@ -92,7 +101,11 @@ export class NotificationService {
     if (!kind) return;
 
     const sessionID = String(event.properties.sessionID ?? "");
-    if (await this.sessionKind(event.directory, sessionID) === "child") return;
+    // Sub-agent activity is recorded but never delivered. It used to be
+    // dropped outright, which made "did my delegated child ever finish?"
+    // unanswerable; recording it keeps the audit trail while the default
+    // filter keeps it out of the inbox.
+    const subagent = (await this.sessionKind(event.directory, sessionID)) === "child";
 
     // Deduplicate before recording: a repeat inside 5s is an upstream echo,
     // not a second notification, and logging it would inflate the badge.
@@ -116,18 +129,31 @@ export class NotificationService {
       click: eventClickUrl(this.publicAppUrl, event),
     };
     const requestID = requestIdOf(event.properties);
+    const sessionTitle = this.sessionTitle(event.directory, sessionID);
     const common = {
       kind,
       ...(event.directory ? { directory: event.directory } : {}),
       ...(sessionID ? { sessionID } : {}),
+      ...(sessionTitle ? { sessionTitle } : {}),
       ...(requestID ? { requestID } : {}),
       title: message.title,
       body: message.body,
       ...(message.click ? { click: message.click } : {}),
     };
 
-    // Auto-approved permissions still belong in the user's checklist — "why
-    // was I never asked?" is exactly the question the log should answer.
+    if (subagent) {
+      const record = await this.history.append({
+        ...common,
+        delivery: { ntfy: "off", desktop: "off", suppressed: "subagent" },
+      });
+      this.emitRecorded(record.id, event.directory, sessionID);
+      return;
+    }
+
+    // Auto-approved permissions still belong in the log — "why was I never
+    // asked?" is exactly the question it should answer — but they are not a
+    // decision the user owes anyone, so they are suppressed and, by default,
+    // filtered out of the inbox and the badge.
     if (event.type === "permission.asked" && this.autoPermissionsEnabled(event.directory)) {
       const record = await this.history.append({
         ...common,
@@ -154,17 +180,43 @@ export class NotificationService {
     if (!event.directory) return;
     if (event.type === "session.deleted") {
       const metadata = parseSessionMetadata(event.properties.info);
-      if (metadata) this.sessionKinds.delete(this.sessionKey(event.directory, metadata.id));
+      if (metadata) {
+        const key = this.sessionKey(event.directory, metadata.id);
+        this.sessionKinds.delete(key);
+        this.sessionTitles.delete(key);
+      }
       return;
     }
     if (event.type !== "session.created" && event.type !== "session.updated") return;
     const metadata = parseSessionMetadata(event.properties.info);
     if (!metadata) return;
-    this.rememberSessionKind(
-      this.sessionKey(event.directory, metadata.id),
-      metadata.parentID ? "child" : "root",
-      SESSION_CACHE_MS,
-    );
+    const key = this.sessionKey(event.directory, metadata.id);
+    this.rememberSessionKind(key, metadata.parentID ? "child" : "root", SESSION_CACHE_MS);
+    this.rememberSessionTitle(key, metadata.title);
+  }
+
+  /** Latest known title, or undefined — never a fabricated placeholder. */
+  private sessionTitle(directory: string | undefined, sessionID: string): string | undefined {
+    if (!directory || !sessionID) return undefined;
+    const key = this.sessionKey(directory, sessionID);
+    const cached = this.sessionTitles.get(key);
+    if (!cached) return undefined;
+    if (cached.expiresAt <= Date.now()) {
+      this.sessionTitles.delete(key);
+      return undefined;
+    }
+    return cached.title;
+  }
+
+  private rememberSessionTitle(key: string, title: string | undefined): void {
+    if (!title) return;
+    this.sessionTitles.delete(key);
+    this.sessionTitles.set(key, { title, expiresAt: Date.now() + SESSION_CACHE_MS });
+    while (this.sessionTitles.size > SESSION_CACHE_LIMIT) {
+      const oldest = this.sessionTitles.keys().next().value;
+      if (oldest === undefined) break;
+      this.sessionTitles.delete(oldest);
+    }
   }
 
   private async sessionKind(directory: string | undefined, sessionID: string): Promise<SessionKind> {
@@ -207,6 +259,7 @@ export class NotificationService {
         AbortSignal.timeout(SESSION_LOOKUP_TIMEOUT_MS),
       );
       if (!metadata || metadata.id !== sessionID) return "unknown";
+      this.rememberSessionTitle(this.sessionKey(directory, sessionID), metadata.title);
       return metadata.parentID ? "child" : "root";
     } catch (error) {
       console.warn("[notification-session]", error instanceof Error ? error.message : String(error));
@@ -284,10 +337,12 @@ export class NotificationService {
             const delivery = await this.deliver(preferences, message);
             // The parked alert escalates an already-counted permission. It is
             // logged for the record but must not add a second active item.
+            const parkedTitle = this.sessionTitle(directory, pending.sessionID);
             const record = await this.history.append({
               kind: "parked",
               directory,
               sessionID: pending.sessionID,
+              ...(parkedTitle ? { sessionTitle: parkedTitle } : {}),
               requestID: pending.id,
               title: message.title,
               body: message.body,

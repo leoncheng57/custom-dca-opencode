@@ -30,11 +30,26 @@ export type DesktopDelivery = "allowed" | "off";
 // deployed servers. New writes use only "checked".
 export type ResolutionReason = "checked" | "replied" | "reconciled" | "dismissed" | "suppressed";
 
+/**
+ * Why nothing was sent for a record — and, because a suppressed record is by
+ * definition one the user was never pinged about, also the axis the UI filters
+ * on. Both categories are noise by default:
+ *   - "auto-permissions": the request was preapproved, so there was never a
+ *     decision to make.
+ *   - "subagent": a delegated child session, whose lifecycle is the parent's
+ *     business, not the user's inbox.
+ * One field rather than a separate origin marker, because today these are
+ * exactly the records that are recorded-but-not-delivered. If sub-agent
+ * notifications ever become deliverable, split origin out then.
+ */
+export const SUPPRESSION_REASONS = ["auto-permissions", "subagent"] as const;
+export type SuppressionReason = (typeof SUPPRESSION_REASONS)[number];
+
 export interface NotificationDelivery {
   ntfy: NtfyDelivery;
   ntfyError?: string;
   desktop: DesktopDelivery;
-  suppressed?: "auto-permissions";
+  suppressed?: SuppressionReason;
 }
 
 export interface NotificationRecord {
@@ -43,6 +58,12 @@ export interface NotificationRecord {
   at: number;
   directory?: string;
   sessionID?: string;
+  /**
+   * Session title as it stood when the notification fired. Snapshotted rather
+   * than resolved on read: sessions get renamed and deleted, and a record must
+   * still say which piece of work it came from.
+   */
+  sessionTitle?: string;
   /** Permission/question request id — the key resolution matches on. */
   requestID?: string;
   title: string;
@@ -59,6 +80,7 @@ export interface AppendRecord {
   kind: NotifyEvent;
   directory?: string;
   sessionID?: string;
+  sessionTitle?: string;
   requestID?: string;
   title: string;
   body: string;
@@ -66,11 +88,37 @@ export interface AppendRecord {
   delivery: NotificationDelivery;
 }
 
-export interface HistoryQuery {
+/**
+ * Server-side noise filters. They apply to the record list *and* the badge
+ * count together: a badge that counts rows the user asked not to see is the
+ * clutter this exists to remove, just relocated.
+ *
+ * Absent means "no filtering", so every existing API consumer is unaffected;
+ * the UI always sends both flags explicitly.
+ */
+export interface HistoryFilters {
+  hideAutoApproved?: boolean;
+  hideSubagent?: boolean;
+}
+
+export interface HistoryQuery extends HistoryFilters {
   limit?: number;
   kind?: NotifyEvent;
   directory?: string;
   state?: "all" | "active" | "resolved";
+}
+
+/** Active-record tallies per suppression category, so each filter can label its own cost. */
+export type SuppressedActiveCounts = Record<SuppressionReason, number>;
+
+export function isSuppressionReason(value: unknown): value is SuppressionReason {
+  return typeof value === "string" && (SUPPRESSION_REASONS as readonly string[]).includes(value);
+}
+
+export function isFilteredOut(record: NotificationRecord, filters: HistoryFilters): boolean {
+  if (filters.hideAutoApproved && record.delivery.suppressed === "auto-permissions") return true;
+  if (filters.hideSubagent && record.delivery.suppressed === "subagent") return true;
+  return false;
 }
 
 export const HISTORY_LIMIT = 500;
@@ -91,7 +139,7 @@ function normalizeDelivery(value: unknown): NotificationDelivery {
     ntfy,
     ...(optionalString(source.ntfyError) ? { ntfyError: String(source.ntfyError) } : {}),
     desktop: source.desktop === "allowed" ? "allowed" : "off",
-    ...(source.suppressed === "auto-permissions" ? { suppressed: "auto-permissions" as const } : {}),
+    ...(isSuppressionReason(source.suppressed) ? { suppressed: source.suppressed } : {}),
   };
 }
 
@@ -113,6 +161,7 @@ function normalizeRecord(value: unknown): NotificationRecord | null {
     at,
     ...(optionalString(source.directory) ? { directory: String(source.directory) } : {}),
     ...(optionalString(source.sessionID) ? { sessionID: String(source.sessionID) } : {}),
+    ...(optionalString(source.sessionTitle) ? { sessionTitle: String(source.sessionTitle) } : {}),
     ...(optionalString(source.requestID) ? { requestID: String(source.requestID) } : {}),
     title: typeof source.title === "string" ? source.title : "",
     body: typeof source.body === "string" ? source.body : "",
@@ -187,17 +236,27 @@ export class HistoryStore {
   }
 
   /**
-   * Keep every unresolved record plus the newest resolved records. The limit
-   * applies to resolved history only: unresolved notifications are a durable
-   * user checklist and must never disappear before the user checks them off.
+   * Keep every unresolved *delivered* record, plus the newest records in each
+   * capped category.
+   *
+   * The checklist invariant — an unresolved record must never disappear before
+   * the user checks it off — is what the badge means, so it is preserved for
+   * everything the user was actually pinged about. Suppressed records were
+   * never delivered and are hidden by default, so they are a bounded audit
+   * trail rather than a checklist; a busy project with auto-permissions on or
+   * many sub-agents would otherwise grow the log without limit.
    */
   private prune(): void {
-    const resolved = this.records.filter((record) => !isActive(record));
-    if (resolved.length <= this.limit) return;
-    const keepResolved = new Set(
-      resolved.slice(-this.limit).map((record) => record.id),
-    );
-    this.records = this.records.filter((record) => isActive(record) || keepResolved.has(record.id));
+    this.capOldest((record) => !isActive(record));
+    this.capOldest((record) => isActive(record) && record.delivery.suppressed !== undefined);
+  }
+
+  /** Drop the oldest members of a category once it exceeds the limit. */
+  private capOldest(match: (record: NotificationRecord) => boolean): void {
+    const matched = this.records.filter(match);
+    if (matched.length <= this.limit) return;
+    const drop = new Set(matched.slice(0, matched.length - this.limit).map((record) => record.id));
+    this.records = this.records.filter((record) => !drop.has(record.id));
   }
 
   /** Resolves once every queued write has drained. Tests and shutdown use this. */
@@ -214,6 +273,7 @@ export class HistoryStore {
       at: now,
       ...(entry.directory ? { directory: entry.directory } : {}),
       ...(entry.sessionID ? { sessionID: entry.sessionID } : {}),
+      ...(entry.sessionTitle ? { sessionTitle: entry.sessionTitle } : {}),
       ...(entry.requestID ? { requestID: entry.requestID } : {}),
       title: entry.title,
       body: entry.body,
@@ -262,12 +322,34 @@ export class HistoryStore {
     return true;
   }
 
-  async activeCount(directory?: string): Promise<number> {
+  /** Unresolved rows the user would actually see under `filters`. */
+  async activeCount(directory?: string, filters: HistoryFilters = {}): Promise<number> {
     await this.load();
     return this.records.reduce(
-      (total, record) => total + (isActive(record) && (!directory || record.directory === directory) ? 1 : 0),
+      (total, record) =>
+        total +
+        (isActive(record) && (!directory || record.directory === directory) && !isFilteredOut(record, filters)
+          ? 1
+          : 0),
       0,
     );
+  }
+
+  /**
+   * How many unresolved rows each filter is responsible for hiding. Reported
+   * whether or not the filter is on, so a checkbox can state its own cost
+   * instead of silently swallowing records.
+   */
+  async suppressedActiveCounts(directory?: string): Promise<SuppressedActiveCounts> {
+    await this.load();
+    const counts: SuppressedActiveCounts = { "auto-permissions": 0, subagent: 0 };
+    for (const record of this.records) {
+      if (!isActive(record)) continue;
+      if (directory && record.directory !== directory) continue;
+      const reason = record.delivery.suppressed;
+      if (reason) counts[reason] += 1;
+    }
+    return counts;
   }
 
   async list(query: HistoryQuery = {}): Promise<NotificationRecord[]> {
@@ -278,6 +360,7 @@ export class HistoryStore {
       .filter((record) => {
         if (query.kind && record.kind !== query.kind) return false;
         if (query.directory && record.directory !== query.directory) return false;
+        if (isFilteredOut(record, query)) return false;
         if (state === "active") return isActive(record);
         if (state === "resolved") return !isActive(record);
         return true;

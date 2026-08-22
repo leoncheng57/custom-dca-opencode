@@ -119,17 +119,38 @@ several decisions below.
     the user's reversible **Resolved** checkbox may change that state. Suppressed and failed deliveries are
     still recorded — the log's job is to explain a missing ping. `delivery.desktop` is the
     server-backed desktop preference, never proof of render; device-local sound/speech are
-    intentionally absent because the BFF cannot see them. All unresolved records are
-    retained plus the newest 500 resolved records. There is no bulk clear because resolved
+    intentionally absent because the BFF cannot see them. Every unresolved record the user
+    was actually pinged about is retained, plus the newest 500 in each capped category
+    (resolved, and unresolved-but-suppressed). There is no bulk clear because resolved
     history is the evidence this feature exists to preserve. Persisted v1 resolution reasons
     remain readable, but all new resolution writes use `resolvedBy: "checked"`.
+10a. **Suppressed records are a bounded audit trail, and the noise filters are
+    server-side.** `delivery.suppressed` (`"auto-permissions" | "subagent"`) marks the two
+    categories that are recorded but never delivered. They exist so "why was I never
+    asked?" and "did my delegated child ever finish?" stay answerable — sub-agent events
+    used to be dropped at ingest, which made the second question unanswerable — but they
+    are noise in an inbox, so the UI hides both by **default** behind checkboxes rather
+    than excluding them in code. Because they were never delivered they are not a
+    checklist, so unlike delivered unresolved records they are capped by `prune()`; a busy
+    auto-permissions project would otherwise grow the log without limit. The filters are
+    applied in `HistoryStore.list()` **and** `activeCount()` together and driven by query
+    flags, because a badge counting rows the user asked not to see just relocates the
+    clutter. An absent flag means no filtering, so existing API consumers are unaffected.
+    `suppressedActive` reports each category's unresolved total whether or not its filter
+    is on, so a checkbox states its own cost.
+10b. **Records snapshot the session title; they never resolve it on read.**
+    `sessionTitle` is written at append time from titles the service already saw on
+    `session.created`/`session.updated` or its parent/child lookups — it never issues a
+    request of its own, and omits the field rather than inventing a placeholder. Sessions
+    get renamed and deleted, so resolving later would misattribute or lose the record.
 11. **Auto permissions is volatile and directory-scoped.** The BFF keeps it in memory,
     defaults it off after every restart, and replies `once` to `permission.asked` for
     every session in an enabled directory. It never mutates policy, replies `always`,
     or answers questions; it can only approve requests that upstream emits as asked.
     It does not change the Plan/Build session-policy activation above. Permission and
-    parked-permission notifications are suppressed while enabled because asked requests
-    are handled immediately.
+    parked-permission notifications are recorded with `suppressed: "auto-permissions"`
+    while enabled — never delivered, and hidden from the inbox and the badge by the
+    default filter — because those asks were answered before the user saw them.
 12. **Recents are cross-project; they are the one non-directory-scoped route.**
     The Hub shows recent work before a project is chosen, so `GET /api/recent-sessions`
     takes a *set* of directories instead of `?directory=`. There is no global session

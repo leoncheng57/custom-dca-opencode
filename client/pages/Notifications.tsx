@@ -4,6 +4,7 @@ import { Link, useLocation } from "react-router-dom";
 import { Alert } from "../ds/alert.js";
 import { Badge } from "../ds/badge.js";
 import { Button } from "../ds/button.js";
+import { NotificationFilters } from "../components/notification-filters.js";
 import { NotificationRecordRow } from "../components/notification-record-row.js";
 import type { NotificationHistoryState } from "../lib/api.js";
 import { DIRECTORY_STORAGE_KEY, resolvePaletteDirectory } from "../lib/palette.js";
@@ -23,7 +24,16 @@ const STATES: Array<{ value: NotificationHistoryState; label: string }> = [
 export function NotificationsPage() {
   const [error, setError] = useState("");
   const [historyState, setHistoryState] = useState<NotificationHistoryState>("all");
-  const { activeCount, records, loading, error: historyError, setResolved } = useNotificationCenter();
+  const {
+    activeCount,
+    records,
+    suppressedActive,
+    view,
+    setView,
+    loading,
+    error: historyError,
+    setResolved,
+  } = useNotificationCenter();
   const location = useLocation();
   const directory = resolvePaletteDirectory(location.search, localStorage.getItem(DIRECTORY_STORAGE_KEY));
   const settingsPath = directory ? `/settings?${new URLSearchParams({ directory })}` : "/settings";
@@ -82,6 +92,9 @@ export function NotificationsPage() {
             </Button>
           ))}
         </header>
+        <div className="border-b border-[var(--color-border-default)] px-3 py-2">
+          <NotificationFilters view={view} onChange={setView} suppressedActive={suppressedActive} />
+        </div>
         {historyError && <Alert variant="danger">{historyError}</Alert>}
         {hiddenActive > 0 && (
           <p

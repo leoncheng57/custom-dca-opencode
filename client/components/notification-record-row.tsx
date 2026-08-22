@@ -16,9 +16,27 @@ export function projectName(directory?: string): string {
   return directory?.split("/").filter(Boolean).at(-1) ?? "unknown project";
 }
 
+/** Chip copy for the two categories the filters act on. */
+export const SUPPRESSION_LABEL = {
+  "auto-permissions": "auto-approved",
+  subagent: "sub-agent",
+} as const;
+
+/**
+ * Character-truncated rather than CSS-truncated: the metadata line holds
+ * several fields, and letting one long title consume the row would push the
+ * delivery and resolution state out of view. The full title stays in the
+ * element's tooltip.
+ */
+export function truncateSessionTitle(title: string, max: number): string {
+  const collapsed = title.replace(/\s+/g, " ").trim();
+  return collapsed.length > max ? `${collapsed.slice(0, max - 1).trimEnd()}\u2026` : collapsed;
+}
+
 /** Plain-language delivery summary. Never claims a browser actually rendered it. */
 export function deliverySummary(record: NotificationRecord): string {
   if (record.delivery.suppressed === "auto-permissions") return "suppressed by auto permissions";
+  if (record.delivery.suppressed === "subagent") return "suppressed as sub-agent activity";
   const parts = [
     record.delivery.ntfy === "sent"
       ? "ntfy sent"
@@ -53,6 +71,13 @@ export function NotificationRecordRow({
   const active = record.resolvedAt === undefined;
   const resolution = resolutionSummary(record);
   const relative = formatRelative(timestamp) || formatClockTime(timestamp);
+  const suppressed = record.delivery.suppressed;
+  // The notification title is generic ("OpenCode needs permission"); the
+  // session title is what says which piece of work is waiting. Fall back to
+  // the session id so the row never loses its identifier entirely.
+  const sessionLabel = record.sessionTitle
+    ? truncateSessionTitle(record.sessionTitle, compact ? 40 : 64)
+    : record.sessionID;
   return (
     <li
       className={cn(
@@ -62,6 +87,7 @@ export function NotificationRecordRow({
       data-testid="opencode-notification-record"
       data-kind={record.kind}
       data-active={active ? "true" : "false"}
+      data-suppressed={suppressed ?? "none"}
     >
       {!compact && (
         <time
@@ -76,26 +102,49 @@ export function NotificationRecordRow({
         {record.kind}
       </Badge>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm">
-          {record.click ? (
-            <a className="underline underline-offset-2" href={record.click} data-testid="opencode-notification-link">
-              {record.title}
-            </a>
-          ) : (
-            record.title
+        <p className="flex items-center gap-1.5 text-sm">
+          <span className="min-w-0 truncate">
+            {record.click ? (
+              <a className="underline underline-offset-2" href={record.click} data-testid="opencode-notification-link">
+                {record.title}
+              </a>
+            ) : (
+              record.title
+            )}
+          </span>
+          {/* Names why a suppressed row is on screen at all — without it, an
+              unhidden auto-approved record looks like a request awaiting a
+              decision that was in fact never asked. */}
+          {suppressed && (
+            <Badge variant="neutral" className="shrink-0" data-testid="opencode-notification-suppression">
+              {SUPPRESSION_LABEL[suppressed]}
+            </Badge>
           )}
         </p>
         <p className="truncate text-xs text-[var(--color-text-muted)]">{record.body}</p>
         <p className="mt-0.5 truncate text-[11px] text-[var(--color-text-muted)]">
           {compact && (
-            <time dateTime={timestamp} title={new Date(record.at).toLocaleString()} className="tabular-nums">
-              {relative}
-            </time>
+            <>
+              <time dateTime={timestamp} title={new Date(record.at).toLocaleString()} className="tabular-nums">
+                {relative}
+              </time>
+              {" · "}
+            </>
           )}
-          {compact ? " · " : ""}
           {projectName(record.directory)}
-          {record.sessionID ? ` · ${record.sessionID}` : ""} · {deliverySummary(record)}
-          {resolution ? ` · ${resolution}` : ""}
+          {sessionLabel && (
+            <>
+              {" · "}
+              <span
+                className="text-[var(--color-text-default)]"
+                title={record.sessionTitle ?? record.sessionID}
+                data-testid="opencode-notification-session"
+              >
+                {sessionLabel}
+              </span>
+            </>
+          )}
+          {` · ${deliverySummary(record)}${resolution ? ` · ${resolution}` : ""}`}
         </p>
       </div>
       <label className="flex min-h-11 shrink-0 items-center gap-1.5 text-xs text-[var(--color-text-muted)]">

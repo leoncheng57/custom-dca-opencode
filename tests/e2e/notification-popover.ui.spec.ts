@@ -9,8 +9,14 @@ const VIEWPORTS = [
   { name: "mobile", size: { width: 390, height: 740 } },
 ] as const;
 
+/** Unresolved rows visible under the default filters (both categories hidden). */
 const ACTIVE_COUNT = 8;
 const RESOLVED_COUNT = 6;
+/** Unresolved rows each default-on filter is responsible for hiding. */
+const AUTO_APPROVED_COUNT = 5;
+const SUBAGENT_COUNT = 3;
+
+const SESSION_TITLE = "Rewrite the notification popover so it reads as an overlay";
 
 interface StubRecord {
   id: string;
@@ -18,11 +24,12 @@ interface StubRecord {
   at: number;
   directory: string;
   sessionID: string;
+  sessionTitle?: string;
   title: string;
   body: string;
   resolvedAt?: number;
   resolvedBy?: string;
-  delivery: { ntfy: "off"; desktop: "off" };
+  delivery: { ntfy: "off"; desktop: "off"; suppressed?: "auto-permissions" | "subagent" };
 }
 
 function seedRecords(): StubRecord[] {
@@ -35,6 +42,7 @@ function seedRecords(): StubRecord[] {
       at: base - index * 60_000,
       directory: DIR,
       sessionID: "ses_mock_done",
+      sessionTitle: SESSION_TITLE,
       title: `OpenCode needs permission ${index}`,
       body: `bash: npm run seeded-${index}`,
       delivery: { ntfy: "off", desktop: "off" },
@@ -47,11 +55,41 @@ function seedRecords(): StubRecord[] {
       at: base - (ACTIVE_COUNT + index) * 60_000,
       directory: DIR,
       sessionID: "ses_mock_done",
+      sessionTitle: SESSION_TITLE,
       title: `Session finished ${index}`,
       body: `seeded resolved ${index}`,
       resolvedAt: base,
       resolvedBy: "checked",
       delivery: { ntfy: "off", desktop: "off" },
+    });
+  }
+  // The two categories the default filters fold away: preapproved permission
+  // requests and delegated child sessions. Both are recorded, neither was
+  // delivered, and neither may reach the badge while its filter is on.
+  for (let index = 0; index < AUTO_APPROVED_COUNT; index += 1) {
+    records.push({
+      id: `ntf_auto_${index}`,
+      kind: "permission",
+      at: base - (100 + index) * 60_000,
+      directory: DIR,
+      sessionID: "ses_mock_done",
+      sessionTitle: SESSION_TITLE,
+      title: `Preapproved permission ${index}`,
+      body: `bash: npm run auto-${index}`,
+      delivery: { ntfy: "off", desktop: "off", suppressed: "auto-permissions" },
+    });
+  }
+  for (let index = 0; index < SUBAGENT_COUNT; index += 1) {
+    records.push({
+      id: `ntf_child_${index}`,
+      kind: "idle",
+      at: base - (200 + index) * 60_000,
+      directory: DIR,
+      sessionID: "ses_mock_child",
+      sessionTitle: `Audit the delegated worktree ${index}`,
+      title: `Sub-agent finished ${index}`,
+      body: `child session ${index}`,
+      delivery: { ntfy: "off", desktop: "off", suppressed: "subagent" },
     });
   }
   return records;
@@ -66,14 +104,37 @@ function seedRecords(): StubRecord[] {
  */
 async function stubHistory(page: Page, records = seedRecords(), outsideWindowActive = 0) {
   const state = { records };
+  // Filtering is server-side precisely so the rows and the counter cannot
+  // disagree, so the stub has to honour the flags on both.
+  const visible = (record: StubRecord, hideAuto: boolean, hideSubagent: boolean) =>
+    !(hideAuto && record.delivery.suppressed === "auto-permissions") &&
+    !(hideSubagent && record.delivery.suppressed === "subagent");
   // The server's activeCount is unwindowed while `records` is only the newest
   // page, so the real total is the window's unresolved rows plus any older
   // unresolved records the window cannot reach. That divergence is the steady
   // state once the backlog outgrows HISTORY_LIMIT.
-  const activeCount = () =>
-    outsideWindowActive + state.records.filter((record) => record.resolvedAt === undefined).length;
+  const activeCount = (hideAuto: boolean, hideSubagent: boolean) =>
+    outsideWindowActive +
+    state.records.filter((record) => record.resolvedAt === undefined && visible(record, hideAuto, hideSubagent)).length;
+  const suppressedActive = () => ({
+    "auto-permissions": state.records.filter(
+      (record) => record.resolvedAt === undefined && record.delivery.suppressed === "auto-permissions",
+    ).length,
+    subagent: state.records.filter(
+      (record) => record.resolvedAt === undefined && record.delivery.suppressed === "subagent",
+    ).length,
+  });
   await page.route("**/api/notifications/history*", async (route) => {
-    await route.fulfill({ json: { records: state.records, activeCount: activeCount() } });
+    const query = new URL(route.request().url()).searchParams;
+    const hideAuto = query.get("hideAutoApproved") === "1";
+    const hideSubagent = query.get("hideSubagent") === "1";
+    await route.fulfill({
+      json: {
+        records: state.records.filter((record) => visible(record, hideAuto, hideSubagent)),
+        activeCount: activeCount(hideAuto, hideSubagent),
+        suppressedActive: suppressedActive(),
+      },
+    });
   });
   await page.route(/\/api\/notifications\/ntf_[^/]+$/, async (route) => {
     const { resolved } = route.request().postDataJSON() as { resolved: boolean };
@@ -87,7 +148,7 @@ async function stubHistory(page: Page, records = seedRecords(), outsideWindowAct
       delete record.resolvedAt;
       delete record.resolvedBy;
     }
-    await route.fulfill({ json: { record, activeCount: activeCount() } });
+    await route.fulfill({ json: { record, activeCount: activeCount(true, true) } });
   });
 }
 
@@ -107,6 +168,13 @@ function overflowRecords(count: number): StubRecord[] {
 
 const bell = (page: Page) => page.getByTestId("opencode-nav-notifications");
 const popover = (page: Page) => page.getByTestId("opencode-notification-popover");
+const resolvedToggle = (page: Page) => page.getByTestId("opencode-notification-popover-resolved-toggle");
+
+/** Resolved is an archive and starts collapsed, so most assertions open it first. */
+async function expandResolved(page: Page) {
+  await resolvedToggle(page).click();
+  await expect(page.getByTestId("opencode-notification-popover-resolved")).toBeVisible();
+}
 
 for (const viewport of VIEWPORTS) {
   test.describe(`nav notification centre (${viewport.name})`, () => {
@@ -176,11 +244,14 @@ for (const viewport of VIEWPORTS) {
       await expect(bell(page)).toHaveAttribute("aria-expanded", "true");
       expect(page.url()).toBe(before);
 
-      // Active and Resolved stay in their own sections.
+      // Active and Resolved stay in their own sections. Resolved reports its
+      // size while collapsed, so the archive is never silently invisible.
       await expect(page.getByTestId("opencode-notification-popover-active-count")).toHaveText(String(ACTIVE_COUNT));
       await expect(page.getByTestId("opencode-notification-popover-resolved-count")).toHaveText(String(RESOLVED_COUNT));
       await expect(popover(page).getByRole("heading", { name: "Active" })).toBeVisible();
       await expect(popover(page).getByRole("heading", { name: "Resolved" })).toBeVisible();
+      await expect(page.getByTestId("opencode-notification-popover-resolved")).toHaveCount(0);
+      await expandResolved(page);
 
       // Both lists are bounded and scroll on their own.
       for (const testId of ["opencode-notification-popover-active", "opencode-notification-popover-resolved"]) {
@@ -270,7 +341,8 @@ for (const viewport of VIEWPORTS) {
       await expect(page.getByTestId("opencode-notification-popover-resolved-count")).toHaveText(String(RESOLVED_COUNT + 1));
       await expect(bell(page)).toHaveAttribute("aria-label", `Notifications, ${ACTIVE_COUNT - 1} unresolved`);
 
-      // Reversible: unchecking it in the Resolved column puts the count back.
+      // Reversible: unchecking it in the Resolved list puts the count back.
+      await expandResolved(page);
       const resolvedList = page.getByTestId("opencode-notification-popover-resolved");
       const resolvedRow = resolvedList.getByTestId("opencode-notification-record").first();
       await expect(resolvedRow).toContainText("OpenCode needs permission 0");
@@ -278,6 +350,113 @@ for (const viewport of VIEWPORTS) {
       await resolvedRow.getByTestId("opencode-notification-resolved").click();
       await expect(page.getByTestId("opencode-nav-notifications-badge")).toHaveText(String(ACTIVE_COUNT));
       await expect(page.getByTestId("opencode-notification-popover-active-count")).toHaveText(String(ACTIVE_COUNT));
+    });
+
+    test("folds away preapproved and sub-agent noise by default, and can unfold it", async ({ page }) => {
+      await page.goto(hub);
+      await bell(page).click();
+
+      // Both filters start on, so neither category reaches the list or the
+      // badge — but each states how much it is hiding.
+      const auto = page.getByTestId("opencode-notification-filter-auto-approved");
+      const subagent = page.getByTestId("opencode-notification-filter-subagent");
+      await expect(auto).toBeChecked();
+      await expect(subagent).toBeChecked();
+      await expect(page.getByTestId("opencode-notification-filter-auto-approved-count")).toHaveText(
+        `(${AUTO_APPROVED_COUNT})`,
+      );
+      await expect(page.getByTestId("opencode-notification-filter-subagent-count")).toHaveText(`(${SUBAGENT_COUNT})`);
+      await expect(page.getByTestId("opencode-nav-notifications-badge")).toHaveText(String(ACTIVE_COUNT));
+      await expect(popover(page).getByTestId("opencode-notification-record")).toHaveCount(ACTIVE_COUNT);
+
+      // Unfolding one category adds exactly its rows, to the list and the
+      // badge together: a badge that counted hidden rows would just relocate
+      // the clutter.
+      await auto.uncheck();
+      await expect(page.getByTestId("opencode-nav-notifications-badge")).toHaveText(
+        String(ACTIVE_COUNT + AUTO_APPROVED_COUNT),
+      );
+      await expect(popover(page).getByTestId("opencode-notification-record")).toHaveCount(
+        ACTIVE_COUNT + AUTO_APPROVED_COUNT,
+      );
+      const preapproved = popover(page).locator('[data-suppressed="auto-permissions"]').first();
+      await expect(preapproved).toContainText("Preapproved permission");
+      // The chip explains why a row nobody was asked about is on screen.
+      await expect(preapproved.getByTestId("opencode-notification-suppression")).toHaveText("auto-approved");
+
+      await subagent.uncheck();
+      await expect(page.getByTestId("opencode-nav-notifications-badge")).toHaveText(
+        String(ACTIVE_COUNT + AUTO_APPROVED_COUNT + SUBAGENT_COUNT),
+      );
+      await expect(
+        popover(page).locator('[data-suppressed="subagent"]').first().getByTestId("opencode-notification-suppression"),
+      ).toHaveText("sub-agent");
+
+      // The choice is this device's, and it survives a reload.
+      await page.reload();
+      await bell(page).click();
+      await expect(page.getByTestId("opencode-notification-filter-auto-approved")).not.toBeChecked();
+      await expect(page.getByTestId("opencode-notification-filter-subagent")).not.toBeChecked();
+    });
+
+    test("names the session a notification came from, truncated", async ({ page }) => {
+      await page.goto(hub);
+      await bell(page).click();
+
+      // The notification title is generic; the session title is what says
+      // which piece of work is waiting.
+      const session = popover(page).getByTestId("opencode-notification-session").first();
+      await expect(session).toHaveAttribute("title", SESSION_TITLE);
+      const shown = (await session.textContent()) ?? "";
+      expect(shown.length).toBeLessThan(SESSION_TITLE.length);
+      expect(shown.endsWith("\u2026")).toBe(true);
+      expect(SESSION_TITLE.startsWith(shown.slice(0, -1).trimEnd())).toBe(true);
+    });
+
+    test("keeps the resolved archive collapsed until asked, and remembers that", async ({ page }) => {
+      await page.goto(hub);
+      await bell(page).click();
+
+      const toggle = resolvedToggle(page);
+      await expect(toggle).toHaveAttribute("aria-expanded", "false");
+      await expect(page.getByTestId("opencode-notification-popover-resolved")).toHaveCount(0);
+
+      await toggle.click();
+      await expect(toggle).toHaveAttribute("aria-expanded", "true");
+      await expect(
+        page.getByTestId("opencode-notification-popover-resolved").getByTestId("opencode-notification-record"),
+      ).toHaveCount(RESOLVED_COUNT);
+
+      await page.reload();
+      await bell(page).click();
+      await expect(resolvedToggle(page)).toHaveAttribute("aria-expanded", "true");
+    });
+
+    test("reads as a floating panel rather than part of the page", async ({ page }) => {
+      await page.goto(hub);
+      await bell(page).click();
+
+      // A default-weight border and a plain shadow disappear against the dark
+      // surface, which is what made this look like another page section.
+      const elevation = await popover(page).evaluate((node) => {
+        const style = getComputedStyle(node);
+        return { boxShadow: style.boxShadow, background: style.backgroundColor };
+      });
+      expect(elevation.boxShadow).not.toBe("none");
+      // A ring layer plus at least one cast shadow.
+      expect(elevation.boxShadow.split("rgb").length - 1).toBeGreaterThanOrEqual(3);
+      expect(elevation.background).not.toBe("rgba(0, 0, 0, 0)");
+
+      // On a phone the panel spans the viewport, so a scrim does the work the
+      // shadow does on desktop.
+      const scrim = page.getByTestId("opencode-notification-popover-scrim");
+      if (viewport.name === "mobile") {
+        await expect(scrim).toBeVisible();
+        await scrim.click({ position: { x: 5, y: 5 } });
+        await expect(popover(page)).toHaveCount(0);
+      } else {
+        await expect(scrim).toBeHidden();
+      }
     });
 
     test("keeps Phone, Docs, Tools and Settings reachable from More", async ({ page }) => {

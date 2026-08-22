@@ -126,12 +126,23 @@ export interface NotificationPreferences {
 
 export type NotificationHistoryState = "all" | "active" | "resolved";
 
+/**
+ * Why a record was never delivered, and the axis the noise filters act on.
+ * Mirrors server/notifications/history.ts.
+ */
+export type NotificationSuppression = "auto-permissions" | "subagent";
+
+/** Unresolved rows each filter is responsible for hiding, filter on or off. */
+export type SuppressedActiveCounts = Record<NotificationSuppression, number>;
+
 export interface NotificationRecord {
   id: string;
   kind: NotifyEvent;
   at: number;
   directory?: string;
   sessionID?: string;
+  /** Session title as of the moment the notification fired, if it was known. */
+  sessionTitle?: string;
   requestID?: string;
   title: string;
   body: string;
@@ -144,7 +155,7 @@ export interface NotificationRecord {
     ntfyError?: string;
     /** Desktop-notification preference; sound and speech are device-local. */
     desktop: "allowed" | "off";
-    suppressed?: "auto-permissions";
+    suppressed?: NotificationSuppression;
   };
 }
 
@@ -460,15 +471,30 @@ export const api = {
     }).then((r) => json<{ preferences: NotificationPreferences; tokenConfigured: boolean }>(r)),
   testNtfy: () =>
     fetch("/api/notifications/test", { method: "POST" }).then((r) => json<{ sent: boolean }>(r)),
-  notificationHistory: (options: { limit?: number; kind?: NotifyEvent; state?: NotificationHistoryState; directory?: string } = {}) => {
+  notificationHistory: (
+    options: {
+      limit?: number;
+      kind?: NotifyEvent;
+      state?: NotificationHistoryState;
+      directory?: string;
+      hideAutoApproved?: boolean;
+      hideSubagent?: boolean;
+    } = {},
+  ) => {
     const query = new URLSearchParams();
     if (options.limit) query.set("limit", String(options.limit));
     if (options.kind) query.set("kind", options.kind);
     if (options.state && options.state !== "all") query.set("state", options.state);
     if (options.directory) query.set("directory", options.directory);
+    if (options.hideAutoApproved) query.set("hideAutoApproved", "1");
+    if (options.hideSubagent) query.set("hideSubagent", "1");
     const suffix = query.size ? `?${query}` : "";
     return fetch(`/api/notifications/history${suffix}`).then((r) =>
-      json<{ records: NotificationRecord[]; activeCount: number }>(r),
+      json<{
+        records: NotificationRecord[];
+        activeCount: number;
+        suppressedActive?: SuppressedActiveCounts;
+      }>(r),
     );
   },
   dismissNotification: (id: string) =>

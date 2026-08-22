@@ -1,29 +1,38 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
-import { Bell } from "lucide-react";
+import { Bell, ChevronDown, ChevronRight } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { Alert } from "../ds/alert.js";
 import { Badge } from "../ds/badge.js";
 import { Button } from "../ds/button.js";
+import { cn } from "../ds/utils.js";
 import type { NotificationRecord } from "../lib/api.js";
 import { useNotificationCenter } from "../lib/useNotificationCenter.js";
+import { NotificationFilters } from "./notification-filters.js";
 import { NotificationRecordRow } from "./notification-record-row.js";
 
 /** Highest number the decorative pill prints literally; above this it reads "99+". */
 const BADGE_CAP = 99;
 
 /**
- * One scrollable column of the popover. Active and Resolved stay in their own
- * bounded, independently scrolling lists so a long backlog on one side never
- * hides the other — and never grows the nav.
+ * One bounded, independently scrolling section of the popover. Active and
+ * Resolved keep separate scrollers so a long backlog on one side never hides
+ * the other — and never grows the nav.
+ *
+ * When `collapsed` is supplied the heading becomes a disclosure button. Only
+ * Resolved uses it: resolved rows are an archive, and an archive should not
+ * cost the live list half the panel.
  */
-function RecordColumn({
+function RecordSection({
   title,
   records,
   emptyLabel,
   testId,
   onResolvedChange,
   footer,
+  maxHeight = "max-h-64",
+  collapsed,
+  onToggle,
 }: {
   title: string;
   records: NotificationRecord[];
@@ -31,34 +40,70 @@ function RecordColumn({
   testId: string;
   onResolvedChange: (id: string, resolved: boolean) => void;
   footer?: ReactNode;
+  maxHeight?: string;
+  collapsed?: boolean;
+  onToggle?: () => void;
 }) {
   const headingId = `${testId}-heading`;
+  const bodyId = `${testId}-body`;
+  const collapsible = collapsed !== undefined;
+  const count = (
+    <span className="tabular-nums" data-testid={`${testId}-count`}>
+      {records.length}
+    </span>
+  );
+  const headingClass =
+    "flex w-full shrink-0 items-center gap-2 px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]";
+
   return (
     <section
-      className="flex min-h-0 min-w-0 flex-1 flex-col rounded-md border border-[var(--color-border-default)]"
+      className="flex min-h-0 min-w-0 flex-col rounded-md border border-[var(--color-border-default)]"
       aria-labelledby={headingId}
     >
-      <h3
-        className="flex shrink-0 items-center gap-2 border-b border-[var(--color-border-default)] px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]"
-        id={headingId}
-      >
-        {title}
-        <span className="tabular-nums" data-testid={`${testId}-count`}>
-          {records.length}
-        </span>
+      <h3 className={cn("shrink-0", !collapsible && "border-b border-[var(--color-border-default)]")} id={headingId}>
+        {collapsible ? (
+          <button
+            type="button"
+            aria-controls={bodyId}
+            aria-expanded={!collapsed}
+            className={cn(
+              headingClass,
+              "rounded-t-md hover:bg-[var(--color-background-surface-neutral-muted)]",
+              !collapsed && "border-b border-[var(--color-border-default)]",
+            )}
+            onClick={onToggle}
+            data-testid={`${testId}-toggle`}
+          >
+            {collapsed ? <ChevronRight aria-hidden="true" size={13} /> : <ChevronDown aria-hidden="true" size={13} />}
+            {title}
+            {count}
+          </button>
+        ) : (
+          <span className={headingClass}>
+            {title}
+            {count}
+          </span>
+        )}
       </h3>
-      {records.length === 0 ? (
-        <p className="p-3 text-xs text-[var(--color-text-muted)]" data-testid={`${testId}-empty`}>
-          {emptyLabel}
-        </p>
-      ) : (
-        <ul className="max-h-56 min-h-0 flex-1 overflow-y-auto overscroll-contain" data-testid={testId}>
-          {records.map((record) => (
-            <NotificationRecordRow key={record.id} record={record} onResolvedChange={onResolvedChange} compact />
-          ))}
-        </ul>
+      {!collapsed && (
+        <div className="flex min-h-0 flex-col" id={bodyId}>
+          {records.length === 0 ? (
+            <p className="p-3 text-xs text-[var(--color-text-muted)]" data-testid={`${testId}-empty`}>
+              {emptyLabel}
+            </p>
+          ) : (
+            <ul
+              className={cn("min-h-0 flex-1 overflow-y-auto overscroll-contain", maxHeight)}
+              data-testid={testId}
+            >
+              {records.map((record) => (
+                <NotificationRecordRow key={record.id} record={record} onResolvedChange={onResolvedChange} compact />
+              ))}
+            </ul>
+          )}
+          {footer}
+        </div>
       )}
-      {footer}
     </section>
   );
 }
@@ -76,7 +121,8 @@ function outsideWindowNotice(hidden: number): string {
  * filterable history still lives at /settings/notifications.
  */
 export function NotificationPopover({ scopedPath }: { scopedPath: (path: string) => string }) {
-  const { activeCount, records, loading, error, setResolved } = useNotificationCenter();
+  const { activeCount, records, suppressedActive, view, setView, loading, error, setResolved } =
+    useNotificationCenter();
   const [open, setOpen] = useState(false);
   const [mutationError, setMutationError] = useState("");
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -168,60 +214,80 @@ export function NotificationPopover({ scopedPath }: { scopedPath: (path: string)
         )}
       </Button>
       {open && (
-        <div
-          aria-label="Notifications"
-          className="fixed inset-x-2 top-11 z-50 flex max-h-[min(28rem,calc(100dvh-4rem))] flex-col gap-2 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-background-surface)] p-2 shadow-xl sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-1 sm:w-[38rem]"
-          id={panelId}
-          ref={panelRef}
-          role="dialog"
-          tabIndex={-1}
-          data-testid="opencode-notification-popover"
-        >
-          {error && <Alert variant="danger">{error}</Alert>}
-          {mutationError && <Alert variant="danger">{mutationError}</Alert>}
-          <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto sm:flex-row sm:overflow-visible">
-            <RecordColumn
-              title="Active"
-              records={active}
-              emptyLabel={
-                loading
-                  ? "Loading..."
-                  : hiddenActive > 0
-                    // "Nothing unresolved" would be a confident falsehood when
-                    // the server says otherwise.
-                    ? "No unresolved records in this view."
-                    : "Nothing unresolved."
-              }
-              testId="opencode-notification-popover-active"
-              onResolvedChange={onResolvedChange}
-              footer={
-                hiddenActive > 0 ? (
-                  <p
-                    className="shrink-0 border-t border-[var(--color-border-default)] p-2 text-[11px] text-[var(--color-text-muted)]"
-                    data-testid="opencode-notification-popover-active-outside-window"
-                  >
-                    {outsideWindowNotice(hiddenActive)}
-                  </p>
-                ) : undefined
-              }
-            />
-            <RecordColumn
-              title="Resolved"
-              records={resolved}
-              emptyLabel={loading ? "Loading..." : "Nothing resolved yet."}
-              testId="opencode-notification-popover-resolved"
-              onResolvedChange={onResolvedChange}
-            />
-          </div>
-          <Link
-            className="shrink-0 rounded px-2 py-1.5 text-xs underline underline-offset-2 hover:bg-[var(--color-background-surface-neutral-muted)]"
-            onClick={() => close(false)}
-            to={scopedPath("/settings/notifications")}
-            data-testid="opencode-notification-popover-history"
+        <>
+          {/* Phone-width scrim. The panel spans the viewport there, so without
+              a dimmed page behind it there is no visual cue that anything is
+              floating. Desktop relies on the elevation shadow instead. */}
+          <div
+            aria-hidden="true"
+            className="fixed inset-0 z-40 bg-[var(--color-background-overlay)] sm:hidden"
+            onPointerDown={() => close(false)}
+            data-testid="opencode-notification-popover-scrim"
+          />
+          <div
+            aria-label="Notifications"
+            className="has-shadow-overlay fixed inset-x-2 top-11 z-50 flex max-h-[min(32rem,calc(100dvh-4rem))] flex-col gap-2 rounded-lg bg-[var(--color-background-surface)] p-2 sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-[34rem]"
+            id={panelId}
+            ref={panelRef}
+            role="dialog"
+            tabIndex={-1}
+            data-testid="opencode-notification-popover"
           >
-            Open full notification history
-          </Link>
-        </div>
+            {error && <Alert variant="danger">{error}</Alert>}
+            {mutationError && <Alert variant="danger">{mutationError}</Alert>}
+            <NotificationFilters
+              view={view}
+              onChange={setView}
+              suppressedActive={suppressedActive}
+              className="shrink-0 px-1 pb-1"
+            />
+            <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
+              <RecordSection
+                title="Active"
+                records={active}
+                emptyLabel={
+                  loading
+                    ? "Loading..."
+                    : hiddenActive > 0
+                      // "Nothing unresolved" would be a confident falsehood when
+                      // the server says otherwise.
+                      ? "No unresolved records in this view."
+                      : "Nothing unresolved."
+                }
+                testId="opencode-notification-popover-active"
+                onResolvedChange={onResolvedChange}
+                footer={
+                  hiddenActive > 0 ? (
+                    <p
+                      className="shrink-0 border-t border-[var(--color-border-default)] p-2 text-[11px] text-[var(--color-text-muted)]"
+                      data-testid="opencode-notification-popover-active-outside-window"
+                    >
+                      {outsideWindowNotice(hiddenActive)}
+                    </p>
+                  ) : undefined
+                }
+              />
+              <RecordSection
+                title="Resolved"
+                records={resolved}
+                emptyLabel={loading ? "Loading..." : "Nothing resolved yet."}
+                testId="opencode-notification-popover-resolved"
+                onResolvedChange={onResolvedChange}
+                maxHeight="max-h-48"
+                collapsed={!view.resolvedExpanded}
+                onToggle={() => setView({ resolvedExpanded: !view.resolvedExpanded })}
+              />
+            </div>
+            <Link
+              className="shrink-0 rounded px-2 py-1.5 text-xs underline underline-offset-2 hover:bg-[var(--color-background-surface-neutral-muted)]"
+              onClick={() => close(false)}
+              to={scopedPath("/settings/notifications")}
+              data-testid="opencode-notification-popover-history"
+            >
+              Open full notification history
+            </Link>
+          </div>
+        </>
       )}
     </div>
   );
