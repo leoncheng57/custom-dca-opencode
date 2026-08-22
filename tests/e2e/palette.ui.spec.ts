@@ -72,8 +72,16 @@ test.describe("command palette", () => {
     await page.goto("/settings");
     await page.keyboard.press(shortcut);
     await expect(page.getByRole("option", { name: /Home/ })).toBeVisible();
+    await expect(page.getByRole("option", { name: /Docs/ })).toBeVisible();
     await expect(page.getByTestId("opencode-palette-status")).toContainText("Set a project directory");
     await expect(page.locator('[role="option"][data-kind="conversation"]')).toHaveCount(0);
+  });
+
+  test("opens the docs center from global navigation", async ({ page }) => {
+    await page.goto(settings);
+    await page.getByTestId("opencode-nav-docs").click();
+    await expect(page).toHaveURL(new RegExp(`/docs\\?directory=${encodeURIComponent(DIR)}`));
+    await expect(page.getByTestId("opencode-docs")).toBeVisible();
   });
 
   test("runs existing actions", async ({ page }) => {

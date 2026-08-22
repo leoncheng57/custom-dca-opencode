@@ -33,7 +33,16 @@ export default defineConfig(() => {
       fs: {
         // Explicit allowlist — never the repo root, which would expose .env
         // through /@fs/. server/opencode/ holds isomorphic client+server code.
-        allow: [resolve(process.cwd(), "client"), resolve(process.cwd(), "server")],
+        allow: [
+          resolve(process.cwd(), "client"),
+          resolve(process.cwd(), "server"),
+          resolve(process.cwd(), "docs"),
+          resolve(process.cwd(), "deploy/README.md"),
+          resolve(process.cwd(), "reminders/README.md"),
+          resolve(process.cwd(), "README.md"),
+          resolve(process.cwd(), "CONTRIBUTING.md"),
+          resolve(process.cwd(), "AGENTS.md"),
+        ],
       },
       proxy: {
         "/api": { target: apiTarget, changeOrigin: true },

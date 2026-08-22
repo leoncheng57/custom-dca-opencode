@@ -62,7 +62,8 @@ starts a second OpenCode server; it uses `OPENCODE_URL` from `.env`.
 The OpenCode 1.18.21 compatibility check is recorded in
 [`docs/opencode-1.18.21-api-audit.md`](docs/opencode-1.18.21-api-audit.md).
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the development and pull request workflow.
-The same contributor material has a themed [visual reading index](docs/contributing/index.html).
+The running app exposes the architecture and canonical guides at `/docs`; the same contributor
+material also has a standalone themed [visual reading index](docs/contributing/index.html).
 
 ### Open on a phone
 
@@ -194,6 +195,9 @@ Browser (desktop / phone via Tailscale)
 The BFF exists because: it holds the server credential, fans one upstream SSE stream out
 to many browser clients, threads `?directory=` per project, and runs the things the
 OpenCode API doesn't expose (git history, forge APIs, notification transport).
+
+See [`docs/architecture.md`](docs/architecture.md) for conversation and event flows, state
+ownership, safety boundaries, and the extension map.
 
 ## Safety
 

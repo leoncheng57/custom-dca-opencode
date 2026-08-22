@@ -62,3 +62,31 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Long-form repository docs use the lightweight shared Markdown renderer, but
+ * need a roomier reading scale than transcript prose. */
+.docs-markdown {
+  font-size: 0.9375rem;
+  line-height: 1.75;
+}
+
+.docs-markdown :where(h2) {
+  margin-top: 2.25rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--color-border-default);
+  font-size: 1.5rem;
+  letter-spacing: -0.02em;
+}
+
+.docs-markdown :where(h3) {
+  margin-top: 1.75rem;
+  font-size: 1.15rem;
+}
+
+.docs-markdown :where(p, li) {
+  max-width: 76ch;
+}
+
+.docs-markdown :where(table) {
+  width: 100%;
+}

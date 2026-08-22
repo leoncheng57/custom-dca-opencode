@@ -78,6 +78,11 @@ describe("PR screenshot requests", () => {
     expect(desktop).not.toBe(mobile);
   });
 
+  it("accepts the documentation index and fixed-slug readers", () => {
+    expect(parseScreenshotBlock("```screenshots\n/docs\n/docs/architecture\n```").requests)
+      .toHaveLength(2);
+  });
+
   it.each([
     "https://evil.example/path",
     "//evil.example/path",
