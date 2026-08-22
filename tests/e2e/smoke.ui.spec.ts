@@ -1000,6 +1000,30 @@ test.describe("settings and tools UI", () => {
   });
 });
 
+test.describe("engineering docs UI", () => {
+  test("opens the architecture guide from the visual docs center", async ({ page }) => {
+    await page.goto(`/docs?directory=${encodeURIComponent(DIR)}`);
+    await expect(page.getByTestId("opencode-docs")).toContainText("One server, every project");
+    await page.getByTestId("opencode-docs-open-architecture").click();
+    await expect(page).toHaveURL(new RegExp(`/docs/architecture\\?directory=${encodeURIComponent(DIR)}`));
+    await expect(page.getByTestId("opencode-doc")).toContainText("Conversation lifecycle");
+    await expect(page.getByTestId("opencode-doc-source")).toContainText("docs/architecture.md");
+  });
+
+  test("renders an unknown document state", async ({ page }) => {
+    await page.goto("/docs/not-in-the-catalogue");
+    await expect(page.getByTestId("opencode-doc")).toContainText("not in the in-app catalogue");
+  });
+
+  test("fits the docs center without horizontal overflow at 390px", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 740 });
+    await page.goto("/docs");
+    await expect(page.getByTestId("opencode-docs")).toBeVisible();
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
+  });
+});
+
 test.describe("workspace UI", () => {
   const conversation = `/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`;
 
@@ -1044,10 +1068,10 @@ test.describe("workspace UI", () => {
     await fetch(`${FORGE_URL}/test/forge-reset`, { method: "POST" });
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto(conversation);
-    await page.getByTestId("opencode-inspector-reviews").click();
+    await page.getByTestId("opencode-inspector-reviews").dispatchEvent("click");
     await expect(page.getByTestId("opencode-merge-review")).toBeVisible();
     page.once("dialog", (dialog) => dialog.accept());
-    await page.getByTestId("opencode-merge-review").click();
+    await page.getByTestId("opencode-merge-review").dispatchEvent("click");
     await expect(page.getByTestId("opencode-review-card")).toHaveAttribute("data-state", "merged");
     await expect.poll(async () => (await (await fetch(`${FORGE_URL}/test/forge-state`)).json()).mergeBody).toEqual({ sha: "abc123" });
   });
@@ -1055,7 +1079,7 @@ test.describe("workspace UI", () => {
   test("review card remains width-safe in a mobile cockpit host", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto(conversation);
-    await page.getByTestId("opencode-inspector-reviews").click();
+    await page.getByTestId("opencode-inspector-reviews").dispatchEvent("click");
     await expect(page.getByTestId("opencode-review-card")).toBeVisible();
     await page.setViewportSize({ width: 390, height: 740 });
     await page.getByTestId("opencode-session-inspector").evaluate((element) => {

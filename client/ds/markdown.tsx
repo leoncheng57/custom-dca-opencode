@@ -87,6 +87,9 @@ export interface MarkdownToHtmlOpts {
    * content built from Slack threads.
    */
   untrusted?: boolean;
+  /** Keep root-relative and hash links in the current tab. Useful for
+   * repository-owned documentation rendered inside the application. */
+  internalLinksInSameTab?: boolean;
 }
 
 /**
@@ -152,9 +155,13 @@ export function markdownToHtml(md: string, opts?: MarkdownToHtmlOpts): string {
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, text: string, url: string) => {
       if (opts?.untrusted) {
         if (!isSafeHref(url)) return text;
-        return keep(`<a href="${escapeAttribute(url)}" target="_blank" rel="noreferrer">${text}</a>`);
+        const sameTab = opts.internalLinksInSameTab && /^(?:\/|#)/u.test(url.trim());
+        const attributes = sameTab ? "" : ' target="_blank" rel="noreferrer"';
+        return keep(`<a href="${escapeAttribute(url)}"${attributes}>${text}</a>`);
       }
-      return keep(`<a href="${url}" target="_blank" rel="noreferrer">${text}</a>`);
+      const sameTab = opts?.internalLinksInSameTab && /^(?:\/|#)/u.test(url.trim());
+      const attributes = sameTab ? "" : ' target="_blank" rel="noreferrer"';
+      return keep(`<a href="${url}"${attributes}>${text}</a>`);
     })
     // Autolink bare URLs in the remaining plain text — URLs inside code
     // or already-emitted links are stashed as tokens, so they're immune.
@@ -199,10 +206,15 @@ interface MarkdownProps {
   /** Escape raw HTML + restrict link protocols. Set for content derived
    * from external users (see markdownToHtml docs). */
   untrusted?: boolean;
+  /** Keep root-relative and hash links in this tab. */
+  internalLinksInSameTab?: boolean;
 }
 
-export const Markdown = memo(function Markdown({ source, className, untrusted }: MarkdownProps) {
-  const html = useMemo(() => markdownToHtml(source, { untrusted }), [source, untrusted]);
+export const Markdown = memo(function Markdown({ source, className, untrusted, internalLinksInSameTab }: MarkdownProps) {
+  const html = useMemo(
+    () => markdownToHtml(source, { untrusted, internalLinksInSameTab }),
+    [source, untrusted, internalLinksInSameTab],
+  );
   if (!source || !source.trim()) return null;
   return (
     <div
