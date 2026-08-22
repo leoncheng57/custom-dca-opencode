@@ -1,11 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  createPlanningIssue,
+  getPlanningLabels,
   getPlanningSnapshot,
   normalizePlanningItem,
   PLANNING_LIMITS,
   planningErrorMessage,
   resetPlanningCache,
+  validateCreatePlanningIssue,
 } from "../server/github-planning.js";
 
 function response(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
@@ -140,5 +143,93 @@ describe("GitHub planning fetch", () => {
     expect(a).toBe(b);
     expect(cached).toBe(a);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("GitHub planning issue creation", () => {
+  it("strictly validates and normalizes create input", () => {
+    expect(validateCreatePlanningIssue({ title: "  Ship it  ", body: "## Why", labels: ["frontend", "frontend", "mobile"] }))
+      .toEqual({ title: "Ship it", body: "## Why", labels: ["frontend", "mobile"] });
+    for (const invalid of [
+      null,
+      [],
+      {},
+      { title: "   " },
+      { title: "line\nbreak" },
+      { title: "ok", owner: "attacker" },
+      { title: "ok", body: 1 },
+      { title: "ok", labels: "frontend" },
+      { title: "ok", labels: [1] },
+      { title: "x".repeat(PLANNING_LIMITS.createTitleCharacters + 1) },
+      { title: "ok", body: "x".repeat(PLANNING_LIMITS.createBodyCharacters + 1) },
+    ]) expect(() => validateCreatePlanningIssue(invalid)).toThrow();
+  });
+
+  it("requires the server token without making a request", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(createPlanningIssue({ title: "Test", body: "", labels: [] })).rejects.toThrow("Authentication unavailable");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("posts only bounded fields to the fixed repository and normalizes the result URL", async () => {
+    vi.stubEnv("GITHUB_TOKEN", "server-secret");
+    const fetchMock = vi.fn(async (input: URL | RequestInfo, init?: RequestInit) => {
+      expect(String(input)).toBe("https://api.github.com/repos/leoncheng57/custom-dca-opencode/issues");
+      expect(init?.method).toBe("POST");
+      const headers = new Headers(init?.headers);
+      expect(headers.get("authorization")).toBe("Bearer server-secret");
+      expect(headers.get("user-agent")).toBe("custom-dca-opencode");
+      expect(JSON.parse(String(init?.body))).toEqual({ title: "New issue", body: "Details", labels: ["frontend"] });
+      return response(rawItem(123, { title: "New issue", html_url: "https://attacker.invalid/issue" }), 201);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const issue = await createPlanningIssue({ title: "New issue", body: "Details", labels: ["frontend"] });
+
+    expect(issue).toMatchObject({ number: 123, type: "issue", url: "https://github.com/leoncheng57/custom-dca-opencode/issues/123" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    [401, {}, "Authentication unavailable"],
+    [403, { "Retry-After": "60" }, "Rate limited"],
+    [422, {}, "Rejected by GitHub"],
+    [500, {}, "Unavailable"],
+  ] as const)("sanitizes create HTTP %s without retrying", async (status, headers, expected) => {
+    vi.stubEnv("GITHUB_TOKEN", "must-never-leak");
+    const fetchMock = vi.fn(async () => response({ secret: "upstream-body" }, status, headers));
+    vi.stubGlobal("fetch", fetchMock);
+    const error = await createPlanningIssue({ title: "Test", body: "", labels: [] }).catch((reason: unknown) => reason);
+    expect(planningErrorMessage(error)).toBe(expected);
+    expect(String(error)).not.toContain("must-never-leak");
+    expect(String(error)).not.toContain("upstream-body");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("loads and caches label names and descriptions without colors", async () => {
+    const fetchMock = vi.fn(async () => response([{ name: "frontend", description: "Client work", color: "ff0000" }]));
+    vi.stubGlobal("fetch", fetchMock);
+    const first = await getPlanningLabels();
+    const second = await getPlanningLabels();
+    expect(first).toEqual({ labels: [{ name: "frontend", description: "Client work" }], truncated: false });
+    expect(second).toEqual(first);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("invalidates a warm snapshot only after successful creation", async () => {
+    vi.stubEnv("GITHUB_TOKEN", "server-secret");
+    let reads = 0;
+    vi.stubGlobal("fetch", vi.fn(async (_input: URL | RequestInfo, init?: RequestInit) => {
+      if (init?.method === "POST") return response(rawItem(200), 201);
+      reads += 1;
+      return response([rawItem(reads)]);
+    }));
+    await getPlanningSnapshot();
+    await getPlanningSnapshot();
+    expect(reads).toBe(1);
+    await createPlanningIssue({ title: "New", body: "", labels: [] });
+    await getPlanningSnapshot();
+    expect(reads).toBe(2);
   });
 });

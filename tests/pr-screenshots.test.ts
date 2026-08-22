@@ -88,6 +88,11 @@ describe("PR screenshot requests", () => {
       .toMatchObject({ requestedRoute: "/planning", fullPage: false });
   });
 
+  it("accepts the deterministic create-issue dialog state", () => {
+    expect(parseScreenshotBlock("```screenshots\n/planning?create=1\n```").requests[0])
+      .toMatchObject({ requestedRoute: "/planning?create=1", fullPage: false });
+  });
+
   it.each([
     "https://evil.example/path",
     "//evil.example/path",

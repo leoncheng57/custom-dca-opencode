@@ -309,6 +309,9 @@ export interface PlanningSnapshot {
   fetchedAt: string;
 }
 
+export interface PlanningLabel { name: string; description: string | null }
+export interface CreatePlanningIssueInput { title: string; body: string; labels: string[] }
+
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let message = `HTTP ${res.status}`;
@@ -583,6 +586,13 @@ export const api = {
     }).then((r) => json<void>(r)),
   /** Not project-scoped: the planning feed is one fixed repository (see server/github-planning.ts). */
   planningItems: (refresh = false) => fetch(`/api/planning/items${refresh ? "?refresh=1" : ""}`).then((r) => json<PlanningSnapshot>(r)),
+  planningLabels: () => fetch("/api/planning/labels").then((r) => json<{ labels: PlanningLabel[]; truncated: boolean }>(r)),
+  createPlanningIssue: (input: CreatePlanningIssueInput) =>
+    fetch("/api/planning/issues", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }).then((r) => json<{ issue: PlanningItem }>(r)),
   review: (url: string) =>
     fetch(`/api/forge/review?${new URLSearchParams({ url })}`).then((r) => json<{ review: ReviewStatus }>(r)),
   reviewDetails: (url: string) =>
