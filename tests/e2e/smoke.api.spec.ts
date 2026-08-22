@@ -8,6 +8,7 @@ const AUTO_DIR = process.platform === "darwin" ? "/private/tmp/mock-auto-project
 const TOOL_FAILURE_DIR = process.platform === "darwin" ? "/private/tmp/mock-tool-failure" : "/tmp/mock-tool-failure";
 const CATALOGUE_FAILURE_DIR = process.platform === "darwin" ? "/private/tmp/mock-catalogue-failure" : "/tmp/mock-catalogue-failure";
 const POLICY_FAILURE_DIR = process.platform === "darwin" ? "/private/tmp/mock-policy-failure" : "/tmp/mock-policy-failure";
+const SUBAGENT_DIR = process.platform === "darwin" ? "/private/tmp/mock-subagent-project" : "/tmp/mock-subagent-project";
 const MOCK_URL = `http://127.0.0.1:${process.env.MOCK_OPENCODE_PORT || 4599}`;
 const PREVIEW_PORT = process.env.MOCK_PREVIEW_PORT || "4600";
 
@@ -908,6 +909,34 @@ test.describe("notification history", () => {
     await request.post(`/api/permission-requests/${requestID}/reply?directory=${DIR}`, { data: { reply: "once" } });
     expect(record((await history(request)).records, requestID)?.resolvedAt).toBeUndefined();
     await request.patch(`/api/notifications/${asked.id}`, { data: { resolved: true } });
+  });
+
+  test("records only root-session asks and suppresses nested descendants", async ({ request }) => {
+    const childID = `perm_child_${Date.now()}`;
+    const nestedID = `perm_nested_${Date.now()}`;
+    const rootID = `perm_root_${Date.now()}`;
+    for (const [id, sessionID] of [
+      [childID, "ses_mock_child_done"],
+      [nestedID, "ses_mock_grandchild"],
+      [rootID, "ses_mock_parent"],
+    ]) {
+      await fetch(`${MOCK_URL}/test/permission?directory=${encodeURIComponent(SUBAGENT_DIR)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, sessionID, permission: "bash", patterns: ["npm test"] }),
+      });
+    }
+
+    await expect.poll(async () => record((await history(request)).records, rootID))
+      .toMatchObject({ kind: "permission", directory: SUBAGENT_DIR, sessionID: "ses_mock_parent" });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const records = (await history(request)).records;
+    expect(record(records, childID)).toBeUndefined();
+    expect(record(records, nestedID)).toBeUndefined();
+
+    const root = record(records, rootID)!;
+    await request.patch(`/api/notifications/${root.id}`, { data: { resolved: true } });
+    await fetch(`${MOCK_URL}/test/permissions/reset?directory=${encodeURIComponent(SUBAGENT_DIR)}`, { method: "POST" });
   });
 
   test("persists a reversible user-only resolved checkbox", async ({ request }) => {

@@ -103,9 +103,12 @@ several decisions below.
 9. **Plan/Build is activated on the session before each classic prompt.** Issue #15
    established that legacy `tools` overrides are converted into persistent session
    permission rules, so omitting `tools` on the next Build prompt does not restore
-   write access. Plan now appends denies for discovered non-read tools; Build projects
+   write access. Plan now appends denies for discovered mutating tools while leaving
+   `task` governed by the resolved Plan agent's pattern-specific permissions, so safe
+   read-only delegation remains available without allowing unsafe agents. Build projects
    the resolved Build agent's wildcard and tool-specific rules onto discovered tools.
-   This preserves configured asks and pattern-specific denies without blanket allows.
+   Neither mode appends an unconditional task allow; this preserves configured asks and
+   pattern-specific denies under OpenCode's last-match-wins semantics.
    Activation must succeed before `prompt_async`, and exact suffix checks make repeated
    same-mode prompts idempotent.
 10. **Notification resolution is manual-only and server-persisted.**

@@ -12,8 +12,12 @@ import {
   PreferenceStore,
 } from "../server/notifications/preferences.js";
 import { sendNtfy } from "../server/notifications/ntfy.js";
+import type { SessionMetadata } from "../server/opencode/sessions.js";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
 
 let historySequence = 0;
 function historyStore(limit?: number): HistoryStore {
@@ -26,6 +30,8 @@ function ntfyPreferences(): PreferenceStore {
     read: async () => normalizePreferences({ ntfy: { enabled: true, server: "https://ntfy.sh", topic: "team" } }),
   } as PreferenceStore;
 }
+
+const rootSession = async (_directory: string, sessionID: string): Promise<SessionMetadata> => ({ id: sessionID });
 
 describe("notification preferences", () => {
   it("normalises independent event channels and clamps values", () => {
@@ -93,6 +99,155 @@ describe("notification event classification", () => {
   });
 });
 
+describe("root session notification filtering", () => {
+  const idle = (directory: string, sessionID: string) => ({
+    type: "session.idle",
+    directory,
+    properties: { sessionID },
+  });
+
+  function startService(
+    lookup: (directory: string, sessionID: string, signal: AbortSignal) => Promise<SessionMetadata | null>,
+  ) {
+    const bus = new EventEmitter() as EventBus;
+    const history = historyStore();
+    const service = new NotificationService(
+      { baseUrl: "http://opencode.test" },
+      bus,
+      ntfyPreferences(),
+      history,
+      null,
+      undefined,
+      lookup,
+    );
+    service.start();
+    return { bus, history, service };
+  }
+
+  it("records and delivers root session notifications", async () => {
+    const fetchMock = vi.fn(async () => new Response("ok", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const lookup = vi.fn(rootSession);
+    const { bus, history, service } = startService(lookup);
+
+    bus.emit("event", idle("/tmp/root", "ses_root"));
+
+    await vi.waitFor(async () => expect(await history.list()).toHaveLength(1));
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(lookup).toHaveBeenCalledWith("/tmp/root", "ses_root", expect.any(AbortSignal));
+    service.stop();
+  });
+
+  it.each([
+    ["child", "ses_parent"],
+    ["nested child", "ses_child"],
+  ])("suppresses a verified %s without consuming the original event", async (_label, parentID) => {
+    const fetchMock = vi.fn(async () => new Response("ok", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const lookup = vi.fn(async (_directory: string, sessionID: string) => ({ id: sessionID, parentID }));
+    const { bus, history, service } = startService(lookup);
+    const observed = vi.fn();
+    bus.on("event", observed);
+
+    bus.emit("event", idle("/tmp/project", "ses_descendant"));
+
+    await vi.waitFor(() => expect(lookup).toHaveBeenCalledOnce());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(await history.list()).toEqual([]);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(observed).toHaveBeenCalledWith(idle("/tmp/project", "ses_descendant"));
+    service.stop();
+  });
+
+  it("fails open when session metadata is unknown", async () => {
+    const fetchMock = vi.fn(async () => new Response("ok", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { bus, history, service } = startService(async () => null);
+
+    bus.emit("event", idle("/tmp/project", "ses_missing"));
+
+    await vi.waitFor(async () => expect(await history.list()).toHaveLength(1));
+    expect(fetchMock).toHaveBeenCalledOnce();
+    service.stop();
+  });
+
+  it("fails open when the metadata lookup fails", async () => {
+    const fetchMock = vi.fn(async () => new Response("ok", { status: 200 }));
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.stubGlobal("fetch", fetchMock);
+    const { bus, history, service } = startService(async () => { throw new Error("upstream unavailable"); });
+
+    bus.emit("event", idle("/tmp/project", "ses_unavailable"));
+
+    await vi.waitFor(async () => expect(await history.list()).toHaveLength(1));
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(warning).toHaveBeenCalledWith("[notification-session]", "upstream unavailable");
+    warning.mockRestore();
+    service.stop();
+  });
+
+  it("keeps identical session IDs isolated by directory", async () => {
+    const fetchMock = vi.fn(async () => new Response("ok", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const lookup = vi.fn(async (directory: string, sessionID: string) => ({
+      id: sessionID,
+      ...(directory === "/tmp/child-project" ? { parentID: "ses_parent" } : {}),
+    }));
+    const { bus, history, service } = startService(lookup);
+
+    bus.emit("event", idle("/tmp/child-project", "ses_shared"));
+    await vi.waitFor(() => expect(lookup).toHaveBeenCalledTimes(1));
+    bus.emit("event", idle("/tmp/root-project", "ses_shared"));
+
+    await vi.waitFor(async () => expect(await history.list()).toHaveLength(1));
+    expect((await history.list())[0].directory).toBe("/tmp/root-project");
+    expect(lookup).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    service.stop();
+  });
+
+  it("reuses verified lifecycle metadata without an upstream lookup", async () => {
+    const fetchMock = vi.fn(async () => new Response("ok", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const lookup = vi.fn(rootSession);
+    const { bus, history, service } = startService(lookup);
+    bus.emit("event", {
+      type: "session.created",
+      directory: "/tmp/project",
+      properties: { info: { id: "ses_child", parentID: "ses_parent" } },
+    });
+
+    bus.emit("event", idle("/tmp/project", "ses_child"));
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(lookup).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(await history.list()).toEqual([]);
+    service.stop();
+  });
+
+  it("fails open without queueing more than four unique metadata lookups", async () => {
+    const fetchMock = vi.fn(async () => new Response("ok", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const resolvers: Array<(metadata: SessionMetadata) => void> = [];
+    const lookup = vi.fn((_directory: string, sessionID: string) => new Promise<SessionMetadata>((resolve) => {
+      resolvers.push((metadata) => resolve(metadata.id ? metadata : { id: sessionID }));
+    }));
+    const { bus, history, service } = startService(lookup);
+
+    for (let index = 1; index <= 5; index += 1) {
+      bus.emit("event", idle("/tmp/project", `ses_${index}`));
+    }
+
+    await vi.waitFor(async () => expect((await history.list()).some((item) => item.sessionID === "ses_5")).toBe(true));
+    expect(lookup).toHaveBeenCalledTimes(4);
+    resolvers.forEach((resolve, index) => resolve({ id: `ses_${index + 1}` }));
+    await vi.waitFor(async () => expect(await history.list()).toHaveLength(5));
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    service.stop();
+  });
+});
+
 describe("auto permission notification suppression", () => {
   const asked = {
     type: "permission.asked",
@@ -118,6 +273,7 @@ describe("auto permission notification suppression", () => {
       historyStore(),
       null,
       (directory) => directory === "/tmp/enabled",
+      rootSession,
     );
     service.start();
 
@@ -141,6 +297,7 @@ describe("auto permission notification suppression", () => {
       historyStore(),
       null,
       () => true,
+      rootSession,
     );
     service.start();
     bus.emit("event", { type: "question.asked", directory: "/tmp/enabled", properties: { id: "que_test", sessionID: "ses_test" } });
@@ -159,6 +316,7 @@ describe("auto permission notification suppression", () => {
       history,
       null,
       () => true,
+      rootSession,
     );
     service.start();
     bus.emit("event", asked);
@@ -291,7 +449,9 @@ describe("notification resolution", () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("nope", { status: 500 })));
     const bus = new EventEmitter() as EventBus;
     const history = historyStore();
-    const service = new NotificationService({ baseUrl: "http://opencode.test" }, bus, ntfyPreferences(), history);
+    const service = new NotificationService(
+      { baseUrl: "http://opencode.test" }, bus, ntfyPreferences(), history, null, undefined, rootSession,
+    );
     service.start();
     bus.emit("event", asked);
     await vi.waitFor(async () => expect(await history.list()).toHaveLength(1));
@@ -307,7 +467,9 @@ describe("notification resolution", () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("ok", { status: 200 })));
     const bus = new EventEmitter() as EventBus;
     const history = historyStore();
-    const service = new NotificationService({ baseUrl: "http://opencode.test" }, bus, ntfyPreferences(), history);
+    const service = new NotificationService(
+      { baseUrl: "http://opencode.test" }, bus, ntfyPreferences(), history, null, undefined, rootSession,
+    );
     service.start();
     bus.emit("event", asked);
     await vi.waitFor(async () => expect(await history.activeCount()).toBe(1));
@@ -322,6 +484,49 @@ describe("notification resolution", () => {
     await history.setResolved(record.id, true);
     expect(await history.activeCount()).toBe(0);
     expect((await history.list())[0].resolvedBy).toBe("checked");
+    service.stop();
+  });
+
+  it("revalidates lineage before delivering a parked permission", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(async () => new Response("ok", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const bus = new EventEmitter() as EventBus;
+    const history = historyStore();
+    let lookupCount = 0;
+    const service = new NotificationService(
+      { baseUrl: "http://opencode.test" },
+      bus,
+      {
+        read: async () => normalizePreferences({
+          ntfy: { enabled: true, server: "https://ntfy.sh", topic: "team" },
+          parkedPermissionSeconds: 5,
+        }),
+      } as PreferenceStore,
+      history,
+      null,
+      undefined,
+      async (_directory, sessionID) => {
+        lookupCount += 1;
+        return lookupCount === 1 ? null : { id: sessionID, parentID: "ses_parent" };
+      },
+    );
+    service.start();
+    const recorded = new Promise<void>((resolve) => {
+      const onRecorded = (event: { type?: string }) => {
+        if (event.type !== "notification.recorded") return;
+        bus.off("event", onRecorded);
+        resolve();
+      };
+      bus.on("event", onRecorded);
+    });
+    bus.emit("event", asked);
+    await recorded;
+
+    await vi.advanceTimersByTimeAsync(5_001);
+    expect((await history.list()).map((item) => item.kind)).toEqual(["permission"]);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(lookupCount).toBe(2);
     service.stop();
   });
 });
