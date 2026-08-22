@@ -116,7 +116,7 @@ export interface CatalogResponse {
   refreshedAt: string;
 }
 
-export type NotifyEvent = "idle" | "error" | "abort" | "permission" | "question" | "parked";
+export type NotifyEvent = "idle" | "error" | "abort" | "permission" | "question" | "parked" | "pty";
 export interface NotificationPreferences {
   version: 1;
   ntfy: { enabled: boolean; server: string; topic: string; events: Record<NotifyEvent, boolean> };
@@ -255,6 +255,43 @@ export interface MessagePage {
  */
 export type ApiErrorCode = "SESSION_AGENT_UNKNOWN" | "SESSION_AGENT_UNSUPPORTED";
 
+export interface AppConfig {
+  publicAppUrl: string | null;
+  /** Absent on an older BFF; treat that as the feature being off. */
+  pty?: { enabled: boolean; mode: "off" | "read-only" | "interactive" };
+}
+
+/** Mirrors the upstream `Pty` schema. Note it carries no directory. */
+export interface Pty {
+  id: string;
+  title: string;
+  command: string;
+  args: string[];
+  cwd: string;
+  status: "running" | "exited";
+  pid: number;
+  exitCode?: number;
+}
+
+export interface PtyShell {
+  path: string;
+  name: string;
+  acceptable: boolean;
+}
+
+/**
+ * What the server will actually permit. Rendered from rather than guessed at,
+ * so a read-only deployment never shows an input caret it cannot honour.
+ */
+export interface PtyCapabilities {
+  mode: "read-only" | "interactive";
+  canCreate: boolean;
+  canInput: boolean;
+  canKill: boolean;
+  canUpdate: boolean;
+  shellPinned: boolean;
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -291,7 +328,7 @@ function scoped(path: string, directory: string, extra: Record<string, string> =
 
 export const api = {
   health: () => fetch("/api/health").then((r) => json<HealthResponse>(r)),
-  appConfig: () => fetch("/api/app-config").then((r) => json<{ publicAppUrl: string | null }>(r)),
+  appConfig: () => fetch("/api/app-config").then((r) => json<AppConfig>(r)),
   projects: () => fetch("/api/projects").then((r) => json<{ root: string; projects: DiscoveredProject[] }>(r)),
   projectPins: () => fetch("/api/project-pins").then((r) => json<{ directories: string[] }>(r)),
   saveProjectPins: (directories: string[]) =>
@@ -559,6 +596,42 @@ export const api = {
     }).then((r) => json<{ rejected: boolean }>(r)),
   reminders: () =>
     fetch("/api/reminders").then((r) => json<{ reminders: ReminderSummary[] }>(r)),
+
+  /**
+   * Terminals. Every one of these 404s when PTY_ENABLED is unset, because the
+   * routes are not mounted at all — the UI treats that as "feature absent".
+   */
+  ptyCapabilities: () =>
+    fetch("/api/pty/capabilities").then((r) => json<PtyCapabilities>(r)),
+  ptys: (directory: string) =>
+    fetch(scoped("/pty", directory)).then((r) => json<{ directory: string; ptys: Pty[] }>(r)),
+  ptyShells: (directory: string) =>
+    fetch(scoped("/pty/shells", directory)).then((r) => json<{ shells: PtyShell[] }>(r)),
+  createPty: (directory: string, input: { cwd?: string; title?: string; shell?: string } = {}) =>
+    fetch(scoped("/pty", directory), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }).then((r) => json<{ pty: Pty }>(r)),
+  resizePty: (directory: string, id: string, size: { rows: number; cols: number }) =>
+    fetch(scoped(`/pty/${encodeURIComponent(id)}`, directory), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ size }),
+    }).then((r) => json<{ pty: Pty }>(r)),
+  killPty: (directory: string, id: string) =>
+    fetch(scoped(`/pty/${encodeURIComponent(id)}`, directory), { method: "DELETE" }).then((r) =>
+      json<{ removed: boolean }>(r),
+    ),
+  /**
+   * WebSocket URL — consumed by WebSocket, not fetch. Same-origin and relative
+   * so the browser never learns the OpenCode origin; the BFF dials upstream.
+   */
+  ptyAttachUrl: (directory: string, id: string) => {
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const query = new URLSearchParams({ directory });
+    return `${protocol}//${window.location.host}/api/pty/${encodeURIComponent(id)}/attach?${query}`;
+  },
 
   /** SSE endpoint URL — consumed by EventSource, not fetch. */
   eventsUrl: (directory?: string) =>

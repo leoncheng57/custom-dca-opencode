@@ -13,10 +13,16 @@
 //   - /global/event is SSE and emits a `server.heartbeat` that is absent from
 //     the published event union
 //   - /prompt_async answers 204 with no body
+//   - /pty is partitioned by ?directory= even though `Pty` carries no
+//     directory field, and a PTY addressed through the wrong project 404s
+//   - POST /pty overwrites args with ["-l"] (a login shell) and accepts any cwd
+//   - the PTY socket multiplexes text output frames with BINARY control frames
+//     whose first byte is NUL
 //
 // Run standalone:  npx tsx tests/e2e/mock-opencode.ts [port]
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { WebSocketServer } from "ws";
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -258,6 +264,11 @@ const TOOL_FAILURE_DIRECTORY_INPUT = "/tmp/mock-tool-failure";
 const CATALOGUE_FAILURE_DIRECTORY_INPUT = "/tmp/mock-catalogue-failure";
 const POLICY_FAILURE_DIRECTORY_INPUT = "/tmp/mock-policy-failure";
 const SUBAGENT_DIRECTORY_INPUT = "/tmp/mock-subagent-project";
+// The PTY specs mutate terminal state, and Playwright runs spec files in
+// parallel workers against this one shared mock. Give the UI spec its own
+// project so its resets and the API spec's kills cannot interleave.
+const PTY_UI_DIRECTORY_INPUT = "/tmp/mock-pty-project";
+mkdirSync(PTY_UI_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(SUBAGENT_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(MOCK_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(SECOND_DIRECTORY_INPUT, { recursive: true });
@@ -273,6 +284,7 @@ const TOOL_FAILURE_DIRECTORY = realpathSync(TOOL_FAILURE_DIRECTORY_INPUT);
 const CATALOGUE_FAILURE_DIRECTORY = realpathSync(CATALOGUE_FAILURE_DIRECTORY_INPUT);
 const POLICY_FAILURE_DIRECTORY = realpathSync(POLICY_FAILURE_DIRECTORY_INPUT);
 export const SUBAGENT_DIRECTORY = realpathSync(SUBAGENT_DIRECTORY_INPUT);
+export const PTY_UI_DIRECTORY = realpathSync(PTY_UI_DIRECTORY_INPUT);
 if (!existsSync(path.join(MOCK_DIRECTORY, ".git"))) {
   execFileSync("git", ["init", "-q", MOCK_DIRECTORY]);
   writeFileSync(path.join(MOCK_DIRECTORY, "README.md"), "# Mock project\n");
@@ -609,6 +621,53 @@ let pendingQuestions = questionFixture();
 const questionReplies: Array<{ id: string; answers?: unknown; rejected?: boolean }> = [];
 mkdirSync(worktrees[0], { recursive: true });
 const eventClients = new Set<ServerResponse>();
+
+// ── PTY fixtures ────────────────────────────────────────────────────────────
+// Keyed by id, with the directory held alongside because upstream's `Pty`
+// schema has no directory field yet the directory is the partition key.
+interface MockPty {
+  id: string;
+  title: string;
+  command: string;
+  args: string[];
+  cwd: string;
+  status: "running" | "exited";
+  pid: number;
+  exitCode?: number;
+  directory: string;
+}
+const ptys = new Map<string, MockPty>();
+let ptySequence = 0;
+/** Reseed one project's terminals, leaving every other project untouched. */
+function seedPtys(directory: string = MOCK_DIRECTORY): void {
+  for (const [id, pty] of [...ptys]) if (pty.directory === directory) ptys.delete(id);
+  const suffix = directory === MOCK_DIRECTORY ? "" : "_ui";
+  ptys.set(`pty_mock_running${suffix}`, {
+    id: `pty_mock_running${suffix}`,
+    title: "build watch",
+    command: "/bin/bash",
+    args: ["-l"],
+    cwd: directory,
+    status: "running",
+    pid: 4242,
+    directory,
+  });
+  ptys.set(`pty_mock_exited${suffix}`, {
+    id: `pty_mock_exited${suffix}`,
+    title: "one shot",
+    command: "/bin/bash",
+    args: ["-l"],
+    cwd: directory,
+    status: "exited",
+    pid: 4243,
+    exitCode: 0,
+    directory,
+  });
+}
+function publicPty(pty: MockPty): Record<string, unknown> {
+  const { directory: _directory, ...rest } = pty;
+  return rest;
+}
 const holdNextPolicyPatch = new Set<string>();
 let heldPolicyPatch: { sessionID: string; release: () => void } | null = null;
 
@@ -668,6 +727,84 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     }, 1_000);
     req.on("close", () => { clearInterval(beat); eventClients.delete(res); });
     return;
+  }
+
+  // ── PTY ───────────────────────────────────────────────────────────────────
+  if (pathname === "/pty/shells") {
+    return json(res, 200, [
+      { path: "/bin/bash", name: "bash", acceptable: true },
+      { path: "/bin/zsh", name: "zsh", acceptable: true },
+      // Present but unacceptable, so the BFF's allowlist has something to reject.
+      { path: "/bin/false", name: "false", acceptable: false },
+    ]);
+  }
+
+  if (pathname === "/pty") {
+    // Unscoped list is empty on the real server, not "everything".
+    if (req.method === "GET") {
+      return json(
+        res,
+        200,
+        [...ptys.values()].filter((pty) => pty.directory === directory).map(publicPty),
+      );
+    }
+    if (req.method === "POST") {
+      void body(req).then((input) => {
+        ptySequence += 1;
+        const created: MockPty = {
+          id: `pty_mock_new_${ptySequence}`,
+          title: typeof input.title === "string" ? input.title : "terminal",
+          command: typeof input.command === "string" ? input.command : "/bin/bash",
+          // The real server forces a login shell whatever it is asked for.
+          args: ["-l"],
+          cwd: typeof input.cwd === "string" ? input.cwd : (directory ?? MOCK_DIRECTORY),
+          status: "running",
+          pid: 5000 + ptySequence,
+          directory: directory ?? MOCK_DIRECTORY,
+        };
+        ptys.set(created.id, created);
+        emit("pty.created", { info: publicPty(created) }, created.directory);
+        json(res, 200, publicPty(created));
+      });
+      return;
+    }
+  }
+
+  if (pathname.startsWith("/pty/")) {
+    const ptyID = pathname.slice("/pty/".length);
+    const pty = ptys.get(ptyID);
+    const notFound = () =>
+      json(res, 404, { _tag: "PtyNotFoundError", ptyID, message: `PTY session not found: ${ptyID}` });
+    // Directory is the partition key: the wrong project 404s, exactly like the
+    // real server, and that is what confines a PTY for the BFF.
+    if (!pty || pty.directory !== directory) return notFound();
+
+    if (pathname.endsWith("/connect-token")) {
+      // 403 in opencode 1.18.21 even with valid auth — reproduced so nothing in
+      // the BFF ever grows a dependency on a ticket.
+      return json(res, 403, { _tag: "PtyForbiddenError", message: "Invalid PTY connect token request" });
+    }
+    if (req.method === "GET") return json(res, 200, publicPty(pty));
+    if (req.method === "DELETE") {
+      pty.status = "exited";
+      pty.exitCode = 0;
+      emit("pty.exited", { id: pty.id, exitCode: 0 }, pty.directory);
+      ptys.delete(ptyID);
+      return json(res, 200, true);
+    }
+    if (req.method === "PUT") {
+      void body(req).then((input) => {
+        if (typeof input.title === "string") pty.title = input.title;
+        emit("pty.updated", { info: publicPty(pty) }, pty.directory);
+        json(res, 200, publicPty(pty));
+      });
+      return;
+    }
+  }
+
+  if (pathname === "/test/ptys/reset") {
+    seedPtys(directory ?? MOCK_DIRECTORY);
+    return json(res, 200, { ok: true });
   }
 
   if (pathname === "/global/config") {
@@ -1089,7 +1226,35 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
   json(res, 404, { error: `mock-opencode: unhandled ${req.method} ${pathname}` });
 }
 
+seedPtys(MOCK_DIRECTORY);
+seedPtys(PTY_UI_DIRECTORY);
+
 const port = Number(process.argv[2] || process.env.MOCK_OPENCODE_PORT || 4599);
-createServer(handle).listen(port, "127.0.0.1", () => {
+const server = createServer(handle);
+
+// The PTY socket. Reproduces the real frame protocol: text frames carry
+// terminal bytes, BINARY frames with a leading NUL carry JSON control data
+// (observed live: \x00{"cursor":284}). The BFF must swallow the latter.
+const ptySockets = new WebSocketServer({ noServer: true });
+server.on("upgrade", (req, socket, head) => {
+  const url = new URL(req.url ?? "/", "http://mock");
+  const match = /^\/pty\/([^/]+)\/connect$/.exec(url.pathname);
+  const pty = match ? ptys.get(match[1] as string) : undefined;
+  if (!pty || pty.directory !== url.searchParams.get("directory")) {
+    socket.write("HTTP/1.1 404 Not Found\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
+    socket.destroy();
+    return;
+  }
+  ptySockets.handleUpgrade(req, socket, head, (ws) => {
+    ws.send(`mock-pty ${pty.id} ready\r\n`);
+    ws.send(Buffer.concat([Buffer.from([0]), Buffer.from('{"cursor":0}')]), { binary: true });
+    ws.on("message", (data) => {
+      // Echo like a shell would, so a UI test can prove input reached upstream.
+      ws.send(`echo:${data.toString("utf8")}`);
+    });
+  });
+});
+
+server.listen(port, "127.0.0.1", () => {
   console.log(`[mock-opencode] listening on http://127.0.0.1:${port}`);
 });

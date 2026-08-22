@@ -93,7 +93,7 @@ export class OpencodeError extends Error {
 }
 
 export interface RequestOptions {
-  method?: "GET" | "POST" | "PATCH" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   /** Project scope. Required for anything session/file/vcs/mcp related. */
   directory?: string;
   query?: Record<string, string | number | boolean | undefined>;

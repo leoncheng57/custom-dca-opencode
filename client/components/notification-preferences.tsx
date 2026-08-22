@@ -18,7 +18,7 @@ import {
 } from "../lib/notificationMediaBrowser.js";
 import { notifyBrowser } from "../lib/useNotifyWatcher.js";
 
-const EVENTS: NotifyEvent[] = ["idle", "error", "abort", "permission", "question", "parked"];
+const EVENTS: NotifyEvent[] = ["idle", "error", "abort", "permission", "question", "parked", "pty"];
 
 /**
  * Delivery preferences for notifications. Lives on the Settings page; the

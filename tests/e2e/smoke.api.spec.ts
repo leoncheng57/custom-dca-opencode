@@ -72,7 +72,12 @@ test.describe("public app config", () => {
   test("exposes only the configured phone origin", async ({ request }) => {
     const response = await request.get("/api/app-config");
     expect(response.ok()).toBe(true);
-    expect(await response.json()).toEqual({ publicAppUrl: "https://ide.e2e.example.test:8443" });
+    expect(await response.json()).toEqual({
+      publicAppUrl: "https://ide.e2e.example.test:8443",
+      // The shell renders the Terminal nav entry from this and nothing else;
+      // the origin allowlist and shell path stay server-side.
+      pty: { enabled: true, mode: "interactive" },
+    });
   });
 });
 

@@ -16,7 +16,9 @@ test.describe("requested PR screenshots", () => {
     return;
   }
   for (const request of requests) {
-    test(`${request.requestedRoute} @shots`, async ({ page }) => {
+    // The full-page marker has to be in the title: requesting a route both with
+    // and without `full:` is legal, and Playwright rejects duplicate titles.
+    test(`${request.requestedRoute}${request.fullPage ? " (full)" : ""} @shots`, async ({ page }) => {
       await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
       await page.addInitScript(() => localStorage.setItem("theme", "dark"));
       for (const viewport of SCREENSHOT_VIEWPORTS) {
@@ -33,6 +35,8 @@ test.describe("requested PR screenshots", () => {
               ? "opencode-settings"
               : pathname === "/tools"
                 ? "opencode-tools"
+                : pathname === "/terminal"
+                ? "opencode-terminal"
                 : pathname === "/docs"
                   ? "opencode-docs"
                   : pathname.startsWith("/docs/")

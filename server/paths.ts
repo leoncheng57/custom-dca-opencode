@@ -95,6 +95,46 @@ export function requireRelativePath(value: unknown): string {
   return normalized === "." ? "" : normalized.replace(/^\.\//, "");
 }
 
+/**
+ * Resolve a workspace-relative directory to spawn a process in.
+ *
+ * Deliberately NOT requireReadableWorkspacePath: that helper also rejects
+ * gitignored and secret-looking paths, which is the right rule for *serving
+ * file contents to a browser* and the wrong rule for a working directory. A
+ * shell's cwd leaks nothing by itself, and refusing to `cd` into an ignored
+ * build directory would be surprising. What matters here is only containment,
+ * enforced after realpath so a symlink cannot walk out of the project.
+ */
+export async function requireWorkspaceSubdirectory(
+  directory: string,
+  relativePath: unknown,
+): Promise<string> {
+  const relative = requireRelativePath(relativePath);
+  if (!relative) return directory;
+
+  let workspace: string;
+  let target: string;
+  try {
+    [workspace, target] = await Promise.all([
+      realpath(directory),
+      realpath(path.join(directory, relative)),
+    ]);
+  } catch {
+    throw new PathError(404, "working directory not found in this project");
+  }
+  const containment = path.relative(workspace, target);
+  if (containment.startsWith("..") || path.isAbsolute(containment)) {
+    throw new PathError(403, "working directory resolves outside the project");
+  }
+  const targetStat = await stat(target).catch(() => null);
+  if (!targetStat?.isDirectory()) {
+    throw new PathError(400, "working directory must be a directory");
+  }
+  // Forward the canonical path, never the caller's alias: the symlink could be
+  // swapped between validation and use.
+  return target;
+}
+
 const SENSITIVE_SEGMENT = /^(\.git|\.env(?:\..*)?|\.ssh|\.aws|credentials?|id_rsa|id_ed25519)$/i;
 
 export function isSensitiveWorkspacePath(relativePath: string): boolean {

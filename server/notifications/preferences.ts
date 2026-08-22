@@ -1,7 +1,10 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-export const NOTIFY_EVENTS = ["idle", "error", "abort", "permission", "question", "parked"] as const;
+// "pty" covers terminal lifecycle (started / attached / exited). It is an audit
+// kind first and an alert kind second, so it defaults to off in both delivery
+// maps: the record is always written, the ping is opt-in.
+export const NOTIFY_EVENTS = ["idle", "error", "abort", "permission", "question", "parked", "pty"] as const;
 export type NotifyEvent = (typeof NOTIFY_EVENTS)[number];
 
 export interface NotificationPreferences {
@@ -28,6 +31,7 @@ const DEFAULT_EVENTS: Record<NotifyEvent, boolean> = {
   permission: true,
   question: true,
   parked: true,
+  pty: false,
 };
 
 export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {

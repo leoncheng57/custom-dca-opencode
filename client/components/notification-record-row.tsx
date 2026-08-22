@@ -10,6 +10,7 @@ export const KIND_VARIANT: Record<NotifyEvent, BadgeVariant> = {
   permission: "info",
   question: "info",
   parked: "warning",
+  pty: "warning",
 };
 
 export function projectName(directory?: string): string {
