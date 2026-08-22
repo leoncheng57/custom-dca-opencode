@@ -197,7 +197,9 @@ to many browser clients, threads `?directory=` per project, and runs the things 
 OpenCode API doesn't expose (git history, forge APIs, notification transport).
 
 See [`docs/architecture.md`](docs/architecture.md) for conversation and event flows, state
-ownership, safety boundaries, and the extension map.
+ownership, safety boundaries, and the extension map. See
+[`docs/subagents.md`](docs/subagents.md) for child-session lifecycles, permissions, and safe
+parallel work.
 
 ## Safety
 
