@@ -156,6 +156,9 @@ several decisions below.
     and child transcripts probed only for children that are neither running nor
     already settled, newest first, capped and concurrency-limited, with `truncated`
     reported rather than silently implied.
+    OpenCode defaults `subagent_depth` to 1, which prevents nested delegation; this
+    repository sets it to 3. The Settings page displays the global value read-only,
+    while project-level authoring remains in `opencode.json`.
 14. **A hand-back notice is identified by the child session id it names.**
     Background children report completion by injecting a *user-role* message into
     the parent, and nothing upstream marks it as machine-authored — left alone it

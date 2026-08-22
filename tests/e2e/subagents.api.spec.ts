@@ -12,6 +12,8 @@ const CHILD_RUNNING = "ses_mock_child_running";
 const CHILD_DONE = "ses_mock_child_done";
 const CHILD_REPORTED = "ses_mock_child_reported";
 const CHILD_UNKNOWN = "ses_mock_child_unknown";
+const CHILD_FAILED = "ses_mock_child_failed";
+const CHILD_LAUNCHED = "ses_mock_child_launched";
 
 const scoped = (path: string, directory = DIR) => `/api${path}?directory=${encodeURIComponent(directory)}`;
 
@@ -32,7 +34,7 @@ test.describe("GET /api/sessions/:id/subagents", () => {
     const body = await response.json() as { tasks: Task[]; capabilities: { backgroundSubagents: boolean } };
 
     const byId = new Map(body.tasks.map((task) => [task.sessionID, task]));
-    expect(byId.size).toBe(4);
+    expect(byId.size).toBe(6);
     expect(byId.get(CHILD_RUNNING)).toMatchObject({ state: "running", evidence: "session-status" });
     expect(byId.get(CHILD_DONE)).toMatchObject({ state: "completed", evidence: "child-transcript" });
     // Its own last turn never finished; only the parent's hand-back settles it.
@@ -43,6 +45,14 @@ test.describe("GET /api/sessions/:id/subagents", () => {
       state: "unknown",
       evidence: "no-terminal-evidence",
       background: true,
+    });
+    expect(byId.get(CHILD_FAILED)).toMatchObject({
+      state: "failed",
+      evidence: "child-transcript",
+    });
+    expect(byId.get(CHILD_LAUNCHED)).toMatchObject({
+      state: "launched",
+      evidence: "launch-only",
     });
     expect(body.capabilities.backgroundSubagents).toBe(true);
   });

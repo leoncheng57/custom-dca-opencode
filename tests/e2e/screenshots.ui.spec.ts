@@ -39,6 +39,14 @@ test.describe("requested PR screenshots", () => {
                     ? "opencode-doc"
                     : "opencode-hub";
         await expect(page.getByTestId(stableRoot)).toBeVisible();
+        const url = new URL(request.requestedRoute, "http://screenshot.invalid");
+        if (url.searchParams.get("panel") === "agents") {
+          await expect(page.locator('[data-testid="opencode-subagents"]:visible')).toBeVisible();
+          await expect(page.locator('[data-testid="opencode-subagent-row"]:visible')).toHaveCount(6);
+        }
+        if (pathname === "/settings") {
+          await expect(page.getByTestId("opencode-setting-subagent-depth")).toBeVisible();
+        }
         await expect(page.locator("html")).toHaveClass(/dark/);
         await page.addStyleTag({ content: "*, *::before, *::after { animation: none !important; transition: none !important; caret-color: transparent !important; }" });
         await page.evaluate(async () => await document.fonts.ready);

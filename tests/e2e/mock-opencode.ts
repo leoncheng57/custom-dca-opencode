@@ -71,9 +71,9 @@ function paginatedMessages(): unknown[] {
 
 // ── Sub-agent fixture ───────────────────────────────────────────────────────
 //
-// Kept in its own project directory so the three child sessions cannot perturb
+// Kept in its own project directory so child sessions cannot perturb
 // the hub assertions that count rows and running pills in the main fixture.
-// The four children deliberately cover one state per evidence path.
+// The children deliberately cover every state and evidence path.
 const PARENT_ID = "ses_mock_parent";
 const CHILD_RUNNING = "ses_mock_child_running";
 const CHILD_DONE = "ses_mock_child_done";
@@ -82,6 +82,8 @@ const CHILD_REPORTED = "ses_mock_child_reported";
 // subagent_depth allows it, and a one-level tree silently loses this row.
 const GRANDCHILD = "ses_mock_grandchild";
 const CHILD_UNKNOWN = "ses_mock_child_unknown";
+const CHILD_FAILED = "ses_mock_child_failed";
+const CHILD_LAUNCHED = "ses_mock_child_launched";
 
 function taskPart(
   index: number,
@@ -117,6 +119,8 @@ function parentMessages(): unknown[] {
         taskPart(2, CHILD_DONE, { status: "completed", description: "Check the tests", agent: "explore" }),
         taskPart(3, CHILD_REPORTED, { status: "running", description: "Summarize the docs", agent: "general", background: true }),
         taskPart(4, CHILD_UNKNOWN, { status: "completed", description: "Crawl the changelog", agent: "general", background: true }),
+        taskPart(5, CHILD_FAILED, { status: "completed", description: "Inspect the deployment", agent: "explore" }),
+        taskPart(6, CHILD_LAUNCHED, { status: "running", description: "Review dependency updates", agent: "general" }),
       ],
     },
     {
@@ -160,6 +164,10 @@ const messages = new Map<string, unknown[]>([
   [CHILD_UNKNOWN, [
     { info: { id: "msg_cu_1", role: "assistant", agent: "general", time: { created: 1787400003500 } }, parts: [{ id: "prt_cu_1", messageID: "msg_cu_1", type: "text", text: "Starting the crawl." }] },
   ]],
+  [CHILD_FAILED, [
+    { info: { id: "msg_cf_1", role: "assistant", agent: "explore", time: { created: 1787400004100 }, error: { message: "Deployment credentials were unavailable." } }, parts: [] },
+  ]],
+  [CHILD_LAUNCHED, []],
   ["ses_mock_mobile", mobileMessages()],
   ["ses_mock_foreign_agent", [
     { info: { id: "msg_foreign", role: "user", agent: "explore", time: { created: 1787300000000 } }, parts: [], },
@@ -439,6 +447,26 @@ const SESSIONS: Array<Record<string, any>> = [
     time: { created: 1787400003500, updated: 1787400003500 },
   },
   {
+    id: CHILD_FAILED,
+    title: "Inspect the deployment",
+    directory: SUBAGENT_DIRECTORY,
+    parentID: PARENT_ID,
+    agent: "explore",
+    cost: 0.003,
+    tokens: {},
+    time: { created: 1787400004100, updated: 1787400004200 },
+  },
+  {
+    id: CHILD_LAUNCHED,
+    title: "Review dependency updates",
+    directory: SUBAGENT_DIRECTORY,
+    parentID: PARENT_ID,
+    agent: "general",
+    cost: 0,
+    tokens: {},
+    time: { created: 1787400004300, updated: 1787400004300 },
+  },
+  {
     id: "ses_mock_share_failure",
     title: "Share service failure",
     directory: MOCK_DIRECTORY,
@@ -470,7 +498,9 @@ const TODOS = [
   { content: "Write a test", status: "pending", priority: "medium" },
 ];
 
-let globalConfig: Record<string, unknown> = {};
+// Mirrors the checked-in and machine-global setting used by the real app.
+// The Settings page exposes this value read-only.
+let globalConfig: Record<string, unknown> = { subagent_depth: 3 };
 let mcpServers: Record<string, unknown> = {
   github: { status: "connected" },
   docs: { status: "failed", error: "mock connection refused" },

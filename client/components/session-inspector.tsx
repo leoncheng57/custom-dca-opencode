@@ -12,13 +12,12 @@ import {
   type CommandEntry,
 } from "../lib/derive.js";
 import { api, type CatalogResponse, type McpStatus, type Todo } from "../lib/api.js";
+import { INSPECTOR_TABS, type InspectorTab } from "../lib/inspectorTabs.js";
 import { useSubagents, type SubagentsState } from "../lib/useSubagents.js";
 import type { TranscriptEvent } from "../lib/transcript.js";
 import { ReviewCard } from "./review-card.js";
 import { SubagentPanel } from "./subagent-panel.js";
 import { Link } from "react-router-dom";
-
-type InspectorTab = "todo" | "runlog" | "agents" | "reviews" | "catalog";
 
 interface SessionInspectorProps {
   directory: string;
@@ -26,6 +25,7 @@ interface SessionInspectorProps {
   todos: Todo[];
   todosLoaded: boolean;
   todosError: string | null;
+  requestedTab?: InspectorTab;
   mobileOpen?: boolean;
   onMobileClose?: () => void;
 }
@@ -202,7 +202,7 @@ function InspectorContent({
   return (
     <>
       <nav className="thin-scrollbar sticky top-0 z-10 flex overflow-x-auto border-b border-[var(--color-border-default)] bg-[var(--color-background-surface)] p-1" aria-label="Session detail panels">
-        {(["todo", "runlog", "agents", "reviews", "catalog"] as const).map((name) => (
+        {INSPECTOR_TABS.map((name) => (
           <button
             key={name}
             type="button"
@@ -373,7 +373,7 @@ function MobileInspector({ onClose, children }: { onClose: () => void; children:
   );
 }
 
-export function SessionInspector({ directory, sessionID, events, todos, todosLoaded, todosError, mobileOpen = false, onMobileClose }: SessionInspectorProps & { sessionID: string }) {
+export function SessionInspector({ directory, sessionID, events, todos, todosLoaded, todosError, requestedTab, mobileOpen = false, onMobileClose }: SessionInspectorProps & { sessionID: string }) {
   const commandScope = `${directory}\0${sessionID}`;
   const commands = useMemo(() => extractCommands(events), [events]);
   const links = useMemo(() => extractMrUrls(events), [events]);
@@ -398,6 +398,9 @@ export function SessionInspector({ directory, sessionID, events, todos, todosLoa
   const directoryRef = useRef(directory);
   catalogueRef.current = catalogue;
   directoryRef.current = directory;
+  useEffect(() => {
+    if (requestedTab) setTab(requestedTab);
+  }, [requestedTab]);
   const exportCompleteCommands = useCallback(() => {
     const generation = commandExportGeneration.current;
     setCommandExporting(true);

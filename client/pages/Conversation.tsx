@@ -21,6 +21,7 @@ import { MAX_IMAGE_ATTACHMENTS, readImageAttachment, selectImageFiles, type Imag
 import { composerEnterAction } from "../lib/composerKeys.js";
 import { collapseActionGroups, mergeEvents, runningActivity } from "../lib/derive.js";
 import { normalizeTranscript, type RawMessage } from "../lib/events.js";
+import { parseInspectorTab, type InspectorTab } from "../lib/inspectorTabs.js";
 import { useSessionStream } from "../lib/useSessionStream.js";
 import type { TranscriptEvent } from "../lib/transcript.js";
 import type { ShareTarget } from "../lib/sessionSharing.js";
@@ -42,6 +43,7 @@ export function ConversationPage() {
   const { id = "" } = useParams();
   const [params] = useSearchParams();
   const directory = params.get("directory") ?? "";
+  const panelParam = parseInspectorTab(params.get("panel"));
 
   useEffect(() => {
     if (directory && id) recordRecentSessionOpen(localStorage, directory, id);
@@ -57,6 +59,8 @@ export function ConversationPage() {
   const [composerError, setComposerError] = useState<string | null>(null);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [requestedInspectorTab, setRequestedInspectorTab] = useState<InspectorTab | undefined>();
+  const appliedPanelScope = useRef("");
   const [contextLimit, setContextLimit] = useState<number | null>(null);
   const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
@@ -92,6 +96,14 @@ export function ConversationPage() {
     () => normalizeTranscript(stream.messages as RawMessage[], { isRunning: stream.running }),
     [stream.messages, stream.running],
   );
+  useEffect(() => {
+    if (!panelParam) return;
+    const scope = `${id}:${panelParam}`;
+    if (appliedPanelScope.current === scope) return;
+    appliedPanelScope.current = scope;
+    setRequestedInspectorTab(panelParam);
+    if (window.matchMedia("(max-width: 1023.98px)").matches) setInspectorOpen(true);
+  }, [id, panelParam]);
   useEffect(() => {
     const scope = `${directory}\0${id}`;
     setEvents((previous) => {
@@ -612,6 +624,7 @@ export function ConversationPage() {
           todos={stream.todos}
           todosLoaded={stream.todosLoaded}
           todosError={stream.todosError}
+          requestedTab={requestedInspectorTab}
           mobileOpen={inspectorOpen}
           onMobileClose={() => setInspectorOpen(false)}
         />

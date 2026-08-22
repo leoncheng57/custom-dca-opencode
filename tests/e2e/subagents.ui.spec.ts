@@ -16,6 +16,8 @@ const CHILD_RUNNING = "ses_mock_child_running";
 const CHILD_DONE = "ses_mock_child_done";
 const CHILD_REPORTED = "ses_mock_child_reported";
 const CHILD_UNKNOWN = "ses_mock_child_unknown";
+const CHILD_FAILED = "ses_mock_child_failed";
+const CHILD_LAUNCHED = "ses_mock_child_launched";
 
 const hub = `/?directory=${encodeURIComponent(DIR)}`;
 const parentUrl = `/sessions/${PARENT}?directory=${encodeURIComponent(DIR)}`;
@@ -32,19 +34,19 @@ test.describe("hub hierarchy", () => {
     // The "2" is a sub-agent that delegated further: nested work must not be
     // dropped from the only page that lists it.
     const depths = await rows.evaluateAll((items) => items.map((item) => item.getAttribute("data-depth")));
-    expect(depths.slice(0, 6)).toEqual(["0", "1", "1", "2", "1", "1"]);
+    expect(depths.slice(0, 8)).toEqual(["0", "1", "1", "2", "1", "1", "1", "1"]);
     await expect(rows.nth(3)).toContainText("Reproduce the flake");
   });
 
   test("marks children with a sub pill and the root with its child count", async ({ page }) => {
     await page.goto(hub);
     const rows = page.getByTestId("opencode-session-row");
-    await expect(rows.first().getByTestId("opencode-session-child-count")).toHaveText("4 sub");
+    await expect(rows.first().getByTestId("opencode-session-child-count")).toHaveText("6 sub");
     // The count is direct children only, so the nested delegation shows on the
     // sub-agent that actually made it.
     await expect(rows.nth(2).getByTestId("opencode-session-child-count")).toHaveText("1 sub");
     await expect(rows.first().getByTestId("opencode-subagent-pill")).toHaveCount(0);
-    await expect(page.getByTestId("opencode-session-list").getByTestId("opencode-subagent-pill")).toHaveCount(5);
+    await expect(page.getByTestId("opencode-session-list").getByTestId("opencode-subagent-pill")).toHaveCount(7);
   });
 });
 
@@ -79,10 +81,10 @@ test.describe("parent transcript", () => {
 
   test("keeps a successful delegation out of a collapsed action group", async ({ page }) => {
     await page.goto(parentUrl);
-    // Four task calls in a row would otherwise fold into one "N actions
+    // Six task calls in a row would otherwise fold into one "N actions
     // completed" chevron, hiding every link to the child work.
     await expect(page.getByTestId("opencode-action-group")).toHaveCount(0);
-    await expect(page.getByTestId("opencode-tool")).toHaveCount(4);
+    await expect(page.getByTestId("opencode-tool")).toHaveCount(6);
   });
 
   test("renders a machine-authored hand-back as a status row, not a user message", async ({ page }) => {
@@ -99,7 +101,7 @@ test.describe("agents panel", () => {
     await page.getByTestId("opencode-inspector-agents").click();
 
     const rows = page.getByTestId("opencode-subagent-row");
-    await expect(rows).toHaveCount(4);
+    await expect(rows).toHaveCount(6);
 
     const running = page.locator(`[data-testid="opencode-subagent-row"][data-session="${CHILD_RUNNING}"]`);
     await expect(running.getByTestId("opencode-subagent-state")).toHaveText("running");
@@ -121,12 +123,20 @@ test.describe("agents panel", () => {
     await expect(unknown.getByTestId("opencode-subagent-state")).toHaveText("unknown");
     await expect(unknown.getByTestId("opencode-subagent-evidence")).toContainText("cancelled");
     await expect(unknown.getByTestId("opencode-subagent-background")).toBeVisible();
+
+    const failed = page.locator(`[data-testid="opencode-subagent-row"][data-session="${CHILD_FAILED}"]`);
+    await expect(failed.getByTestId("opencode-subagent-state")).toHaveText("failed");
+    await expect(failed.getByTestId("opencode-subagent-detail")).toContainText("credentials were unavailable");
+
+    const launched = page.locator(`[data-testid="opencode-subagent-row"][data-session="${CHILD_LAUNCHED}"]`);
+    await expect(launched.getByTestId("opencode-subagent-state")).toHaveText("launched");
+    await expect(launched.getByTestId("opencode-subagent-evidence")).toContainText("no progress");
   });
 
   test("offers Stop only for work the connected server is actually running", async ({ page }) => {
     await page.goto(parentUrl);
     await page.getByTestId("opencode-inspector-agents").click();
-    await expect(page.getByTestId("opencode-subagent-row")).toHaveCount(4);
+    await expect(page.getByTestId("opencode-subagent-row")).toHaveCount(6);
 
     await expect(page.getByTestId("opencode-subagent-abort")).toHaveCount(1);
     const running = page.locator(`[data-testid="opencode-subagent-row"][data-session="${CHILD_RUNNING}"]`);
@@ -148,7 +158,7 @@ test.describe("agents panel", () => {
     await page.getByTestId("opencode-inspector-agents").click();
     await expect(page.getByTestId("opencode-subagents-summary")).toContainText("1 running");
     await expect(page.getByTestId("opencode-subagents-summary")).toContainText("1 unknown");
-    await expect(page.getByTestId("opencode-inspector-agents")).toContainText("4");
+    await expect(page.getByTestId("opencode-inspector-agents")).toContainText("6");
   });
 
   test("says plainly when a session delegated nothing", async ({ page }) => {
@@ -166,6 +176,26 @@ test.describe("agents panel", () => {
     const sheet = page.getByTestId("opencode-mobile-inspector");
     await expect(sheet).toBeVisible();
     await sheet.getByTestId("opencode-inspector-agents").click();
-    await expect(sheet.getByTestId("opencode-subagent-row")).toHaveCount(4);
+    await expect(sheet.getByTestId("opencode-subagent-row")).toHaveCount(6);
+  });
+
+  test("opens the requested panel directly on desktop", async ({ page }) => {
+    await page.goto(`${parentUrl}&panel=agents`);
+    await expect(page.getByTestId("opencode-subagent-row")).toHaveCount(6);
+    await expect(page.getByTestId("opencode-inspector-agents")).toHaveClass(/font-semibold/);
+  });
+
+  test("opens the requested panel as a mobile sheet", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 740 });
+    await page.goto(`${parentUrl}&panel=agents`);
+    const sheet = page.getByTestId("opencode-mobile-inspector");
+    await expect(sheet).toBeVisible();
+    await expect(sheet.getByTestId("opencode-subagent-row")).toHaveCount(6);
+  });
+
+  test("ignores an unknown panel value", async ({ page }) => {
+    await page.goto(`${parentUrl}&panel=not-a-panel`);
+    await expect(page.getByTestId("opencode-todo-list")).toBeVisible();
+    await expect(page.getByTestId("opencode-mobile-inspector")).toHaveCount(0);
   });
 });

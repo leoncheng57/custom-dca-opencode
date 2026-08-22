@@ -29,8 +29,9 @@ export const MAX_SESSION_DEPTH = 3;
  * Three properties this guarantees, each of which a naive one-level grouping
  * gets wrong:
  *
- *   - **Nothing is lost.** Sub-agents can delegate further (`subagent_depth`
- *     is a real setting), so a grandchild must appear. Any session not reached
+ *   - **Nothing is lost.** OpenCode defaults `subagent_depth` to 1, which
+ *     prevents nested delegation; this repository sets it to 3, so a
+ *     grandchild must appear. Any session not reached
  *     from a root — because its parent is archived, in another directory, or
  *     part of a corrupt parent cycle — is emitted as a root rather than
  *     dropped. Vanishing from the only page that lists it is the worst

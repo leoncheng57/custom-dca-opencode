@@ -720,10 +720,14 @@ test.describe("settings and tools", () => {
     expect(saved.ok()).toBe(true);
     expect((await saved.json()).settings).toEqual({
       model: "anthropic/claude-opus-5",
+      subagent_depth: 3,
       compaction: { auto: true, reserved: 4096 },
     });
     const rejected = await request.patch("/api/settings", { data: { provider: { token: "secret" } } });
     expect(rejected.status()).toBe(400);
+    const readOnly = await request.patch("/api/settings", { data: { subagent_depth: 3 } });
+    expect(readOnly.status()).toBe(400);
+    await expect(readOnly.json()).resolves.toMatchObject({ error: expect.stringContaining("unsupported setting") });
   });
 
   test("MCP action refetches resulting status", async ({ request }) => {
