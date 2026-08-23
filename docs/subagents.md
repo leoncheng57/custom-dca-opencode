@@ -4,6 +4,10 @@ This guide explains delegated work in custom-dca-opencode: what creates a child 
 the browser observes it, where Plan/Build permissions apply, and when a separate Git worktree
 is the safer form of parallelism.
 
+For a system-level learning path with complementary diagrams, evidence tables, an interactive
+explainer, quick reference, and safe lab, start with the
+[current OpenCode sub-agent package](current-opencode-subagents-package.md).
+
 The important boundary is that OpenCode owns sessions and task execution. This application
 adds a browser UI, a credential-holding BFF, and a derived view of child state; it is not a
 durable background-job scheduler.

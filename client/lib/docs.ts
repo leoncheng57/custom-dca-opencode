@@ -52,6 +52,14 @@ export const DOCS: DocDefinition[] = [
     load: () => import("../../AGENTS.md?raw").then((module) => module.default),
   },
   {
+    slug: "current-opencode-subagents",
+    title: "How OpenCode sub-agents work",
+    description: "Current lifecycle, evidence derivation, foreground/background behavior, permissions, UI, and failure recovery.",
+    category: "architecture",
+    sourcePath: "docs/current-opencode-subagents-guide.md",
+    load: () => import("../../docs/current-opencode-subagents-guide.md?raw").then((module) => module.default),
+  },
+  {
     slug: "opencode-api-audit",
     title: "OpenCode API audit",
     description: "Measured compatibility evidence for the pinned OpenCode server surface.",

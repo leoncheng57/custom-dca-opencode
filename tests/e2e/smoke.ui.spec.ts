@@ -1444,6 +1444,16 @@ test.describe("engineering docs UI", () => {
     await expect(page.getByTestId("opencode-doc-source")).toContainText("docs/architecture.md");
   });
 
+  test("renders the current OpenCode sub-agent guide on mobile", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 740 });
+    await page.goto(`/docs/current-opencode-subagents?directory=${encodeURIComponent(DIR)}`);
+    await expect(page.getByTestId("opencode-doc")).toContainText("An OpenCode sub-agent is an ordinary child session");
+    await expect(page.getByTestId("opencode-doc")).toContainText("Effective precedence caveat");
+    await expect(page.getByTestId("opencode-doc-source")).toContainText("docs/current-opencode-subagents-guide.md");
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
+  });
+
   test("renders an unknown document state", async ({ page }) => {
     await page.goto("/docs/not-in-the-catalogue");
     await expect(page.getByTestId("opencode-doc")).toContainText("not in the in-app catalogue");

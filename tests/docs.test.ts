@@ -8,6 +8,7 @@ describe("documentation catalogue", () => {
     expect(new Set(DOCS.map((doc) => doc.slug)).size).toBe(DOCS.length);
     expect(new Set(DOCS.map((doc) => doc.sourcePath)).size).toBe(DOCS.length);
     expect(getDoc("architecture")?.sourcePath).toBe("docs/architecture.md");
+    expect(getDoc("current-opencode-subagents")?.sourcePath).toBe("docs/current-opencode-subagents-guide.md");
     expect(getDoc("missing")).toBeUndefined();
   });
 
