@@ -1,0 +1,306 @@
+.simulation {
+  min-width: 0;
+  max-width: 100%;
+  margin: 1.65rem 0 2rem;
+  padding: 1rem;
+  border: var(--edge);
+  box-shadow: 7px 7px 0 var(--shadow-color);
+  background: var(--surface-raised);
+}
+
+.panel {
+  min-width: 0;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.controls button,
+.controls select {
+  min-height: 2.1rem;
+  border: 1px solid var(--hr-color);
+  border-radius: 0;
+  background: var(--surface);
+  color: var(--text-primary);
+  font-family: var(--mono);
+  font-size: 0.76rem;
+}
+
+.controls button {
+  padding: 0.38rem 0.65rem;
+  cursor: pointer;
+}
+
+.controls button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.speed {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
+.controls select {
+  padding: 0.3rem 1.7rem 0.3rem 0.55rem;
+}
+
+.playbackStatus {
+  margin: 0.75rem 0 0.85rem;
+}
+
+.status {
+  margin: 0 0 0.35rem;
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
+.progress {
+  display: block;
+  width: 100%;
+  height: 0.35rem;
+  border: 0;
+  border-radius: 0;
+  overflow: hidden;
+  background: var(--line);
+  color: var(--link-color);
+  appearance: none;
+}
+
+.progress::-webkit-progress-bar {
+  background: var(--line);
+}
+
+.progress::-webkit-progress-value {
+  background: var(--link-color);
+}
+
+.progress::-moz-progress-bar {
+  background: var(--link-color);
+}
+
+.source {
+  font-size: 0.72rem;
+  color: var(--term-muted);
+  text-decoration: none;
+  border-bottom: 1px solid var(--term-line);
+}
+
+.source:hover {
+  color: var(--term-ink);
+}
+
+.turns {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  counter-reset: none;
+}
+
+.turn + .turn {
+  margin-top: 1.35rem;
+}
+
+.hidden {
+  display: none;
+}
+
+.visible {
+  display: list-item;
+}
+
+/* ------------------------------------------------------- speaker line */
+
+.speaker {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  margin: 0 0 0.45rem;
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+}
+
+.marker {
+  flex: none;
+  color: inherit;
+}
+
+.role {
+  font-weight: 700;
+}
+
+.label {
+  color: var(--term-muted);
+}
+
+.label::before {
+  content: '· ';
+}
+
+/* The terminal palette is shared across both colour schemes. User and
+   assistant colour applies to the entire turn, not just its label. */
+.user {
+  color: var(--term-user);
+}
+
+.assistant {
+  color: var(--term-assistant);
+}
+
+.tool,
+.note {
+  color: var(--term-muted);
+}
+
+/* ------------------------------------------------------------- bodies */
+
+.body {
+  padding-left: 0.95rem;
+  border-left: 1px solid var(--term-line);
+}
+
+.note .body {
+  border-left-color: var(--term-muted);
+}
+
+.note .prose {
+  color: var(--term-muted);
+  font-style: italic;
+}
+
+/* --------------------------------------------- prose on a dark surface */
+
+/* SkillMarkdown's base class is tuned for the light page. Everything below
+   re-points it at the terminal palette for this panel only, so the site keeps
+   exactly one react-markdown pipeline. */
+/* Prose keeps a readable measure, but the wide artifacts a transcript is made
+   of — ranked tables, file trees, command output — get the full panel width.
+   Capping those at 74ch wraps a five-column table into an unreadable column of
+   fragments. */
+.prose {
+  max-width: none;
+  font-size: 0.88rem;
+  line-height: 1.7;
+  color: inherit;
+}
+
+.prose :global(p),
+.prose :global(ul),
+.prose :global(ol),
+.prose :global(blockquote) {
+  max-width: 74ch;
+}
+
+.prose :global(p),
+.prose :global(ul),
+.prose :global(ol) {
+  margin: 0 0 0.75rem;
+}
+
+.prose > :global(*:last-child) {
+  margin-bottom: 0;
+}
+
+.prose :global(hr) {
+  margin: 0.9rem 0;
+  border-top-color: var(--term-line);
+}
+
+.prose :global(strong) {
+  color: #ffffff;
+}
+
+.prose :global(a) {
+  color: var(--term-accent-alt);
+}
+
+.prose :global(blockquote) {
+  border-left-color: var(--term-muted);
+  background: rgba(237, 238, 240, 0.05);
+}
+
+/* The panel is already terminal chrome, so the per-<pre> title bar and
+   traffic lights that skill-markdown.module.css draws would be chrome inside
+   chrome. Strip them back to a plain block with a rule. */
+.prose :global(pre) {
+  padding: 0.7rem 0.9rem;
+  border: none;
+  border-left: 2px solid var(--term-line);
+  border-radius: 0;
+  background: rgba(237, 238, 240, 0.05);
+}
+
+.prose :global(pre)::before,
+.prose :global(pre)::after {
+  content: none;
+}
+
+.prose :global(pre code) {
+  font-size: 0.8rem;
+}
+
+.prose :global(:not(pre) > code) {
+  background: rgba(237, 238, 240, 0.1);
+  color: var(--term-ink);
+}
+
+.prose :global(th),
+.prose :global(td) {
+  border-color: var(--term-line);
+}
+
+.prose :global(thead th) {
+  background: rgba(237, 238, 240, 0.06);
+}
+
+/* ------------------------------------------------------------- caveat */
+
+.caveat {
+  display: flex;
+  gap: 0.55rem;
+  margin: 1.6rem 0 0;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  line-height: 1.65;
+  color: var(--text-muted);
+}
+
+@media (max-width: 480px) {
+  .simulation {
+    padding: 0.65rem;
+  }
+
+  .speed {
+    width: 100%;
+    margin-left: 0;
+  }
+}
+
+.caveatLabel {
+  flex: none;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
