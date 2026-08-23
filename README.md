@@ -19,6 +19,14 @@ a web frontend for an agent server you already run.
 It is deliberately **not** a replacement for the `opencode` CLI. Both are clients of
 the same server and can be attached at the same time, watching the same sessions.
 
+## Public website
+
+The public React site is served at <https://leoncheng.dev/custom-dca-opencode/>. It is
+a project index and documentation surface, not a hosted Runner: the BFF, OpenCode
+server, and session data stay on the user's machine. Agent Skills is the first complete
+section at <https://leoncheng.dev/custom-dca-opencode/agent-skills/>; the remaining
+routes are explicit work-in-progress placeholders tracked in #110.
+
 ## Agent skills and commands
 
 The portable OpenCode skills, custom commands, worked simulations, and their catalog
@@ -33,9 +41,10 @@ npx skills add https://github.com/leoncheng57/custom-dca-opencode/tree/main/agen
   --skill parallel-research-handoff -g
 ```
 
-The catalog remains available at <https://leoncheng.dev/agent-skills/>. Its typecheck,
-unit tests, and production build are part of the root `npm run typecheck`, `npm test`,
-and `npm run build` commands.
+The catalog is published under the project website at
+<https://leoncheng.dev/custom-dca-opencode/agent-skills/>. Its typecheck, unit tests,
+and production build are part of the root `npm run typecheck`, `npm test`, and
+`npm run build` commands.
 
 ## Status
 

@@ -37,6 +37,8 @@
 
 .mastheadNav {
   display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 1rem;
   font-family: var(--mono);
   font-size: 0.82rem;
@@ -48,6 +50,14 @@
 
 .mastheadNav a:hover {
   text-decoration: underline;
+}
+
+@media (max-width: 36rem) {
+  .mastheadNav {
+    justify-content: flex-start;
+    width: 100%;
+    gap: 0.55rem 1rem;
+  }
 }
 
 .main {

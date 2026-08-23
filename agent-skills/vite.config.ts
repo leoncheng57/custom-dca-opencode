@@ -9,9 +9,11 @@ function staticContentRoutes() {
     closeBundle() {
       const root = import.meta.dirname
       const routes = generateStaticRoutes({
-        outDir: resolve(root, 'docs'),
+        outDir: resolve(root, 'dist'),
         skillsDir: resolve(root, 'skills'),
         commandsDir: resolve(root, 'commands'),
+        contentBase: 'agent-skills',
+        staticRoutes: ['features', 'docs', 'architecture', 'roadmap', 'changelog'],
       })
       console.log(`generated ${routes.length} static route entrypoints`)
     },
@@ -21,11 +23,9 @@ function staticContentRoutes() {
 export default defineConfig({
   plugins: [react(), staticContentRoutes()],
   build: {
-    // GitHub Pages serves the Actions artifact built into ./docs.
-    outDir: 'docs',
+    // The publisher copies this complete site into the shared gh-pages branch.
+    outDir: 'dist',
     emptyOutDir: true,
   },
-  // Project site, served from https://leoncheng.dev/agent-skills/ — the user
-  // site (leoncheng57.github.io) owns the apex domain, this repo is a subpath.
-  base: '/agent-skills/',
+  base: '/custom-dca-opencode/',
 })

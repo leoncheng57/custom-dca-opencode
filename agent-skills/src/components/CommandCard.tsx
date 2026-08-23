@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import TerminalPanel from './TerminalPanel'
 import { invocation, type Command } from '../lib/commands'
 import styles from './command-card.module.css'
+import { commandPath, skillPath } from '../lib/routes'
 
 interface CommandCardProps {
   command: Command
@@ -14,7 +15,7 @@ interface CommandCardProps {
  * match against, so what you type *is* its identity.
  */
 export default function CommandCard({ command }: CommandCardProps): ReactElement {
-  const path = `/c/${command.name}`
+  const path = commandPath(command.name)
 
   return (
     <TerminalPanel as="article" path={`commands/${command.name}.md`}>
@@ -44,7 +45,7 @@ export default function CommandCard({ command }: CommandCardProps): ReactElement
             {command.relatedSkills.map((skill, index) => (
               <span key={skill}>
                 {index > 0 ? ' + ' : ''}
-                <Link to={`/s/${skill}`}>{skill}</Link>
+                <Link to={skillPath(skill)}>{skill}</Link>
               </span>
             ))}
           </>

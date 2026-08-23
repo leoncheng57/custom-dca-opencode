@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
+import { skillPath } from '../lib/routes'
 
 /**
  * Every shipped skill now has a worked example, so the "renders nothing"
@@ -25,9 +26,9 @@ const { skills } = await import('../lib/skillsSource')
 
 function renderSkill(name: string) {
   return render(
-    <MemoryRouter initialEntries={[`/s/${name}`]}>
+    <MemoryRouter initialEntries={[skillPath(name)]}>
       <Routes>
-        <Route path="/s/:name" element={<SkillRoute />} />
+        <Route path="/agent-skills/s/:name" element={<SkillRoute />} />
       </Routes>
     </MemoryRouter>,
   )

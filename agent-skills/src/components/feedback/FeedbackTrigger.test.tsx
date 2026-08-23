@@ -5,7 +5,7 @@ import FeedbackTrigger from './FeedbackTrigger'
 import { FEEDBACK_PAGE_URL_ENTRY_ID } from './feedbackConfig'
 
 beforeEach(() => {
-  window.history.replaceState({}, '', '/agent-skills/s/code-flowchart')
+  window.history.replaceState({}, '', '/custom-dca-opencode/agent-skills/s/code-flowchart')
 })
 
 describe('FeedbackTrigger', () => {
@@ -67,7 +67,7 @@ describe('FeedbackTrigger', () => {
     const embeddedUrl = new URL(frame.src)
     expect(embeddedUrl.searchParams.get('embedded')).toBe('true')
     expect(embeddedUrl.searchParams.get(FEEDBACK_PAGE_URL_ENTRY_ID)).toBe(
-      '/agent-skills/s/code-flowchart'
+      '/custom-dca-opencode/agent-skills/s/code-flowchart'
     )
 
     const link = screen.getByRole<HTMLAnchorElement>('link', {
@@ -77,7 +77,7 @@ describe('FeedbackTrigger', () => {
     expect(link).toHaveAttribute('target', '_blank')
     expect(newTabUrl.searchParams.has('embedded')).toBe(false)
     expect(newTabUrl.searchParams.get(FEEDBACK_PAGE_URL_ENTRY_ID)).toBe(
-      '/agent-skills/s/code-flowchart'
+      '/custom-dca-opencode/agent-skills/s/code-flowchart'
     )
   })
 })

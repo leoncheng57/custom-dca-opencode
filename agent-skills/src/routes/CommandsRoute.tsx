@@ -1,16 +1,24 @@
 import cx from 'classnames'
-import { useMemo, useRef, useState, type ReactElement } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { Link } from 'react-router-dom'
 import CommandCard from '../components/CommandCard'
 import { COMMAND_SCOPES } from '../lib/commandInstall'
 import { filterCommands } from '../lib/commands'
 import { commands } from '../lib/commandsSource'
 import styles from './catalog.module.css'
+import { AGENT_SKILLS_PATH } from '../lib/routes'
 
 export default function CommandsRoute(): ReactElement {
   const [query, setQuery] = useState('')
   const filterInputRef = useRef<HTMLInputElement>(null)
   const visible = useMemo(() => filterCommands(commands, query), [query])
+
+  useEffect(() => {
+    document.title = 'Commands - Agent Skills - custom-dca-opencode'
+    return () => {
+      document.title = 'custom-dca-opencode'
+    }
+  }, [])
 
   return (
     <div className={styles.page}>
@@ -26,7 +34,7 @@ export default function CommandsRoute(): ReactElement {
           already run, and files you referenced with <code>@</code> already inlined.
         </p>
         <p className={styles.lede}>
-          The difference from a <Link to="/">skill</Link> is who invokes it and what it costs. A skill's
+          The difference from a <Link to={AGENT_SKILLS_PATH}>skill</Link> is who invokes it and what it costs. A skill's
           description sits in the agent's context on <em>every</em> turn so retrieval can match it; a command
           costs nothing until you type it. That makes a command the right tool for re-asserting exact
           instructions late in a long session, after the skill body injected at turn one has been compacted

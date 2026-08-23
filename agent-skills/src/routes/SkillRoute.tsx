@@ -10,8 +10,9 @@ import { skillSourceUrl } from '../lib/repo'
 import { commandForSkill } from '../lib/commandsSource'
 import { findSkill } from '../lib/skillsSource'
 import styles from './skill.module.css'
+import { AGENT_SKILLS_PATH, commandPath } from '../lib/routes'
 
-const SITE_TITLE = 'agent-skills'
+const SITE_TITLE = 'Agent Skills - custom-dca-opencode'
 
 export default function SkillRoute(): ReactElement {
   const { name = '' } = useParams()
@@ -49,7 +50,7 @@ export default function SkillRoute(): ReactElement {
     return (
       <div className={styles.page}>
         <p className={styles.back}>
-          <Link to="/">&larr; all skills</Link>
+          <Link to={AGENT_SKILLS_PATH}>&larr; all skills</Link>
         </p>
         <h1 className={styles.title}>No skill called “{name}”</h1>
         <p className={styles.notFound}>
@@ -62,7 +63,7 @@ export default function SkillRoute(): ReactElement {
   return (
     <article className={styles.page}>
       <p className={styles.back}>
-        <Link to="/">&larr; all skills</Link>
+        <Link to={AGENT_SKILLS_PATH}>&larr; all skills</Link>
       </p>
 
       <header className={styles.header}>
@@ -125,7 +126,7 @@ export default function SkillRoute(): ReactElement {
 
       {command ? (
         <p className={styles.relation}>
-          Short form available: <Link to={`/c/${command.name}`}>/{command.name}</Link> fires the happy path
+          Short form available: <Link to={commandPath(command.name)}>/{command.name}</Link> fires the happy path
           in one line, and defers back here for the failure modes.
         </p>
       ) : null}

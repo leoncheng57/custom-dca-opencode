@@ -2,6 +2,7 @@ import type { ReactElement } from 'react'
 import { Link } from 'react-router-dom'
 import TerminalPanel from './TerminalPanel'
 import styles from './skill-card.module.css'
+import { skillPath as pathForSkill } from '../lib/routes'
 import type { Skill } from '../lib/skills'
 
 interface SkillCardProps {
@@ -15,7 +16,7 @@ interface SkillCardProps {
 }
 
 export default function SkillCard({ skill, onTagSelect }: SkillCardProps): ReactElement {
-  const skillPath = `/s/${skill.name}`
+  const skillPath = pathForSkill(skill.name)
 
   return (
     <TerminalPanel as="article" path={`skills/${skill.name}/SKILL.md`}>

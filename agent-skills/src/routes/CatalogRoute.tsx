@@ -1,5 +1,5 @@
 import cx from 'classnames'
-import { useCallback, useMemo, useRef, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { InstallScopeTable } from '../components/InstallBlock'
 import SkillCard from '../components/SkillCard'
 import { REPO_URL } from '../lib/repo'
@@ -14,6 +14,13 @@ export default function CatalogRoute(): ReactElement {
   // scan over an in-memory array — no search index, no fetch.
   const visible = useMemo(() => filterSkills(skills, query), [query])
   const tags = useMemo(() => allTags(skills), [])
+
+  useEffect(() => {
+    document.title = 'Agent Skills - custom-dca-opencode'
+    return () => {
+      document.title = 'custom-dca-opencode'
+    }
+  }, [])
 
   // A tag chip is just a shortcut into the existing filter. Focus moves to the
   // input afterwards for two reasons: it shows *why* the grid changed, and the
