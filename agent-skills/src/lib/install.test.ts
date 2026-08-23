@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { commandInstallMethods } from './commandInstall'
 import { INSTALL_SCOPES, installMethods } from './install'
-import { DEFAULT_BRANCH, REPO_NAME, TARBALL_ROOT } from './repo'
+import { CONTENT_ROOT, DEFAULT_BRANCH, REPO_NAME, TARBALL_ROOT } from './repo'
 
 describe('installMethods', () => {
   const methods = installMethods('cmux-browser')
@@ -30,12 +31,14 @@ describe('installMethods', () => {
   })
 
   it('renders the skills CLI command', () => {
-    expect(commandFor('skills-cli')).toBe('npx skills add leoncheng57/agent-skills --skill cmux-browser -g')
+    expect(commandFor('skills-cli')).toBe(
+      'npx skills add https://github.com/leoncheng57/custom-dca-opencode/tree/main/agent-skills --skill cmux-browser -g'
+    )
   })
 
   it('renders the degit command', () => {
     expect(commandFor('degit')).toBe(
-      'npx degit leoncheng57/agent-skills/skills/cmux-browser ~/.agents/skills/cmux-browser'
+      'npx degit leoncheng57/custom-dca-opencode/agent-skills/skills/cmux-browser ~/.agents/skills/cmux-browser'
     )
   })
 
@@ -43,9 +46,9 @@ describe('installMethods', () => {
     expect(commandFor('curl')).toBe(
       [
         'mkdir -p ~/.agents/skills && \\',
-        'curl -sL https://codeload.github.com/leoncheng57/agent-skills/tar.gz/refs/heads/main \\',
-        '  | tar -xz -C ~/.agents/skills --strip-components=2 \\',
-        '      agent-skills-main/skills/cmux-browser',
+        'curl -sL https://codeload.github.com/leoncheng57/custom-dca-opencode/tar.gz/refs/heads/main \\',
+        '  | tar -xz -C ~/.agents/skills --strip-components=3 \\',
+        '      custom-dca-opencode-main/agent-skills/skills/cmux-browser',
       ].join('\n')
     )
   })
@@ -53,9 +56,9 @@ describe('installMethods', () => {
   it('renders the sparse clone + symlink command', () => {
     expect(commandFor('sparse-symlink')).toBe(
       [
-        'git clone --filter=blob:none --sparse https://github.com/leoncheng57/agent-skills.git ~/src/agent-skills',
-        'cd ~/src/agent-skills && git sparse-checkout set skills/cmux-browser',
-        'ln -s ~/src/agent-skills/skills/cmux-browser ~/.agents/skills/cmux-browser',
+        'git clone --filter=blob:none --sparse https://github.com/leoncheng57/custom-dca-opencode.git ~/src/custom-dca-opencode',
+        'cd ~/src/custom-dca-opencode && git sparse-checkout set agent-skills/skills/cmux-browser',
+        'ln -s ~/src/custom-dca-opencode/agent-skills/skills/cmux-browser ~/.agents/skills/cmux-browser',
       ].join('\n')
     )
   })
@@ -64,7 +67,7 @@ describe('installMethods', () => {
     expect(commandFor('project-local')).toBe(
       [
         '# from the root of your project',
-        'npx degit leoncheng57/agent-skills/skills/cmux-browser .agents/skills/cmux-browser',
+        'npx degit leoncheng57/custom-dca-opencode/agent-skills/skills/cmux-browser .agents/skills/cmux-browser',
       ].join('\n')
     )
   })
@@ -96,7 +99,23 @@ describe('installMethods', () => {
   it('derives the tarball root from the branch instead of hardcoding it', () => {
     expect(TARBALL_ROOT).toBe(`${REPO_NAME}-${DEFAULT_BRANCH}`)
     expect(commandFor('curl')).toContain(`refs/heads/${DEFAULT_BRANCH}`)
-    expect(commandFor('curl')).toContain(`${TARBALL_ROOT}/skills/`)
+    expect(commandFor('curl')).toContain(`${TARBALL_ROOT}/${CONTENT_ROOT}/skills/`)
+  })
+})
+
+describe('commandInstallMethods', () => {
+  const methods = commandInstallMethods('worktree-up')
+
+  it('downloads commands from the migrated workspace', () => {
+    expect(methods[0].command).toContain(
+      'raw.githubusercontent.com/leoncheng57/custom-dca-opencode/main/agent-skills/commands/worktree-up.md'
+    )
+  })
+
+  it('symlinks commands from the combined repository clone', () => {
+    expect(methods.find((method) => method.id === 'symlink')?.command).toContain(
+      '~/src/custom-dca-opencode/agent-skills/commands/worktree-up.md'
+    )
   })
 })
 

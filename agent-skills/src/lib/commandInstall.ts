@@ -1,4 +1,4 @@
-import { DEFAULT_BRANCH, REPO_SLUG, REPO_URL } from './repo'
+import { CONTENT_ROOT, DEFAULT_BRANCH, REPO_SLUG, REPO_URL } from './repo'
 
 export interface CommandInstallMethod {
   id: string
@@ -14,7 +14,7 @@ export interface CommandInstallMethod {
  * here — they would clone a tree to place a single markdown file.
  */
 export function commandInstallMethods(name: string): CommandInstallMethod[] {
-  const raw = `https://raw.githubusercontent.com/${REPO_SLUG}/${DEFAULT_BRANCH}/commands/${name}.md`
+  const raw = `https://raw.githubusercontent.com/${REPO_SLUG}/${DEFAULT_BRANCH}/${CONTENT_ROOT}/commands/${name}.md`
 
   return [
     {
@@ -46,9 +46,9 @@ export function commandInstallMethods(name: string): CommandInstallMethod[] {
       scope: 'global',
       note: 'Stays updatable: git pull in the clone refreshes the live command.',
       command: [
-        `git clone ${REPO_URL}.git ~/src/agent-skills   # once`,
+        `git clone ${REPO_URL}.git ~/src/custom-dca-opencode   # once`,
         'mkdir -p ~/.config/opencode/commands',
-        `ln -s ~/src/agent-skills/commands/${name}.md \\`,
+        `ln -s ~/src/custom-dca-opencode/${CONTENT_ROOT}/commands/${name}.md \\`,
         `      ~/.config/opencode/commands/${name}.md`,
       ].join('\n'),
     },

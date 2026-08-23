@@ -6,8 +6,8 @@ import { loadSkillsFromFiles, type Skill } from './skills'
  *
  * The app lives at the repository root precisely so this glob can reach the
  * untouched `skills/` directory — that directory must stay where it is because
- * the vercel-labs/skills CLI (`npx skills add leoncheng57/agent-skills`) treats
- * it as a priority search path.
+ * the vercel-labs/skills CLI treats it as a priority search path when pointed
+ * at this workspace's GitHub tree URL.
  *
  * There is deliberately no hand-maintained list anywhere in this codebase:
  * adding a skill directory is the only step needed to get it on the site.

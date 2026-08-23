@@ -1,12 +1,17 @@
-# agent-skills
+# Agent skills and commands
 
 Portable [agent skills](https://opencode.ai/docs) — reusable workflow instructions
 that a coding agent loads on demand when a task matches the skill's description.
 
-Written for [OpenCode](https://opencode.ai), and compatible with any agent that
+This workspace is maintained as part of
+[`custom-dca-opencode`](https://github.com/leoncheng57/custom-dca-opencode). It is
+written for [OpenCode](https://opencode.ai), and compatible with any agent that
 reads `SKILL.md` files with YAML frontmatter (Claude Code included).
 
 Website: <https://leoncheng.dev/agent-skills/>
+
+Run `npm install` and the verification commands from the parent repository root;
+the root npm workspace lockfile and CI own this package.
 
 ## Skills
 
@@ -19,22 +24,22 @@ cannot drift from this repository.
 Install with the [skills CLI](https://skills.sh/):
 
 ```bash
-npx skills add leoncheng57/agent-skills
+npx skills add https://github.com/leoncheng57/custom-dca-opencode/tree/main/agent-skills
 ```
 
 Or clone the repository and symlink individual skills into your agent's skills
 directory for automatic updates:
 
 ```bash
-git clone https://github.com/leoncheng57/agent-skills.git ~/Documents/Projects/agent-skills
+git clone https://github.com/leoncheng57/custom-dca-opencode.git ~/Documents/Projects/custom-dca-opencode
 
 NAME=parallel-research-handoff
 
 # OpenCode
-cd ~/.agents/skills && ln -s ../../Documents/Projects/agent-skills/skills/$NAME $NAME
+cd ~/.agents/skills && ln -s ../../Documents/Projects/custom-dca-opencode/agent-skills/skills/$NAME $NAME
 
 # Claude Code
-cd ~/.claude/skills && ln -s ../../Documents/Projects/agent-skills/skills/$NAME $NAME
+cd ~/.claude/skills && ln -s ../../Documents/Projects/custom-dca-opencode/agent-skills/skills/$NAME $NAME
 ```
 
 Symlinks mean `git pull` updates the live skill. Use **relative** targets, as

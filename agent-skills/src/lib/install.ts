@@ -1,4 +1,4 @@
-import { DEFAULT_BRANCH, REPO_SLUG, REPO_URL, TARBALL_ROOT } from './repo'
+import { CONTENT_ROOT, DEFAULT_BRANCH, REPO_SLUG, REPO_URL, TARBALL_ROOT } from './repo'
 
 export interface InstallMethod {
   id: string
@@ -30,14 +30,14 @@ export function installMethods(skill: string): InstallMethod[] {
       label: 'skills CLI',
       scope: 'global',
       note: 'Recommended. Resolves the repo\u2019s skills/ directory for you; -g installs globally.',
-      command: `npx skills add ${REPO_SLUG} --skill ${skill} -g`,
+      command: `npx skills add ${REPO_URL}/tree/${DEFAULT_BRANCH}/${CONTENT_ROOT} --skill ${skill} -g`,
     },
     {
       id: 'degit',
       label: 'degit',
       scope: 'global',
       note: 'Copies one directory with no git history attached.',
-      command: `npx degit ${REPO_SLUG}/skills/${skill} ~/.agents/skills/${skill}`,
+      command: `npx degit ${REPO_SLUG}/${CONTENT_ROOT}/skills/${skill} ~/.agents/skills/${skill}`,
     },
     {
       id: 'curl',
@@ -47,19 +47,19 @@ export function installMethods(skill: string): InstallMethod[] {
       command: [
         'mkdir -p ~/.agents/skills && \\',
         `curl -sL https://codeload.github.com/${REPO_SLUG}/tar.gz/refs/heads/${DEFAULT_BRANCH} \\`,
-        '  | tar -xz -C ~/.agents/skills --strip-components=2 \\',
-        `      ${TARBALL_ROOT}/skills/${skill}`,
+        '  | tar -xz -C ~/.agents/skills --strip-components=3 \\',
+        `      ${TARBALL_ROOT}/${CONTENT_ROOT}/skills/${skill}`,
       ].join('\n'),
     },
     {
       id: 'sparse-symlink',
       label: 'sparse clone + symlink',
       scope: 'global',
-      note: 'Stays updatable: git pull in ~/src/agent-skills refreshes the live skill.',
+      note: 'Stays updatable: git pull in ~/src/custom-dca-opencode refreshes the live skill.',
       command: [
-        `git clone --filter=blob:none --sparse ${REPO_URL}.git ~/src/agent-skills`,
-        `cd ~/src/agent-skills && git sparse-checkout set skills/${skill}`,
-        `ln -s ~/src/agent-skills/skills/${skill} ~/.agents/skills/${skill}`,
+        `git clone --filter=blob:none --sparse ${REPO_URL}.git ~/src/custom-dca-opencode`,
+        `cd ~/src/custom-dca-opencode && git sparse-checkout set ${CONTENT_ROOT}/skills/${skill}`,
+        `ln -s ~/src/custom-dca-opencode/${CONTENT_ROOT}/skills/${skill} ~/.agents/skills/${skill}`,
       ].join('\n'),
     },
     {
@@ -72,7 +72,7 @@ export function installMethods(skill: string): InstallMethod[] {
       note: 'Commits with the repo, so the skill travels with the codebase and loads only there.',
       command: [
         '# from the root of your project',
-        `npx degit ${REPO_SLUG}/skills/${skill} .agents/skills/${skill}`,
+        `npx degit ${REPO_SLUG}/${CONTENT_ROOT}/skills/${skill} .agents/skills/${skill}`,
       ].join('\n'),
     },
   ]

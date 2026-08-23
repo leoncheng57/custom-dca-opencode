@@ -9,6 +9,9 @@
     "type": "git",
     "url": "git+https://github.com/leoncheng57/custom-dca-opencode.git"
   },
+  "workspaces": [
+    "agent-skills"
+  ],
   "engines": {
     "node": ">=22"
   },
@@ -18,14 +21,14 @@
     "dev:ui": "vite",
     "build:ui": "vite build",
     "build:server": "tsc -p tsconfig.server.json",
-    "build": "npm run build:ui && npm run build:server",
+    "build": "npm run build:ui && npm run build:server && npm run build --workspace agent-skills-site",
     "start": "node dist/server/index.js",
     "service:install": "tsx scripts/launchd.ts install",
     "service:status": "tsx scripts/launchd.ts status",
     "service:logs": "tsx scripts/launchd.ts logs",
     "service:uninstall": "tsx scripts/launchd.ts uninstall",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.tools.json --noEmit",
-    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.tools.json --noEmit && npm run typecheck --workspace agent-skills-site",
+    "test": "vitest run && npm test --workspace agent-skills-site",
     "test:e2e": "playwright test",
     "screenshots": "tsx scripts/run-pr-screenshots.ts",
     "screenshots:local": "npm run screenshots -- --request-file tests/fixtures/pr-screenshots.json --output-dir screenshot-output --pr-number 0 --sha local"

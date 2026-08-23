@@ -49,6 +49,10 @@ several decisions below.
 - `reminders/<id>/SKILL.md` is read at runtime, not emitted by `tsc`. Keep the root
   catalogue beside `dist/` in deployments. Per-message injection accepts an ID only;
   the BFF resolves the body and appends the `<reminder name="id">` sentinel.
+- `agent-skills/` is the portable skills/commands workspace and catalog site migrated
+  from `leoncheng57/agent-skills`. It is deliberately separate from runtime reminders
+  and the installed-skill `/api/catalog`; the root npm workspace lockfile and CI own
+  its typecheck, tests, and build.
 
 ## Non-obvious API contracts (each one cost real debugging)
 
