@@ -473,7 +473,7 @@ for (const viewport of VIEWPORTS) {
       }
     });
 
-    test("keeps Phone, Docs, Tools, Settings and Planning reachable from More", async ({ page }) => {
+    test("keeps Phone, Files, Docs, Tools, Settings and Planning reachable from More", async ({ page }) => {
       await page.goto(hub);
       const more = page.getByTestId("opencode-nav-more");
       await expect(more).toHaveAttribute("aria-haspopup", "true");
@@ -481,14 +481,14 @@ for (const viewport of VIEWPORTS) {
       await more.click();
       await expect(more).toHaveAttribute("aria-expanded", "true");
       await expect(page.getByTestId("opencode-nav-more-menu")).toBeVisible();
-      for (const testId of ["opencode-phone-transfer-open", "opencode-nav-docs", "opencode-nav-tools", "opencode-nav-settings", "opencode-nav-planning"]) {
+      for (const testId of ["opencode-phone-transfer-open", "opencode-nav-files", "opencode-nav-docs", "opencode-nav-tools", "opencode-nav-settings", "opencode-nav-planning"]) {
         await expect(page.getByTestId(testId)).toBeVisible();
       }
 
-      // A disclosure over links, not an APG menu: the three destinations stay
-      // real links so assistive tech still lists them as such, and Tab is the
+      // A disclosure over links, not an APG menu: every destination stays a
+      // real link so assistive tech still lists them as such, and Tab is the
       // traversal model.
-      for (const testId of ["opencode-nav-docs", "opencode-nav-tools", "opencode-nav-settings", "opencode-nav-planning"]) {
+      for (const testId of ["opencode-nav-files", "opencode-nav-docs", "opencode-nav-tools", "opencode-nav-settings", "opencode-nav-planning"]) {
         await expect(page.getByTestId(testId)).toHaveRole("link");
       }
       await expect(page.getByTestId("opencode-phone-transfer-open")).toHaveRole("button");
@@ -497,7 +497,7 @@ for (const viewport of VIEWPORTS) {
       // Keyboard reachable: the first item takes focus, Tab walks the rest.
       await expect(page.getByTestId("opencode-phone-transfer-open")).toBeFocused();
       await page.keyboard.press("Tab");
-      await expect(page.getByTestId("opencode-nav-docs")).toBeFocused();
+      await expect(page.getByTestId("opencode-nav-files")).toBeFocused();
       await page.keyboard.press("Escape");
       await expect(page.getByTestId("opencode-nav-more-menu")).toHaveCount(0);
       await expect(more).toBeFocused();

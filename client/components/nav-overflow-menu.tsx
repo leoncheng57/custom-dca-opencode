@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { BookOpen, ListTodo, MoreHorizontal, Settings, Smartphone, Wrench } from "lucide-react";
+import { BookOpen, FileCode, ListTodo, MoreHorizontal, Settings, Smartphone, Wrench } from "lucide-react";
 import { NavLink } from "react-router-dom";
 
 import { Button } from "../ds/button.js";
@@ -11,6 +11,7 @@ const ITEM_CLASS =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]";
 
 const LINKS = [
+  { to: "/files", label: "Files", testId: "opencode-nav-files", Icon: FileCode },
   { to: "/docs", label: "Docs", testId: "opencode-nav-docs", Icon: BookOpen },
   { to: "/tools", label: "Tools", testId: "opencode-nav-tools", Icon: Wrench },
   { to: "/settings", label: "Settings", testId: "opencode-nav-settings", Icon: Settings },

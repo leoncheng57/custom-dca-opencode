@@ -337,6 +337,16 @@ if (!existsSync(path.join(MOCK_DIRECTORY, ".git"))) {
   execFileSync("git", ["-C", MOCK_DIRECTORY, "-c", "user.name=E2E", "-c", "user.email=e2e@example.test", "commit", "-qm", "fixture"]);
 }
 
+// The BFF realpaths every workspace path before forwarding it, so anything the
+// mock is willing to LIST must also exist on disk or the read 404s. These live
+// under src/ rather than the root because smoke.api.spec.ts asserts the exact
+// first entry of the root listing, which is sorted by name.
+//
+// Written unconditionally: the git block above is skipped when /tmp/mock-project
+// survives from an earlier run, and these files must exist on every run.
+writeFileSync(path.join(MOCK_DIRECTORY, "src", "index.ts"), "export const answer = 42;\n");
+writeFileSync(path.join(MOCK_DIRECTORY, "src", "notes.unknownext"), "plain fixture text\n");
+
 const SESSIONS: Array<Record<string, any>> = [
   {
     id: "ses_mock_done",
@@ -1012,7 +1022,12 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
   if (pathname === "/file") {
     const relative = url.searchParams.get("path") ?? "";
     return json(res, 200, relative === "src"
-      ? [{ name: "index.ts", path: "src/index.ts", type: "file", ignored: false }]
+      ? [
+          { name: "index.ts", path: "src/index.ts", type: "file", ignored: false },
+          // No Shiki grammar exists for this extension, so the viewer must
+          // fall back to plain text and say why.
+          { name: "notes.unknownext", path: "src/notes.unknownext", type: "file", ignored: false },
+        ]
       : [
           { name: "src", path: "src", type: "directory", ignored: false },
           { name: "README.md", path: "README.md", type: "file", ignored: false },
@@ -1021,7 +1036,10 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
   }
   if (pathname === "/file/content") {
     const relative = url.searchParams.get("path") ?? "";
-    return json(res, 200, { type: "text", content: relative === "README.md" ? "# Mock project" : "export const answer = 42;" });
+    if (relative === "README.md") return json(res, 200, { type: "text", content: "# Mock project" });
+    if (relative === "src/notes.unknownext") return json(res, 200, { type: "text", content: "plain fixture text" });
+    // Two lines, and no trailing newline — the real /file/content strips it.
+    return json(res, 200, { type: "text", content: "export const answer = 42;\nexport default answer;" });
   }
   if (pathname === "/vcs/diff") {
     return json(res, 200, [{ file: "src/index.ts", status: "modified", additions: 1, deletions: 1, patch: "@@ -1 +1 @@\n-old\n+new" }]);

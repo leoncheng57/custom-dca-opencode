@@ -168,12 +168,28 @@ export interface WorkspaceNode {
   ignored: boolean;
 }
 
+export interface WorkspaceFileHighlight {
+  /**
+   * A complete `<pre class="shiki">` rendered by the BFF. Shiki escapes the
+   * source and emits colours only as --shiki-light/--shiki-dark custom
+   * properties, so one payload serves both appearances.
+   */
+  html: string;
+  language: string;
+}
+
+export type HighlightSkipReason = "too-large" | "unsupported-language" | "unavailable";
+
 export interface WorkspaceFile {
   path: string;
   type: "text" | "binary";
   content: string;
   encoding?: "base64";
   mimeType?: string;
+  /** Present only when highlighting was requested and succeeded. */
+  highlight?: WorkspaceFileHighlight;
+  /** Present instead of `highlight` when the viewer must fall back to plain text. */
+  highlightSkipped?: HighlightSkipReason;
 }
 
 export interface VcsFileDiff {
@@ -556,8 +572,10 @@ export const api = {
     fetch(scoped("/workspace/tree", directory, { path })).then((r) =>
       json<{ path: string; dirs: WorkspaceNode[]; files: WorkspaceNode[] }>(r),
     ),
-  workspaceFile: (directory: string, path: string) =>
-    fetch(scoped("/workspace/file", directory, { path })).then((r) => json<WorkspaceFile>(r)),
+  workspaceFile: (directory: string, path: string, options: { highlight?: boolean } = {}) =>
+    fetch(scoped("/workspace/file", directory, { path, ...(options.highlight ? { highlight: "1" } : {}) })).then((r) =>
+      json<WorkspaceFile>(r),
+    ),
   changes: (directory: string, mode: "git" | "branch") =>
     fetch(scoped("/workspace/changes", directory, { mode })).then((r) =>
       json<{ changes: VcsFileDiff[] }>(r),

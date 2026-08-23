@@ -33,6 +33,8 @@ test.describe("requested PR screenshots", () => {
               ? "opencode-settings"
               : pathname === "/tools"
                 ? "opencode-tools"
+                : pathname === "/files"
+                  ? "opencode-files"
                 : pathname === "/planning"
                   ? "opencode-planning"
                 : pathname === "/docs"
@@ -47,6 +49,17 @@ test.describe("requested PR screenshots", () => {
             await expect(page.getByTestId("opencode-planning-create-dialog")).toBeVisible();
             await expect(page.getByTestId("opencode-planning-label-list")).toContainText("frontend");
           }
+        }
+        if (pathname === "/files") {
+          // The tree and the file are separate fetches, so wait for whichever
+          // pane this route actually shows. Below lg the two are exclusive:
+          // opening a file gives it the whole screen and hides the tree.
+          const requested = new URL(request.requestedRoute, "http://screenshot.invalid").searchParams.get("file");
+          // Anchor on the rendered <pre>, not the content box: the box is
+          // already visible while the spinner is in it, which captures a
+          // half-loaded pane.
+          if (requested) await expect(page.locator('[data-testid="opencode-file-content"] pre')).toBeVisible();
+          else await expect(page.getByTestId("opencode-files-tree")).toBeVisible();
         }
         const url = new URL(request.requestedRoute, "http://screenshot.invalid");
         if (url.searchParams.get("panel") === "subagents") {

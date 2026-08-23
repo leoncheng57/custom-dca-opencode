@@ -94,6 +94,7 @@ export function AppShell() {
     navigation: [
       { id: "home", title: "Home", to: scopedPath("/"), keywords: ["sessions"] },
       { id: "tools", title: "Tools", to: scopedPath("/tools"), keywords: ["mcp", "lsp", "permissions"] },
+      { id: "files", title: "Files", to: scopedPath("/files"), keywords: ["code", "source", "browse", "read", "viewer"] },
       { id: "docs", title: "Docs", to: scopedPath("/docs"), keywords: ["architecture", "contributing", "internals"] },
       {
         id: "notifications",

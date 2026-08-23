@@ -249,3 +249,71 @@
   background: var(--color-border-default);
   border-radius: 4px;
 }
+
+/* ── Read-only code viewer (/files) ──────────────────────────────────
+   One rule set styles two sources: Shiki markup rendered by the BFF, and the
+   plain-text fallback React builds in the same shape (a <pre> of
+   <span class="line">). Line numbers come from a CSS counter rather than
+   markup so they are never part of a copied selection.
+
+   The BFF highlights with defaultColor:false, so Shiki emits colours only as
+   --shiki-light / --shiki-dark custom properties and never a literal color or
+   background-color. That is what lets one cached payload serve both
+   appearances, and it is why nothing here has to fight an inline style. */
+.opencode-code pre {
+  margin: 0;
+  background: transparent;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  tab-size: 2;
+  counter-reset: opencode-line;
+}
+.opencode-code code {
+  /* Grow past the viewport so the scroll container, not the text, wraps. */
+  display: block;
+  width: max-content;
+  min-width: 100%;
+}
+/* Shiki separates line spans with a literal newline. Making .line a block
+   already breaks the line, so the container must collapse that newline or
+   every row renders double-spaced. Each .line restores `pre` for its own
+   content, which is where the indentation actually lives. */
+.opencode-code pre,
+.opencode-code code {
+  white-space: normal;
+}
+.opencode-code .line {
+  display: block;
+  white-space: pre;
+  /* padding + negative indent together reserve the gutter on the first visual
+     row and hang every wrapped row beneath the code, not beneath the number. */
+  padding-left: 4rem;
+  text-indent: -4rem;
+}
+.opencode-code .line::before {
+  counter-increment: opencode-line;
+  content: counter(opencode-line);
+  display: inline-block;
+  width: 3rem;
+  margin-right: 1rem;
+  text-align: right;
+  color: var(--color-text-muted);
+  user-select: none;
+  -webkit-user-select: none;
+}
+.opencode-code.wrap code {
+  width: auto;
+}
+.opencode-code.wrap .line {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* Fall back to the body colour for the plain-text path, which defines no
+   Shiki variables at all. */
+.opencode-code pre span {
+  color: var(--shiki-light, var(--color-text-default));
+}
+.dark .opencode-code pre span {
+  color: var(--shiki-dark, var(--color-text-default));
+}
