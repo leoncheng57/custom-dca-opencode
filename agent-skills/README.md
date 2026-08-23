@@ -8,14 +8,14 @@ This workspace is maintained as part of
 written for [OpenCode](https://opencode.ai), and compatible with any agent that
 reads `SKILL.md` files with YAML frontmatter (Claude Code included).
 
-Website: <https://leoncheng.dev/agent-skills/>
+Website: <https://leoncheng.dev/custom-dca-opencode/agent-skills/>
 
 Run `npm install` and the verification commands from the parent repository root;
 the root npm workspace lockfile and CI own this package.
 
 ## Skills
 
-Browse the [complete skill catalog](https://leoncheng.dev/agent-skills/). The site
+Browse the [complete skill catalog](https://leoncheng.dev/custom-dca-opencode/agent-skills/). The site
 discovers every `skills/*/SKILL.md` directly, so it is the canonical inventory and
 cannot drift from this repository.
 
@@ -164,7 +164,7 @@ commands/<name>.md              the command itself
 command-simulations/<name>.md   its worked example (site + docs only)
 ```
 
-Browse them at <https://leoncheng.dev/agent-skills/commands>.
+Browse them at <https://leoncheng.dev/custom-dca-opencode/agent-skills/commands>.
 
 ### Why both
 

@@ -18,9 +18,9 @@ export const FEEDBACK_PAGE_URL_ENTRY_ID = 'entry.201088765'
  * Path reported in the form's "Current page" field.
  *
  * This is `window.location.pathname`, not the react-router path, so the value
- * keeps the `/agent-skills/` base prefix the site is deployed under. Both this
- * repo and leoncheng.dev feed the same form, and the prefix is what tells the
- * two apart during triage — a bare `/s/foo` would be ambiguous.
+ * keeps the `/custom-dca-opencode/` project prefix the site is deployed under.
+ * Both this repo and leoncheng.dev feed the same form, and the prefix is what
+ * tells the two apart during triage.
  *
  * Guarded so the module stays importable without a DOM (the unit tests run in
  * Vitest's `node` environment).

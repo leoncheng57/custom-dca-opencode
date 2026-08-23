@@ -7,6 +7,8 @@ interface StaticRouteOptions {
   outDir: string
   skillsDir: string
   commandsDir: string
+  contentBase?: string
+  staticRoutes?: string[]
 }
 
 function assertRouteName(name: string, source: string): void {
@@ -54,17 +56,31 @@ function copyEntry(indexPath: string, destination: string): void {
  * command file is still the only step needed to add both its page and its
  * deploy-time entrypoint — there is no second route registry to drift.
  */
-export function generateStaticRoutes({ outDir, skillsDir, commandsDir }: StaticRouteOptions): string[] {
+export function generateStaticRoutes({
+  outDir,
+  skillsDir,
+  commandsDir,
+  contentBase = '',
+  staticRoutes = [],
+}: StaticRouteOptions): string[] {
   const indexPath = join(outDir, 'index.html')
   if (!existsSync(indexPath)) {
     throw new Error(`Vite output is missing ${indexPath}`)
   }
 
   const routes = [
-    'commands',
-    ...skillNames(skillsDir).map((name) => join('s', name)),
-    ...commandNames(commandsDir).map((name) => join('c', name)),
-  ]
+    ...staticRoutes,
+    contentBase,
+    join(contentBase, 'commands'),
+    ...skillNames(skillsDir).map((name) => join(contentBase, 's', name)),
+    ...commandNames(commandsDir).map((name) => join(contentBase, 'c', name)),
+  ].filter(Boolean)
+
+  for (const route of routes) {
+    for (const segment of route.split('/').filter(Boolean)) {
+      assertRouteName(segment, `static route ${route}`)
+    }
+  }
 
   for (const route of routes) {
     copyEntry(indexPath, join(outDir, route))

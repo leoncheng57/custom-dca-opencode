@@ -20,8 +20,8 @@ type SiteFooterProps = {
  *
  * Ported from leoncheng57/leoncheng57.github.io. One deliberate difference:
  * upstream the home link is a react-router `<Link to="/">`, because there `/`
- * IS leoncheng.dev. This site is deployed at leoncheng.dev/agent-skills/ and
- * owns `/` for its own catalogue, so the link has to be a plain off-site
+ * IS leoncheng.dev. This project site owns `/` inside its router, so the link
+ * has to be a plain off-site
  * anchor — routing it through the router would land on the catalogue instead
  * of the personal site.
  */

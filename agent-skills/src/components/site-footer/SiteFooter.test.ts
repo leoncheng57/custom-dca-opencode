@@ -16,7 +16,7 @@ function renderFooter(children?: ReactNode): string {
 describe('SiteFooter', () => {
   it('links home to leoncheng.dev off-site, not to this app’s "/"', () => {
     // The critical adaptation from upstream: on leoncheng.dev the home link is
-    // a router <Link to="/">, but here "/" is the agent-skills catalogue, so a
+    // a router <Link to="/">, but here "/" is the project index, so a
     // relative href would keep the visitor on this site.
     const html = renderFooter()
 

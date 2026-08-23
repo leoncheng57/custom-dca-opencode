@@ -6,8 +6,8 @@ import './styles/globals.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    {/* basename tracks vite's `base`, so the same build works at / in dev and
-        at /agent-skills/ on Pages. */}
+    {/* basename tracks Vite's base, so this build works locally and under the
+        custom-dca-opencode project path on Pages. */}
     <BrowserRouter basename={import.meta.env.BASE_URL}>
       <App />
     </BrowserRouter>

@@ -42,18 +42,28 @@ describe('generateStaticRoutes', () => {
   it('emits entrypoints for the command index and every discovered detail page', () => {
     const dirs = fixture()
 
-    expect(generateStaticRoutes(dirs)).toEqual([
-      'commands',
-      join('s', 'alpha'),
-      join('s', 'beta'),
-      join('c', 'verify'),
+    expect(generateStaticRoutes({
+      ...dirs,
+      contentBase: 'agent-skills',
+      staticRoutes: ['features', 'docs'],
+    })).toEqual([
+      'features',
+      'docs',
+      'agent-skills',
+      join('agent-skills', 'commands'),
+      join('agent-skills', 's', 'alpha'),
+      join('agent-skills', 's', 'beta'),
+      join('agent-skills', 'c', 'verify'),
     ])
 
     for (const path of [
-      'commands/index.html',
-      's/alpha/index.html',
-      's/beta/index.html',
-      'c/verify/index.html',
+      'features/index.html',
+      'docs/index.html',
+      'agent-skills/index.html',
+      'agent-skills/commands/index.html',
+      'agent-skills/s/alpha/index.html',
+      'agent-skills/s/beta/index.html',
+      'agent-skills/c/verify/index.html',
       '404.html',
     ]) {
       expect(readFileSync(join(dirs.outDir, path), 'utf8')).toBe('<main>app shell</main>')
@@ -76,5 +86,13 @@ describe('generateStaticRoutes', () => {
     writeFileSync(join(dirs.commandsDir, 'Bad Name.md'), 'bad')
 
     expect(() => generateStaticRoutes(dirs)).toThrow(/invalid name "Bad Name"/)
+  })
+
+  it('fails the build for an unsafe fixed route', () => {
+    const dirs = fixture()
+
+    expect(() => generateStaticRoutes({ ...dirs, staticRoutes: ['Bad Route'] })).toThrow(
+      /invalid name "Bad Route"/
+    )
   })
 })

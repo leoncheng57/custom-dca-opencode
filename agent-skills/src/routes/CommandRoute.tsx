@@ -9,8 +9,9 @@ import { invocation } from '../lib/commands'
 import { findCommand } from '../lib/commandsSource'
 import { commandSimulationSourceUrl, commandSourceUrl } from '../lib/repo'
 import styles from './skill.module.css'
+import { COMMANDS_PATH, skillPath } from '../lib/routes'
 
-const SITE_TITLE = 'agent-skills'
+const SITE_TITLE = 'Agent Skills - custom-dca-opencode'
 
 export default function CommandRoute(): ReactElement {
   const { name = '' } = useParams()
@@ -45,7 +46,7 @@ export default function CommandRoute(): ReactElement {
     return (
       <div className={styles.page}>
         <p className={styles.back}>
-          <Link to="/commands">&larr; all commands</Link>
+          <Link to={COMMANDS_PATH}>&larr; all commands</Link>
         </p>
         <h1 className={styles.title}>No command called “{name}”</h1>
         <p className={styles.notFound}>
@@ -58,7 +59,7 @@ export default function CommandRoute(): ReactElement {
   return (
     <article className={styles.page}>
       <p className={styles.back}>
-        <Link to="/commands">&larr; all commands</Link>
+        <Link to={COMMANDS_PATH}>&larr; all commands</Link>
       </p>
 
       <header className={styles.header}>
@@ -105,7 +106,7 @@ export default function CommandRoute(): ReactElement {
 
       {command.relatedSkills.length === 1 ? (
         <p className={styles.relation}>
-          Short form of the <Link to={`/s/${command.relatedSkills[0]}`}>{command.relatedSkills[0]}</Link>{' '}
+          Short form of the <Link to={skillPath(command.relatedSkills[0])}>{command.relatedSkills[0]}</Link>{' '}
           skill. The command carries the happy path; the skill carries the failure modes. It deliberately
           does not restate them — two copies of a failure-mode table drift.
         </p>
@@ -115,7 +116,7 @@ export default function CommandRoute(): ReactElement {
           {command.relatedSkills.map((skill, index) => (
             <span key={skill}>
               {index > 0 ? ' and ' : ''}
-              <Link to={`/s/${skill}`}>{skill}</Link>
+              <Link to={skillPath(skill)}>{skill}</Link>
             </span>
           ))}
           . It is a composite rather than a short form of either, so neither skill page offers it as its

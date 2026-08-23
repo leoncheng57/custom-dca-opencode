@@ -3,12 +3,13 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
 import CommandRoute from './CommandRoute'
 import { commands } from '../lib/commandsSource'
+import { commandPath, skillPath } from '../lib/routes'
 
 function renderCommand(name: string) {
   return render(
-    <MemoryRouter initialEntries={[`/c/${name}`]}>
+    <MemoryRouter initialEntries={[commandPath(name)]}>
       <Routes>
-        <Route path="/c/:name" element={<CommandRoute />} />
+        <Route path="/agent-skills/c/:name" element={<CommandRoute />} />
       </Routes>
     </MemoryRouter>,
   )
@@ -56,7 +57,7 @@ describe('CommandRoute', () => {
 
     expect(screen.getByRole('link', { name: LINKED.relatedSkills[0] })).toHaveAttribute(
       'href',
-      `/s/${LINKED.relatedSkills[0]}`,
+      skillPath(LINKED.relatedSkills[0]),
     )
   })
 

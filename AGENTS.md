@@ -53,6 +53,10 @@ several decisions below.
   from `leoncheng57/agent-skills`. It is deliberately separate from runtime reminders
   and the installed-skill `/api/catalog`; the root npm workspace lockfile and CI own
   its typecheck, tests, and build.
+- The public project website extends that React catalog app and is deployed at
+  `/custom-dca-opencode/`; Agent Skills routes live below `/agent-skills/`. The
+  `gh-pages` branch is shared with `pr-screenshots/`, so every writer must use the
+  `pr-screenshot-publication` concurrency group and replace only paths it owns.
 
 ## Non-obvious API contracts (each one cost real debugging)
 
