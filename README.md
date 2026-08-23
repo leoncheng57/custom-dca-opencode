@@ -24,6 +24,12 @@ the same server and can be attached at the same time, watching the same sessions
 The planned migration waves are implemented. The deterministic verification suite runs
 against the production SPA and real BFF with only OpenCode and preview targets mocked.
 
+The fixture-only [interactive Runner guide](https://leoncheng.dev/custom-dca-opencode/guides/runner/)
+explains the architecture, Plan/Build safety, long-session behavior, mobile handoff,
+human gates, notifications, and sub-agent evidence without connecting to a live agent.
+Build it locally with `npm run build:guide`; the normal development app also exposes it
+at `/guide` for browser review.
+
 | Phase | | |
 |---|---|---|
 | 0 | Foundation — scaffold, permission policy, launchd unit | ✅ |

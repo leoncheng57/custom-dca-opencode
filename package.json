@@ -17,6 +17,7 @@
     "dev:server": "tsx watch server/index.ts",
     "dev:ui": "vite",
     "build:ui": "vite build",
+    "build:guide": "vite build --mode guide",
     "build:server": "tsc -p tsconfig.server.json",
     "build": "npm run build:ui && npm run build:server",
     "start": "node dist/server/index.js",

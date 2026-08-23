@@ -3,16 +3,18 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { resolve } from "path";
 
-export default defineConfig(() => {
+export default defineConfig(({ mode }) => {
+  const guideBuild = mode === "guide";
   // The BFF port is configurable (PORT) since :3000 is commonly taken.
   const apiTarget = `http://localhost:${process.env.PORT || 3000}`;
 
   return {
     plugins: [react(), tailwindcss()],
-    root: "client",
+    root: guideBuild ? "client/guide" : "client",
+    base: guideBuild ? "/custom-dca-opencode/guides/runner/" : "/",
     build: {
       // server/index.ts resolves dist/server/index.js -> ../client
-      outDir: "../dist/client",
+      outDir: guideBuild ? "../../dist/guide" : "../dist/client",
       emptyOutDir: true,
     },
     server: {

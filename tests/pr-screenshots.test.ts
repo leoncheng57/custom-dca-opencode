@@ -88,6 +88,11 @@ describe("PR screenshot requests", () => {
       .toMatchObject({ requestedRoute: "/planning", fullPage: false });
   });
 
+  it("accepts the fixture-only interactive guide", () => {
+    expect(parseScreenshotBlock("```screenshots\nfull:/guide#simulation-system-map\n```").requests[0])
+      .toMatchObject({ requestedRoute: "/guide#simulation-system-map", fullPage: true });
+  });
+
   it("accepts the deterministic create-issue dialog state", () => {
     expect(parseScreenshotBlock("```screenshots\n/planning?create=1\n```").requests[0])
       .toMatchObject({ requestedRoute: "/planning?create=1", fullPage: false });

@@ -55,7 +55,7 @@ jobs:
 
       - name: Validate and stage runner guide
         working-directory: source
-        run: npx tsx scripts/stage-guide.ts --source dist/client --destination ../site
+        run: npx tsx scripts/stage-guide.ts --source dist/guide --destination ../site
 
       - name: Publish only the runner guide
         working-directory: site
