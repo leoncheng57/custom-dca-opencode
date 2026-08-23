@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 2,
+  "prNumber": 105,
+  "sourceSha": "74df097a28678d6461691982ff279b5b324431df",
+  "capturedAt": "2026-08-23T05:02:26.574Z",
+  "screenshots": [
+    {
+      "requestedRoute": "/docs/current-opencode-subagents?directory=/tmp/mock-project",
+      "fullPage": true,
+      "captures": {
+        "desktop": {
+          "filename": "01-docs-current-opencode-subagents-directory-tmp-mock-project-034ebdb7--desktop--full.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 800
+          },
+          "bytes": 80553,
+          "sha256": "e687a1929e29b04ad0e179c2d8b8a6e190ebc74a5e1ebf3f5563e3366aa86728"
+        },
+        "mobile": {
+          "filename": "01-docs-current-opencode-subagents-directory-tmp-mock-project-9aeb5571--mobile--full.png",
+          "dimensions": {
+            "width": 390,
+            "height": 740
+          },
+          "bytes": 61559,
+          "sha256": "f5c6fe139fc08621dd856c520c7b66bd06802a1688e5622d3cf4640b06056a50"
+        }
+      }
+    }
+  ]
+}
