@@ -57,9 +57,12 @@ test.describe("requested PR screenshots", () => {
           const requested = new URL(request.requestedRoute, "http://screenshot.invalid").searchParams.get("file");
           // Anchor on the rendered <pre>, not the content box: the box is
           // already visible while the spinner is in it, which captures a
-          // half-loaded pane.
-          if (requested) await expect(page.locator('[data-testid="opencode-file-content"] pre')).toBeVisible();
-          else await expect(page.getByTestId("opencode-files-tree")).toBeVisible();
+          // half-loaded pane. Refusals — a sensitive path, or no project
+          // selected — settle as an alert instead and are worth capturing too.
+          const settled = requested
+            ? page.locator('[data-testid="opencode-file-content"] pre').or(page.getByRole("alert"))
+            : page.getByTestId("opencode-files-tree").or(page.getByRole("alert"));
+          await expect(settled.first()).toBeVisible();
         }
         const url = new URL(request.requestedRoute, "http://screenshot.invalid");
         if (url.searchParams.get("panel") === "subagents") {
