@@ -332,12 +332,12 @@ export function sessionRoutes(
     sessionRoute(async (req, res) => {
       const directory = await directoryOf(req);
       const sessionID = paramOf(req, "id");
-      const messageID = req.query.messageID;
-      if (typeof messageID !== "string" || !messageID.trim() || messageID.length > 512) {
-        throw new HttpError(400, "messageID must be a non-empty string of at most 512 characters");
+      const userMessageID = req.query.userMessageID;
+      if (typeof userMessageID !== "string" || !userMessageID.trim() || userMessageID.length > 512) {
+        throw new HttpError(400, "userMessageID must be a non-empty string of at most 512 characters");
       }
       await ownedSession(directory, sessionID);
-      res.json({ changes: await getSessionTurnDiff(config, directory, sessionID, messageID) });
+      res.json({ changes: await getSessionTurnDiff(config, directory, sessionID, userMessageID) });
     }),
   );
 

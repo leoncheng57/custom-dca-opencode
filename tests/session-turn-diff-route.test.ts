@@ -48,7 +48,7 @@ async function withRoutes(
 }
 
 describe("session turn diff route", () => {
-  it("requires messageID and does not call upstream for invalid input", async () => {
+  it("requires userMessageID and does not call upstream for invalid input", async () => {
     const upstream = vi.fn(async () => Response.json({}));
     await withRoutes(upstream, async (baseUrl) => {
       const response = await nativeFetch(
@@ -56,7 +56,7 @@ describe("session turn diff route", () => {
       );
       expect(response.status).toBe(400);
       expect(await response.json()).toEqual({
-        error: "messageID must be a non-empty string of at most 512 characters",
+        error: "userMessageID must be a non-empty string of at most 512 characters",
       });
       expect(upstream).not.toHaveBeenCalled();
     });
@@ -71,7 +71,7 @@ describe("session turn diff route", () => {
       return Response.json([], { status: 500 });
     }, async (baseUrl) => {
       const response = await nativeFetch(
-        `${baseUrl}/api/sessions/ses_1/diff?directory=${encodeURIComponent(directory)}&messageID=msg_1`,
+        `${baseUrl}/api/sessions/ses_1/diff?directory=${encodeURIComponent(directory)}&userMessageID=msg_1`,
       );
       expect(response.status).toBe(404);
       expect(requested).not.toContain("/session/ses_1/diff");

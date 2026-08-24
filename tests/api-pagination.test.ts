@@ -53,7 +53,7 @@ describe("session turn diff API", () => {
     vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
       requested = String(input);
       return Response.json({
-        changes: [{ file: "src/index.ts", before: "old", after: "new", additions: 1, deletions: 1 }],
+        changes: [{ file: "src/index.ts", patch: "@@ -1 +1 @@\n-old\n+new", additions: 1, deletions: 1, status: "modified" }],
       });
     }));
 
@@ -62,13 +62,13 @@ describe("session turn diff API", () => {
     const url = new URL(requested, "http://client.test");
     expect(url.pathname).toBe("/api/sessions/ses%2F1/diff");
     expect(url.searchParams.get("directory")).toBe("/tmp/project");
-    expect(url.searchParams.get("messageID")).toBe("msg/1");
+    expect(url.searchParams.get("userMessageID")).toBe("msg/1");
     expect(result.changes[0]).toEqual({
       file: "src/index.ts",
-      before: "old",
-      after: "new",
+      patch: "@@ -1 +1 @@\n-old\n+new",
       additions: 1,
       deletions: 1,
+      status: "modified",
     });
   });
 });

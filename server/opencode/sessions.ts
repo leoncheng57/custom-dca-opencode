@@ -15,6 +15,7 @@
 import { withReminderTag, type ReminderPreset } from "../reminders/reminders.js";
 import { isSensitiveWorkspacePath } from "../paths.js";
 import { request, requestWithResponse, type OpencodeConfig } from "./client.js";
+import type { VcsFileDiff } from "./workspace.js";
 
 export type AgentMode = "plan" | "build";
 
@@ -486,34 +487,42 @@ export async function getSession(
   return toSummary(raw ?? {}, running.has(sessionID));
 }
 
-export interface SessionTurnDiff {
-  file: string;
-  before: string;
-  after: string;
-  additions: number;
-  deletions: number;
+export interface SessionTurnDiff extends VcsFileDiff {
+  patch: string;
+  status: NonNullable<VcsFileDiff["status"]>;
 }
 
 export async function getSessionTurnDiff(
   config: OpencodeConfig,
   directory: string,
   sessionID: string,
-  messageID: string,
+  userMessageID: string,
 ): Promise<SessionTurnDiff[]> {
-  const changes = await request<SessionTurnDiff[]>(
+  const changes = await request<unknown>(
     config,
     `/session/${encodeURIComponent(sessionID)}/diff`,
-    { directory, query: { messageID } },
+    { directory, query: { messageID: userMessageID } },
   );
-  return changes
-    .filter((change) => !isSensitiveWorkspacePath(change.file))
-    .map(({ file, before, after, additions, deletions }) => ({
-      file,
-      before,
-      after,
-      additions,
-      deletions,
-    }));
+  if (!Array.isArray(changes)) return [];
+  return changes.flatMap((change): SessionTurnDiff[] => {
+    if (!change || typeof change !== "object" || Array.isArray(change)) return [];
+    const source = change as Record<string, unknown>;
+    if (
+      typeof source.file !== "string" || !source.file.trim() ||
+      typeof source.patch !== "string" ||
+      typeof source.additions !== "number" || !Number.isInteger(source.additions) || source.additions < 0 ||
+      typeof source.deletions !== "number" || !Number.isInteger(source.deletions) || source.deletions < 0 ||
+      (source.status !== "added" && source.status !== "deleted" && source.status !== "modified")
+    ) return [];
+    if (isSensitiveWorkspacePath(source.file)) return [];
+    return [{
+      file: source.file,
+      patch: source.patch,
+      additions: source.additions,
+      deletions: source.deletions,
+      status: source.status,
+    }];
+  });
 }
 
 export interface CreateSessionInput {

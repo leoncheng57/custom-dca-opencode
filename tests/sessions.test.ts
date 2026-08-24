@@ -98,8 +98,14 @@ describe("session turn diffs", () => {
     vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
       requested = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
       return Response.json([
-        { file: "src/index.ts", before: "old", after: "new", additions: 1, deletions: 1, secret: "hidden" },
-        { file: ".env.local", before: "TOKEN=old", after: "TOKEN=new", additions: 1, deletions: 1 },
+        { file: "src/index.ts", patch: "@@ -1 +1 @@\n-old\n+new", additions: 1, deletions: 1, status: "modified", secret: "hidden" },
+        { file: ".env.local", patch: "@@ -1 +1 @@\n-TOKEN=old\n+TOKEN=new", additions: 1, deletions: 1, status: "modified" },
+        { patch: "missing file", additions: 1, deletions: 0, status: "added" },
+        { file: 42, patch: "wrong file type", additions: 1, deletions: 0, status: "added" },
+        { file: "   ", patch: "blank file", additions: 1, deletions: 0, status: "added" },
+        { file: "src/no-patch.ts", additions: 1, deletions: 0, status: "added" },
+        { file: "src/bad-count.ts", patch: "bad count", additions: 0.5, deletions: 0, status: "added" },
+        { file: "src/bad-status.ts", patch: "bad status", additions: 1, deletions: 0, status: "renamed" },
       ]);
     }));
 
@@ -109,7 +115,7 @@ describe("session turn diffs", () => {
       "ses/1",
       "msg/1",
     )).resolves.toEqual([
-      { file: "src/index.ts", before: "old", after: "new", additions: 1, deletions: 1 },
+      { file: "src/index.ts", patch: "@@ -1 +1 @@\n-old\n+new", additions: 1, deletions: 1, status: "modified" },
     ]);
     expect(requested?.pathname).toBe("/session/ses%2F1/diff");
     expect(requested?.searchParams.get("directory")).toBe("/tmp/project");

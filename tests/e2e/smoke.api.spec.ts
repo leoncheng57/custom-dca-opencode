@@ -264,11 +264,17 @@ test.describe("transcript", () => {
 
   test("returns a message-scoped turn diff without sensitive files", async ({ request }) => {
     const response = await request.get(
-      `/api/sessions/ses_mock_done/diff?directory=${DIR}&messageID=msg_mock_done`,
+      `/api/sessions/ses_mock_done/diff?directory=${DIR}&userMessageID=msg_mock_done`,
     );
     expect(response.ok()).toBe(true);
     expect(await response.json()).toEqual({
-      changes: [{ file: "src/index.ts", before: "old\n", after: "new\n", additions: 1, deletions: 1 }],
+      changes: [{
+        file: "src/index.ts",
+        patch: "@@ -1 +1 @@\n-old\n+new",
+        additions: 1,
+        deletions: 1,
+        status: "modified",
+      }],
     });
 
     const missingMessage = await request.get(`/api/sessions/ses_mock_done/diff?directory=${DIR}`);

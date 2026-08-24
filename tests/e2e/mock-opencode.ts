@@ -1202,8 +1202,9 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     if (rest === "/diff") {
       if (!url.searchParams.get("messageID")) return json(res, 400, { error: "messageID required" });
       return json(res, 200, [
-        { file: "src/index.ts", before: "old\n", after: "new\n", additions: 1, deletions: 1 },
-        { file: ".env", before: "TOKEN=old\n", after: "TOKEN=new\n", additions: 1, deletions: 1 },
+        { file: "src/index.ts", patch: "@@ -1 +1 @@\n-old\n+new", additions: 1, deletions: 1, status: "modified" },
+        { file: ".env", patch: "@@ -1 +1 @@\n-TOKEN=old\n+TOKEN=new", additions: 1, deletions: 1, status: "modified" },
+        { patch: "missing file", additions: 1, deletions: 0, status: "added" },
       ]);
     }
     if (rest === "/children") {

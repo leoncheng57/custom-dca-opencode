@@ -260,12 +260,9 @@ export interface MessagePage {
   nextCursor: string | null;
 }
 
-export interface SessionTurnDiff {
-  file: string;
-  before: string;
-  after: string;
-  additions: number;
-  deletions: number;
+export interface SessionTurnDiff extends VcsFileDiff {
+  patch: string;
+  status: NonNullable<VcsFileDiff["status"]>;
 }
 
 /**
@@ -401,8 +398,8 @@ export const api = {
       json<MessagePage>(r),
     ),
 
-  sessionTurnDiff: (directory: string, id: string, messageID: string) =>
-    fetch(scoped(`/sessions/${encodeURIComponent(id)}/diff`, directory, { messageID })).then((r) =>
+  sessionTurnDiff: (directory: string, id: string, userMessageID: string) =>
+    fetch(scoped(`/sessions/${encodeURIComponent(id)}/diff`, directory, { userMessageID })).then((r) =>
       json<{ changes: SessionTurnDiff[] }>(r),
     ),
 
