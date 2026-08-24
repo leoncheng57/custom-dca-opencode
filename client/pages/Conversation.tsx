@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { ChevronDown, Ellipsis, MessageSquareText } from "lucide-react";
+import { ChevronDown, Ellipsis, FolderOpen, GitPullRequest, MessageSquareText, ScrollText } from "lucide-react";
 
 import { Alert } from "../ds/alert.js";
 import { Badge } from "../ds/badge.js";
@@ -92,6 +92,7 @@ export function ConversationPage() {
   const [newActivity, setNewActivity] = useState(false);
   const [shareTarget, setShareTarget] = useState<ShareTarget | null>(null);
   const [composerCollapsed, setComposerCollapsed] = useState(false);
+  const composerCardRef = useRef<HTMLDivElement | null>(null);
   const [parent, setParent] = useState<SessionSummary | null>(null);
 
   // Keep event identity stable across polls so memoised rows do not churn.
@@ -415,14 +416,11 @@ export function ConversationPage() {
 
   return (
     <main className="flex h-full min-h-0 flex-col overflow-hidden" data-testid="opencode-conversation">
-      {/* Two rows on purpose (issue #72). The title is the most important
-          element on the page and used to be squeezed between a back link and
-          five controls; it now owns a full-width line of its own. Everything
-          actionable — including auto permissions, which used to claim a
-          third full-width row — collapses into one compact toolbar below. */}
+      {/* The session title owns the header context. On phones, the primary
+          session actions follow it directly so they do not hide in overflow. */}
       <header className="flex shrink-0 flex-col gap-1.5 border-b border-[var(--color-border-default)] px-3 py-2 sm:px-4 sm:py-2.5">
         <div className="flex min-w-0 items-center gap-2">
-          <Link to={`/?directory=${encodeURIComponent(directory)}`} className="shrink-0 text-sm underline">
+          <Link to={`/?directory=${encodeURIComponent(directory)}`} className="hidden shrink-0 text-sm underline sm:inline">
             ← Sessions
           </Link>
           <h1 className="min-w-0 flex-1 truncate text-sm font-semibold sm:text-base" data-testid="opencode-session-title">
@@ -430,6 +428,44 @@ export function ConversationPage() {
           </h1>
           {parentID && <Badge variant="neutral" data-testid="opencode-subagent-badge">sub</Badge>}
           {stream.running && <Badge variant="info">running</Badge>}
+        </div>
+
+        <div className="grid grid-cols-3 gap-1 sm:hidden" aria-label="Session actions" data-testid="opencode-mobile-conversation-actions">
+          <Button
+            size="md"
+            variant="secondary"
+            className="min-h-11 gap-1.5 px-2 text-xs"
+            onClick={() => setWorkspaceOpen(true)}
+            data-testid="opencode-mobile-workspace-open"
+          >
+            <FolderOpen aria-hidden="true" className="h-4 w-4 shrink-0" />
+            Workspace
+          </Button>
+          <Button
+            size="md"
+            variant="secondary"
+            className="min-h-11 gap-1.5 px-2 text-xs"
+            disabled
+            aria-label="Merge requests, coming soon"
+            title="Merge requests are coming soon"
+            data-testid="opencode-mobile-mrs-open"
+          >
+            <GitPullRequest aria-hidden="true" className="h-4 w-4 shrink-0" />
+            MRs
+          </Button>
+          <Button
+            size="md"
+            variant="secondary"
+            className="min-h-11 gap-1.5 px-2 text-xs"
+            onClick={() => {
+              setRequestedInspectorTab("runlog");
+              setInspectorOpen(true);
+            }}
+            data-testid="opencode-mobile-runlog-open"
+          >
+            <ScrollText aria-hidden="true" className="h-4 w-4 shrink-0" />
+            Run log
+          </Button>
         </div>
 
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1" data-testid="opencode-conversation-toolbar">
@@ -478,8 +514,6 @@ export function ConversationPage() {
             <div className="absolute right-0 z-30 mt-1 grid min-w-40 overflow-hidden rounded-lg border border-[var(--color-border-default)] bg-[var(--color-background-surface)] p-1 shadow-xl">
               <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); toggleWrap(); }} data-testid="opencode-mobile-wrap-toggle">{wrap ? "Disable wrapping" : "Enable wrapping"}</button>
               <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setShareTarget({ kind: "session" }); }} data-testid="opencode-mobile-share-export-open">Share</button>
-              <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setWorkspaceOpen(true); }} data-testid="opencode-mobile-workspace-open">Workspace</button>
-              <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setInspectorOpen(true); }} data-testid="opencode-mobile-inspector-menu-open">Details</button>
             </div>
           </details>
         </div>
@@ -645,7 +679,7 @@ export function ConversationPage() {
       </div>
 
       <footer className="relative z-20 shrink-0 border-t border-[var(--color-border-default)] bg-[var(--color-background-surface)] px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-        <div className="mx-auto max-w-3xl">
+        <div className="mx-auto max-w-3xl" ref={composerCardRef}>
           {composerCollapsed ? (
             <button
               type="button"
@@ -705,6 +739,12 @@ export function ConversationPage() {
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={submitOnEnter}
+              onFocus={() => setComposerCollapsed(false)}
+              onBlur={() => {
+                requestAnimationFrame(() => {
+                  if (!composerCardRef.current?.contains(document.activeElement)) setComposerCollapsed(true);
+                });
+              }}
               onPaste={(event) => {
                 const images = [...event.clipboardData.items]
                   .filter((item) => item.kind === "file")

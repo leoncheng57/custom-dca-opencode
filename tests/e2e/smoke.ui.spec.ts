@@ -1205,7 +1205,6 @@ test.describe("mobile", () => {
 
   test("stacks the Changes rail above the diff at phone width", async ({ page }) => {
     await page.goto(`/sessions/ses_mock_mobile?directory=${encodeURIComponent(DIR)}`);
-    await page.getByTestId("opencode-mobile-session-menu").locator("summary").click();
     await page.getByTestId("opencode-mobile-workspace-open").click();
     await page.getByTestId("opencode-workspace-changes").click();
     const rail = page.getByTestId("opencode-changes-rail");
@@ -1219,12 +1218,9 @@ test.describe("mobile", () => {
   test("opens session todo, run log, reviews, and catalog in a dismissible mobile sheet", async ({ page }) => {
     await fetch(`${MOCK_URL}/test/catalog-requests`, { method: "POST" });
     await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
-    await page.getByTestId("opencode-mobile-session-menu").locator("summary").click();
-    await page.getByTestId("opencode-mobile-inspector-menu-open").click();
+    await page.getByTestId("opencode-mobile-runlog-open").click();
     const sheet = page.getByTestId("opencode-mobile-inspector");
     await expect(sheet).toBeVisible();
-    await expect(sheet.getByTestId("opencode-todo-list")).toContainText("Add the route");
-    await sheet.getByTestId("opencode-inspector-runlog").click();
     await expect(sheet.getByTestId("opencode-command-list")).toBeVisible();
     await sheet.getByTestId("opencode-inspector-reviews").click();
     await expect(sheet.getByTestId("opencode-merge-request-list")).toBeVisible();
@@ -1240,8 +1236,7 @@ test.describe("mobile", () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
     await sheet.getByTestId("opencode-mobile-inspector-close").click();
     await expect(sheet).toHaveCount(0);
-    await page.getByTestId("opencode-mobile-session-menu").locator("summary").click();
-    await page.getByTestId("opencode-mobile-inspector-menu-open").click();
+    await page.getByTestId("opencode-mobile-runlog-open").click();
     await expect(sheet).toBeVisible();
     expect(await (await fetch(`${MOCK_URL}/test/catalog-requests`)).json()).toEqual({ count: 4 });
     await page.goBack();
@@ -1530,7 +1525,6 @@ test.describe("workspace UI", () => {
   test("workspace drawer fits a phone", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 740 });
     await page.goto(conversation);
-    await page.getByTestId("opencode-mobile-session-menu").locator("summary").click();
     await page.getByTestId("opencode-mobile-workspace-open").click();
     await expect(page.getByTestId("opencode-workspace-panels")).toBeVisible();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);

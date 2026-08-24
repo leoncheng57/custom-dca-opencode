@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Search } from "lucide-react";
+import { Moon, Search, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 
@@ -25,7 +25,7 @@ export function AppShell() {
   useNotifyWatcher(refresh);
   const location = useLocation();
   const navigate = useNavigate();
-  const { setTheme } = useTheme();
+  const { resolvedTheme, setTheme } = useTheme();
   const [phoneUrl, setPhoneUrl] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState("");
@@ -152,6 +152,18 @@ export function AppShell() {
             data-testid="opencode-palette-open"
           >
             <Search aria-hidden="true" size={16} />
+          </Button>
+          <Button
+            aria-label={`Use ${resolvedTheme === "dark" ? "light" : "dark"} appearance`}
+            className="size-8 shrink-0 p-0 pointer-coarse:size-11"
+            size="sm"
+            title={`Use ${resolvedTheme === "dark" ? "light" : "dark"} appearance`}
+            type="button"
+            variant="ghost"
+            onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+            data-testid="opencode-nav-theme-toggle"
+          >
+            {resolvedTheme === "dark" ? <Sun aria-hidden="true" size={16} /> : <Moon aria-hidden="true" size={16} />}
           </Button>
           <NotificationPopover scopedPath={scopedPath} />
           <NavOverflowMenu scopedPath={scopedPath} onOpenPhoneTransfer={() => void openPhoneTransfer()} />

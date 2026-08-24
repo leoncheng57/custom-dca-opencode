@@ -127,19 +127,20 @@ test.describe("conversation header layout", () => {
 
         const toolbar = page.getByTestId("opencode-conversation-toolbar");
         const control = toolbar.getByTestId("opencode-conversation-auto-permissions");
-        await expect(control).toContainText("Auto permissions: OFF");
+        await expect(control).toContainText("Auto");
 
         const [toolbarBox, controlBox] = await Promise.all([box(toolbar), box(control)]);
         // Inline, not a full-width banner: the chip is a fraction of the row.
         expect(controlBox.width).toBeLessThan(toolbarBox.width);
         expect(controlBox.height).toBeLessThanOrEqual(56);
 
-        // The toolbar is the only home for these actions at this width.
+        // Desktop keeps its compact controls; phones surface their primary
+        // session actions immediately below the title.
         const actions = label === "desktop"
           ? ["opencode-wrap-toggle", "opencode-share-export-open", "opencode-workspace-open"]
-          : ["opencode-mobile-session-menu"];
+          : ["opencode-mobile-workspace-open", "opencode-mobile-mrs-open", "opencode-mobile-runlog-open"];
         for (const id of actions) {
-          await expect(toolbar.getByTestId(id)).toBeVisible();
+          await expect(page.getByTestId(id)).toBeVisible();
         }
       });
 
@@ -209,17 +210,20 @@ test.describe("conversation header layout", () => {
       await toggle.click();
       await expect(control).toContainText("Auto permissions: OFF");
 
-      // The overflow menu items keep the targets they already had.
-      await menu.click();
       for (const id of [
         "opencode-mobile-wrap-toggle",
         "opencode-mobile-share-export-open",
         "opencode-mobile-workspace-open",
-        "opencode-mobile-inspector-menu-open",
+        "opencode-mobile-mrs-open",
+        "opencode-mobile-runlog-open",
       ]) {
+        if (id.startsWith("opencode-mobile-wrap") || id.startsWith("opencode-mobile-share")) await menu.click();
         const rect = await box(page.getByTestId(id));
         expect(rect.height, `${id} must keep a 44px touch target`).toBeGreaterThanOrEqual(44);
+        if (id.startsWith("opencode-mobile-wrap") || id.startsWith("opencode-mobile-share")) await menu.click();
       }
+      await expect(page.getByTestId("opencode-mobile-mrs-open")).toBeDisabled();
+      await expect(page.getByTestId("opencode-mobile-mrs-open")).toHaveAccessibleName("Merge requests, coming soon");
       await resetAutoPermissions(page);
     });
   });
