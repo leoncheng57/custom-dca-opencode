@@ -545,7 +545,7 @@ function ActionGroupRow({
       {expanded && (
         <div className="mt-1.5 space-y-1.5 border-l border-[var(--color-border-default)] pl-3">
           {calls.map((call) => (
-            <div key={call.id} data-event-id={call.id}>
+            <div key={call.id} data-event-id={call.id} tabIndex={-1}>
               <ToolCallRow event={call} wrap={wrap} directory={directory} />
             </div>
           ))}
@@ -657,6 +657,7 @@ export const Transcript = memo(function Transcript({
         <div
           key={item.id}
           data-event-id={item.type === "actionGroup" ? undefined : item.id}
+          tabIndex={item.type === "actionGroup" ? undefined : -1}
           className={rowSpacing(items[index - 1], item)}
         >
           {item.type === "actionGroup" ? (

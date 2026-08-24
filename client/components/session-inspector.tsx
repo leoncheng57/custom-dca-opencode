@@ -155,6 +155,125 @@ function exportCommands(commands: CommandEntry[]): void {
   URL.revokeObjectURL(url);
 }
 
+type RunLogFilter = "all" | "edit" | "command" | "read" | "failure" | "other";
+
+const RUN_LOG_FILTERS: Array<{ id: RunLogFilter; label: string }> = [
+  { id: "all", label: "All activity" },
+  { id: "edit", label: "Edits" },
+  { id: "command", label: "Commands" },
+  { id: "read", label: "Reads" },
+  { id: "failure", label: "Failures" },
+  { id: "other", label: "Other tools" },
+];
+
+function matchesRunLogFilter(command: CommandEntry, filter: RunLogFilter): boolean {
+  if (filter === "all") return true;
+  if (filter === "failure") return command.status === "error";
+  if (filter === "other") return command.activityKind === "tool" && command.category === "other";
+  return command.category === filter;
+}
+
+function RunLogPanel({ commands, onJump, onExportCommands, commandExporting, commandExportError }: {
+  commands: CommandEntry[];
+  onJump: (id: string) => void;
+  onExportCommands: () => void;
+  commandExporting: boolean;
+  commandExportError: string | null;
+}) {
+  const [filter, setFilter] = useState<RunLogFilter>("all");
+  const visible = commands.filter((command) => matchesRunLogFilter(command, filter));
+  const activeLabel = RUN_LOG_FILTERS.find((candidate) => candidate.id === filter)?.label ?? "activity";
+
+  return (
+    <section data-testid="opencode-command-list">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <div>
+          <h2 className="text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]">Agent activity</h2>
+          <p className="mt-0.5 text-xs text-[var(--color-text-muted)]" aria-live="polite">
+            {visible.length} of {commands.length} {commands.length === 1 ? "event" : "events"}
+          </p>
+        </div>
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={commandExporting}
+          onClick={onExportCommands}
+          data-testid="opencode-export-commands"
+        >
+          {commandExporting ? "Loading..." : "Export .sh"}
+        </Button>
+      </div>
+      <div className="mb-3 flex flex-wrap gap-1.5" role="group" aria-label="Filter agent activity">
+        {RUN_LOG_FILTERS.map((candidate) => {
+          const count = commands.filter((command) => matchesRunLogFilter(command, candidate.id)).length;
+          return (
+            <button
+              key={candidate.id}
+              type="button"
+              aria-pressed={filter === candidate.id}
+              className={`min-h-11 rounded-full border px-2.5 text-xs lg:min-h-0 lg:py-1 ${
+                filter === candidate.id
+                  ? "border-[var(--color-border-focus)] bg-[var(--color-background-surface-neutral-muted)] font-semibold"
+                  : "border-[var(--color-border-default)] text-[var(--color-text-muted)]"
+              }`}
+              onClick={() => setFilter(candidate.id)}
+              data-testid={`opencode-runlog-filter-${candidate.id}`}
+            >
+              {candidate.label} {count}
+            </button>
+          );
+        })}
+      </div>
+      {commandExportError && <p role="alert" className="mb-2 text-xs text-[var(--color-text-danger)]">{commandExportError}</p>}
+      {visible.length === 0 ? (
+        <p className="text-sm text-[var(--color-text-muted)]" data-testid="opencode-runlog-empty">
+          {commands.length === 0 ? "No agent activity yet." : `No ${activeLabel.toLowerCase()} in this run.`}
+        </p>
+      ) : (
+        <ol className="space-y-2" data-testid="opencode-runlog-timeline">
+          {visible.map((command) => {
+            const isAppliedPatch = command.activityKind === "change";
+            return (
+              <li key={command.id}>
+                <button
+                  type="button"
+                  className="min-h-11 w-full rounded border border-[var(--color-border-default)] p-2 text-left hover:bg-[var(--hh-row-hover)]"
+                  onClick={() => onJump(command.id)}
+                  data-testid="opencode-command-row"
+                  data-activity-id={command.id}
+                  data-category={command.category}
+                  data-status={command.status}
+                >
+                  <span className="flex items-center gap-2 text-[10px] uppercase text-[var(--color-text-muted)]">
+                    <span>{command.activityKind === "failure" ? "failure" : isAppliedPatch ? "edit" : command.category}</span>
+                    <span>{command.status}</span>
+                    <time className="ml-auto" dateTime={command.timestamp}>{formatClockTime(command.timestamp)}</time>
+                  </span>
+                  {isAppliedPatch ? (
+                    <>
+                      <strong className="mt-1 block text-sm">Changed</strong>
+                      <span className="mt-0.5 block truncate text-xs">
+                        {command.fileCount} {command.fileCount === 1 ? "file" : "files"}{command.fileSummary ? `: ${command.fileSummary}` : ""}
+                      </span>
+                    </>
+                  ) : (
+                    <code className="mt-1 block truncate text-xs">{command.text}</code>
+                  )}
+                  {command.outputPreview && (
+                    <span className={`mt-1 block truncate text-[11px] ${command.status === "error" ? "text-[var(--color-text-danger)]" : "text-[var(--color-text-muted)]"}`}>
+                      {command.outputPreview}
+                    </span>
+                  )}
+                </button>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+    </section>
+  );
+}
+
 function jumpToEvent(id: string): void {
   const row = document.querySelector<HTMLElement>(`[data-event-id="${CSS.escape(id)}"]`);
   row?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -216,7 +335,11 @@ function InspectorContent({
                 ? "bg-[var(--color-background-surface-neutral-muted)] font-semibold"
                 : "text-[var(--color-text-muted)]"
             }`}
-            onClick={() => onTabChange(name)}
+            onClick={(event) => {
+              const scroller = event.currentTarget.closest<HTMLElement>("[data-inspector-scroll]");
+              if (scroller) scroller.scrollTop = 0;
+              onTabChange(name);
+            }}
             data-testid={`opencode-inspector-${name}`}
           >
             {TAB_LABELS[name]}
@@ -232,51 +355,13 @@ function InspectorContent({
         {tab === "todo" && <TodoPanel todos={todos} loaded={todosLoaded} error={todosError} />}
 
         {tab === "runlog" && (
-          <section data-testid="opencode-command-list">
-            <div className="mb-3 flex items-center justify-between gap-2">
-              <h2 className="text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]">
-                Shell and tool history
-              </h2>
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={commandExporting}
-                onClick={onExportCommands}
-                data-testid="opencode-export-commands"
-              >
-                {commandExporting ? "Loading..." : "Export .sh"}
-              </Button>
-            </div>
-            {commandExportError && <p role="alert" className="mb-2 text-xs text-[var(--color-text-danger)]">{commandExportError}</p>}
-            {commands.length === 0 ? (
-              <p className="text-sm text-[var(--color-text-muted)]">No tool calls yet.</p>
-            ) : (
-              <ol className="space-y-2">
-                {commands.map((command) => (
-                  <li key={command.id}>
-                    <button
-                      type="button"
-                      className="min-h-11 w-full rounded border border-[var(--color-border-default)] p-2 text-left hover:bg-[var(--hh-row-hover)]"
-                      onClick={() => onJump(command.id)}
-                      data-testid="opencode-command-row"
-                    >
-                      <span className="flex items-center gap-2 text-[10px] uppercase text-[var(--color-text-muted)]">
-                        <span>{command.category}</span>
-                        <span>{command.status}</span>
-                        <time className="ml-auto">{formatClockTime(command.timestamp)}</time>
-                      </span>
-                      <code className="mt-1 block truncate text-xs">{command.text}</code>
-                      {command.outputPreview && (
-                        <span className="mt-1 block truncate text-[11px] text-[var(--color-text-muted)]">
-                          {command.outputPreview}
-                        </span>
-                      )}
-                    </button>
-                  </li>
-                ))}
-              </ol>
-            )}
-          </section>
+          <RunLogPanel
+            commands={commands}
+            onJump={onJump}
+            onExportCommands={onExportCommands}
+            commandExporting={commandExporting}
+            commandExportError={commandExportError}
+          />
         )}
 
         {tab === "subagents" && (
@@ -369,7 +454,7 @@ function MobileInspector({ title, onClose, children }: { title: string; onClose:
           <h2 className="text-sm font-semibold">{title}</h2>
           <button type="button" className="ml-auto flex min-h-11 min-w-11 items-center justify-center rounded text-sm" onClick={close} data-testid="opencode-mobile-inspector-close" aria-label={`Close ${title.toLowerCase()}`}>Close</button>
         </header>
-        <div className="thin-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain">{children(close)}</div>
+        <div className="thin-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain" data-inspector-scroll>{children(close)}</div>
       </section>
     </div>
   );
@@ -486,6 +571,7 @@ export function SessionInspector({ directory, sessionID, events, todos, todosLoa
         className="hidden w-80 shrink-0 overflow-y-auto border-l border-[var(--color-border-default)] lg:block"
         aria-label="Session details"
         data-testid="opencode-session-inspector"
+        data-inspector-scroll
       >
         {content(jumpToEvent)}
       </aside>

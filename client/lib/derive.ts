@@ -167,11 +167,15 @@ export interface CommandEntry {
   /** Equals the transcript row's data-event-id, so jump-to-event works. */
   id: string;
   category: CommandCategory;
+  activityKind: "tool" | "change" | "failure";
   name: string;
   text: string;
   timestamp: string;
   status: "ok" | "error" | "pending";
   outputPreview?: string;
+  /** Present only for narrowly identified applied-patch status events. */
+  fileCount?: number;
+  fileSummary?: string;
 }
 
 export function serializeCommands(commands: CommandEntry[]): string {
@@ -186,6 +190,7 @@ export function serializeCommands(commands: CommandEntry[]): string {
 const COMMAND_TOOLS = /^(bash|shell)$|terminal/i;
 const EDIT_TOOLS = /^(edit|write|patch|apply_patch)$|str_replace/i;
 const READ_TOOLS = /^(read|grep|glob|list|webfetch|websearch)$/i;
+const APPLIED_PATCH = /^Edited (0|[1-9]\d*) files?$/;
 
 function categorize(name: string): CommandCategory {
   if (COMMAND_TOOLS.test(name)) return "command";
@@ -205,21 +210,56 @@ function firstLine(text: string): string {
 export function extractCommands(events: TranscriptEvent[]): CommandEntry[] {
   const out: CommandEntry[] = [];
   for (const event of events) {
-    if (event.kind !== "tool") continue;
-    const text = event.detail ?? event.title;
-    if (!text) continue;
-    out.push({
-      id: event.id,
-      category: categorize(event.name),
-      name: event.name,
-      text,
-      timestamp: event.timestamp,
-      status:
-        event.status === "completed" ? "ok" : event.status === "error" ? "error" : "pending",
-      ...(event.output ? { outputPreview: firstLine(event.output).slice(0, 120) } : {}),
-    });
+    if (event.kind === "tool") {
+      out.push({
+        id: event.id,
+        category: categorize(event.name),
+        activityKind: "tool",
+        name: event.name,
+        text: event.detail ?? event.title ?? event.name,
+        timestamp: event.timestamp,
+        status:
+          event.status === "completed" ? "ok" : event.status === "error" ? "error" : "pending",
+        ...(event.output || event.error
+          ? { outputPreview: firstLine(event.output ?? event.error ?? "").slice(0, 120) }
+          : {}),
+      });
+      continue;
+    }
+
+    if (event.kind === "status") {
+      const match = APPLIED_PATCH.exec(event.label);
+      if (!match) continue;
+      const fileCount = Number(match[1]);
+      if (event.label !== `Edited ${fileCount} ${fileCount === 1 ? "file" : "files"}`) continue;
+      if (fileCount > 0 && !event.detail) continue;
+      out.push({
+        id: event.id,
+        category: "edit",
+        activityKind: "change",
+        name: "patch",
+        text: event.detail ?? event.label,
+        timestamp: event.timestamp,
+        status: "ok",
+        fileCount,
+        ...(event.detail ? { fileSummary: event.detail } : {}),
+      });
+      continue;
+    }
+
+    if (event.kind === "error") {
+      out.push({
+        id: event.id,
+        category: "other",
+        activityKind: "failure",
+        name: "error",
+        text: event.message,
+        timestamp: event.timestamp,
+        status: "error",
+      });
+    }
   }
-  return out;
+  return out.sort((a, b) => a.timestamp.localeCompare(b.timestamp) || a.id.localeCompare(b.id));
 }
 
 // ── Merge-request detection ─────────────────────────────────────────────────

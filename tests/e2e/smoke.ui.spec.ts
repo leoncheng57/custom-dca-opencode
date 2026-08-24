@@ -1464,12 +1464,14 @@ test.describe("workspace UI", () => {
   const conversation = `/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`;
 
   test("opens files, changes, commands and preview", async ({ page }) => {
+    await page.route("**/api/permission-requests?**", (route) => route.fulfill({ json: { requests: [] } }));
+    await page.route("**/api/sessions/ses_mock_done/questions?**", (route) => route.fulfill({ json: { requests: [] } }));
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto(conversation);
     await expect(page.getByTestId("opencode-session-inspector")).toBeVisible();
     await expect(page.getByTestId("opencode-mobile-inspector-open")).toBeHidden();
     await page.getByTestId("opencode-inspector-runlog").click();
-    await expect(page.getByTestId("opencode-command-row")).toHaveCount(3);
+    await expect(page.getByTestId("opencode-command-row")).toHaveCount(4);
     await page.getByTestId("opencode-inspector-reviews").click();
     await expect(page.getByTestId("opencode-review-card")).toContainText("Mock pull request");
     await expect(page.getByTestId("opencode-review-card")).toContainText("checks passed");

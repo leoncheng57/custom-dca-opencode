@@ -8,6 +8,7 @@ import {
   formatRelative,
   mergeEvents,
   runningActivity,
+  serializeCommands,
 } from "../client/lib/derive.js";
 import type { MessageMode, ToolEvent, TranscriptEvent, UserEvent } from "../client/lib/transcript.js";
 
@@ -223,8 +224,8 @@ describe("extractCommands", () => {
     expect(entries.map((e) => e.status)).toEqual(["ok", "error", "pending"]);
   });
 
-  it("skips calls with nothing to show", () => {
-    expect(extractCommands([tool("a")])).toHaveLength(0);
+  it("keeps calls with no detail under their tool name", () => {
+    expect(extractCommands([tool("a")])[0].text).toBe("bash");
   });
 
   it("previews the first non-empty output line, capped", () => {
@@ -238,6 +239,53 @@ describe("extractCommands", () => {
   it("uses the event id as the jump anchor", () => {
     const [entry] = extractCommands([tool("anchor-me", { detail: "ls" })]);
     expect(entry.id).toBe("anchor-me");
+  });
+
+  it("includes applied patch milestones in chronological order", () => {
+    const entries = extractCommands([
+      tool("read-first", { name: "read", detail: "src/old.ts", timestamp: at(3) }),
+      {
+        kind: "status",
+        id: "patch-second",
+        messageId: "m1",
+        timestamp: at(1),
+        label: "Edited 2 files",
+        detail: "src/a.ts, src/b.ts",
+      },
+      tool("command-third", { detail: "npm test", timestamp: at(2) }),
+    ]);
+    expect(entries.map((entry) => entry.id)).toEqual(["patch-second", "command-third", "read-first"]);
+    expect(entries[0]).toMatchObject({ category: "edit", activityKind: "change", name: "patch", status: "ok", fileCount: 2, fileSummary: "src/a.ts, src/b.ts" });
+  });
+
+  it("classifies only exact patch status events as edits", () => {
+    const base = { kind: "status" as const, messageId: "m1", timestamp: at(1) };
+    expect(extractCommands([
+      { ...base, id: "compaction", label: "Context compacted", detail: "src/a.ts" },
+      { ...base, id: "loose", label: "Edited files", detail: "src/a.ts" },
+      { ...base, id: "bad-grammar", label: "Edited 1 files", detail: "src/a.ts" },
+    ])).toEqual([]);
+  });
+
+  it("includes turn failures and failed tool details", () => {
+    const entries = extractCommands([
+      tool("failed-tool", { name: "webfetch", detail: "https://invalid", status: "error", error: "Not found" }),
+      { kind: "error", id: "failed-turn", messageId: "m1", timestamp: at(2), message: "Provider failed" },
+    ]);
+    expect(entries).toMatchObject([
+      { id: "failed-tool", category: "read", status: "error", outputPreview: "Not found" },
+      { id: "failed-turn", category: "other", status: "error", text: "Provider failed" },
+    ]);
+  });
+
+  it("exports only shell commands from a mixed activity timeline", () => {
+    const script = serializeCommands(extractCommands([
+      tool("read", { name: "read", detail: "src/a.ts" }),
+      { kind: "status", id: "patch", messageId: "m1", timestamp: at(2), label: "Edited 1 file", detail: "src/a.ts" },
+      tool("shell", { name: "bash", detail: "npm test" }),
+    ]));
+    expect(script).toContain("npm test");
+    expect(script).not.toContain("src/a.ts");
   });
 });
 
