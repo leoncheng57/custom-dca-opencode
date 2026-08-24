@@ -22,10 +22,14 @@ test.describe("requested PR screenshots", () => {
       for (const viewport of SCREENSHOT_VIEWPORTS) {
         await page.setViewportSize(VIEWPORTS[viewport]);
         const response = await page.goto(request.requestedRoute, { waitUntil: "domcontentloaded" });
-        expect(response?.ok(), `route ${request.requestedRoute} should load`).toBe(true);
+        // The second viewport revisits the same hash route, which is a same-document
+        // navigation and legitimately has no network response.
+        expect(response === null || response.ok(), `route ${request.requestedRoute} should load`).toBe(true);
 
         const pathname = new URL(request.requestedRoute, "http://screenshot.invalid").pathname;
-        const stableRoot = pathname.startsWith("/sessions/")
+        const stableRoot = pathname === "/guide"
+          ? "opencode-guide"
+          : pathname.startsWith("/sessions/")
           ? "opencode-conversation"
           : pathname === "/settings/notifications"
             ? "opencode-notifications"

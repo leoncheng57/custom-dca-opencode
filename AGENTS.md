@@ -251,6 +251,15 @@ several decisions below.
     catalogue, posts with the server-only `GITHUB_TOKEN`, and invalidates the read
     cache only after GitHub confirms the issue. The browser still cannot select a
     repository or project directory.
+18. **The public Runner guide is a guide-only static build, not a public BFF.**
+    `npm run build:guide` emits only the fictional scene-driven React guide under the
+    project Pages base `/custom-dca-opencode/guides/runner/`. The same component is
+    reachable at `/guide` in the normal app for deterministic browser review, but it
+    performs no `/api` requests and contains no exported conversation. The trusted
+    main-branch publisher owns only `gh-pages:guides/runner/`, shares the screenshot
+    publisher's concurrency group, and must preserve `pr-screenshots/` and every
+    unrelated Pages path. This leaves a future project website free to own other paths
+    without combining a public static artifact with host credentials or agent access.
 
 ## Client conventions (inherited from the OpenHands runner, still enforced)
 

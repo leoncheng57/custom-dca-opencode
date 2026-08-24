@@ -1,0 +1,69 @@
+name: Publish runner guide
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# This branch is also mutated by PR screenshot publication and cleanup.
+concurrency:
+  group: pr-screenshot-publication
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out trusted main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: source
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: source/package-lock.json
+
+      - name: Install trusted dependencies
+        working-directory: source
+        run: npm ci
+
+      - name: Build guide-only artifact
+        working-directory: source
+        run: npm run build:guide
+
+      - name: Prepare gh-pages checkout
+        run: |
+          git clone --no-checkout "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" site
+          cd site
+          if git show-ref --verify --quiet refs/remotes/origin/gh-pages; then
+            git switch --track origin/gh-pages
+          else
+            git switch --orphan gh-pages
+            git rm -rf . || true
+          fi
+
+      - name: Validate and stage runner guide
+        working-directory: source
+        run: npx tsx scripts/stage-guide.ts --source dist/guide --destination ../site
+
+      - name: Publish only the runner guide
+        working-directory: site
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add --all -- guides/runner
+          if git diff --cached --quiet; then exit 0; fi
+          source_sha=$(git -C ../source rev-parse HEAD)
+          git commit -m "Publish runner guide from ${source_sha}"
+          git push origin gh-pages
