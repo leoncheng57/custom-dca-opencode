@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { ChevronDown, Ellipsis, FolderOpen, GitPullRequest, MessageSquareText, Waves } from "lucide-react";
+import { ChevronDown, Ellipsis, FolderOpen, GitPullRequest, Info, MessageSquareText, Waves } from "lucide-react";
 
 import { Alert } from "../ds/alert.js";
 import { Badge } from "../ds/badge.js";
@@ -93,6 +93,7 @@ export function ConversationPage() {
   const [shareTarget, setShareTarget] = useState<ShareTarget | null>(null);
   const [composerCollapsed, setComposerCollapsed] = useState(false);
   const composerCardRef = useRef<HTMLDivElement | null>(null);
+  const [autoSafetyOpen, setAutoSafetyOpen] = useState(false);
   const [parent, setParent] = useState<SessionSummary | null>(null);
 
   // Keep event identity stable across polls so memoised rows do not churn.
@@ -430,7 +431,7 @@ export function ConversationPage() {
           {stream.running && <Badge variant="info">running</Badge>}
         </div>
 
-        <div className="grid grid-cols-5 gap-1 sm:hidden" aria-label="Session actions" data-testid="opencode-mobile-conversation-actions">
+        <div className="grid grid-cols-6 gap-1 sm:hidden" aria-label="Session actions" data-testid="opencode-mobile-conversation-actions">
           <Button
             size="md"
             variant="secondary"
@@ -440,7 +441,7 @@ export function ConversationPage() {
             title="Open workspace"
             data-testid="opencode-mobile-workspace-open"
           >
-            <FolderOpen aria-hidden="true" className="h-5 w-5" />
+            <FolderOpen aria-hidden="true" className="h-4 w-4" />
           </Button>
           <Button
             size="md"
@@ -454,7 +455,7 @@ export function ConversationPage() {
             title="Open reviews"
             data-testid="opencode-mobile-reviews-open"
           >
-            <GitPullRequest aria-hidden="true" className="h-5 w-5" />
+            <GitPullRequest aria-hidden="true" className="h-4 w-4" />
           </Button>
           <Button
             size="md"
@@ -468,21 +469,20 @@ export function ConversationPage() {
             title="Open run log"
             data-testid="opencode-mobile-runlog-open"
           >
-            <Waves aria-hidden="true" className="h-5 w-5" />
+            <Waves aria-hidden="true" className="h-4 w-4" />
           </Button>
-          <AutoPermissionsControl directory={directory} testId="opencode-mobile-auto-permissions" variant="icon" />
+          <AutoPermissionsControl directory={directory} testId="opencode-mobile-auto-permissions" variant="pill" />
+          <Button size="md" variant="secondary" className="min-h-11 min-w-0 px-0" onClick={() => setAutoSafetyOpen(true)} aria-label="Auto permissions safety" title="Auto permissions safety" data-testid="opencode-mobile-auto-permissions-info">
+            <Info aria-hidden="true" className="h-4 w-4" />
+          </Button>
           <details className="relative" data-testid="opencode-mobile-session-menu">
             <summary className="flex min-h-11 min-w-11 cursor-pointer list-none items-center justify-center rounded-md text-[var(--color-text-muted)] hover:bg-[var(--hh-row-hover)] [&::-webkit-details-marker]:hidden" aria-label="More session actions" title="More session actions">
-              <Ellipsis aria-hidden="true" className="h-5 w-5" />
+              <Ellipsis aria-hidden="true" className="h-4 w-4" />
             </summary>
             <div className="absolute right-0 z-30 mt-1 grid min-w-40 overflow-hidden rounded-lg border border-[var(--color-border-default)] bg-[var(--color-background-surface)] p-1 shadow-xl">
               <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); toggleWrap(); }} data-testid="opencode-mobile-wrap-toggle">{wrap ? "Disable wrapping" : "Enable wrapping"}</button>
               <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setShareTarget({ kind: "session" }); }} data-testid="opencode-mobile-share-export-open">Share</button>
               <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setRequestedInspectorTab("catalog"); setInspectorOpen(true); }} data-testid="opencode-mobile-catalog-open">Catalog</button>
-              <div className="rounded px-3 py-2 text-sm" data-testid="opencode-mobile-auto-permissions-safety">
-                <p className="font-medium">Auto permissions safety</p>
-                <p className="mt-2 text-xs font-medium">Danger: every asked permission is approved once automatically, including arbitrary shell commands, external-directory access, and repeated requests from a doom loop. This affects every session using this project directory and resets to off when the BFF restarts.</p>
-              </div>
             </div>
           </details>
         </div>
@@ -803,6 +803,15 @@ export function ConversationPage() {
         </div>
       </footer>
       {workspaceOpen && <WorkspacePanels directory={directory} onClose={() => setWorkspaceOpen(false)} />}
+      {autoSafetyOpen && (
+        <div className="fixed inset-0 z-[90] flex items-end justify-center sm:items-start sm:p-4 sm:pt-[10vh]" data-testid="opencode-mobile-auto-permissions-safety-sheet">
+          <button type="button" className="absolute inset-0 bg-[var(--color-background-overlay)]" aria-label="Close auto permissions safety" onClick={() => setAutoSafetyOpen(false)} data-testid="opencode-mobile-auto-permissions-safety-scrim" />
+          <section className="relative w-full rounded-t-2xl border border-[var(--color-border-default)] bg-[var(--color-background-surface)] p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-xl sm:max-w-md sm:rounded-xl" role="dialog" aria-modal="true" aria-label="Auto permissions safety">
+            <div className="flex items-center gap-2"><h2 className="text-sm font-semibold">Auto permissions safety</h2><button type="button" className="ml-auto min-h-11 min-w-11 rounded text-sm" onClick={() => setAutoSafetyOpen(false)} aria-label="Close auto permissions safety" data-testid="opencode-mobile-auto-permissions-safety-close">Close</button></div>
+            <p className="mt-3 text-sm text-[var(--color-text-muted)]">Auto permissions approves every asked permission once, including arbitrary shell commands, external-directory access, and repeated requests from a doom loop. This affects every session using this project directory and resets to off when the BFF restarts.</p>
+          </section>
+        </div>
+      )}
       {shareTarget && session && (
         <ShareExportDialog
           directory={directory}

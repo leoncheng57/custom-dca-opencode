@@ -13,10 +13,10 @@ const POLL_MS = 3_000;
  * the conversation action buttons instead of eating a row of its own. Both
  * variants keep the same danger treatment, the same Details disclosure and the
  * same error paragraph — compactness is only allowed to cost padding, never
- * discoverability. `icon` is the phone action-bar control. Its safety detail is available from
- * the adjacent More menu and is also described to assistive technology.
+ * discoverability. `pill` is the phone action-bar control; its adjacent info
+ * button owns the full safety explanation.
  */
-type AutoPermissionsVariant = "block" | "compact" | "icon";
+type AutoPermissionsVariant = "block" | "compact" | "pill";
 
 export function AutoPermissionsControl({
   directory,
@@ -71,12 +71,10 @@ export function AutoPermissionsControl({
 
   const enabled = status?.enabled ?? false;
   const compact = variant === "compact";
-  const icon = variant === "icon";
+  const pill = variant === "pill";
   const actionLabel = saving ? "Updating auto permissions" : `Turn auto permissions ${enabled ? "off" : "on"}`;
-  const safetyDescription = status?.error ?? requestError ?? (enabled
-    ? "Danger: every asked permission is approved once automatically. Open More for safety details."
-    : "Auto permissions is off. Open More for safety details.");
-  if (icon) {
+  const safetyDescription = status?.error ?? requestError ?? "Auto permissions safety information is available next to this switch.";
+  if (pill) {
     return (
       <div data-testid={testId}>
         <button
@@ -90,14 +88,15 @@ export function AutoPermissionsControl({
           onClick={() => void toggle()}
           title={actionLabel}
           className={cn(
-            "flex min-h-11 min-w-11 items-center justify-center rounded-md disabled:opacity-50",
+            "flex min-h-11 w-full min-w-11 items-center justify-center gap-1 rounded-full px-1 text-[10px] font-semibold disabled:opacity-50",
             enabled
               ? "bg-[var(--color-background-surface-danger-muted)] text-[var(--color-text-danger)]"
               : "text-[var(--color-text-muted)] hover:bg-[var(--hh-row-hover)]",
           )}
           data-testid={`${testId}-toggle`}
         >
-          <ShieldAlert aria-hidden="true" className="h-5 w-5" />
+          <span aria-hidden="true" className={`h-4 w-4 rounded-full border border-current ${enabled ? "bg-current" : "bg-transparent"}`} />
+          {enabled ? "ON" : "OFF"}
         </button>
         <span id={`${testId}-description`} className="sr-only">{safetyDescription}</span>
       </div>
