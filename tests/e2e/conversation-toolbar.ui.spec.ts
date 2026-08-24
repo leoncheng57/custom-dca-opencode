@@ -4,7 +4,9 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 const TOOLBAR_DIR = process.platform === "darwin"
   ? "/private/tmp/mock-toolbar-project"
   : "/tmp/mock-toolbar-project";
+const MAIN_DIR = process.platform === "darwin" ? "/private/tmp/mock-project" : "/tmp/mock-project";
 const conversation = `/sessions/ses_mock_toolbar?directory=${encodeURIComponent(TOOLBAR_DIR)}`;
+const runningConversation = `/sessions/ses_mock_running?directory=${encodeURIComponent(MAIN_DIR)}`;
 const DESKTOP = { width: 1280, height: 800 } as const;
 const MOBILE = { width: 390, height: 740 } as const;
 
@@ -56,7 +58,53 @@ test.describe("mobile conversation action bar", () => {
     await expect(controls[4]).toHaveAccessibleName("Auto permissions safety");
     await expect(controls[5]).toHaveAccessibleName("More session actions");
     await expect(controls[3]).toContainText("OFF");
+    for (const control of [controls[0], controls[1], controls[2], controls[4], controls[5]]) {
+      expect(await control.evaluate((element) => getComputedStyle(element).backgroundColor)).toMatch(/transparent|rgba\(0, 0, 0, 0\)/);
+    }
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+  });
+
+  test("requires confirmation before stopping a running agent", async ({ page }) => {
+    let aborts = 0;
+    let releaseAbort!: () => void;
+    const abortGate = new Promise<void>((resolve) => { releaseAbort = resolve; });
+    await page.route("**/api/sessions/ses_mock_running/abort?*", async (route) => {
+      aborts += 1;
+      await abortGate;
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ aborted: true }) });
+    });
+    await page.goto(runningConversation);
+
+    const trigger = page.getByTestId("opencode-mobile-stop-open");
+    await expect(trigger).toBeVisible();
+    await expect(trigger).toHaveAccessibleName("Stop running agent");
+    expect((await box(trigger)).height).toBeGreaterThanOrEqual(44);
+    await trigger.click();
+    const dialog = page.getByTestId("opencode-stop-confirmation");
+    await expect(dialog).toContainText("The agent will stop immediately. Its current work may be incomplete.");
+    expect(aborts).toBe(0);
+
+    await dialog.getByTestId("opencode-stop-keep-running").click();
+    await expect(dialog).toHaveCount(0);
+    expect(aborts).toBe(0);
+    await trigger.click();
+    await page.goBack();
+    await expect(dialog).toHaveCount(0);
+    expect(aborts).toBe(0);
+
+    await trigger.click();
+    await dialog.getByTestId("opencode-stop-confirm").click();
+    await expect(dialog.getByTestId("opencode-stop-confirm")).toHaveText("Stopping...");
+    await expect(dialog.getByTestId("opencode-stop-keep-running")).toBeDisabled();
+    expect(aborts).toBe(1);
+    releaseAbort();
+    await expect(dialog).toHaveCount(0);
+    expect(aborts).toBe(1);
+  });
+
+  test("does not show Stop for an idle session", async ({ page }) => {
+    await page.goto(conversation);
+    await expect(page.getByTestId("opencode-mobile-stop-open")).toHaveCount(0);
   });
 
   test("opens workspace and requested inspector tabs directly", async ({ page }) => {
@@ -120,5 +168,11 @@ test.describe("desktop conversation toolbar", () => {
     for (const id of ["opencode-wrap-toggle", "opencode-share-export-open", "opencode-workspace-open"]) {
       expect((await box(toolbar.getByTestId(id))).height, `${id} remains compact on desktop`).toBeLessThanOrEqual(32);
     }
+  });
+
+  test("retains the existing desktop Stop button", async ({ page }) => {
+    await page.goto(runningConversation);
+    await expect(page.getByTestId("opencode-abort")).toBeVisible();
+    await expect(page.getByTestId("opencode-mobile-stop-open")).toBeHidden();
   });
 });
