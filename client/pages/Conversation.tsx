@@ -94,6 +94,7 @@ export function ConversationPage() {
   const [composerCollapsed, setComposerCollapsed] = useState(false);
   const composerCardRef = useRef<HTMLDivElement | null>(null);
   const [autoSafetyOpen, setAutoSafetyOpen] = useState(false);
+  const composerWorkflowRef = useRef(false);
   const [parent, setParent] = useState<SessionSummary | null>(null);
 
   // Keep event identity stable across polls so memoised rows do not churn.
@@ -705,7 +706,10 @@ export function ConversationPage() {
               {attachments.length > 0 && <span className="text-xs">{attachments.length} attached</span>}
             </button>
           ) : <>
-          <div className="mb-2 flex min-w-0 flex-wrap items-center gap-2">
+          <div className="mb-2 flex min-w-0 flex-wrap items-center gap-2" onPointerDownCapture={() => {
+            composerWorkflowRef.current = true;
+            requestAnimationFrame(() => { composerWorkflowRef.current = false; });
+          }}>
             <AgentModeToggle mode={agentIdentityKnown ? mode : undefined} onChange={selectMode} disabled={!agentIdentityKnown} testId="opencode-composer-mode" />
             <ModelPicker
               catalogue={modelCatalogue}
@@ -752,7 +756,7 @@ export function ConversationPage() {
               onFocus={() => setComposerCollapsed(false)}
               onBlur={() => {
                 requestAnimationFrame(() => {
-                  if (window.matchMedia("(max-width: 639.98px)").matches &&
+                  if (!composerWorkflowRef.current && window.matchMedia("(max-width: 639.98px)").matches &&
                       !composerCardRef.current?.contains(document.activeElement)) {
                     setComposerCollapsed(true);
                   }
@@ -779,7 +783,10 @@ export function ConversationPage() {
                 transcript only a sliver of a 720px viewport, so every pixel the
                 footer takes comes straight out of readable transcript. */}
             <div className="flex min-w-0 items-center gap-2 border-t border-[var(--color-border-default)] px-2 py-2 sm:py-1">
-              <label className="inline-flex min-h-11 shrink-0 cursor-pointer items-center rounded-md px-2.5 text-xs font-semibold text-[var(--color-text-muted)] hover:bg-[var(--hh-row-hover)] hover:text-[var(--color-text-default)] sm:min-h-8" data-testid="opencode-attach-label">
+              <label className="inline-flex min-h-11 shrink-0 cursor-pointer items-center rounded-md px-2.5 text-xs font-semibold text-[var(--color-text-muted)] hover:bg-[var(--hh-row-hover)] hover:text-[var(--color-text-default)] sm:min-h-8" onPointerDown={() => {
+                composerWorkflowRef.current = true;
+                requestAnimationFrame(() => { composerWorkflowRef.current = false; });
+              }} data-testid="opencode-attach-label">
                 Attach
                 <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple className="sr-only" data-testid="opencode-attach" onChange={(event) => {
                   addAttachments(event.target.files ?? []);
