@@ -6,6 +6,7 @@ import { getSessionMetadata, parseSessionMetadata, type SessionMetadata } from "
 import { sendNtfy, type NotificationMessage } from "./ntfy.js";
 import { HistoryStore, type NotificationDelivery } from "./history.js";
 import { PreferenceStore, type NotificationPreferences, type NotifyEvent } from "./preferences.js";
+import { PushSubscriptionStore, sendWebPush } from "./webpush.js";
 import { eventClickUrl } from "../publicAppUrl.js";
 
 export function classifyEvent(event: OpencodeEvent): NotifyEvent | null {
@@ -188,6 +189,7 @@ export class NotificationService {
     private readonly publicAppUrl: string | null = null,
     private readonly autoPermissionsEnabled: (directory: string | undefined) => boolean = () => false,
     lookupSessionMetadata?: SessionMetadataLookup,
+    private readonly pushSubscriptions = new PushSubscriptionStore(),
   ) {
     this.lookupSessionMetadata = lookupSessionMetadata
       ?? ((directory, sessionID, signal) => getSessionMetadata(this.config, directory, sessionID, signal));
@@ -265,7 +267,7 @@ export class NotificationService {
     if (subagent) {
       const record = await this.history.append({
         ...common,
-        delivery: { ntfy: "off", desktop: "off", suppressed: "subagent" },
+        delivery: { ntfy: "off", desktop: "off", webPush: "off", suppressed: "subagent" },
       });
       this.emitRecorded(record.id, event.directory, sessionID);
       return;
@@ -278,7 +280,7 @@ export class NotificationService {
     if (event.type === "permission.asked" && this.autoPermissionsEnabled(event.directory)) {
       const record = await this.history.append({
         ...common,
-        delivery: { ntfy: "off", desktop: "off", suppressed: "auto-permissions" },
+        delivery: { ntfy: "off", desktop: "off", webPush: "off", suppressed: "auto-permissions" },
       });
       this.emitRecorded(record.id, event.directory, sessionID);
       return;
@@ -419,15 +421,45 @@ export class NotificationService {
       preferences.browser.desktop && preferences.browser.events[message.event] ? "allowed" : "off";
     const wantsNtfy =
       preferences.ntfy.enabled && Boolean(preferences.ntfy.topic) && preferences.ntfy.events[message.event];
-    if (!wantsNtfy) return { ntfy: "off", desktop };
-    try {
-      await sendNtfy(preferences, message);
-      return { ntfy: "sent", desktop };
-    } catch (error) {
-      const ntfyError = error instanceof Error ? error.message : String(error);
-      console.warn("[ntfy]", ntfyError);
-      return { ntfy: "failed", ntfyError, desktop };
+    const wantsWebPush = preferences.webPush.enabled && preferences.webPush.events[message.event];
+    let subscriptions: Awaited<ReturnType<PushSubscriptionStore["list"]>> = [];
+    let subscriptionError: string | undefined;
+    if (wantsWebPush) {
+      try {
+        subscriptions = await this.pushSubscriptions.list();
+      } catch (error) {
+        subscriptionError = error instanceof Error ? error.message : String(error);
+      }
     }
+    const [ntfy, webPush] = await Promise.all([
+      wantsNtfy
+        ? sendNtfy(preferences, message).then(() => ({ state: "sent" as const })).catch((error: unknown) => ({ state: "failed" as const, error: error instanceof Error ? error.message : String(error) }))
+        : Promise.resolve({ state: "off" as const }),
+      subscriptionError
+        ? Promise.resolve({ state: "failed" as const, error: subscriptionError })
+        : subscriptions.length
+        ? sendWebPush(subscriptions, message).then(async (result) => {
+          await Promise.allSettled(result.expired.map((endpoint) => {
+            const stale = subscriptions.find((item) => item.endpoint === endpoint);
+            return this.pushSubscriptions.remove(endpoint, stale?.keys);
+          }));
+          return result.failed && result.sent
+            ? { state: "partial" as const, error: `${result.sent} sent; ${result.failed} failed` }
+            : result.failed
+              ? { state: "failed" as const, error: `${result.failed} subscription(s) failed` }
+            : { state: "sent" as const };
+        }).catch((error: unknown) => ({ state: "failed" as const, error: error instanceof Error ? error.message : String(error) }))
+        : Promise.resolve({ state: "off" as const }),
+    ]);
+    if (ntfy.state === "failed") console.warn("[ntfy]", ntfy.error);
+    if (webPush.state === "failed" || webPush.state === "partial") console.warn("[web-push]", webPush.error);
+    return {
+      ntfy: ntfy.state,
+      ...(ntfy.state === "failed" ? { ntfyError: ntfy.error } : {}),
+      desktop,
+      webPush: webPush.state,
+      ...(webPush.state === "failed" || webPush.state === "partial" ? { webPushError: webPush.error } : {}),
+    };
   }
 
   private scheduleParked(directory: string, pending: PermissionRequest, seconds: number): void {

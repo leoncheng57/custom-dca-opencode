@@ -120,6 +120,7 @@ export type NotifyEvent = "idle" | "error" | "abort" | "permission" | "question"
 export interface NotificationPreferences {
   version: 1;
   ntfy: { enabled: boolean; server: string; topic: string; events: Record<NotifyEvent, boolean> };
+  webPush: { enabled: boolean; events: Record<NotifyEvent, boolean> };
   browser: { desktop: boolean; sound: boolean; volume: number; events: Record<NotifyEvent, boolean> };
   parkedPermissionSeconds: number;
 }
@@ -157,6 +158,8 @@ export interface NotificationRecord {
     ntfyError?: string;
     /** Desktop-notification preference; sound and speech are device-local. */
     desktop: "allowed" | "off";
+    webPush?: "sent" | "partial" | "off" | "failed";
+    webPushError?: string;
     suppressed?: NotificationSuppression;
   };
 }
@@ -510,16 +513,34 @@ export const api = {
 
   notifications: () =>
     fetch("/api/notifications").then((r) =>
-      json<{ preferences: NotificationPreferences; tokenConfigured: boolean }>(r),
+      json<{ preferences: NotificationPreferences; tokenConfigured: boolean; webPush: { configured: boolean; publicKey: string | null } }>(r),
     ),
   saveNotifications: (preferences: NotificationPreferences) =>
     fetch("/api/notifications", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(preferences),
-    }).then((r) => json<{ preferences: NotificationPreferences; tokenConfigured: boolean }>(r)),
+    }).then((r) => json<{ preferences: NotificationPreferences; tokenConfigured: boolean; webPush: { configured: boolean; publicKey: string | null } }>(r)),
   testNtfy: () =>
     fetch("/api/notifications/test", { method: "POST" }).then((r) => json<{ sent: boolean }>(r)),
+  addPushSubscription: (subscription: PushSubscriptionJSON) =>
+    fetch("/api/notifications/push-subscriptions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(subscription),
+    }).then((r) => r.ok ? undefined : json<never>(r)),
+  removePushSubscription: (endpoint: string) =>
+    fetch("/api/notifications/push-subscriptions", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ endpoint }),
+    }).then((r) => r.ok ? undefined : json<never>(r)),
+  testWebPush: (endpoint: string) =>
+    fetch("/api/notifications/test-web-push", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ endpoint }),
+    }).then((r) => json<{ sent: number; failed: number }>(r)),
   notificationHistory: (
     options: {
       limit?: number;

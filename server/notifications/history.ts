@@ -26,6 +26,7 @@ import { NOTIFY_EVENTS, type NotifyEvent } from "./preferences.js";
 export type NtfyDelivery = "sent" | "off" | "failed";
 /** "allowed" is preference intent. The BFF cannot confirm a browser rendered it. */
 export type DesktopDelivery = "allowed" | "off";
+export type WebPushDelivery = "sent" | "partial" | "off" | "failed";
 // Older reasons remain readable because v1 records are already persisted on
 // deployed servers. New writes use only "checked".
 export type ResolutionReason = "checked" | "replied" | "reconciled" | "dismissed" | "suppressed";
@@ -49,6 +50,8 @@ export interface NotificationDelivery {
   ntfy: NtfyDelivery;
   ntfyError?: string;
   desktop: DesktopDelivery;
+  webPush?: WebPushDelivery;
+  webPushError?: string;
   suppressed?: SuppressionReason;
 }
 
@@ -142,6 +145,8 @@ function normalizeDelivery(value: unknown): NotificationDelivery {
     ntfy,
     ...(optionalString(source.ntfyError) ? { ntfyError: String(source.ntfyError) } : {}),
     desktop: source.desktop === "allowed" ? "allowed" : "off",
+    webPush: source.webPush === "sent" || source.webPush === "partial" || source.webPush === "failed" ? source.webPush : "off",
+    ...(optionalString(source.webPushError) ? { webPushError: String(source.webPushError) } : {}),
     ...(isSuppressionReason(source.suppressed) ? { suppressed: source.suppressed } : {}),
   };
 }

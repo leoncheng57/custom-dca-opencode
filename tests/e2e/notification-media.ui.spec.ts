@@ -65,7 +65,92 @@ async function installMediaStubs(page: import("@playwright/test").Page, stored?:
   }, { stored });
 }
 
+async function installPushStubs(page: import("@playwright/test").Page) {
+  await page.addInitScript(() => {
+    let subscription: {
+      endpoint: string;
+      toJSON(): { endpoint: string; keys: { p256dh: string; auth: string } };
+      unsubscribe(): Promise<boolean>;
+    } | null = null;
+    const pushManager = {
+      getSubscription: async () => subscription,
+      subscribe: async () => {
+        subscription = {
+          endpoint: "https://fcm.googleapis.com/device",
+          toJSON: () => ({ endpoint: "https://fcm.googleapis.com/device", keys: { p256dh: "key", auth: "auth" } }),
+          unsubscribe: async () => { subscription = null; return true; },
+        };
+        return subscription;
+      },
+    };
+    const registration = { waiting: null, installing: null, pushManager, addEventListener() {} };
+    Object.defineProperty(navigator, "serviceWorker", {
+      configurable: true,
+      value: {
+        controller: {},
+        ready: Promise.resolve(registration),
+        register: async () => registration,
+        addEventListener() {},
+        removeEventListener() {},
+      },
+    });
+    Object.defineProperty(window, "PushManager", { configurable: true, value: class PushManager {} });
+    Object.defineProperty(window, "Notification", {
+      configurable: true,
+      value: class Notification {
+        static permission = "granted";
+        static requestPermission = async () => "granted";
+      },
+    });
+  });
+}
+
 test.describe("notification sound and speech", () => {
+  test("subscribes and unsubscribes PWA push independently from ntfy", async ({ page }) => {
+    await installPushStubs(page);
+    const saved: Array<{ ntfy: { enabled: boolean }; webPush: { enabled: boolean } }> = [];
+    let subscribed = 0;
+    let unsubscribed = 0;
+    let testedEndpoint = "";
+    await page.route(/\/api\/notifications$/, async (route) => {
+      if (route.request().method() === "PATCH") {
+        const preferences = route.request().postDataJSON() as { ntfy: { enabled: boolean }; webPush: { enabled: boolean } };
+        saved.push(preferences);
+        await route.fulfill({ json: { preferences, tokenConfigured: false, webPush: { configured: true, publicKey: "AQ" } } });
+        return;
+      }
+      const response = await route.fetch();
+      const body = await response.json() as { preferences: { webPush: { enabled: boolean } } };
+      body.preferences.webPush.enabled = false;
+      await route.fulfill({ response, json: { ...body, webPush: { configured: true, publicKey: "AQ" } } });
+    });
+    await page.route("**/api/notifications/push-subscriptions", async (route) => {
+      if (route.request().method() === "POST") subscribed += 1;
+      if (route.request().method() === "DELETE") unsubscribed += 1;
+      await route.fulfill({ status: 204, body: "" });
+    });
+    await page.route("**/api/notifications/test-web-push", async (route) => {
+      testedEndpoint = (route.request().postDataJSON() as { endpoint: string }).endpoint;
+      await route.fulfill({ json: { sent: 1, failed: 0 } });
+    });
+
+    await page.goto("/settings");
+    await page.getByTestId("opencode-web-push-enabled").check();
+    await page.getByTestId("opencode-notifications-save").click();
+    await expect(page.getByTestId("opencode-web-push-status")).toHaveText("This device is subscribed.");
+    expect(subscribed).toBe(1);
+    expect(saved.at(-1)).toMatchObject({ ntfy: { enabled: false }, webPush: { enabled: true } });
+    await page.getByTestId("opencode-notifications-test-web-push").click();
+    await expect(page.getByText("PWA push test sent", { exact: true })).toBeVisible();
+    expect(testedEndpoint).toBe("https://fcm.googleapis.com/device");
+
+    await page.getByTestId("opencode-web-push-enabled").uncheck();
+    await page.getByTestId("opencode-notifications-save").click();
+    await expect.poll(() => saved.length).toBe(2);
+    expect(unsubscribed).toBe(1);
+    expect(saved.at(-1)).toMatchObject({ ntfy: { enabled: false }, webPush: { enabled: false } });
+  });
+
   test("disabled media makes no calls and previews unlock after a click", async ({ page }) => {
     await installMediaStubs(page, DEVICE_DEFAULT);
     await page.goto("/settings");

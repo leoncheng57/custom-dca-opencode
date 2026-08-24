@@ -3,11 +3,17 @@ import { Router } from "express";
 import { sendNtfy } from "../notifications/ntfy.js";
 import { HistoryStore } from "../notifications/history.js";
 import { NOTIFY_EVENTS, PreferenceStore, type NotifyEvent } from "../notifications/preferences.js";
+import { PushSubscriptionStore, sendWebPush, webPushConfig } from "../notifications/webpush.js";
 
 export const NTFY_TEST_MESSAGE = {
   event: "idle" as const,
   title: "OpenCode notification test",
   body: "Your phone notification path is working.",
+};
+
+export const WEB_PUSH_TEST_MESSAGE = {
+  ...NTFY_TEST_MESSAGE,
+  body: "Your PWA push notification path is working.",
 };
 
 function queryString(value: unknown): string | undefined {
@@ -39,17 +45,26 @@ function queryFlag(value: unknown): boolean {
 export function notificationRoutes(
   store: PreferenceStore,
   history: HistoryStore,
+  pushSubscriptions = new PushSubscriptionStore(),
 ): Router {
   const router = Router();
   router.get("/notifications", (_req, res) => {
     store.read().then((preferences) =>
-      res.json({ preferences, tokenConfigured: Boolean(process.env.NTFY_TOKEN) }),
+      res.json({
+        preferences,
+        tokenConfigured: Boolean(process.env.NTFY_TOKEN),
+        webPush: { configured: Boolean(webPushConfig()), publicKey: webPushConfig()?.publicKey ?? null },
+      }),
     );
   });
   router.patch("/notifications", (req, res) => {
     store
-      .write(req.body)
-      .then((preferences) => res.json({ preferences, tokenConfigured: Boolean(process.env.NTFY_TOKEN) }))
+      .update(req.body)
+      .then((preferences) => res.json({
+        preferences,
+        tokenConfigured: Boolean(process.env.NTFY_TOKEN),
+        webPush: { configured: Boolean(webPushConfig()), publicKey: webPushConfig()?.publicKey ?? null },
+      }))
       .catch((error: unknown) => res.status(400).json({ error: error instanceof Error ? error.message : String(error) }));
   });
   router.post("/notifications/test", (_req, res) => {
@@ -59,6 +74,50 @@ export function notificationRoutes(
         sendNtfy(preferences, NTFY_TEST_MESSAGE),
       )
       .then(() => res.json({ sent: true }))
+      .catch((error: unknown) => res.status(502).json({ error: error instanceof Error ? error.message : String(error) }));
+  });
+
+  router.post("/notifications/push-subscriptions", (req, res) => {
+    if (!webPushConfig()) {
+      res.status(503).json({ error: "Web Push is not configured" });
+      return;
+    }
+    pushSubscriptions.add(req.body)
+      .then(() => res.status(204).end())
+      .catch((error: unknown) => res.status(400).json({ error: error instanceof Error ? error.message : String(error) }));
+  });
+
+  router.delete("/notifications/push-subscriptions", (req, res) => {
+    const endpoint = req.body?.endpoint;
+    if (typeof endpoint !== "string" || !endpoint) {
+      res.status(400).json({ error: "endpoint is required" });
+      return;
+    }
+    pushSubscriptions.remove(endpoint)
+      .then(() => res.status(204).end())
+      .catch((error: unknown) => res.status(500).json({ error: error instanceof Error ? error.message : String(error) }));
+  });
+
+  router.post("/notifications/test-web-push", (req, res) => {
+    const endpoint = req.body?.endpoint;
+    if (typeof endpoint !== "string" || !endpoint) {
+      res.status(400).json({ error: "endpoint is required" });
+      return;
+    }
+    Promise.all([pushSubscriptions.list(), Promise.resolve(webPushConfig())])
+      .then(([subscriptions, config]) => {
+        if (!config) throw new Error("Web Push is not configured");
+        const subscription = subscriptions.find((item) => item.endpoint === endpoint);
+        if (!subscription) throw new Error("This PWA push subscription is not registered");
+        return sendWebPush([subscription], WEB_PUSH_TEST_MESSAGE, config)
+          .then(async (result) => {
+            if (result.expired.length) await pushSubscriptions.remove(subscription.endpoint, subscription.keys);
+            return result;
+          });
+      })
+      .then((result) => result.sent > 0
+        ? res.json(result)
+        : res.status(502).json({ error: "Web Push delivery failed" }))
       .catch((error: unknown) => res.status(502).json({ error: error instanceof Error ? error.message : String(error) }));
   });
 

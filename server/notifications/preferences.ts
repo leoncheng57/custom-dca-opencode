@@ -12,6 +12,10 @@ export interface NotificationPreferences {
     topic: string;
     events: Record<NotifyEvent, boolean>;
   };
+  webPush: {
+    enabled: boolean;
+    events: Record<NotifyEvent, boolean>;
+  };
   browser: {
     desktop: boolean;
     sound: boolean;
@@ -36,6 +40,10 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
     enabled: false,
     server: "https://ntfy.sh",
     topic: "",
+    events: { ...DEFAULT_EVENTS },
+  },
+  webPush: {
+    enabled: false,
     events: { ...DEFAULT_EVENTS },
   },
   browser: {
@@ -86,6 +94,7 @@ function validTopic(value: unknown): string {
 export function normalizePreferences(value: unknown): NotificationPreferences {
   const source = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
   const ntfy = source.ntfy && typeof source.ntfy === "object" ? (source.ntfy as Record<string, unknown>) : {};
+  const webPush = source.webPush && typeof source.webPush === "object" ? (source.webPush as Record<string, unknown>) : {};
   const browser = source.browser && typeof source.browser === "object" ? (source.browser as Record<string, unknown>) : {};
   const seconds = Number(source.parkedPermissionSeconds ?? 30);
   const volume = Number(browser.volume ?? 0.5);
@@ -97,6 +106,10 @@ export function normalizePreferences(value: unknown): NotificationPreferences {
       topic: validTopic(ntfy.topic ?? ""),
       events: eventMap(ntfy.events),
     },
+    webPush: {
+      enabled: webPush.enabled === true,
+      events: eventMap(webPush.events),
+    },
     browser: {
       desktop: browser.desktop !== false,
       sound: browser.sound === true,
@@ -107,7 +120,22 @@ export function normalizePreferences(value: unknown): NotificationPreferences {
   };
 }
 
+export function mergePreferenceWrite(
+  current: NotificationPreferences,
+  value: unknown,
+): unknown {
+  const source = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  return {
+    ...source,
+    // Existing v1 tabs do not know this field. Their unrelated save must not
+    // silently disable a newer server's Web Push preference.
+    webPush: Object.prototype.hasOwnProperty.call(source, "webPush") ? source.webPush : current.webPush,
+  };
+}
+
 export class PreferenceStore {
+  private pending = Promise.resolve();
+
   constructor(
     readonly file = process.env.NOTIFICATION_PREFS_FILE || path.resolve(process.cwd(), ".state/notification-prefs.json"),
   ) {}
@@ -130,11 +158,25 @@ export class PreferenceStore {
   }
 
   async write(value: unknown): Promise<NotificationPreferences> {
+    return this.queue(() => this.writeNow(value));
+  }
+
+  async update(value: unknown): Promise<NotificationPreferences> {
+    return this.queue(async () => this.writeNow(mergePreferenceWrite(await this.read(), value)));
+  }
+
+  private async writeNow(value: unknown): Promise<NotificationPreferences> {
     const normalized = normalizePreferences(value);
     await mkdir(path.dirname(this.file), { recursive: true });
     const temporary = `${this.file}.${process.pid}.tmp`;
     await writeFile(temporary, `${JSON.stringify(normalized, null, 2)}\n`, { mode: 0o600 });
     await rename(temporary, this.file);
     return normalized;
+  }
+
+  private async queue<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.pending.then(operation, operation);
+    this.pending = result.then(() => undefined, () => undefined);
+    return result;
   }
 }
