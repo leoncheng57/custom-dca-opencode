@@ -94,7 +94,7 @@ export function AutoPermissionsControl({
         <div className={cn("flex items-center gap-2", compact ? `min-w-0 ${touchTarget}` : "min-h-5")}>
           <ShieldAlert aria-hidden="true" className={cn("shrink-0", compact ? "h-3.5 w-3.5" : "h-4 w-4")} />
           <strong className={cn("min-w-0 truncate", compact ? "text-[11px] sm:text-xs" : "flex-1 text-xs sm:text-sm")}>
-            Auto permissions: {status ? (enabled ? "ON" : "OFF") : "loading"}
+            {compact ? "Auto" : `Auto permissions: ${status ? (enabled ? "ON" : "OFF") : "loading"}`}
           </strong>
           {enabled && <button
             type="button"

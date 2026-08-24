@@ -28,6 +28,15 @@ test.describe("appearance", () => {
     expect(await page.evaluate(() => getComputedStyle(document.documentElement).colorScheme)).toBe("light");
   });
 
+  test("toggles the resolved appearance from the top navigation", async ({ page }) => {
+    await page.goto("/");
+    const toggle = page.getByTestId("opencode-nav-theme-toggle");
+    await expect(toggle).toHaveAccessibleName("Use dark appearance");
+    await toggle.click();
+    await expect(toggle).toHaveAccessibleName("Use light appearance");
+    expect(await page.evaluate(() => localStorage.getItem("theme"))).toBe("dark");
+  });
+
   test("preserves explicit choices across reloads and can return to System", async ({ page }) => {
     await page.emulateMedia({ colorScheme: "light" });
     await page.goto("/settings");
