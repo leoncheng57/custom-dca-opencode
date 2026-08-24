@@ -13,6 +13,7 @@
 //     which is exactly what makes crash detection possible (detectInterrupted).
 
 import { withReminderTag, type ReminderPreset } from "../reminders/reminders.js";
+import { isSensitiveWorkspacePath } from "../paths.js";
 import { request, requestWithResponse, type OpencodeConfig } from "./client.js";
 
 export type AgentMode = "plan" | "build";
@@ -483,6 +484,36 @@ export async function getSession(
     runningSessions(config, directory).catch(() => new Set<string>()),
   ]);
   return toSummary(raw ?? {}, running.has(sessionID));
+}
+
+export interface SessionTurnDiff {
+  file: string;
+  before: string;
+  after: string;
+  additions: number;
+  deletions: number;
+}
+
+export async function getSessionTurnDiff(
+  config: OpencodeConfig,
+  directory: string,
+  sessionID: string,
+  messageID: string,
+): Promise<SessionTurnDiff[]> {
+  const changes = await request<SessionTurnDiff[]>(
+    config,
+    `/session/${encodeURIComponent(sessionID)}/diff`,
+    { directory, query: { messageID } },
+  );
+  return changes
+    .filter((change) => !isSensitiveWorkspacePath(change.file))
+    .map(({ file, before, after, additions, deletions }) => ({
+      file,
+      before,
+      after,
+      additions,
+      deletions,
+    }));
 }
 
 export interface CreateSessionInput {

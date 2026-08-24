@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { listMessages, messagePageCursor, toSummary } from "../server/opencode/sessions.js";
+import { getSessionTurnDiff, listMessages, messagePageCursor, toSummary } from "../server/opencode/sessions.js";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -89,5 +89,30 @@ describe("session message pages", () => {
       Link: '<http://opencode.test/message?before=link-cursor>; rel="next"',
     }))).toBe("header-cursor");
     expect(messagePageCursor(new Headers({ Link: '<not a url>; rel="next", <http://x>; rel="prev"' }))).toBeNull();
+  });
+});
+
+describe("session turn diffs", () => {
+  it("scopes and encodes the upstream request, filters sensitive paths, and exposes only the public shape", async () => {
+    let requested: URL | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      requested = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
+      return Response.json([
+        { file: "src/index.ts", before: "old", after: "new", additions: 1, deletions: 1, secret: "hidden" },
+        { file: ".env.local", before: "TOKEN=old", after: "TOKEN=new", additions: 1, deletions: 1 },
+      ]);
+    }));
+
+    await expect(getSessionTurnDiff(
+      { baseUrl: "http://opencode.test" },
+      "/tmp/project",
+      "ses/1",
+      "msg/1",
+    )).resolves.toEqual([
+      { file: "src/index.ts", before: "old", after: "new", additions: 1, deletions: 1 },
+    ]);
+    expect(requested?.pathname).toBe("/session/ses%2F1/diff");
+    expect(requested?.searchParams.get("directory")).toBe("/tmp/project");
+    expect(requested?.searchParams.get("messageID")).toBe("msg/1");
   });
 });

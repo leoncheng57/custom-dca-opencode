@@ -260,6 +260,14 @@ export interface MessagePage {
   nextCursor: string | null;
 }
 
+export interface SessionTurnDiff {
+  file: string;
+  before: string;
+  after: string;
+  additions: number;
+  deletions: number;
+}
+
 /**
  * Unwrap a response, surfacing the BFF's `{ error }` body when present.
  *
@@ -391,6 +399,11 @@ export const api = {
       ...(options.before ? { before: options.before } : {}),
     })).then((r) =>
       json<MessagePage>(r),
+    ),
+
+  sessionTurnDiff: (directory: string, id: string, messageID: string) =>
+    fetch(scoped(`/sessions/${encodeURIComponent(id)}/diff`, directory, { messageID })).then((r) =>
+      json<{ changes: SessionTurnDiff[] }>(r),
     ),
 
   todos: (directory: string, id: string) =>

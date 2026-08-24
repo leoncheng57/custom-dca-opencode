@@ -261,6 +261,19 @@ test.describe("transcript", () => {
     expect(body.todos.length).toBe(3);
     expect(body.todos[0]).toMatchObject({ status: "completed" });
   });
+
+  test("returns a message-scoped turn diff without sensitive files", async ({ request }) => {
+    const response = await request.get(
+      `/api/sessions/ses_mock_done/diff?directory=${DIR}&messageID=msg_mock_done`,
+    );
+    expect(response.ok()).toBe(true);
+    expect(await response.json()).toEqual({
+      changes: [{ file: "src/index.ts", before: "old\n", after: "new\n", additions: 1, deletions: 1 }],
+    });
+
+    const missingMessage = await request.get(`/api/sessions/ses_mock_done/diff?directory=${DIR}`);
+    expect(missingMessage.status()).toBe(400);
+  });
 });
 
 test.describe("question requests", () => {

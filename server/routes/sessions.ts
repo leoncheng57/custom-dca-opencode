@@ -17,6 +17,7 @@ import {
   createSession,
   deleteSession,
   getSession,
+  getSessionTurnDiff,
   listMessages,
   listSessions,
   listTodos,
@@ -323,6 +324,20 @@ export function sessionRoutes(
         getSession(config, directory, paramOf(req, "id")).catch(() => null),
       ]);
       res.json({ ...page, running: session?.running ?? false });
+    }),
+  );
+
+  router.get(
+    "/sessions/:id/diff",
+    sessionRoute(async (req, res) => {
+      const directory = await directoryOf(req);
+      const sessionID = paramOf(req, "id");
+      const messageID = req.query.messageID;
+      if (typeof messageID !== "string" || !messageID.trim() || messageID.length > 512) {
+        throw new HttpError(400, "messageID must be a non-empty string of at most 512 characters");
+      }
+      await ownedSession(directory, sessionID);
+      res.json({ changes: await getSessionTurnDiff(config, directory, sessionID, messageID) });
     }),
   );
 

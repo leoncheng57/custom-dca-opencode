@@ -1199,6 +1199,13 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
       const nextCursor = start > 0 ? String(start) : null;
       return json(res, 200, all.slice(start, end), nextCursor ? { "X-Next-Cursor": nextCursor } : {});
     }
+    if (rest === "/diff") {
+      if (!url.searchParams.get("messageID")) return json(res, 400, { error: "messageID required" });
+      return json(res, 200, [
+        { file: "src/index.ts", before: "old\n", after: "new\n", additions: 1, deletions: 1 },
+        { file: ".env", before: "TOKEN=old\n", after: "TOKEN=new\n", additions: 1, deletions: 1 },
+      ]);
+    }
     if (rest === "/children") {
       return json(res, 200, SESSIONS.filter((candidate) => candidate.parentID === id));
     }
