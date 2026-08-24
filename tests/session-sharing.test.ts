@@ -86,6 +86,26 @@ describe("session sharing serialization", () => {
     expect(json).not.toMatch(/hidden reminder|SECRET|dangerous raw|token=|\/secret\/path/);
   });
 
+  it("exports the authoritative patch file count when names are truncated", () => {
+    const patch: TranscriptEvent = {
+      kind: "patch",
+      id: "p1",
+      messageId: "m2",
+      timestamp: "2026-08-21T12:00:50.000Z",
+      files: ["a.ts", "b.ts"],
+      fileCount: 12,
+      filesTruncated: true,
+      userMessageId: "m1",
+    };
+
+    const json = serializeSessionJson("Demo", [patch], "2026-08-21T13:00:00.000Z");
+    const markdown = serializeShareMarkdown("Demo", [patch], { kind: "session" });
+
+    expect(json).toContain("Changed 12 files");
+    expect(markdown).toContain("Changed 12 files");
+    expect(json).not.toContain("Changed 2 files");
+  });
+
   it("serializes a complete chronological export from more than 100 paged messages", async () => {
     const raw: RawMessage[] = Array.from({ length: 125 }, (_, index) => ({
       info: { id: `msg_${index + 1}`, role: "assistant", time: { created: index + 1, completed: index + 1 } },

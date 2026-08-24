@@ -80,7 +80,7 @@ function entriesFor(events: TranscriptEvent[], target: ShareTarget): ExportEntry
         return [{
           type: "status",
           timestamp: event.timestamp,
-          label: event.files.length === 1 ? "Changed 1 file" : `Changed ${event.files.length} files`,
+          label: event.fileCount === 1 ? "Changed 1 file" : `Changed ${event.fileCount} files`,
         }];
       case "error":
         return [{ type: "error", timestamp: event.timestamp, text: event.message }];
