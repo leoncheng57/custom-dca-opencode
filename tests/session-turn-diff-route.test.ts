@@ -6,6 +6,7 @@ import express from "express";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { EventBus } from "../server/opencode/events.js";
+import { SESSION_TURN_DIFF_LIMITS } from "../server/opencode/sessions.js";
 import { sessionRoutes } from "../server/routes/sessions.js";
 
 const nativeFetch = globalThis.fetch;
@@ -75,6 +76,33 @@ describe("session turn diff route", () => {
       );
       expect(response.status).toBe(404);
       expect(requested).not.toContain("/session/ses_1/diff");
+    });
+  });
+
+  it("returns a distinct bounded too-large response after ownership verification", async () => {
+    await withRoutes(async (url) => {
+      if (url.pathname === "/session/status") return Response.json({});
+      if (url.pathname === "/session/ses_1") return Response.json({ id: "ses_1", directory });
+      if (url.pathname === "/session/ses_1/diff") {
+        return Response.json([{
+          file: "generated/large.ts",
+          patch: "x".repeat(SESSION_TURN_DIFF_LIMITS.characters + 1),
+          additions: 1,
+          deletions: 0,
+          status: "added",
+        }]);
+      }
+      return Response.json({}, { status: 500 });
+    }, async (baseUrl) => {
+      const response = await nativeFetch(
+        `${baseUrl}/api/sessions/ses_1/diff?directory=${encodeURIComponent(directory)}&userMessageID=msg_1`,
+      );
+      expect(response.status).toBe(413);
+      expect(await response.json()).toEqual({
+        error: "Turn diff exceeds safe response limits",
+        code: "TURN_DIFF_TOO_LARGE",
+        limits: SESSION_TURN_DIFF_LIMITS,
+      });
     });
   });
 });

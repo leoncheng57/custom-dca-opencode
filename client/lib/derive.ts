@@ -32,6 +32,8 @@ function fingerprint(event: TranscriptEvent): string {
       return `${event.mode ?? ""}|${event.text}`;
     case "thought":
       return event.text;
+    case "patch":
+      return `${event.files.join("|")}|${event.fileCount}|${event.filesTruncated}|${event.userMessageId ?? ""}`;
     case "status":
       return `${event.label}|${event.detail ?? ""}`;
     case "error":
@@ -55,7 +57,8 @@ export function mergeEvents(
   const byId = new Map<string, TranscriptEvent>();
 
   let changed = previous.length !== incoming.length;
-  for (const event of incoming) {
+  for (const [index, event] of incoming.entries()) {
+    if (previous[index]?.id !== event.id) changed = true;
     const existing = previousById.get(event.id);
     if (!existing || fingerprint(existing) !== fingerprint(event)) {
       changed = true;
@@ -66,11 +69,10 @@ export function mergeEvents(
   }
   if (!changed) return previous;
 
-  // ISO timestamps are fixed-width, so lexicographic order is chronological.
-  // Id is a deterministic tiebreak for events sharing a millisecond.
-  return [...byId.values()].sort(
-    (a, b) => a.timestamp.localeCompare(b.timestamp) || a.id.localeCompare(b.id),
-  );
+  // The upstream message and part arrays are authoritative chronology. Several
+  // parts in one assistant message share a timestamp, so sorting by id would
+  // move edit milestones away from the prose and tools that surround them.
+  return incoming.map((event) => byId.get(event.id) ?? event);
 }
 
 // ── Grouping ────────────────────────────────────────────────────────────────
@@ -145,7 +147,7 @@ export function runningActivity(events: TranscriptEvent[]): RunningActivity {
 
   for (let i = events.length - 1; i >= 0; i--) {
     const event = events[i];
-    if (event.kind === "status") continue; // separators are not activity
+    if (event.kind === "status" || event.kind === "patch") continue; // milestones are not activity
     if (event.kind === "tool" && (event.status === "running" || event.status === "pending")) {
       return {
         kind: "tool",
@@ -301,6 +303,8 @@ export function extractMrUrls(events: TranscriptEvent[]): string[] {
       case "status":
         scanText(event.label, seen, out);
         scanText(event.detail, seen, out);
+        break;
+      case "patch":
         break;
       case "error":
         scanText(event.message, seen, out);

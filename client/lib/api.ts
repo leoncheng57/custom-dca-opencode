@@ -271,7 +271,7 @@ export interface SessionTurnDiff extends VcsFileDiff {
  * The status is attached so callers can distinguish "this session is gone"
  * (404, stop polling) from "the agent server is down" (502, keep retrying).
  */
-export type ApiErrorCode = "SESSION_AGENT_UNKNOWN" | "SESSION_AGENT_UNSUPPORTED";
+export type ApiErrorCode = "SESSION_AGENT_UNKNOWN" | "SESSION_AGENT_UNSUPPORTED" | "TURN_DIFF_TOO_LARGE";
 
 export class ApiError extends Error {
   constructor(
@@ -324,7 +324,11 @@ async function json<T>(res: Response): Promise<T> {
     try {
       const body = (await res.json()) as { error?: string; code?: string };
       if (body.error) message = body.error;
-      if (body.code === "SESSION_AGENT_UNKNOWN" || body.code === "SESSION_AGENT_UNSUPPORTED") code = body.code;
+      if (
+        body.code === "SESSION_AGENT_UNKNOWN" ||
+        body.code === "SESSION_AGENT_UNSUPPORTED" ||
+        body.code === "TURN_DIFF_TOO_LARGE"
+      ) code = body.code;
     } catch {
       /* keep the status-only message */
     }
@@ -398,8 +402,8 @@ export const api = {
       json<MessagePage>(r),
     ),
 
-  sessionTurnDiff: (directory: string, id: string, userMessageID: string) =>
-    fetch(scoped(`/sessions/${encodeURIComponent(id)}/diff`, directory, { userMessageID })).then((r) =>
+  sessionTurnDiff: (directory: string, id: string, userMessageID: string, signal?: AbortSignal) =>
+    fetch(scoped(`/sessions/${encodeURIComponent(id)}/diff`, directory, { userMessageID }), { signal }).then((r) =>
       json<{ changes: SessionTurnDiff[] }>(r),
     ),
 

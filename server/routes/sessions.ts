@@ -18,6 +18,7 @@ import {
   deleteSession,
   getSession,
   getSessionTurnDiff,
+  SESSION_TURN_DIFF_LIMITS,
   listMessages,
   listSessions,
   listTodos,
@@ -337,7 +338,16 @@ export function sessionRoutes(
         throw new HttpError(400, "userMessageID must be a non-empty string of at most 512 characters");
       }
       await ownedSession(directory, sessionID);
-      res.json({ changes: await getSessionTurnDiff(config, directory, sessionID, userMessageID) });
+      const result = await getSessionTurnDiff(config, directory, sessionID, userMessageID);
+      if (result.status === "too_large") {
+        res.status(413).json({
+          error: "Turn diff exceeds safe response limits",
+          code: "TURN_DIFF_TOO_LARGE",
+          limits: SESSION_TURN_DIFF_LIMITS,
+        });
+        return;
+      }
+      res.json({ changes: result.changes });
     }),
   );
 
