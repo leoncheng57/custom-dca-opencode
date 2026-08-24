@@ -101,6 +101,8 @@ export interface RawMessageInfo {
   tokens?: RawTokens;
   finish?: string;
   error?: unknown;
+  /** Initiating user message on assistant turns. */
+  parentID?: string;
 }
 
 export interface RawMessage {
@@ -434,14 +436,17 @@ function normalizePart(
     }
 
     case "patch": {
-      const files = part.files ?? [];
+      const files = (Array.isArray(part.files) ? part.files : [])
+        .filter((file) => typeof file === "string" && file.trim())
+        .map((file) => file.trim());
+      const userMessageId = info.role === "assistant" ? nonEmptyString(info.parentID) : undefined;
       return {
-        kind: "status",
+        kind: "patch",
         id,
         messageId,
         timestamp: iso(created, created),
-        label: files.length === 1 ? "Edited 1 file" : `Edited ${files.length} files`,
-        detail: files.length ? files.join(", ") : undefined,
+        files,
+        ...(userMessageId ? { userMessageId } : {}),
       };
     }
 

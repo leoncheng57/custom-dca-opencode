@@ -277,7 +277,7 @@ describe("mode on transcript rows", () => {
     expect(assistant).not.toHaveProperty("mode");
   });
 
-  it("does not mark thoughts, tools or status rows", () => {
+  it("does not mark thoughts, tools or patch rows", () => {
     const events = normalizeMessage({
       info: { id: "m4", role: "assistant", agent: "plan", time: { created: 4 } },
       parts: [
@@ -286,7 +286,7 @@ describe("mode on transcript rows", () => {
         { id: "p3", messageID: "m4", type: "patch", hash: "h", files: ["a.ts"] },
       ],
     });
-    expect(events.map((event) => event.kind)).toEqual(["thought", "tool", "status"]);
+    expect(events.map((event) => event.kind)).toEqual(["thought", "tool", "patch"]);
     for (const event of events) expect(event).not.toHaveProperty("mode");
   });
 
@@ -304,13 +304,33 @@ describe("mode on transcript rows", () => {
   });
 });
 
-describe("status rows", () => {
+describe("milestone rows", () => {
   const { events } = normalizeTranscript(messages);
 
-  it("summarises a patch by file count", () => {
+  it("preserves patch files and the directly stated initiating user message", () => {
     const patch = events.find((e) => e.id === "prt_patch_001")!;
-    expect(patch.kind).toBe("status");
-    expect((patch as { label: string }).label).toBe("Edited 2 files");
+    expect(patch).toEqual(expect.objectContaining({
+      kind: "patch",
+      files: ["server/index.ts", "tests/health.test.ts"],
+      userMessageId: "msg_user_001",
+    }));
+  });
+
+  it("does not infer an initiating user message when parentID is absent", () => {
+    const [patch] = normalizeMessage({
+      info: { id: "m_patch", role: "assistant", time: { created: 1 } },
+      parts: [{ id: "p_patch", type: "patch", files: ["src/a.ts"] }],
+    });
+    expect(patch.kind).toBe("patch");
+    expect(patch).not.toHaveProperty("userMessageId");
+  });
+
+  it("drops malformed patch file names at the adapter seam", () => {
+    const [patch] = normalizeMessage({
+      info: { id: "m_patch", role: "assistant", parentID: "m_user", time: { created: 1 } },
+      parts: [{ id: "p_patch", type: "patch", files: [" src/a.ts ", "", 42 as unknown as string] }],
+    });
+    expect(patch).toEqual(expect.objectContaining({ kind: "patch", files: ["src/a.ts"] }));
   });
 
   it("marks automatic compaction", () => {
@@ -407,6 +427,7 @@ describe("frozen contract", () => {
       "title", "detail", "output", "error", "durationMs", "attachments",
       "taskExecution", "taskAgent", "taskModel", "childSessionId",
     ],
+    patch: ["kind", "id", "messageId", "timestamp", "files", "userMessageId"],
     status: ["kind", "id", "messageId", "timestamp", "label", "detail", "childSessionId"],
     error: ["kind", "id", "messageId", "timestamp", "message"],
   };
@@ -423,7 +444,7 @@ describe("frozen contract", () => {
   it("emits only scalars, except attachments", () => {
     for (const event of events) {
       for (const [key, value] of Object.entries(event)) {
-        if (key === "attachments" || key === "reminders") continue;
+        if (key === "attachments" || key === "reminders" || key === "files") continue;
         expect(
           value === null || typeof value !== "object",
           `${event.kind}.${key} must not be a nested backend object`,
@@ -441,6 +462,13 @@ describe("frozen contract", () => {
         );
         expect(extra).toEqual([]);
       }
+    }
+  });
+
+  it("keeps patch files as display-only strings", () => {
+    for (const event of events) {
+      if (event.kind !== "patch") continue;
+      expect(event.files.every((file) => typeof file === "string")).toBe(true);
     }
   });
 });
