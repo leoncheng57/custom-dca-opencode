@@ -251,6 +251,15 @@ several decisions below.
     catalogue, posts with the server-only `GITHUB_TOKEN`, and invalidates the read
     cache only after GitHub confirms the issue. The browser still cannot select a
     repository or project directory.
+18. **PWA push supplements rather than replaces ntfy.** Web Push is a third independent
+    delivery channel with its own server-backed enabled flag and event matrix. Device
+    subscriptions are persisted server-side with mode `0600`; VAPID private material is
+    environment-only. The service worker handles push, notification clicks, and explicit
+    user-approved updates only: it has no `fetch` handler and caches no application or
+    agent data. Expired subscriptions are removed after provider `404`/`410` responses.
+    `web-push` is the runtime dependency because standards-compliant payload encryption,
+    VAPID signing, and browser push-service requests are cryptographic protocol work that
+    should not be reimplemented locally.
 
 ## Client conventions (inherited from the OpenHands runner, still enforced)
 

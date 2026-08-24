@@ -14,12 +14,14 @@ import { PlanningPage } from "./pages/Planning.js";
 import { AppShell } from "./components/app-shell.js";
 import { ThemeEffects } from "./components/theme-effects.js";
 import { NotificationCenterProvider } from "./lib/useNotificationCenter.js";
+import { ServiceWorkerUpdate } from "./components/service-worker-update.js";
 import "./styles.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem enableColorScheme>
       <ThemeEffects />
+      <ServiceWorkerUpdate />
       <BrowserRouter>
         <NotificationCenterProvider>
           <Routes>

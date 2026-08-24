@@ -82,13 +82,23 @@ uses the current browser origin, which is only useful when that origin is phone-
 
 ### Notifications
 
-Browser sound profiles and optional generic status speech are stored per device. Browser
-and ntfy event delivery toggles remain server-backed and independent. Spoken notifications
+Browser sound profiles and optional generic status speech are stored per device. Browser,
+PWA push, and ntfy event delivery toggles remain server-backed and independent. Spoken notifications
 never include prompts, paths, filenames, commands, tool output, or notification bodies.
 
-Constructor-based browser Notifications on iPhone and iPad still require installed-PWA
-and service-worker support. This feature does not add a service worker; ntfy remains the
-reliable phone notification path.
+PWA push uses a notification-only service worker and does not intercept requests or cache
+the application, conversations, permissions, or API responses. Generate VAPID keys once
+with `npx web-push generate-vapid-keys`, set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and
+`VAPID_SUBJECT` in `.env`, restart the BFF, then enable **PWA push** in Settings. The private
+key and subscription authentication material stay on the BFF. iPhone and iPad require
+iOS/iPadOS 16.4 or newer, a secure HTTPS origin, and installation through **Add to Home
+Screen** before permission can be granted. Android and desktop browsers require a secure
+origin but generally do not require installation. `ntfy` remains available as an independent
+fallback and is never disabled by PWA push.
+
+Service-worker updates wait until the app displays **An app update is ready**. Choosing
+**Update** activates the new worker and reloads the page; **Later** leaves the current worker
+in control. There is deliberately no offline mode or runtime/API cache.
 
 A red counter appears on the nav link and the page header with the number of unresolved
 notifications in the current project. Every notification kind starts unresolved, including
@@ -98,7 +108,7 @@ reversible and its state is persisted on the server.
 
 The page also lists every notification the BFF classified, including ones that were never
 delivered, because "why was I never asked?" is the question that log exists to answer.
-`ntfy` reports `sent`, `off` or `failed`; `desktop` reports only whether server-backed
+`ntfy` and PWA push report `sent`, `off` or `failed`; `desktop` reports only whether server-backed
 desktop notifications were **allowed**, since the BFF cannot observe whether a tab rendered
 one. Sound and speech are device-local and therefore absent from the server log.
 Auto-approved permissions appear marked `suppressed by auto permissions` and remain in the
