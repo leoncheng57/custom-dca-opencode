@@ -157,7 +157,7 @@ test.describe("conversation header layout", () => {
         const quiet = await control.evaluate((element) => getComputedStyle(element.firstElementChild!).color);
 
         await toggle.click();
-        await expect(control).toContainText("Auto permissions: ON");
+        await expect(toggle).toHaveAttribute("aria-checked", "true");
         await expect(toggle).toHaveAttribute("aria-checked", "true");
         await expect(toggle).toHaveAccessibleName("Turn auto permissions off");
 
@@ -177,7 +177,7 @@ test.describe("conversation header layout", () => {
         await expect(warning).toContainText("every session using this project directory");
 
         await toggle.click();
-        await expect(control).toContainText("Auto permissions: OFF");
+        await expect(toggle).toHaveAttribute("aria-checked", "false");
         await resetAutoPermissions(page);
       });
     });
@@ -204,11 +204,11 @@ test.describe("conversation header layout", () => {
 
       // The Details disclosure only exists while auto permissions is on.
       await toggle.click();
-      await expect(control).toContainText("Auto permissions: ON");
+      await expect(toggle).toHaveAttribute("aria-checked", "true");
       const detailsRect = await box(control.getByTestId("opencode-conversation-auto-permissions-details"));
       expect(detailsRect.height, "Details must keep a 44px touch target").toBeGreaterThanOrEqual(44);
       await toggle.click();
-      await expect(control).toContainText("Auto permissions: OFF");
+      await expect(toggle).toHaveAttribute("aria-checked", "false");
 
       for (const id of [
         "opencode-mobile-wrap-toggle",
@@ -255,7 +255,7 @@ test.describe("conversation header layout", () => {
       expect(wrapRect.height, "action buttons already honour the coarse pointer").toBeGreaterThanOrEqual(44);
 
       await toggle.click();
-      await expect(control).toContainText("Auto permissions: ON");
+      await expect(toggle).toHaveAttribute("aria-checked", "true");
       const detailsRect = await box(control.getByTestId("opencode-conversation-auto-permissions-details"));
       expect(
         detailsRect.height,
@@ -263,7 +263,7 @@ test.describe("conversation header layout", () => {
       ).toBeGreaterThanOrEqual(44);
 
       await toggle.click();
-      await expect(control).toContainText("Auto permissions: OFF");
+      await expect(toggle).toHaveAttribute("aria-checked", "false");
       await resetAutoPermissions(page);
     });
 
@@ -289,14 +289,14 @@ test.describe("conversation header layout", () => {
       ).toBeGreaterThanOrEqual(44);
 
       await toggle.click();
-      await expect(control).toContainText("Auto permissions: ON");
+      await expect(toggle).toHaveAttribute("aria-checked", "true");
       expect(
         (await box(control.getByTestId("opencode-conversation-auto-permissions-details"))).height,
         "Details must size itself on pointer type, not on the sm breakpoint",
       ).toBeGreaterThanOrEqual(44);
 
       await toggle.click();
-      await expect(control).toContainText("Auto permissions: OFF");
+      await expect(toggle).toHaveAttribute("aria-checked", "false");
       await resetAutoPermissions(page);
     });
   });

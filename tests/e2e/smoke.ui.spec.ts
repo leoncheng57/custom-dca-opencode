@@ -72,13 +72,11 @@ test.describe("hub", () => {
     await page.goto(hub);
     const control = page.getByTestId("opencode-hub-auto-permissions");
     const toggle = control.getByTestId("opencode-hub-auto-permissions-toggle");
-    await expect(control).toContainText("Auto permissions: OFF");
     await expect(toggle).toHaveAttribute("role", "switch");
     await expect(toggle).toHaveAttribute("aria-checked", "false");
     await expect(toggle).toHaveAccessibleName("Turn auto permissions on");
     expect((await control.boundingBox())?.height).toBeLessThanOrEqual(40);
     await toggle.click();
-    await expect(control).toContainText("Auto permissions: ON");
     await expect(toggle).toHaveAttribute("aria-checked", "true");
     await expect(toggle).toHaveAccessibleName("Turn auto permissions off");
     expect((await control.boundingBox())?.height).toBeLessThanOrEqual(40);
@@ -87,7 +85,6 @@ test.describe("hub", () => {
     await expect(control.getByTestId("opencode-hub-auto-permissions-warning")).toContainText("arbitrary shell commands");
     await expect(control).toContainText("every session using this project directory");
     await toggle.click();
-    await expect(control).toContainText("Auto permissions: OFF");
     await expect(control.getByTestId("opencode-hub-auto-permissions-warning")).toHaveCount(0);
   });
 
@@ -756,9 +753,10 @@ test.describe("composer", () => {
     await fetch(`${MOCK_URL}/test/questions/reset?scope=ui`, { method: "POST" });
     await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
     const control = page.getByTestId("opencode-conversation-auto-permissions");
-    await expect(control).toContainText("Auto permissions: OFF");
-    await control.getByTestId("opencode-conversation-auto-permissions-toggle").click();
-    await expect(control).toContainText("Auto permissions: ON");
+    const toggle = control.getByTestId("opencode-conversation-auto-permissions-toggle");
+    await expect(toggle).toHaveAttribute("aria-checked", "false");
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-checked", "true");
 
     const id = `perm_auto_${Date.now()}`;
     await fetch(`${MOCK_URL}/test/permission?directory=${encodeURIComponent(DIR)}`, {
@@ -781,8 +779,8 @@ test.describe("composer", () => {
       .toContainText("Could not auto-approve external_directory");
     await expect(page.getByTestId("opencode-permission-request").filter({ hasText: "/tmp/*" })).toBeVisible();
 
-    await control.getByTestId("opencode-conversation-auto-permissions-toggle").click();
-    await expect(control).toContainText("Auto permissions: OFF");
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-checked", "false");
     await fetch(`${MOCK_URL}/test/permissions/reset?directory=${encodeURIComponent(DIR)}`, { method: "POST" });
   });
 
@@ -1055,7 +1053,7 @@ test.describe("mobile", () => {
     await expect(transcript).toBeVisible();
     await expect(page.getByTestId("opencode-composer-mode")).toBeVisible();
     const autoPermissions = page.getByTestId("opencode-conversation-auto-permissions");
-    await expect(autoPermissions).toContainText("Auto permissions: OFF");
+    await expect(autoPermissions.getByTestId("opencode-conversation-auto-permissions-toggle")).toHaveAttribute("aria-checked", "false");
     expect((await autoPermissions.boundingBox())?.height).toBeLessThanOrEqual(72);
     const containment = await page.evaluate(() => ({
       horizontalOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,

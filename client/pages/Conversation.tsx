@@ -742,7 +742,10 @@ export function ConversationPage() {
               onFocus={() => setComposerCollapsed(false)}
               onBlur={() => {
                 requestAnimationFrame(() => {
-                  if (!composerCardRef.current?.contains(document.activeElement)) setComposerCollapsed(true);
+                  if (window.matchMedia("(max-width: 639.98px)").matches &&
+                      !composerCardRef.current?.contains(document.activeElement)) {
+                    setComposerCollapsed(true);
+                  }
                 });
               }}
               onPaste={(event) => {
