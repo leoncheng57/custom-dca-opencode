@@ -202,6 +202,12 @@ export function toolDetail(input: Record<string, unknown> | undefined): string |
   return undefined;
 }
 
+function shellCommand(part: RawPart): string | undefined {
+  if (!part.tool || !(/^(bash|shell)$|terminal/i.test(part.tool))) return undefined;
+  const command = part.state?.input?.command;
+  return typeof command === "string" && command.trim() ? command : undefined;
+}
+
 /**
  * The child session a tool call delegated to, if any.
  *
@@ -457,6 +463,7 @@ function normalizePart(
         name: part.tool || "tool",
         title: state.title,
         detail: toolDetail(state.input),
+        commandText: shellCommand(part),
         // While running, partial output hides in state.metadata.output.
         output:
           state.output ??

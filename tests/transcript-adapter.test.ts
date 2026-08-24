@@ -100,7 +100,24 @@ describe("tool events", () => {
     const running = tools.find((t) => t.name === "bash")!;
     expect(running.status).toBe("running");
     expect(running.output).toBe("partial output so far");
+    expect(running.commandText).toBe("npm test");
     expect(running.durationMs).toBeUndefined();
+  });
+
+  it("preserves exact multiline shell commands separately from display detail", () => {
+    const command = `printf '%s\\n' "${"x".repeat(180)}"\nnpm test`;
+    const [event] = normalizeMessage({
+      info: { id: "m-command", role: "assistant", time: { created: 1 } },
+      parts: [{
+        id: "p-command",
+        messageID: "m-command",
+        type: "tool",
+        tool: "bash",
+        state: { status: "completed", input: { command }, output: "ok" },
+      }],
+    }) as ToolEvent[];
+    expect(event.commandText).toBe(command);
+    expect(event.detail).not.toBe(command);
   });
 });
 
@@ -468,7 +485,7 @@ describe("frozen contract", () => {
     thought: ["kind", "id", "messageId", "timestamp", "text", "durationMs"],
     tool: [
       "kind", "id", "messageId", "timestamp", "status", "name",
-      "title", "detail", "output", "error", "durationMs", "attachments",
+      "title", "detail", "commandText", "output", "error", "durationMs", "attachments",
       "taskExecution", "taskAgent", "taskModel", "childSessionId",
     ],
     patch: ["kind", "id", "messageId", "timestamp", "files", "fileCount", "filesTruncated", "userMessageId"],
