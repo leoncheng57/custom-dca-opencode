@@ -341,7 +341,7 @@ describe("extractCommands", () => {
     const script = serializeCommands(extractCommands([
       tool("read", { name: "read", detail: "src/a.ts" }),
       patch("patch", { timestamp: at(2) }),
-      tool("shell", { name: "bash", detail: "npm test" }),
+      tool("shell", { name: "bash", detail: "npm test", commandText: "npm test" }),
     ]));
     expect(script).toContain("npm test");
     expect(script).not.toContain("src/a.ts");
@@ -350,11 +350,19 @@ describe("extractCommands", () => {
   it("does not export a shell tool without captured command text", () => {
     const script = serializeCommands(extractCommands([
       tool("unknown-shell", { name: "bash", title: "Shell command" }),
-      tool("known-shell", { name: "bash", detail: "npm test" }),
+      tool("known-shell", { name: "bash", detail: "npm test", commandText: "npm test" }),
     ]));
     expect(script).toContain("npm test");
     expect(script).not.toContain("Shell command");
     expect(script.split("\n")).not.toContain("bash");
+  });
+
+  it("exports exact multiline and long shell commands", () => {
+    const command = `printf '%s\\n' "${"x".repeat(180)}"\nnpm test`;
+    const script = serializeCommands(extractCommands([
+      tool("shell", { name: "bash", detail: `${command.slice(0, 159)}…`, commandText: command }),
+    ]));
+    expect(script).toContain(command);
   });
 });
 

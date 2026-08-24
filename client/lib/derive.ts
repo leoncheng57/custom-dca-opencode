@@ -25,7 +25,7 @@ import type { ToolEvent, TranscriptEvent } from "./transcript.js";
 function fingerprint(event: TranscriptEvent): string {
   switch (event.kind) {
     case "tool":
-      return `${event.status}|${event.output ?? ""}|${event.error ?? ""}|${event.durationMs ?? ""}`;
+      return `${event.status}|${event.output ?? ""}|${event.error ?? ""}|${event.durationMs ?? ""}|${event.commandText ?? ""}`;
     case "user":
       return `${event.mode ?? ""}|${event.text}|${event.reminders.map((reminder) => `${reminder.name}:${reminder.body}`).join("|")}`;
     case "agent":
@@ -226,7 +226,7 @@ export function extractCommands(events: TranscriptEvent[]): CommandEntry[] {
         ...(event.output || event.error
           ? { outputPreview: firstLine(event.output ?? event.error ?? "").slice(0, 120) }
           : {}),
-        ...(category === "command" && event.detail ? { commandText: event.detail } : {}),
+        ...(category === "command" && event.commandText ? { commandText: event.commandText } : {}),
       });
       continue;
     }
