@@ -98,6 +98,8 @@ export interface ToolEvent extends TranscriptBase {
   title?: string;
   /** One-line summary of the arguments, safe to render inline. */
   detail?: string;
+  /** Exact shell command for explicit .sh export; never rendered or shared. */
+  commandText?: string;
   /** Tool output. Present when completed; partial while running. */
   output?: string;
   /** Error text when `status === "error"`. */

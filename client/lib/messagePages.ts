@@ -28,8 +28,7 @@ export function mutationMessageID(type: string, properties: { messageID?: string
 }
 
 function compareMessages(left: RawMessage, right: RawMessage): number {
-  const created = (left.info?.time?.created ?? 0) - (right.info?.time?.created ?? 0);
-  return created || messageIdentity(left).localeCompare(messageIdentity(right));
+  return (left.info?.time?.created ?? 0) - (right.info?.time?.created ?? 0);
 }
 
 export function mergeMessagePages(previous: RawMessage[], incoming: RawMessage[]): RawMessage[] {
@@ -56,13 +55,15 @@ export function refreshNewestPage(
   const boundary = newest[0];
   const displaced = newest.length >= windowLimit ? previous.newest : [];
   const older = mergeMessagePages(previous.older, displaced)
-    .filter((message) => compareMessages(message, boundary) < 0);
+    .filter((message) => compareMessages(message, boundary) <= 0);
   return { newest, older };
 }
 
 export function appendOlderPage(previous: TranscriptPages, incoming: RawMessage[]): TranscriptPages {
   const newestIDs = new Set(previous.newest.map(messageIdentity));
-  const older = mergeMessagePages(previous.older, incoming)
+  // The incoming cursor page is older than already loaded backfill. Stable
+  // sorting preserves that page order when timestamps tie.
+  const older = mergeMessagePages(incoming, previous.older)
     .filter((message) => !newestIDs.has(messageIdentity(message)));
   return { newest: previous.newest, older };
 }
@@ -92,7 +93,9 @@ export async function fetchAllMessagePages(
 
   do {
     const page = await fetchPage(before);
-    messages = mergeMessagePages(messages, page.messages);
+    // Cursor pages arrive newest to oldest, so prepend each older page before
+    // stable timestamp sorting rather than inventing lexical ID order.
+    messages = mergeMessagePages(page.messages, messages);
     if (page.nextCursor === null) return messages;
     if (seen.has(page.nextCursor)) throw new Error("Transcript pagination returned a repeated cursor");
     seen.add(page.nextCursor);

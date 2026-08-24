@@ -8,8 +8,9 @@ import {
   formatRelative,
   mergeEvents,
   runningActivity,
+  serializeCommands,
 } from "../client/lib/derive.js";
-import type { MessageMode, ToolEvent, TranscriptEvent, UserEvent } from "../client/lib/transcript.js";
+import type { MessageMode, PatchEvent, ToolEvent, TranscriptEvent, UserEvent } from "../client/lib/transcript.js";
 
 const at = (n: number) => new Date(1787000000000 + n * 1000).toISOString();
 
@@ -22,6 +23,20 @@ function tool(id: string, over: Partial<ToolEvent> = {}): ToolEvent {
     status: "completed",
     name: "bash",
     attachments: [],
+    ...over,
+  };
+}
+
+function patch(id: string, over: Partial<PatchEvent> = {}): PatchEvent {
+  return {
+    kind: "patch",
+    id,
+    messageId: "m1",
+    timestamp: at(1),
+    files: ["src/a.ts"],
+    fileCount: 1,
+    filesTruncated: false,
+    userMessageId: "u1",
     ...over,
   };
 }
@@ -268,8 +283,8 @@ describe("extractCommands", () => {
     expect(entries.map((e) => e.status)).toEqual(["ok", "error", "pending"]);
   });
 
-  it("skips calls with nothing to show", () => {
-    expect(extractCommands([tool("a")])).toHaveLength(0);
+  it("keeps calls with no detail under their tool name", () => {
+    expect(extractCommands([tool("a")])[0].text).toBe("bash");
   });
 
   it("previews the first non-empty output line, capped", () => {
@@ -283,6 +298,71 @@ describe("extractCommands", () => {
   it("uses the event id as the jump anchor", () => {
     const [entry] = extractCommands([tool("anchor-me", { detail: "ls" })]);
     expect(entry.id).toBe("anchor-me");
+  });
+
+  it("includes applied patch milestones in authoritative input order", () => {
+    const entries = extractCommands([
+      tool("read-first", { name: "read", detail: "src/old.ts", timestamp: at(3) }),
+      patch("patch-second", { files: ["src/a.ts", "src/b.ts"], fileCount: 2, timestamp: at(1) }),
+      tool("command-third", { detail: "npm test", timestamp: at(2) }),
+    ]);
+    expect(entries.map((entry) => entry.id)).toEqual(["read-first", "patch-second", "command-third"]);
+    expect(entries[1]).toMatchObject({ category: "edit", activityKind: "change", name: "patch", status: "ok", fileCount: 2, fileSummary: "src/a.ts, src/b.ts" });
+  });
+
+  it("ignores ordinary status events", () => {
+    expect(extractCommands([
+      { kind: "status", id: "compaction", messageId: "m1", timestamp: at(1), label: "Context compacted", detail: "src/a.ts" },
+    ])).toEqual([]);
+  });
+
+  it("preserves source order when activity timestamps tie", () => {
+    const timestamp = at(1);
+    const entries = extractCommands([
+      tool("z", { detail: "first", timestamp }),
+      patch("a", { timestamp }),
+      tool("m", { detail: "third", timestamp }),
+    ]);
+    expect(entries.map((entry) => entry.id)).toEqual(["z", "a", "m"]);
+  });
+
+  it("includes turn failures and failed tool details", () => {
+    const entries = extractCommands([
+      tool("failed-tool", { name: "webfetch", detail: "https://invalid", status: "error", error: "Not found" }),
+      { kind: "error", id: "failed-turn", messageId: "m1", timestamp: at(2), message: "Provider failed" },
+    ]);
+    expect(entries).toMatchObject([
+      { id: "failed-tool", category: "read", status: "error", outputPreview: "Not found" },
+      { id: "failed-turn", category: "other", status: "error", text: "Provider failed" },
+    ]);
+  });
+
+  it("exports only shell commands from a mixed activity timeline", () => {
+    const script = serializeCommands(extractCommands([
+      tool("read", { name: "read", detail: "src/a.ts" }),
+      patch("patch", { timestamp: at(2) }),
+      tool("shell", { name: "bash", detail: "npm test", commandText: "npm test" }),
+    ]));
+    expect(script).toContain("npm test");
+    expect(script).not.toContain("src/a.ts");
+  });
+
+  it("does not export a shell tool without captured command text", () => {
+    const script = serializeCommands(extractCommands([
+      tool("unknown-shell", { name: "bash", title: "Shell command" }),
+      tool("known-shell", { name: "bash", detail: "npm test", commandText: "npm test" }),
+    ]));
+    expect(script).toContain("npm test");
+    expect(script).not.toContain("Shell command");
+    expect(script.split("\n")).not.toContain("bash");
+  });
+
+  it("exports exact multiline and long shell commands", () => {
+    const command = `printf '%s\\n' "${"x".repeat(180)}"\nnpm test`;
+    const script = serializeCommands(extractCommands([
+      tool("shell", { name: "bash", detail: `${command.slice(0, 159)}…`, commandText: command }),
+    ]));
+    expect(script).toContain(command);
   });
 });
 

@@ -202,6 +202,12 @@ export function toolDetail(input: Record<string, unknown> | undefined): string |
   return undefined;
 }
 
+function shellCommand(part: RawPart): string | undefined {
+  if (!part.tool || !(/^(bash|shell)$|terminal/i.test(part.tool))) return undefined;
+  const command = part.state?.input?.command;
+  return typeof command === "string" && command.trim() ? command : undefined;
+}
+
 /**
  * The child session a tool call delegated to, if any.
  *
@@ -457,6 +463,7 @@ function normalizePart(
         name: part.tool || "tool",
         title: state.title,
         detail: toolDetail(state.input),
+        commandText: shellCommand(part),
         // While running, partial output hides in state.metadata.output.
         output:
           state.output ??
@@ -575,8 +582,9 @@ export function normalizeMessage(message: RawMessage): TranscriptEvent[] {
     if (target && "attachments" in target) target.attachments = attachments;
   }
 
-  // A turn that errored with no parts still needs to say so.
-  if (!events.length && info.error) {
+  // A partial turn can contain useful parts and still fail afterward. Preserve
+  // both the work and the turn-level failure instead of hiding the outcome.
+  if (info.error) {
     events.push({
       kind: "error",
       id: `${info.id ?? "unknown"}:error`,
