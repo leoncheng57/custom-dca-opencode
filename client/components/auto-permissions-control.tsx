@@ -13,9 +13,10 @@ const POLL_MS = 3_000;
  * the conversation action buttons instead of eating a row of its own. Both
  * variants keep the same danger treatment, the same Details disclosure and the
  * same error paragraph — compactness is only allowed to cost padding, never
- * discoverability.
+ * discoverability. `icon` is the phone action-bar control. Its safety detail is available from
+ * the adjacent More menu and is also described to assistive technology.
  */
-type AutoPermissionsVariant = "block" | "compact";
+type AutoPermissionsVariant = "block" | "compact" | "icon";
 
 export function AutoPermissionsControl({
   directory,
@@ -70,6 +71,38 @@ export function AutoPermissionsControl({
 
   const enabled = status?.enabled ?? false;
   const compact = variant === "compact";
+  const icon = variant === "icon";
+  const actionLabel = saving ? "Updating auto permissions" : `Turn auto permissions ${enabled ? "off" : "on"}`;
+  const safetyDescription = status?.error ?? requestError ?? (enabled
+    ? "Danger: every asked permission is approved once automatically. Open More for safety details."
+    : "Auto permissions is off. Open More for safety details.");
+  if (icon) {
+    return (
+      <div data-testid={testId}>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={enabled}
+          aria-label={actionLabel}
+          aria-describedby={`${testId}-description`}
+          aria-busy={saving}
+          disabled={!status || saving || !directory}
+          onClick={() => void toggle()}
+          title={actionLabel}
+          className={cn(
+            "flex min-h-11 min-w-11 items-center justify-center rounded-md disabled:opacity-50",
+            enabled
+              ? "bg-[var(--color-background-surface-danger-muted)] text-[var(--color-text-danger)]"
+              : "text-[var(--color-text-muted)] hover:bg-[var(--hh-row-hover)]",
+          )}
+          data-testid={`${testId}-toggle`}
+        >
+          <ShieldAlert aria-hidden="true" className="h-5 w-5" />
+        </button>
+        <span id={`${testId}-description`} className="sr-only">{safetyDescription}</span>
+      </div>
+    );
+  }
   // Hit area is decided by pointer type, never by viewport width — the same
   // mechanism `COMPACT_ACTION` in Conversation.tsx uses for the action buttons
   // sitting beside this control in the same toolbar row. A touch tablet at

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { ChevronDown, Ellipsis, FolderOpen, GitPullRequest, MessageSquareText, ScrollText } from "lucide-react";
+import { ChevronDown, Ellipsis, FolderOpen, GitPullRequest, MessageSquareText, Waves } from "lucide-react";
 
 import { Alert } from "../ds/alert.js";
 import { Badge } from "../ds/badge.js";
@@ -430,45 +430,64 @@ export function ConversationPage() {
           {stream.running && <Badge variant="info">running</Badge>}
         </div>
 
-        <div className="grid grid-cols-3 gap-1 sm:hidden" aria-label="Session actions" data-testid="opencode-mobile-conversation-actions">
+        <div className="grid grid-cols-5 gap-1 sm:hidden" aria-label="Session actions" data-testid="opencode-mobile-conversation-actions">
           <Button
             size="md"
             variant="secondary"
-            className="min-h-11 gap-1.5 px-2 text-xs"
+            className="min-h-11 min-w-0 px-0"
             onClick={() => setWorkspaceOpen(true)}
+            aria-label="Open workspace"
+            title="Open workspace"
             data-testid="opencode-mobile-workspace-open"
           >
-            <FolderOpen aria-hidden="true" className="h-4 w-4 shrink-0" />
-            Workspace
+            <FolderOpen aria-hidden="true" className="h-5 w-5" />
           </Button>
           <Button
             size="md"
             variant="secondary"
-            className="min-h-11 gap-1.5 px-2 text-xs"
-            disabled
-            aria-label="Merge requests, coming soon"
-            title="Merge requests are coming soon"
-            data-testid="opencode-mobile-mrs-open"
+            className="min-h-11 min-w-0 px-0"
+            onClick={() => {
+              setRequestedInspectorTab("reviews");
+              setInspectorOpen(true);
+            }}
+            aria-label="Open reviews"
+            title="Open reviews"
+            data-testid="opencode-mobile-reviews-open"
           >
-            <GitPullRequest aria-hidden="true" className="h-4 w-4 shrink-0" />
-            MRs
+            <GitPullRequest aria-hidden="true" className="h-5 w-5" />
           </Button>
           <Button
             size="md"
             variant="secondary"
-            className="min-h-11 gap-1.5 px-2 text-xs"
+            className="min-h-11 min-w-0 px-0"
             onClick={() => {
               setRequestedInspectorTab("runlog");
               setInspectorOpen(true);
             }}
+            aria-label="Open run log"
+            title="Open run log"
             data-testid="opencode-mobile-runlog-open"
           >
-            <ScrollText aria-hidden="true" className="h-4 w-4 shrink-0" />
-            Run log
+            <Waves aria-hidden="true" className="h-5 w-5" />
           </Button>
+          <AutoPermissionsControl directory={directory} testId="opencode-mobile-auto-permissions" variant="icon" />
+          <details className="relative" data-testid="opencode-mobile-session-menu">
+            <summary className="flex min-h-11 min-w-11 cursor-pointer list-none items-center justify-center rounded-md text-[var(--color-text-muted)] hover:bg-[var(--hh-row-hover)] [&::-webkit-details-marker]:hidden" aria-label="More session actions" title="More session actions">
+              <Ellipsis aria-hidden="true" className="h-5 w-5" />
+            </summary>
+            <div className="absolute right-0 z-30 mt-1 grid min-w-40 overflow-hidden rounded-lg border border-[var(--color-border-default)] bg-[var(--color-background-surface)] p-1 shadow-xl">
+              <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); toggleWrap(); }} data-testid="opencode-mobile-wrap-toggle">{wrap ? "Disable wrapping" : "Enable wrapping"}</button>
+              <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setShareTarget({ kind: "session" }); }} data-testid="opencode-mobile-share-export-open">Share</button>
+              <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setRequestedInspectorTab("catalog"); setInspectorOpen(true); }} data-testid="opencode-mobile-catalog-open">Catalog</button>
+              <div className="rounded px-3 py-2 text-sm" data-testid="opencode-mobile-auto-permissions-safety">
+                <p className="font-medium">Auto permissions safety</p>
+                <p className="mt-2 text-xs font-medium">Danger: every asked permission is approved once automatically, including arbitrary shell commands, external-directory access, and repeated requests from a doom loop. This affects every session using this project directory and resets to off when the BFF restarts.</p>
+              </div>
+            </div>
+          </details>
         </div>
 
-        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1" data-testid="opencode-conversation-toolbar">
+        <div className="hidden min-w-0 flex-wrap items-center gap-x-2 gap-y-1 sm:flex" data-testid="opencode-conversation-toolbar">
           {session && session.cost > 0 && (
             <span className="hidden text-xs tabular-nums text-[var(--color-text-muted)] sm:inline" data-testid="opencode-session-cost">
               {formatCost(session.cost)}
@@ -507,15 +526,6 @@ export function ConversationPage() {
               Stop
             </Button>
           )}
-          <details className="relative sm:hidden" data-testid="opencode-mobile-session-menu">
-            <summary className="flex h-11 w-11 cursor-pointer list-none items-center justify-center rounded-md text-[var(--color-text-muted)] hover:bg-[var(--hh-row-hover)] [&::-webkit-details-marker]:hidden" aria-label="Session actions">
-              <Ellipsis aria-hidden="true" className="h-5 w-5" />
-            </summary>
-            <div className="absolute right-0 z-30 mt-1 grid min-w-40 overflow-hidden rounded-lg border border-[var(--color-border-default)] bg-[var(--color-background-surface)] p-1 shadow-xl">
-              <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); toggleWrap(); }} data-testid="opencode-mobile-wrap-toggle">{wrap ? "Disable wrapping" : "Enable wrapping"}</button>
-              <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setShareTarget({ kind: "session" }); }} data-testid="opencode-mobile-share-export-open">Share</button>
-            </div>
-          </details>
         </div>
       </header>
 

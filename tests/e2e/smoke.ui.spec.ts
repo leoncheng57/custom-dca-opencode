@@ -1052,9 +1052,9 @@ test.describe("mobile", () => {
     const transcript = page.getByTestId("opencode-transcript");
     await expect(transcript).toBeVisible();
     await expect(page.getByTestId("opencode-composer-mode")).toBeVisible();
-    const autoPermissions = page.getByTestId("opencode-conversation-auto-permissions");
-    await expect(autoPermissions.getByTestId("opencode-conversation-auto-permissions-toggle")).toHaveAttribute("aria-checked", "false");
-    expect((await autoPermissions.boundingBox())?.height).toBeLessThanOrEqual(72);
+    const autoPermissions = page.getByTestId("opencode-mobile-auto-permissions-toggle");
+    await expect(autoPermissions).toHaveAttribute("aria-checked", "false");
+    expect((await autoPermissions.boundingBox())?.height).toBeGreaterThanOrEqual(44);
     const containment = await page.evaluate(() => ({
       horizontalOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       bodyOverscroll: getComputedStyle(document.body).overscrollBehaviorY,
