@@ -1213,17 +1213,26 @@ test.describe("mobile", () => {
     expect(railBox?.width).toBeCloseTo(diffBox?.width ?? 0, 0);
   });
 
-  test("opens session todo, run log, reviews, and catalog in a dismissible mobile sheet", async ({ page }) => {
+  test("splits mobile reviews and catalog from the run log sheet", async ({ page }) => {
     await fetch(`${MOCK_URL}/test/catalog-requests`, { method: "POST" });
     await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
     await page.getByTestId("opencode-mobile-runlog-open").click();
     const sheet = page.getByTestId("opencode-mobile-inspector");
     await expect(sheet).toBeVisible();
     await expect(sheet.getByTestId("opencode-command-list")).toBeVisible();
-    await sheet.getByTestId("opencode-inspector-reviews").click();
+    await expect(sheet.getByTestId("opencode-inspector-reviews")).toHaveCount(0);
+    await expect(sheet.getByTestId("opencode-inspector-catalog")).toHaveCount(0);
+    await sheet.getByTestId("opencode-inspector-todo").click();
+    await expect(sheet.getByTestId("opencode-todo-list")).toBeVisible();
+    await sheet.getByTestId("opencode-mobile-inspector-close").click();
+
+    await page.getByTestId("opencode-mobile-reviews-open").click();
     await expect(sheet.getByTestId("opencode-merge-request-list")).toBeVisible();
     expect(await (await fetch(`${MOCK_URL}/test/catalog-requests`)).json()).toEqual({ count: 0 });
-    await sheet.getByTestId("opencode-inspector-catalog").click();
+    await sheet.getByTestId("opencode-mobile-inspector-close").click();
+
+    await page.getByTestId("opencode-mobile-session-menu").locator(":scope > summary").click();
+    await page.getByTestId("opencode-mobile-catalog-open").click();
     await expect(sheet.getByTestId("opencode-catalog-mcp")).toContainText(/\d connected \/ 5 total/);
     await expect(sheet.getByTestId("opencode-catalog-mcp")).toContainText("needs client registration");
     await expect(sheet.getByTestId("opencode-catalog-skills")).toContainText("browser-check");

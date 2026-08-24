@@ -179,6 +179,7 @@ function InspectorContent({
   commandExporting,
   commandExportError,
   subagents,
+  tabs,
 }: {
   catalogue: CatalogResponse | null;
   catalogError: string | null;
@@ -197,12 +198,13 @@ function InspectorContent({
   commandExporting: boolean;
   commandExportError: string | null;
   subagents: SubagentsState;
+  tabs: readonly InspectorTab[];
 }) {
   const subagentCount = subagents.report?.tasks.length ?? 0;
   return (
     <>
-      <nav className="thin-scrollbar sticky top-0 z-10 flex overflow-x-auto border-b border-[var(--color-border-default)] bg-[var(--color-background-surface)] p-1" aria-label="Session detail panels">
-        {INSPECTOR_TABS.map((name) => (
+      {tabs.length > 1 && <nav className="thin-scrollbar sticky top-0 z-10 flex overflow-x-auto border-b border-[var(--color-border-default)] bg-[var(--color-background-surface)] p-1" aria-label="Session detail panels">
+        {tabs.map((name) => (
           <button
             key={name}
             type="button"
@@ -224,7 +226,7 @@ function InspectorContent({
             {name === "reviews" && links.length ? ` ${links.length}` : ""}
           </button>
         ))}
-      </nav>
+      </nav>}
 
       <div className="p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
         {tab === "todo" && <TodoPanel todos={todos} loaded={todosLoaded} error={todosError} />}
@@ -316,7 +318,7 @@ function InspectorContent({
   );
 }
 
-function MobileInspector({ onClose, children }: { onClose: () => void; children: (close: () => void) => React.ReactNode }) {
+function MobileInspector({ title, onClose, children }: { title: string; onClose: () => void; children: (close: () => void) => React.ReactNode }) {
   const onCloseRef = useRef(onClose);
   const dialogRef = useRef<HTMLElement>(null);
   onCloseRef.current = onClose;
@@ -360,12 +362,12 @@ function MobileInspector({ onClose, children }: { onClose: () => void; children:
         className="fixed inset-x-0 bottom-0 top-[max(0.75rem,env(safe-area-inset-top))] z-50 flex min-w-0 flex-col overflow-hidden rounded-t-2xl border-t border-[var(--color-border-default)] bg-[var(--color-background-surface)] shadow-xl"
         role="dialog"
         aria-modal="true"
-        aria-label="Session details"
+        aria-label={title}
         data-testid="opencode-mobile-inspector"
       >
         <header className="flex min-h-11 shrink-0 items-center border-b border-[var(--color-border-default)] px-3">
-          <h2 className="text-sm font-semibold">Session details</h2>
-          <button type="button" className="ml-auto flex min-h-11 min-w-11 items-center justify-center rounded text-sm" onClick={close} data-testid="opencode-mobile-inspector-close" aria-label="Close session details">Close</button>
+          <h2 className="text-sm font-semibold">{title}</h2>
+          <button type="button" className="ml-auto flex min-h-11 min-w-11 items-center justify-center rounded text-sm" onClick={close} data-testid="opencode-mobile-inspector-close" aria-label={`Close ${title.toLowerCase()}`}>Close</button>
         </header>
         <div className="thin-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain">{children(close)}</div>
       </section>
@@ -449,7 +451,7 @@ export function SessionInspector({ directory, sessionID, events, todos, todosLoa
 
   useEffect(() => () => catalogRequest.current?.controller.abort(), []);
 
-  const content = (onJump: (id: string) => void) => (
+  const content = (onJump: (id: string) => void, tabs: readonly InspectorTab[] = INSPECTOR_TABS) => (
     <InspectorContent
       catalogue={catalogue?.directory === directory ? catalogue.value : null}
       catalogError={catalogError}
@@ -468,8 +470,15 @@ export function SessionInspector({ directory, sessionID, events, todos, todosLoa
       commandExporting={commandExporting}
       commandExportError={commandExportError}
       subagents={subagents}
+      tabs={tabs}
     />
   );
+  const mobileTabs = requestedTab === "reviews"
+    ? ["reviews"] as const
+    : requestedTab === "catalog"
+      ? ["catalog"] as const
+      : ["runlog", "todo", "subagents"] as const;
+  const mobileTitle = requestedTab === "reviews" ? "Reviews" : requestedTab === "catalog" ? "Catalog" : "Run log";
 
   return (
     <>
@@ -481,11 +490,11 @@ export function SessionInspector({ directory, sessionID, events, todos, todosLoa
         {content(jumpToEvent)}
       </aside>
       {mobileOpen && onMobileClose && (
-        <MobileInspector onClose={onMobileClose}>
+        <MobileInspector title={mobileTitle} onClose={onMobileClose}>
           {(close) => content((eventId) => {
             close();
             setTimeout(() => jumpToEvent(eventId), 0);
-          })}
+          }, mobileTabs)}
         </MobileInspector>
       )}
     </>

@@ -23,7 +23,7 @@ async function box(locator: Locator) {
 test.describe("mobile conversation action bar", () => {
   test.use({ viewport: MOBILE, hasTouch: true });
 
-  test("uses five icon-only, touch-safe controls without horizontal overflow", async ({ page }) => {
+  test("uses compact icon controls, an Auto pill, and an info control without horizontal overflow", async ({ page }) => {
     await resetAutoPermissions(page);
     await page.goto(conversation);
 
@@ -38,6 +38,7 @@ test.describe("mobile conversation action bar", () => {
       page.getByTestId("opencode-mobile-reviews-open"),
       page.getByTestId("opencode-mobile-runlog-open"),
       page.getByTestId("opencode-mobile-auto-permissions-toggle"),
+      page.getByTestId("opencode-mobile-auto-permissions-info"),
       page.getByTestId("opencode-mobile-session-menu").locator(":scope > summary"),
     ];
     for (const control of controls) {
@@ -52,7 +53,9 @@ test.describe("mobile conversation action bar", () => {
     await expect(controls[3]).toHaveAttribute("role", "switch");
     await expect(controls[3]).toHaveAttribute("aria-checked", "false");
     await expect(controls[3]).toHaveAccessibleName("Turn auto permissions on");
-    await expect(controls[4]).toHaveAccessibleName("More session actions");
+    await expect(controls[4]).toHaveAccessibleName("Auto permissions safety");
+    await expect(controls[5]).toHaveAccessibleName("More session actions");
+    await expect(controls[3]).toContainText("OFF");
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
   });
 
@@ -74,7 +77,7 @@ test.describe("mobile conversation action bar", () => {
     await expect(inspector.getByTestId("opencode-command-list")).toBeVisible();
   });
 
-  test("keeps wrap, share, catalog, and permission safety in More", async ({ page }) => {
+  test("keeps only wrap, share, and catalog in More", async ({ page }) => {
     await resetAutoPermissions(page);
     await page.goto(conversation);
 
@@ -85,15 +88,20 @@ test.describe("mobile conversation action bar", () => {
       await expect(item).toBeVisible();
       expect((await box(item)).height).toBeGreaterThanOrEqual(44);
     }
-    await expect(page.getByTestId("opencode-mobile-auto-permissions-safety")).toContainText("arbitrary shell commands");
+    await expect(menu).not.toContainText("Auto permissions safety");
 
     await page.getByTestId("opencode-mobile-catalog-open").click();
     await expect(page.getByTestId("opencode-mobile-inspector").getByTestId("opencode-catalog")).toBeVisible();
 
     await page.getByTestId("opencode-mobile-inspector-close").click();
+    await page.getByTestId("opencode-mobile-auto-permissions-info").click();
+    const safety = page.getByTestId("opencode-mobile-auto-permissions-safety-sheet");
+    await expect(safety).toContainText("This affects every session using this project directory and resets to off when the BFF restarts.");
+    await safety.getByTestId("opencode-mobile-auto-permissions-safety-close").click();
     await page.getByTestId("opencode-mobile-auto-permissions-toggle").click();
     await expect(page.getByTestId("opencode-mobile-auto-permissions-toggle")).toHaveAttribute("aria-checked", "true");
     await expect(page.getByTestId("opencode-mobile-auto-permissions-toggle")).toHaveAccessibleName("Turn auto permissions off");
+    await expect(page.getByTestId("opencode-mobile-auto-permissions-toggle")).toContainText("ON");
     await resetAutoPermissions(page);
   });
 });
