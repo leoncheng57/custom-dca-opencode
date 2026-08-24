@@ -479,10 +479,10 @@ export function ConversationPage() {
               <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); toggleWrap(); }} data-testid="opencode-mobile-wrap-toggle">{wrap ? "Disable wrapping" : "Enable wrapping"}</button>
               <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setShareTarget({ kind: "session" }); }} data-testid="opencode-mobile-share-export-open">Share</button>
               <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setRequestedInspectorTab("catalog"); setInspectorOpen(true); }} data-testid="opencode-mobile-catalog-open">Catalog</button>
-              <details className="rounded px-3 py-2 text-sm" data-testid="opencode-mobile-auto-permissions-safety">
-                <summary className="cursor-pointer font-medium">Auto permissions safety</summary>
+              <div className="rounded px-3 py-2 text-sm" data-testid="opencode-mobile-auto-permissions-safety">
+                <p className="font-medium">Auto permissions safety</p>
                 <p className="mt-2 text-xs font-medium">Danger: every asked permission is approved once automatically, including arbitrary shell commands, external-directory access, and repeated requests from a doom loop. This affects every session using this project directory and resets to off when the BFF restarts.</p>
-              </details>
+              </div>
             </div>
           </details>
         </div>
