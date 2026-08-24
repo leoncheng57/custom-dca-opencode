@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { ChevronDown, Ellipsis, FolderOpen, GitPullRequest, Info, MessageSquareText, Waves } from "lucide-react";
+import { ChevronDown, Ellipsis, FolderOpen, GitPullRequest, Info, MessageSquareText, OctagonX, Waves } from "lucide-react";
 
 import { Alert } from "../ds/alert.js";
 import { Badge } from "../ds/badge.js";
@@ -95,6 +95,11 @@ export function ConversationPage() {
   const composerCardRef = useRef<HTMLDivElement | null>(null);
   const [autoSafetyOpen, setAutoSafetyOpen] = useState(false);
   const composerWorkflowRef = useRef(false);
+  const [stopConfirmOpen, setStopConfirmOpen] = useState(false);
+  const [stopping, setStopping] = useState(false);
+  const [stopError, setStopError] = useState<string | null>(null);
+  const stopTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const stopDialogRef = useRef<HTMLElement | null>(null);
   const [parent, setParent] = useState<SessionSummary | null>(null);
 
   // Keep event identity stable across polls so memoised rows do not churn.
@@ -251,6 +256,52 @@ export function ConversationPage() {
       localStorage.setItem(WRAP_KEY, value ? "off" : "on");
       return !value;
     });
+  };
+
+  const dismissStopConfirmation = useCallback(() => {
+    if (stopping) return;
+    if ((window.history.state as { opencodeStopConfirmation?: boolean } | null)?.opencodeStopConfirmation) {
+      window.history.back();
+    } else {
+      setStopConfirmOpen(false);
+    }
+  }, [stopping]);
+
+  useEffect(() => {
+    if (!stopConfirmOpen) return;
+    if (!(window.history.state as { opencodeStopConfirmation?: boolean } | null)?.opencodeStopConfirmation) {
+      window.history.pushState({ opencodeStopConfirmation: true }, "");
+    }
+    const onPopState = () => setStopConfirmOpen(false);
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") dismissStopConfirmation();
+    };
+    window.addEventListener("popstate", onPopState);
+    window.addEventListener("keydown", onKeyDown);
+    stopDialogRef.current?.focus();
+    return () => {
+      window.removeEventListener("popstate", onPopState);
+      window.removeEventListener("keydown", onKeyDown);
+      stopTriggerRef.current?.focus();
+    };
+  }, [dismissStopConfirmation, stopConfirmOpen]);
+
+  const stopRun = async () => {
+    if (stopping) return;
+    setStopping(true);
+    setStopError(null);
+    try {
+      await api.abort(directory, id);
+      stream.refresh();
+      setStopConfirmOpen(false);
+      if ((window.history.state as { opencodeStopConfirmation?: boolean } | null)?.opencodeStopConfirmation) {
+        window.history.back();
+      }
+    } catch (error) {
+      setStopError(`Could not stop the run: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setStopping(false);
+    }
   };
 
   // Follow live output only while the reader remains near the bottom. Depending
@@ -430,23 +481,34 @@ export function ConversationPage() {
           </h1>
           {parentID && <Badge variant="neutral" data-testid="opencode-subagent-badge">sub</Badge>}
           {stream.running && <Badge variant="info">running</Badge>}
+          {stream.running && <button
+            ref={stopTriggerRef}
+            type="button"
+            className="flex min-h-11 min-w-11 items-center justify-center rounded-md text-[var(--color-text-danger)] hover:bg-[var(--color-background-surface-danger-muted)] sm:hidden"
+            onClick={() => { setStopError(null); setStopConfirmOpen(true); }}
+            aria-label="Stop running agent"
+            title="Stop running agent"
+            data-testid="opencode-mobile-stop-open"
+          >
+            <OctagonX aria-hidden="true" className="h-4 w-4" />
+          </button>}
         </div>
 
         <div className="grid grid-cols-6 gap-1 sm:hidden" aria-label="Session actions" data-testid="opencode-mobile-conversation-actions">
           <Button
             size="md"
-            variant="secondary"
+            variant="ghost"
             className="min-h-11 min-w-0 px-0"
             onClick={() => setWorkspaceOpen(true)}
             aria-label="Open workspace"
             title="Open workspace"
             data-testid="opencode-mobile-workspace-open"
           >
-            <FolderOpen aria-hidden="true" className="h-4 w-4" />
+            <FolderOpen aria-hidden="true" className="h-3.5 w-3.5" />
           </Button>
           <Button
             size="md"
-            variant="secondary"
+            variant="ghost"
             className="min-h-11 min-w-0 px-0"
             onClick={() => {
               setRequestedInspectorTab("reviews");
@@ -456,11 +518,11 @@ export function ConversationPage() {
             title="Open reviews"
             data-testid="opencode-mobile-reviews-open"
           >
-            <GitPullRequest aria-hidden="true" className="h-4 w-4" />
+            <GitPullRequest aria-hidden="true" className="h-3.5 w-3.5" />
           </Button>
           <Button
             size="md"
-            variant="secondary"
+            variant="ghost"
             className="min-h-11 min-w-0 px-0"
             onClick={() => {
               setRequestedInspectorTab("runlog");
@@ -470,15 +532,15 @@ export function ConversationPage() {
             title="Open run log"
             data-testid="opencode-mobile-runlog-open"
           >
-            <Waves aria-hidden="true" className="h-4 w-4" />
+            <Waves aria-hidden="true" className="h-3.5 w-3.5" />
           </Button>
           <AutoPermissionsControl directory={directory} testId="opencode-mobile-auto-permissions" variant="pill" />
-          <Button size="md" variant="secondary" className="min-h-11 min-w-0 px-0" onClick={() => setAutoSafetyOpen(true)} aria-label="Auto permissions safety" title="Auto permissions safety" data-testid="opencode-mobile-auto-permissions-info">
-            <Info aria-hidden="true" className="h-4 w-4" />
+          <Button size="md" variant="ghost" className="min-h-11 min-w-0 px-0" onClick={() => setAutoSafetyOpen(true)} aria-label="Auto permissions safety" title="Auto permissions safety" data-testid="opencode-mobile-auto-permissions-info">
+            <Info aria-hidden="true" className="h-3.5 w-3.5" />
           </Button>
           <details className="relative" data-testid="opencode-mobile-session-menu">
             <summary className="flex min-h-11 min-w-11 cursor-pointer list-none items-center justify-center rounded-md text-[var(--color-text-muted)] hover:bg-[var(--hh-row-hover)] [&::-webkit-details-marker]:hidden" aria-label="More session actions" title="More session actions">
-              <Ellipsis aria-hidden="true" className="h-4 w-4" />
+              <Ellipsis aria-hidden="true" className="h-3.5 w-3.5" />
             </summary>
             <div className="absolute right-0 z-30 mt-1 grid min-w-40 overflow-hidden rounded-lg border border-[var(--color-border-default)] bg-[var(--color-background-surface)] p-1 shadow-xl">
               <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); toggleWrap(); }} data-testid="opencode-mobile-wrap-toggle">{wrap ? "Disable wrapping" : "Enable wrapping"}</button>
@@ -666,6 +728,7 @@ export function ConversationPage() {
                 onToggleGroup={toggleGroup}
                 onExport={exportMessage}
                 directory={directory}
+                sessionId={id}
               />
             )}
             {stream.running && (
@@ -816,6 +879,20 @@ export function ConversationPage() {
           <section className="relative w-full rounded-t-2xl border border-[var(--color-border-default)] bg-[var(--color-background-surface)] p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-xl sm:max-w-md sm:rounded-xl" role="dialog" aria-modal="true" aria-label="Auto permissions safety">
             <div className="flex items-center gap-2"><h2 className="text-sm font-semibold">Auto permissions safety</h2><button type="button" className="ml-auto min-h-11 min-w-11 rounded text-sm" onClick={() => setAutoSafetyOpen(false)} aria-label="Close auto permissions safety" data-testid="opencode-mobile-auto-permissions-safety-close">Close</button></div>
             <p className="mt-3 text-sm text-[var(--color-text-muted)]">Auto permissions approves every asked permission once, including arbitrary shell commands, external-directory access, and repeated requests from a doom loop. This affects every session using this project directory and resets to off when the BFF restarts.</p>
+          </section>
+        </div>
+      )}
+      {stopConfirmOpen && (
+        <div className="fixed inset-0 z-[90] flex items-end justify-center sm:items-center sm:p-4" data-testid="opencode-stop-confirmation">
+          <button type="button" className="absolute inset-0 bg-[var(--color-background-overlay)] disabled:cursor-wait" aria-label="Keep running" disabled={stopping} onClick={dismissStopConfirmation} data-testid="opencode-stop-confirmation-scrim" />
+          <section ref={stopDialogRef} tabIndex={-1} className="relative w-full rounded-t-2xl border border-[var(--color-border-default)] bg-[var(--color-background-surface)] p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-xl sm:max-w-md sm:rounded-xl" role="dialog" aria-modal="true" aria-labelledby="stop-confirmation-title">
+            <h2 id="stop-confirmation-title" className="text-base font-semibold">Stop this run?</h2>
+            <p className="mt-2 text-sm text-[var(--color-text-muted)]">The agent will stop immediately. Its current work may be incomplete.</p>
+            {stopError && <p className="mt-3 text-sm text-[var(--color-text-danger)]" role="alert" data-testid="opencode-stop-error">{stopError}</p>}
+            <div className="mt-5 flex justify-end gap-2">
+              <Button type="button" variant="secondary" disabled={stopping} onClick={dismissStopConfirmation} data-testid="opencode-stop-keep-running">Keep running</Button>
+              <Button type="button" variant="danger" disabled={stopping} onClick={() => void stopRun()} data-testid="opencode-stop-confirm">{stopping ? "Stopping..." : "Stop agent"}</Button>
+            </div>
           </section>
         </div>
       )}

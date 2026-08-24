@@ -6,6 +6,7 @@ import {
   messageMode,
   normalizeMessage,
   normalizeTranscript,
+  PATCH_FILE_METADATA_LIMITS,
   taskMetadataOf,
   toolDetail,
   type RawMessage,
@@ -277,7 +278,7 @@ describe("mode on transcript rows", () => {
     expect(assistant).not.toHaveProperty("mode");
   });
 
-  it("does not mark thoughts, tools or status rows", () => {
+  it("does not mark thoughts, tools or patch rows", () => {
     const events = normalizeMessage({
       info: { id: "m4", role: "assistant", agent: "plan", time: { created: 4 } },
       parts: [
@@ -286,7 +287,7 @@ describe("mode on transcript rows", () => {
         { id: "p3", messageID: "m4", type: "patch", hash: "h", files: ["a.ts"] },
       ],
     });
-    expect(events.map((event) => event.kind)).toEqual(["thought", "tool", "status"]);
+    expect(events.map((event) => event.kind)).toEqual(["thought", "tool", "patch"]);
     for (const event of events) expect(event).not.toHaveProperty("mode");
   });
 
@@ -304,13 +305,76 @@ describe("mode on transcript rows", () => {
   });
 });
 
-describe("status rows", () => {
+describe("milestone rows", () => {
   const { events } = normalizeTranscript(messages);
 
-  it("summarises a patch by file count", () => {
+  it("preserves patch files and the directly stated initiating user message", () => {
     const patch = events.find((e) => e.id === "prt_patch_001")!;
-    expect(patch.kind).toBe("status");
-    expect((patch as { label: string }).label).toBe("Edited 2 files");
+    expect(patch).toEqual(expect.objectContaining({
+      kind: "patch",
+      files: ["server/index.ts", "tests/health.test.ts"],
+      fileCount: 2,
+      filesTruncated: false,
+      userMessageId: "msg_user_001",
+    }));
+  });
+
+  it("does not infer an initiating user message when parentID is absent", () => {
+    const [patch] = normalizeMessage({
+      info: { id: "m_patch", role: "assistant", time: { created: 1 } },
+      parts: [{ id: "p_patch", type: "patch", files: ["src/a.ts"] }],
+    });
+    expect(patch.kind).toBe("patch");
+    expect(patch).not.toHaveProperty("userMessageId");
+  });
+
+  it("drops malformed patch file names at the adapter seam", () => {
+    const [patch] = normalizeMessage({
+      info: { id: "m_patch", role: "assistant", parentID: "m_user", time: { created: 1 } },
+      parts: [{ id: "p_patch", type: "patch", files: [" src/a.ts ", "", 42 as unknown as string] }],
+    });
+    expect(patch).toEqual(expect.objectContaining({
+      kind: "patch",
+      files: ["src/a.ts"],
+      fileCount: 3,
+      filesTruncated: true,
+    }));
+  });
+
+  it("bounds patch filename count, each path, and aggregate path metadata", () => {
+    const rawFiles = Array.from({ length: PATCH_FILE_METADATA_LIMITS.displayedFiles + 4 }, (_, index) =>
+      `src/${index}/${"x".repeat(PATCH_FILE_METADATA_LIMITS.pathCharacters * 2)}.ts`
+    );
+    const [patch] = normalizeMessage({
+      info: { id: "m_patch", role: "assistant", parentID: "m_user", time: { created: 1 } },
+      parts: [{ id: "p_patch", type: "patch", files: rawFiles }],
+    });
+    expect(patch.kind).toBe("patch");
+    if (patch.kind !== "patch") return;
+    expect(patch.fileCount).toBe(rawFiles.length);
+    expect(patch.filesTruncated).toBe(true);
+    expect(patch.files.length).toBeLessThanOrEqual(PATCH_FILE_METADATA_LIMITS.displayedFiles);
+    expect(patch.files.every((file) => file.length <= PATCH_FILE_METADATA_LIMITS.pathCharacters)).toBe(true);
+    expect(patch.files.reduce((total, file) => total + file.length, 0)).toBeLessThanOrEqual(
+      PATCH_FILE_METADATA_LIMITS.aggregatePathCharacters,
+    );
+  });
+
+  it("does not inspect filename entries beyond the bounded display window", () => {
+    const rawFiles = Array.from({ length: PATCH_FILE_METADATA_LIMITS.displayedFiles + 1 }, (_, index) => `src/${index}.ts`);
+    Object.defineProperty(rawFiles, PATCH_FILE_METADATA_LIMITS.displayedFiles, {
+      get: () => { throw new Error("unbounded filename access"); },
+    });
+
+    const [patch] = normalizeMessage({
+      info: { id: "m_patch", role: "assistant", time: { created: 1 } },
+      parts: [{ id: "p_patch", type: "patch", files: rawFiles }],
+    });
+    expect(patch).toEqual(expect.objectContaining({
+      fileCount: PATCH_FILE_METADATA_LIMITS.displayedFiles + 1,
+      files: rawFiles.slice(0, PATCH_FILE_METADATA_LIMITS.displayedFiles),
+      filesTruncated: true,
+    }));
   });
 
   it("marks automatic compaction", () => {
@@ -407,6 +471,7 @@ describe("frozen contract", () => {
       "title", "detail", "output", "error", "durationMs", "attachments",
       "taskExecution", "taskAgent", "taskModel", "childSessionId",
     ],
+    patch: ["kind", "id", "messageId", "timestamp", "files", "fileCount", "filesTruncated", "userMessageId"],
     status: ["kind", "id", "messageId", "timestamp", "label", "detail", "childSessionId"],
     error: ["kind", "id", "messageId", "timestamp", "message"],
   };
@@ -423,7 +488,7 @@ describe("frozen contract", () => {
   it("emits only scalars, except attachments", () => {
     for (const event of events) {
       for (const [key, value] of Object.entries(event)) {
-        if (key === "attachments" || key === "reminders") continue;
+        if (key === "attachments" || key === "reminders" || key === "files") continue;
         expect(
           value === null || typeof value !== "object",
           `${event.kind}.${key} must not be a nested backend object`,
@@ -443,6 +508,13 @@ describe("frozen contract", () => {
       }
     }
   });
+
+  it("keeps patch files as display-only strings", () => {
+    for (const event of events) {
+      if (event.kind !== "patch") continue;
+      expect(event.files.every((file) => typeof file === "string")).toBe(true);
+    }
+  });
 });
 
 describe("normalizeMessage", () => {
@@ -453,6 +525,17 @@ describe("normalizeMessage", () => {
     });
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ kind: "error", message: "boom" });
+  });
+
+  it("keeps a turn-level error alongside partial output", () => {
+    const events = normalizeMessage({
+      info: { id: "m9", role: "assistant", time: { created: 5 }, error: { message: "boom" } },
+      parts: [{ id: "p9", messageID: "m9", type: "text", text: "partial answer" }],
+    });
+    expect(events).toMatchObject([
+      { kind: "agent", text: "partial answer" },
+      { kind: "error", message: "boom" },
+    ]);
   });
 
   it("produces ISO timestamps", () => {

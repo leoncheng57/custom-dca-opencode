@@ -19,7 +19,7 @@
 //     grouping and scroll anchoring work without backend knowledge.
 
 /** Discriminator for the row a transcript entry renders as. */
-export type TranscriptKind = "user" | "agent" | "thought" | "tool" | "status" | "error";
+export type TranscriptKind = "user" | "agent" | "thought" | "tool" | "patch" | "status" | "error";
 
 /**
  * Primary agent mode a prose message was produced under.
@@ -119,6 +119,19 @@ export interface ToolEvent extends TranscriptBase {
   childSessionId?: string;
 }
 
+/** A file-edit milestone. Full patches are fetched only when this row is opened. */
+export interface PatchEvent extends TranscriptBase {
+  kind: "patch";
+  /** Bounded display names; never the raw upstream array. */
+  files: string[];
+  /** Total names reported upstream, including names omitted from `files`. */
+  fileCount: number;
+  /** At least one name was omitted or shortened for display. */
+  filesTruncated: boolean;
+  /** Initiating user message, stated directly by the assistant message. */
+  userMessageId?: string;
+}
+
 /** Lifecycle markers rendered as separators: compaction, retries, snapshots. */
 export interface StatusEvent extends TranscriptBase {
   kind: "status";
@@ -140,6 +153,7 @@ export type TranscriptEvent =
   | AgentEvent
   | ThoughtEvent
   | ToolEvent
+  | PatchEvent
   | StatusEvent
   | ErrorEvent;
 

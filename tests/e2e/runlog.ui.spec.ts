@@ -18,8 +18,8 @@ test.describe("Run log activity timeline", () => {
     const rows = panel.getByTestId("opencode-command-row");
     await expect(rows).toHaveCount(4);
     expect(await rows.evaluateAll((elements) => elements.map((element) => element.getAttribute("data-activity-id")))).toEqual([
-      "prt_patch_001",
       "prt_tool_001",
+      "prt_patch_001",
       "prt_tool_002",
       "prt_tool_003",
     ]);
@@ -64,5 +64,50 @@ test.describe("Run log activity timeline", () => {
     await edit.click();
     await expect(sheet).toHaveCount(0);
     await expect(page.locator('[data-event-id="prt_patch_001"]')).toBeFocused();
+  });
+
+  test("expands a collapsed action group before jumping to its exact tool", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.route("**/api/sessions/ses_mock_done/messages?**", (route) => route.fulfill({
+      json: {
+        messages: [
+          {
+            info: { id: "msg_group_user", role: "user", agent: "build", time: { created: 1787000000000 } },
+            parts: [{ id: "prt_group_prompt", messageID: "msg_group_user", type: "text", text: "Run checks" }],
+          },
+          {
+            info: { id: "msg_group_agent", role: "assistant", parentID: "msg_group_user", mode: "build", time: { created: 1787000001000, completed: 1787000005000 } },
+            parts: ["one", "two", "three"].map((name, index) => ({
+              id: `prt_group_${name}`,
+              messageID: "msg_group_agent",
+              type: "tool",
+              tool: "bash",
+              state: {
+                status: "completed",
+                input: { command: `echo ${name}` },
+                output: name,
+                title: name,
+                metadata: {},
+                time: { start: 1787000002000 + index * 100, end: 1787000002050 + index * 100 },
+              },
+            })),
+          },
+        ],
+        nextCursor: null,
+      },
+    }));
+
+    await page.goto(conversation);
+    const group = page.getByTestId("opencode-action-group");
+    await expect(group).toHaveCount(1);
+    await group.getByTestId("opencode-action-group-toggle").click();
+    await expect(page.locator('[data-event-id="prt_group_two"]')).toHaveCount(0);
+
+    await page.getByTestId("opencode-inspector-runlog").click();
+    const row = page.getByTestId("opencode-command-row").filter({ hasText: "echo two" });
+    await row.click();
+
+    await expect(group.getByTestId("opencode-action-group-toggle")).toHaveAttribute("aria-expanded", "true");
+    await expect(page.locator('[data-event-id="prt_group_two"]')).toBeFocused();
   });
 });
