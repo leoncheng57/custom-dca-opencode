@@ -71,4 +71,21 @@ describe("session turn diff API", () => {
       status: "modified",
     });
   });
+
+  it("threads cancellation to the diff request", async () => {
+    const controller = new AbortController();
+    let requestedSignal: AbortSignal | null | undefined;
+    vi.stubGlobal("fetch", vi.fn((_input: string | URL | Request, init?: RequestInit) => {
+      requestedSignal = init?.signal;
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+      });
+    }));
+
+    const result = api.sessionTurnDiff("/tmp/project", "ses_1", "msg_1", controller.signal);
+    controller.abort();
+
+    expect(requestedSignal).toBe(controller.signal);
+    await expect(result).rejects.toMatchObject({ name: "AbortError" });
+  });
 });

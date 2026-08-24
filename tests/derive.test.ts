@@ -84,12 +84,19 @@ describe("mergeEvents", () => {
     expect(next).not.toBe(prev);
   });
 
-  it("sorts chronologically with a stable tiebreak", () => {
+  it("preserves authoritative incoming order when timestamps tie", () => {
     const merged = mergeEvents(
       [agent("b", "second", at(2))],
-      [agent("a", "first", at(1)), agent("b", "second", at(2)), agent("c", "same", at(2))],
+      [agent("a", "first", at(1)), agent("c", "same", at(2)), agent("b", "second", at(2))],
     );
-    expect(merged.map((e) => e.id)).toEqual(["a", "b", "c"]);
+    expect(merged.map((e) => e.id)).toEqual(["a", "c", "b"]);
+  });
+
+  it("detects an order-only correction", () => {
+    const first = agent("a", "first");
+    const second = agent("b", "second");
+    const merged = mergeEvents([first, second], [second, first]);
+    expect(merged).toEqual([second, first]);
   });
 
   it("lets incoming replace an existing event", () => {
@@ -114,6 +121,29 @@ describe("mergeEvents", () => {
   it("still holds the reference when mode and text are both unchanged", () => {
     const previous = [user("u1", "same text", "build")];
     expect(mergeEvents(previous, [user("u1", "same text", "build")])).toBe(previous);
+  });
+
+  it("replaces bounded patch metadata when the hidden file count grows", () => {
+    const previous: TranscriptEvent[] = [{
+      kind: "patch",
+      id: "patch",
+      messageId: "m1",
+      timestamp: at(1),
+      files: ["a.ts", "b.ts"],
+      fileCount: 2,
+      filesTruncated: false,
+      userMessageId: "u1",
+    }];
+    const incoming: TranscriptEvent[] = [{
+      ...previous[0],
+      kind: "patch",
+      fileCount: 12,
+      filesTruncated: true,
+    }];
+
+    const merged = mergeEvents(previous, incoming);
+    expect(merged).not.toBe(previous);
+    expect(merged[0]).toBe(incoming[0]);
   });
 
   it("preserves unchanged row identity when a sibling changes", () => {
@@ -161,6 +191,21 @@ describe("collapseActionGroups", () => {
     ]);
     expect(items.map((item) => item.id)).toEqual(["ok1", "task", "ok2"]);
     expect(items.every((item) => item.type === "event")).toBe(true);
+  });
+
+  it("keeps edit milestones between completed action groups", () => {
+    const patch: TranscriptEvent = {
+      kind: "patch",
+      id: "patch",
+      messageId: "m1",
+      timestamp: at(1),
+      files: ["src/index.ts"],
+      fileCount: 1,
+      filesTruncated: false,
+      userMessageId: "user-1",
+    };
+    const items = collapseActionGroups([tool("before-1"), tool("before-2"), patch, tool("after-1"), tool("after-2")]);
+    expect(items.map((item) => item.id)).toEqual(["group-before-1", "patch", "group-after-1"]);
   });
 
   it("leaves a single call ungrouped", () => {

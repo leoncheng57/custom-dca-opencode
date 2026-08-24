@@ -728,6 +728,7 @@ export function ConversationPage() {
                 onToggleGroup={toggleGroup}
                 onExport={exportMessage}
                 directory={directory}
+                sessionId={id}
               />
             )}
             {stream.running && (

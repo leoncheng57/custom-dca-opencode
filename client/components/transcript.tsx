@@ -5,18 +5,20 @@
 // OpenCode Part. That wall is what made this migration a small adapter rewrite
 // instead of a rebuild; see client/lib/transcript.ts.
 
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { Markdown } from "../ds/markdown.js";
 import { Badge } from "../ds/badge.js";
 import { cn } from "../ds/utils.js";
+import { api, ApiError, type SessionTurnDiff } from "../lib/api.js";
 import { formatClockTime, formatDurationMs, formatRelative, type DisplayItem, type RunningActivity } from "../lib/derive.js";
 import type {
   Attachment,
   AgentEvent,
   ErrorEvent,
   MessageMode,
+  PatchEvent,
   StatusEvent,
   ThoughtEvent,
   ToolEvent,
@@ -499,6 +501,187 @@ function StatusSeparator({ event, directory }: { event: StatusEvent; directory?:
   );
 }
 
+const MAX_DIFF_FILES = 50;
+const MAX_DIFF_LINES = 3_000;
+const MAX_DIFF_CHARACTERS = 120_000;
+
+function DiffLine({ line }: { line: string }) {
+  const className = line.startsWith("+") && !line.startsWith("+++")
+    ? "text-[var(--color-text-success)]"
+    : line.startsWith("-") && !line.startsWith("---")
+      ? "text-[var(--color-text-danger)]"
+      : line.startsWith("@@")
+        ? "text-[var(--color-text-info)]"
+        : undefined;
+  return <span className={cn("block min-w-max", className)}>{line || " "}</span>;
+}
+
+function PatchDetails({ changes }: { changes: SessionTurnDiff[] }) {
+  if (changes.length === 0) {
+    return (
+      <p className="text-xs text-[var(--color-text-muted)]" data-testid="opencode-turn-diff-empty">
+        No file changes were returned for this turn.
+      </p>
+    );
+  }
+
+  const lineCount = changes.reduce((total, change) => total + change.patch.split("\n").length, 0);
+  const characterCount = changes.reduce((total, change) => total + change.patch.length, 0);
+  if (changes.length > MAX_DIFF_FILES || lineCount > MAX_DIFF_LINES || characterCount > MAX_DIFF_CHARACTERS) {
+    return (
+      <p className="text-xs text-[var(--color-text-muted)]" data-testid="opencode-turn-diff-too-large">
+        This diff is too large to render safely ({changes.length} files, {lineCount.toLocaleString()} lines).
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-3" data-testid="opencode-turn-diff-content">
+      {changes.map((change, index) => (
+        <section
+          key={`${change.file}-${index}`}
+          className="min-w-0 overflow-hidden rounded-md border border-[var(--color-border-default)]"
+          data-testid="opencode-turn-diff-file"
+        >
+          <header className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 bg-[var(--color-background-muted)] px-2.5 py-2 text-[11px]">
+            <span className="min-w-0 flex-1 break-all font-mono font-medium">{change.file}</span>
+            <span className="shrink-0 capitalize text-[var(--color-text-muted)]">{change.status}</span>
+            <span className="shrink-0 tabular-nums text-[var(--color-text-success)]">+{change.additions}</span>
+            <span className="shrink-0 tabular-nums text-[var(--color-text-danger)]">-{change.deletions}</span>
+          </header>
+          {change.patch ? (
+            <pre className="thin-scrollbar max-h-80 overflow-auto bg-[var(--color-background-surface)] p-2.5 font-mono text-[11px] leading-5" data-testid="opencode-turn-diff-patch">
+              <code>{change.patch.split("\n").map((line, lineIndex) => <DiffLine key={lineIndex} line={line} />)}</code>
+            </pre>
+          ) : (
+            <p className="p-2.5 text-xs text-[var(--color-text-muted)]">Patch content is unavailable.</p>
+          )}
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function ChangedFilesCard({ event, directory, sessionId }: { event: PatchEvent; directory?: string; sessionId?: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [state, setState] = useState<
+    | { status: "idle" | "loading" }
+    | { status: "loaded"; changes: SessionTurnDiff[] }
+    | { status: "too-large" }
+    | { status: "error"; message: string }
+  >({ status: "idle" });
+  const requestGeneration = useRef(0);
+  const requestController = useRef<AbortController | null>(null);
+  const canLoad = Boolean(directory && sessionId && event.userMessageId);
+  const countLabel = event.fileCount === 1 ? "1 file changed" : `${event.fileCount} files changed`;
+
+  useEffect(() => {
+    requestGeneration.current += 1;
+    setExpanded(false);
+    setState({ status: "idle" });
+    return () => {
+      requestGeneration.current += 1;
+      requestController.current?.abort();
+      requestController.current = null;
+    };
+  }, [directory, event.userMessageId, sessionId]);
+
+  const load = async () => {
+    if (!directory || !sessionId || !event.userMessageId) return;
+    requestController.current?.abort();
+    const controller = new AbortController();
+    requestController.current = controller;
+    const generation = ++requestGeneration.current;
+    setState({ status: "loading" });
+    try {
+      const result = await api.sessionTurnDiff(directory, sessionId, event.userMessageId, controller.signal);
+      if (requestGeneration.current !== generation) return;
+      setState({ status: "loaded", changes: result.changes });
+    } catch (error) {
+      if (requestGeneration.current !== generation) return;
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      if (error instanceof ApiError && error.code === "TURN_DIFF_TOO_LARGE") {
+        setState({ status: "too-large" });
+        return;
+      }
+      setState({ status: "error", message: error instanceof Error ? error.message : String(error) });
+    } finally {
+      if (requestController.current === controller) requestController.current = null;
+    }
+  };
+
+  const toggle = () => {
+    if (expanded) {
+      setExpanded(false);
+      if (state.status === "loading") {
+        requestGeneration.current += 1;
+        requestController.current?.abort();
+        requestController.current = null;
+        setState({ status: "idle" });
+      }
+      return;
+    }
+    setExpanded(true);
+    if (state.status === "idle") void load();
+  };
+
+  return (
+    <section
+      className="min-w-0 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-background-surface)] p-3"
+      data-kind="patch"
+      data-testid="opencode-changed-files-card"
+    >
+      <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start">
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+            <h3 className="text-xs font-semibold">{countLabel}</h3>
+            <TimeLabel timestamp={event.timestamp} />
+          </div>
+          {(event.files.length > 0 || event.filesTruncated) && (
+            <p className="mt-1 break-words font-mono text-[11px] leading-5 text-[var(--color-text-muted)]" data-testid="opencode-changed-files-names">
+              {event.files.map((file, index) => <span key={`${file}-${index}`}>{index > 0 ? ", " : ""}{file}</span>)}
+              {event.files.length < event.fileCount && <span>{event.files.length > 0 ? ", " : ""}+{event.fileCount - event.files.length} more</span>}
+              {event.filesTruncated && event.files.length === event.fileCount && <span> (names truncated)</span>}
+            </p>
+          )}
+        </div>
+        {canLoad ? (
+          <button
+            type="button"
+            onClick={toggle}
+            aria-expanded={expanded}
+            className="min-h-9 shrink-0 self-start rounded-md border border-[var(--color-border-default)] px-3 text-xs font-medium hover:bg-[var(--color-background-muted)] pointer-coarse:min-h-11"
+            data-testid="opencode-turn-diff-toggle"
+          >
+            {expanded ? "Hide changes" : "View changes"}
+          </button>
+        ) : (
+          <span className="text-xs text-[var(--color-text-muted)]" data-testid="opencode-turn-diff-unavailable">
+            Detailed changes unavailable
+          </span>
+        )}
+      </div>
+      {expanded && (
+        <div className="mt-3 border-t border-[var(--color-border-default)] pt-3" data-testid="opencode-turn-diff-panel">
+          {state.status === "loading" && <p className="text-xs text-[var(--color-text-muted)]" role="status">Loading changes...</p>}
+          {state.status === "error" && (
+            <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--color-text-danger)]" role="alert" data-testid="opencode-turn-diff-error">
+              <span>Could not load changes: {state.message}</span>
+              <button type="button" className="min-h-9 rounded px-2 underline pointer-coarse:min-h-11" onClick={() => void load()} data-testid="opencode-turn-diff-retry">Retry</button>
+            </div>
+          )}
+          {state.status === "too-large" && (
+            <p className="text-xs text-[var(--color-text-muted)]" data-testid="opencode-turn-diff-too-large">
+              This diff is too large to load safely.
+            </p>
+          )}
+          {state.status === "loaded" && <PatchDetails changes={state.changes} />}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function ErrorCard({ event }: { event: ErrorEvent }) {
   return (
     <div
@@ -555,7 +738,7 @@ function ActionGroupRow({
   );
 }
 
-const TranscriptRow = memo(function TranscriptRow({ event, wrap, onExport, directory }: { event: TranscriptEvent; wrap: boolean; onExport?: (event: UserEvent | AgentEvent) => void; directory?: string }) {
+const TranscriptRow = memo(function TranscriptRow({ event, wrap, onExport, directory, sessionId }: { event: TranscriptEvent; wrap: boolean; onExport?: (event: UserEvent | AgentEvent) => void; directory?: string; sessionId?: string }) {
   switch (event.kind) {
     case "user":
       return <UserBubble event={event} onExport={onExport} />;
@@ -565,6 +748,8 @@ const TranscriptRow = memo(function TranscriptRow({ event, wrap, onExport, direc
       return <ThoughtRow text={event.text} durationMs={event.durationMs} />;
     case "tool":
       return <ToolCallRow event={event} wrap={wrap} directory={directory} />;
+    case "patch":
+      return <ChangedFilesCard event={event} directory={directory} sessionId={sessionId} />;
     case "status":
       return <StatusSeparator event={event} directory={directory} />;
     case "error":
@@ -631,7 +816,7 @@ function rowSpacing(previous: DisplayItem | undefined, item: DisplayItem): strin
     candidate.type === "actionGroup" ||
     (candidate.type === "event" && candidate.event.kind === "tool");
   if (isAction(previous) && isAction(item)) return "mt-1.5";
-  if (item.type === "event" && item.event.kind === "status") return "mt-5";
+  if (item.type === "event" && (item.event.kind === "status" || item.event.kind === "patch")) return "mt-5";
   return "mt-6";
 }
 
@@ -642,6 +827,7 @@ export const Transcript = memo(function Transcript({
   onToggleGroup,
   onExport,
   directory,
+  sessionId,
 }: {
   items: DisplayItem[];
   wrap: boolean;
@@ -650,6 +836,8 @@ export const Transcript = memo(function Transcript({
   onExport?: (event: UserEvent | AgentEvent) => void;
   /** Project scope, required to build links to delegated child sessions. */
   directory?: string;
+  /** Session scope, required for lazy per-turn diff requests. */
+  sessionId?: string;
 }) {
   return (
     <>
@@ -668,7 +856,7 @@ export const Transcript = memo(function Transcript({
               directory={directory}
             />
           ) : (
-            <TranscriptRow event={item.event} wrap={wrap} onExport={onExport} directory={directory} />
+            <TranscriptRow event={item.event} wrap={wrap} onExport={onExport} directory={directory} sessionId={sessionId} />
           )}
         </div>
       ))}

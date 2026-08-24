@@ -492,20 +492,43 @@ export interface SessionTurnDiff extends VcsFileDiff {
   status: NonNullable<VcsFileDiff["status"]>;
 }
 
+export const SESSION_TURN_DIFF_LIMITS = {
+  files: 50,
+  characters: 120_000,
+  lines: 3_000,
+} as const;
+
+export type SessionTurnDiffResult =
+  | { status: "ok"; changes: SessionTurnDiff[] }
+  | { status: "too_large" };
+
+function patchLineCount(patch: string): number {
+  let lines = 1;
+  for (let index = 0; index < patch.length; index += 1) {
+    if (patch.charCodeAt(index) === 10) lines += 1;
+  }
+  return lines;
+}
+
 export async function getSessionTurnDiff(
   config: OpencodeConfig,
   directory: string,
   sessionID: string,
   userMessageID: string,
-): Promise<SessionTurnDiff[]> {
+): Promise<SessionTurnDiffResult> {
   const changes = await request<unknown>(
     config,
     `/session/${encodeURIComponent(sessionID)}/diff`,
     { directory, query: { messageID: userMessageID } },
   );
-  if (!Array.isArray(changes)) return [];
-  return changes.flatMap((change): SessionTurnDiff[] => {
-    if (!change || typeof change !== "object" || Array.isArray(change)) return [];
+  if (!Array.isArray(changes)) return { status: "ok", changes: [] };
+  if (changes.length > SESSION_TURN_DIFF_LIMITS.files) return { status: "too_large" };
+
+  const result: SessionTurnDiff[] = [];
+  let characters = 0;
+  let lines = 0;
+  for (const change of changes) {
+    if (!change || typeof change !== "object" || Array.isArray(change)) continue;
     const source = change as Record<string, unknown>;
     if (
       typeof source.file !== "string" || !source.file.trim() ||
@@ -513,16 +536,27 @@ export async function getSessionTurnDiff(
       typeof source.additions !== "number" || !Number.isInteger(source.additions) || source.additions < 0 ||
       typeof source.deletions !== "number" || !Number.isInteger(source.deletions) || source.deletions < 0 ||
       (source.status !== "added" && source.status !== "deleted" && source.status !== "modified")
-    ) return [];
-    if (isSensitiveWorkspacePath(source.file)) return [];
-    return [{
+    ) continue;
+    if (isSensitiveWorkspacePath(source.file)) continue;
+
+    characters += source.patch.length;
+    if (characters > SESSION_TURN_DIFF_LIMITS.characters) return { status: "too_large" };
+    lines += patchLineCount(source.patch);
+    if (
+      result.length >= SESSION_TURN_DIFF_LIMITS.files ||
+      lines > SESSION_TURN_DIFF_LIMITS.lines
+    ) {
+      return { status: "too_large" };
+    }
+    result.push({
       file: source.file,
       patch: source.patch,
       additions: source.additions,
       deletions: source.deletions,
       status: source.status,
-    }];
-  });
+    });
+  }
+  return { status: "ok", changes: result };
 }
 
 export interface CreateSessionInput {
