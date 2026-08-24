@@ -264,7 +264,7 @@ test.describe("transcript", () => {
 
   test("returns a message-scoped turn diff without sensitive files", async ({ request }) => {
     const response = await request.get(
-      `/api/sessions/ses_mock_done/diff?directory=${DIR}&userMessageID=msg_mock_done`,
+      `/api/sessions/ses_mock_done/diff?directory=${DIR}&userMessageID=msg_user_001`,
     );
     expect(response.ok()).toBe(true);
     expect(await response.json()).toEqual({
@@ -276,6 +276,18 @@ test.describe("transcript", () => {
         status: "modified",
       }],
     });
+
+    const assistant = await request.get(
+      `/api/sessions/ses_mock_done/diff?directory=${DIR}&userMessageID=msg_asst_001`,
+    );
+    expect(assistant.ok()).toBe(true);
+    expect(await assistant.json()).toEqual({ changes: [] });
+
+    const unknown = await request.get(
+      `/api/sessions/ses_mock_done/diff?directory=${DIR}&userMessageID=msg_unknown`,
+    );
+    expect(unknown.ok()).toBe(true);
+    expect(await unknown.json()).toEqual({ changes: [] });
 
     const missingMessage = await request.get(`/api/sessions/ses_mock_done/diff?directory=${DIR}`);
     expect(missingMessage.status()).toBe(400);

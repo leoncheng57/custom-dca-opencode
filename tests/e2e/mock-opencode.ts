@@ -1200,7 +1200,15 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
       return json(res, 200, all.slice(start, end), nextCursor ? { "X-Next-Cursor": nextCursor } : {});
     }
     if (rest === "/diff") {
-      if (!url.searchParams.get("messageID")) return json(res, 400, { error: "messageID required" });
+      const messageID = url.searchParams.get("messageID");
+      if (!messageID) return json(res, 400, { error: "messageID required" });
+      const message = (messages.get(id) ?? []).find((candidate) => {
+        if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return false;
+        const info = (candidate as { info?: unknown }).info;
+        return !!info && typeof info === "object" && !Array.isArray(info) &&
+          (info as { id?: unknown }).id === messageID;
+      }) as { info?: { role?: unknown } } | undefined;
+      if (message?.info?.role !== "user") return json(res, 200, []);
       return json(res, 200, [
         { file: "src/index.ts", patch: "@@ -1 +1 @@\n-old\n+new", additions: 1, deletions: 1, status: "modified" },
         { file: ".env", patch: "@@ -1 +1 @@\n-TOKEN=old\n+TOKEN=new", additions: 1, deletions: 1, status: "modified" },
