@@ -86,25 +86,85 @@ test.describe("transcript turn diff", () => {
 
   test("bounds oversized patches instead of partially presenting them", async ({ page }) => {
     await page.route(diffPattern, (route) => route.fulfill({
-      status: 200,
+      status: 413,
       contentType: "application/json",
-      body: JSON.stringify({
-        changes: [{ file: "generated/large.ts", patch: `@@ -1 +1 @@\n-${"a".repeat(60_001)}\n+${"b".repeat(60_001)}`, additions: 1, deletions: 1, status: "modified" }],
-      }),
+      body: JSON.stringify({ error: "Turn diff exceeds safe response limits", code: "TURN_DIFF_TOO_LARGE", limits: { files: 50, characters: 120_000, lines: 3_000 } }),
     }));
 
     await page.goto(conversation);
     const card = page.getByTestId("opencode-changed-files-card");
     await clickCentered(card.getByTestId("opencode-turn-diff-toggle"));
-    await expect(card.getByTestId("opencode-turn-diff-too-large")).toContainText("too large to render safely");
+    await expect(card.getByTestId("opencode-turn-diff-too-large")).toContainText("too large to load safely");
+    await expect(card.getByTestId("opencode-turn-diff-error")).toHaveCount(0);
+    await expect(card.getByTestId("opencode-turn-diff-retry")).toHaveCount(0);
     await expect(card.getByTestId("opencode-turn-diff-patch")).toHaveCount(0);
   });
 
-  test("fits the phone transcript without horizontal page overflow", async ({ page }) => {
+  test("cancels a collapsed request and ignores its stale response after reloading", async ({ page }) => {
+    let attempts = 0;
+    let releaseFirst: (() => void) | undefined;
+    const firstReleased = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    await page.route(diffPattern, async (route) => {
+      attempts += 1;
+      const patch = attempts === 1 ? "+stale" : "+current";
+      if (attempts === 1) await firstReleased;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ changes: [{ file: "src/index.ts", patch, additions: 1, deletions: 0, status: "modified" }] }),
+      }).catch(() => undefined);
+    });
+
+    await page.goto(conversation);
+    const card = page.getByTestId("opencode-changed-files-card");
+    await clickCentered(card.getByTestId("opencode-turn-diff-toggle"));
+    await expect(card.getByRole("status")).toHaveText("Loading changes...");
+    await clickCentered(card.getByTestId("opencode-turn-diff-toggle"));
+    await clickCentered(card.getByTestId("opencode-turn-diff-toggle"));
+    await expect(card.getByTestId("opencode-turn-diff-patch")).toContainText("+current");
+    releaseFirst?.();
+    await page.waitForTimeout(50);
+    await expect(card.getByTestId("opencode-turn-diff-patch")).toContainText("+current");
+    await expect(card.getByTestId("opencode-turn-diff-patch")).not.toContainText("+stale");
+    expect(attempts).toBe(2);
+  });
+
+  test("fits expanded long names and patch lines inside the phone transcript", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 740 });
+    await page.route("**/api/sessions/ses_mock_done/messages?**", async (route) => {
+      const response = await route.fetch();
+      const body = await response.json() as {
+        messages: Array<{ parts?: Array<{ type?: string; files?: string[] }> }>;
+      };
+      const patch = body.messages.flatMap((message) => message.parts ?? []).find((part) => part.type === "patch");
+      if (patch) {
+        patch.files = Array.from({ length: 12 }, (_, index) =>
+          `generated/${index}/${"nested-segment/".repeat(30)}file-${index}.ts`
+        );
+      }
+      await route.fulfill({ response, json: body });
+    });
+    await page.route(diffPattern, (route) => route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        changes: [{
+          file: `generated/${"deep/".repeat(80)}long-name.ts`,
+          patch: `@@ -1 +1 @@\n-${"a".repeat(8_000)}\n+${"b".repeat(8_000)}`,
+          additions: 1,
+          deletions: 1,
+          status: "modified",
+        }],
+      }),
+    }));
     await page.goto(conversation);
     const card = page.getByTestId("opencode-changed-files-card");
     await expect(card).toBeVisible();
+    await expect(card).toContainText("12 files changed");
+    await expect(card.getByTestId("opencode-changed-files-names")).toContainText("more");
+    await clickCentered(card.getByTestId("opencode-turn-diff-toggle"));
+    const patch = card.getByTestId("opencode-turn-diff-patch");
+    await expect(patch).toContainText("+bbbb");
     const [cardBox, toggleBox] = await Promise.all([
       card.boundingBox(),
       card.getByTestId("opencode-turn-diff-toggle").boundingBox(),
@@ -113,5 +173,7 @@ test.describe("transcript turn diff", () => {
     expect((cardBox?.x ?? 0) + (cardBox?.width ?? 0)).toBeLessThanOrEqual(390);
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(1);
+    const patchOverflow = await patch.evaluate((element) => element.scrollWidth - element.clientWidth);
+    expect(patchOverflow).toBeGreaterThan(0);
   });
 });

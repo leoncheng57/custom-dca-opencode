@@ -6,6 +6,7 @@ import {
   messageMode,
   normalizeMessage,
   normalizeTranscript,
+  PATCH_FILE_METADATA_LIMITS,
   taskMetadataOf,
   toolDetail,
   type RawMessage,
@@ -312,6 +313,8 @@ describe("milestone rows", () => {
     expect(patch).toEqual(expect.objectContaining({
       kind: "patch",
       files: ["server/index.ts", "tests/health.test.ts"],
+      fileCount: 2,
+      filesTruncated: false,
       userMessageId: "msg_user_001",
     }));
   });
@@ -330,7 +333,48 @@ describe("milestone rows", () => {
       info: { id: "m_patch", role: "assistant", parentID: "m_user", time: { created: 1 } },
       parts: [{ id: "p_patch", type: "patch", files: [" src/a.ts ", "", 42 as unknown as string] }],
     });
-    expect(patch).toEqual(expect.objectContaining({ kind: "patch", files: ["src/a.ts"] }));
+    expect(patch).toEqual(expect.objectContaining({
+      kind: "patch",
+      files: ["src/a.ts"],
+      fileCount: 3,
+      filesTruncated: true,
+    }));
+  });
+
+  it("bounds patch filename count, each path, and aggregate path metadata", () => {
+    const rawFiles = Array.from({ length: PATCH_FILE_METADATA_LIMITS.displayedFiles + 4 }, (_, index) =>
+      `src/${index}/${"x".repeat(PATCH_FILE_METADATA_LIMITS.pathCharacters * 2)}.ts`
+    );
+    const [patch] = normalizeMessage({
+      info: { id: "m_patch", role: "assistant", parentID: "m_user", time: { created: 1 } },
+      parts: [{ id: "p_patch", type: "patch", files: rawFiles }],
+    });
+    expect(patch.kind).toBe("patch");
+    if (patch.kind !== "patch") return;
+    expect(patch.fileCount).toBe(rawFiles.length);
+    expect(patch.filesTruncated).toBe(true);
+    expect(patch.files.length).toBeLessThanOrEqual(PATCH_FILE_METADATA_LIMITS.displayedFiles);
+    expect(patch.files.every((file) => file.length <= PATCH_FILE_METADATA_LIMITS.pathCharacters)).toBe(true);
+    expect(patch.files.reduce((total, file) => total + file.length, 0)).toBeLessThanOrEqual(
+      PATCH_FILE_METADATA_LIMITS.aggregatePathCharacters,
+    );
+  });
+
+  it("does not inspect filename entries beyond the bounded display window", () => {
+    const rawFiles = Array.from({ length: PATCH_FILE_METADATA_LIMITS.displayedFiles + 1 }, (_, index) => `src/${index}.ts`);
+    Object.defineProperty(rawFiles, PATCH_FILE_METADATA_LIMITS.displayedFiles, {
+      get: () => { throw new Error("unbounded filename access"); },
+    });
+
+    const [patch] = normalizeMessage({
+      info: { id: "m_patch", role: "assistant", time: { created: 1 } },
+      parts: [{ id: "p_patch", type: "patch", files: rawFiles }],
+    });
+    expect(patch).toEqual(expect.objectContaining({
+      fileCount: PATCH_FILE_METADATA_LIMITS.displayedFiles + 1,
+      files: rawFiles.slice(0, PATCH_FILE_METADATA_LIMITS.displayedFiles),
+      filesTruncated: true,
+    }));
   });
 
   it("marks automatic compaction", () => {
@@ -427,7 +471,7 @@ describe("frozen contract", () => {
       "title", "detail", "output", "error", "durationMs", "attachments",
       "taskExecution", "taskAgent", "taskModel", "childSessionId",
     ],
-    patch: ["kind", "id", "messageId", "timestamp", "files", "userMessageId"],
+    patch: ["kind", "id", "messageId", "timestamp", "files", "fileCount", "filesTruncated", "userMessageId"],
     status: ["kind", "id", "messageId", "timestamp", "label", "detail", "childSessionId"],
     error: ["kind", "id", "messageId", "timestamp", "message"],
   };

@@ -21,6 +21,7 @@ import type {
   Attachment,
   InterruptedState,
   MessageMode,
+  PatchEvent,
   TaskExecution,
   ToolStatus,
   Transcript,
@@ -84,6 +85,45 @@ interface RawTokens {
   output?: number;
   reasoning?: number;
   cache?: { read?: number; write?: number };
+}
+
+export const PATCH_FILE_METADATA_LIMITS = {
+  displayedFiles: 8,
+  pathCharacters: 240,
+  aggregatePathCharacters: 1_200,
+} as const;
+
+function patchFileMetadata(value: unknown): Pick<PatchEvent, "files" | "fileCount" | "filesTruncated"> {
+  if (!Array.isArray(value)) return { files: [], fileCount: 0, filesTruncated: false };
+
+  const files: string[] = [];
+  let aggregateCharacters = 0;
+  let filesTruncated = false;
+  const inspectedCount = Math.min(value.length, PATCH_FILE_METADATA_LIMITS.displayedFiles);
+  for (let index = 0; index < inspectedCount; index += 1) {
+    const candidate = value[index];
+    if (typeof candidate !== "string") {
+      filesTruncated = true;
+      continue;
+    }
+    const bounded = candidate.slice(0, PATCH_FILE_METADATA_LIMITS.pathCharacters + 1).trim();
+    if (!bounded) {
+      filesTruncated = true;
+      continue;
+    }
+    const remaining = PATCH_FILE_METADATA_LIMITS.aggregatePathCharacters - aggregateCharacters;
+    if (remaining <= 0) {
+      filesTruncated = true;
+      continue;
+    }
+    const pathWasTruncated = candidate.length > PATCH_FILE_METADATA_LIMITS.pathCharacters || bounded.length > remaining;
+    const display = bounded.slice(0, Math.min(PATCH_FILE_METADATA_LIMITS.pathCharacters, remaining));
+    files.push(pathWasTruncated && display.length > 3 ? `${display.slice(0, -3)}...` : display);
+    aggregateCharacters += files.at(-1)?.length ?? 0;
+    filesTruncated ||= pathWasTruncated;
+  }
+  filesTruncated ||= files.length < value.length;
+  return { files, fileCount: value.length, filesTruncated };
 }
 
 export interface RawMessageInfo {
@@ -436,16 +476,14 @@ function normalizePart(
     }
 
     case "patch": {
-      const files = (Array.isArray(part.files) ? part.files : [])
-        .filter((file) => typeof file === "string" && file.trim())
-        .map((file) => file.trim());
+      const fileMetadata = patchFileMetadata(part.files);
       const userMessageId = info.role === "assistant" ? nonEmptyString(info.parentID) : undefined;
       return {
         kind: "patch",
         id,
         messageId,
         timestamp: iso(created, created),
-        files,
+        ...fileMetadata,
         ...(userMessageId ? { userMessageId } : {}),
       };
     }

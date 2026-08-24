@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { getSessionTurnDiff, listMessages, messagePageCursor, toSummary } from "../server/opencode/sessions.js";
+import {
+  getSessionTurnDiff,
+  listMessages,
+  messagePageCursor,
+  SESSION_TURN_DIFF_LIMITS,
+  toSummary,
+} from "../server/opencode/sessions.js";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -99,7 +105,7 @@ describe("session turn diffs", () => {
       requested = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
       return Response.json([
         { file: "src/index.ts", patch: "@@ -1 +1 @@\n-old\n+new", additions: 1, deletions: 1, status: "modified", secret: "hidden" },
-        { file: ".env.local", patch: "@@ -1 +1 @@\n-TOKEN=old\n+TOKEN=new", additions: 1, deletions: 1, status: "modified" },
+        { file: ".env.local", patch: "x".repeat(SESSION_TURN_DIFF_LIMITS.characters + 1), additions: 1, deletions: 1, status: "modified" },
         { patch: "missing file", additions: 1, deletions: 0, status: "added" },
         { file: 42, patch: "wrong file type", additions: 1, deletions: 0, status: "added" },
         { file: "   ", patch: "blank file", additions: 1, deletions: 0, status: "added" },
@@ -114,11 +120,33 @@ describe("session turn diffs", () => {
       "/tmp/project",
       "ses/1",
       "msg/1",
-    )).resolves.toEqual([
-      { file: "src/index.ts", patch: "@@ -1 +1 @@\n-old\n+new", additions: 1, deletions: 1, status: "modified" },
-    ]);
+    )).resolves.toEqual({
+      status: "ok",
+      changes: [{ file: "src/index.ts", patch: "@@ -1 +1 @@\n-old\n+new", additions: 1, deletions: 1, status: "modified" }],
+    });
     expect(requested?.pathname).toBe("/session/ses%2F1/diff");
     expect(requested?.searchParams.get("directory")).toBe("/tmp/project");
     expect(requested?.searchParams.get("messageID")).toBe("msg/1");
+  });
+
+  it.each([
+    ["file count", Array.from({ length: SESSION_TURN_DIFF_LIMITS.files + 1 }, (_, index) => ({
+      file: `src/${index}.ts`, patch: "line", additions: 1, deletions: 0, status: "added",
+    }))],
+    ["aggregate characters", [{
+      file: "generated/large.ts", patch: "x".repeat(SESSION_TURN_DIFF_LIMITS.characters + 1), additions: 1, deletions: 0, status: "added",
+    }]],
+    ["aggregate lines", [{
+      file: "generated/large.ts", patch: "x\n".repeat(SESSION_TURN_DIFF_LIMITS.lines), additions: 1, deletions: 0, status: "added",
+    }]],
+  ])("rejects a diff over the %s bound without returning partial patches", async (_name, changes) => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(changes)));
+
+    await expect(getSessionTurnDiff(
+      { baseUrl: "http://opencode.test" },
+      "/tmp/project",
+      "ses_1",
+      "msg_1",
+    )).resolves.toEqual({ status: "too_large" });
   });
 });

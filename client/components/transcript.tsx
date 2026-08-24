@@ -11,7 +11,7 @@ import { Link } from "react-router-dom";
 import { Markdown } from "../ds/markdown.js";
 import { Badge } from "../ds/badge.js";
 import { cn } from "../ds/utils.js";
-import { api, type SessionTurnDiff } from "../lib/api.js";
+import { api, ApiError, type SessionTurnDiff } from "../lib/api.js";
 import { formatClockTime, formatDurationMs, formatRelative, type DisplayItem, type RunningActivity } from "../lib/derive.js";
 import type {
   Attachment,
@@ -567,11 +567,13 @@ function ChangedFilesCard({ event, directory, sessionId }: { event: PatchEvent; 
   const [state, setState] = useState<
     | { status: "idle" | "loading" }
     | { status: "loaded"; changes: SessionTurnDiff[] }
+    | { status: "too-large" }
     | { status: "error"; message: string }
   >({ status: "idle" });
   const requestGeneration = useRef(0);
+  const requestController = useRef<AbortController | null>(null);
   const canLoad = Boolean(directory && sessionId && event.userMessageId);
-  const countLabel = event.files.length === 1 ? "1 file changed" : `${event.files.length} files changed`;
+  const countLabel = event.fileCount === 1 ? "1 file changed" : `${event.fileCount} files changed`;
 
   useEffect(() => {
     requestGeneration.current += 1;
@@ -579,26 +581,44 @@ function ChangedFilesCard({ event, directory, sessionId }: { event: PatchEvent; 
     setState({ status: "idle" });
     return () => {
       requestGeneration.current += 1;
+      requestController.current?.abort();
+      requestController.current = null;
     };
   }, [directory, event.userMessageId, sessionId]);
 
   const load = async () => {
     if (!directory || !sessionId || !event.userMessageId) return;
+    requestController.current?.abort();
+    const controller = new AbortController();
+    requestController.current = controller;
     const generation = ++requestGeneration.current;
     setState({ status: "loading" });
     try {
-      const result = await api.sessionTurnDiff(directory, sessionId, event.userMessageId);
+      const result = await api.sessionTurnDiff(directory, sessionId, event.userMessageId, controller.signal);
       if (requestGeneration.current !== generation) return;
       setState({ status: "loaded", changes: result.changes });
     } catch (error) {
       if (requestGeneration.current !== generation) return;
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      if (error instanceof ApiError && error.code === "TURN_DIFF_TOO_LARGE") {
+        setState({ status: "too-large" });
+        return;
+      }
       setState({ status: "error", message: error instanceof Error ? error.message : String(error) });
+    } finally {
+      if (requestController.current === controller) requestController.current = null;
     }
   };
 
   const toggle = () => {
     if (expanded) {
       setExpanded(false);
+      if (state.status === "loading") {
+        requestGeneration.current += 1;
+        requestController.current?.abort();
+        requestController.current = null;
+        setState({ status: "idle" });
+      }
       return;
     }
     setExpanded(true);
@@ -617,9 +637,11 @@ function ChangedFilesCard({ event, directory, sessionId }: { event: PatchEvent; 
             <h3 className="text-xs font-semibold">{countLabel}</h3>
             <TimeLabel timestamp={event.timestamp} />
           </div>
-          {event.files.length > 0 && (
+          {(event.files.length > 0 || event.filesTruncated) && (
             <p className="mt-1 break-words font-mono text-[11px] leading-5 text-[var(--color-text-muted)]" data-testid="opencode-changed-files-names">
-              {event.files.join(", ")}
+              {event.files.map((file, index) => <span key={`${file}-${index}`}>{index > 0 ? ", " : ""}{file}</span>)}
+              {event.files.length < event.fileCount && <span>{event.files.length > 0 ? ", " : ""}+{event.fileCount - event.files.length} more</span>}
+              {event.filesTruncated && event.files.length === event.fileCount && <span> (names truncated)</span>}
             </p>
           )}
         </div>
@@ -647,6 +669,11 @@ function ChangedFilesCard({ event, directory, sessionId }: { event: PatchEvent; 
               <span>Could not load changes: {state.message}</span>
               <button type="button" className="min-h-9 rounded px-2 underline pointer-coarse:min-h-11" onClick={() => void load()} data-testid="opencode-turn-diff-retry">Retry</button>
             </div>
+          )}
+          {state.status === "too-large" && (
+            <p className="text-xs text-[var(--color-text-muted)]" data-testid="opencode-turn-diff-too-large">
+              This diff is too large to load safely.
+            </p>
           )}
           {state.status === "loaded" && <PatchDetails changes={state.changes} />}
         </div>

@@ -177,6 +177,8 @@ describe("collapseActionGroups", () => {
       messageId: "m1",
       timestamp: at(1),
       files: ["src/index.ts"],
+      fileCount: 1,
+      filesTruncated: false,
       userMessageId: "user-1",
     };
     const items = collapseActionGroups([tool("before-1"), tool("before-2"), patch, tool("after-1"), tool("after-2")]);
