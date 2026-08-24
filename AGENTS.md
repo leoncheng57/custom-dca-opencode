@@ -251,6 +251,29 @@ several decisions below.
     catalogue, posts with the server-only `GITHUB_TOKEN`, and invalidates the read
     cache only after GitHub confirms the issue. The browser still cannot select a
     repository or project directory.
+18. **The file viewer is read-only, and highlighting runs in the BFF.**
+    `/files` browses and reads; it never writes. The `/file` API is read-only, and
+    the one upstream write path — `POST /vcs/apply`, verified live — is git-only
+    (`400 reason:"non-git"`), patch-shaped, and emits neither `file.edited` nor
+    `file.watcher.updated`, so nothing downstream learns of the change. Editing
+    would additionally have to own atomicity, conflict detection, and the fact that
+    `GET /file/content` **strips a file's trailing newline** (333 bytes on disk
+    returned as 332 chars), which a naive read-modify-write deletes on every save.
+    Those are acceptance criteria for #114, not properties of a viewer.
+    Shiki runs server-side with `defaultColor: false`, so it emits only
+    `--shiki-light`/`--shiki-dark` custom properties: the browser gains zero
+    highlighter bytes and one cached payload serves both appearances. This is the
+    only place generated hex reaches the DOM, and it is grammar colour from a named
+    theme rather than authored component styling, so the "never raw hex" rule for
+    `client/ds/` still holds. The cache is keyed by **content hash** because 1.18.21
+    exposes no mtime, etag or revision on any file route — a scan of `/doc` matches
+    no such schema property — and hashing content we already hold cannot go stale.
+    Highlighting is opt-in per request (`?highlight=1`) so the existing workspace
+    overlay keeps its lean payload, and it degrades to plain text, never to an
+    error, past 512 KB or 20k lines, for an unmapped extension, or when a grammar
+    fails to load. The viewer inherits the existing read gate unchanged, so `.env`,
+    `.git` and every gitignored file remain unreachable and the refusal is shown
+    rather than swallowed.
 
 ## Client conventions (inherited from the OpenHands runner, still enforced)
 
@@ -262,6 +285,11 @@ several decisions below.
   phone-transfer matrix entirely in the browser, avoiding URL disclosure to an
   external image service. The app reads its matrix API and renders a React SVG
   path rather than injecting the package's generated markup.
+- `shiki@4` is a **server-only** runtime dependency and must never be imported
+  from `client/`. The read-only file viewer highlights in the BFF and ships
+  plain markup, so the browser bundle gains no highlighter at all — Shiki's own
+  published figures put its full browser bundle at ~1.3 MB gzipped and even
+  `shiki/core` at ~34 KB plus a WASM engine. See decision #18.
 - The transcript renderer consumes a backend-neutral `TranscriptEvent`. Row components
   must never touch raw OpenCode `Part` shapes — that mapping lives in exactly one place
   (`client/lib/events.ts`), which is what made this migration a ~363-line adapter

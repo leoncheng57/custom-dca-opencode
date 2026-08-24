@@ -776,6 +776,27 @@ test.describe("workspace", () => {
     expect(tree.files[0]).toMatchObject({ name: "README.md", type: "file" });
     const file = await (await request.get(`/api/workspace/file?directory=${DIR}&path=README.md`)).json();
     expect(file).toMatchObject({ type: "text", content: "# Mock project" });
+    // Highlighting is opt-in so the workspace overlay keeps its lean payload.
+    expect(file.highlight).toBeUndefined();
+  });
+
+  test("highlights only when asked, and degrades without failing the read", async ({ request }) => {
+    const highlighted = await (
+      await request.get(`/api/workspace/file?directory=${DIR}&path=README.md&highlight=1`)
+    ).json();
+    expect(highlighted.highlight.language).toBe("markdown");
+    expect(highlighted.highlight.html).toContain('class="line"');
+    // defaultColor:false keeps one payload valid for light and dark.
+    expect(highlighted.highlight.html).toContain("--shiki-dark:");
+    // The raw source is still returned, so Copy never yields markup.
+    expect(highlighted.content).toBe("# Mock project");
+
+    const plain = await (
+      await request.get(`/api/workspace/file?directory=${DIR}&path=src/notes.unknownext&highlight=1`)
+    ).json();
+    expect(plain.highlight).toBeUndefined();
+    expect(plain.highlightSkipped).toBe("unsupported-language");
+    expect(plain.content).toBe("plain fixture text");
   });
 
   test("rejects traversal before it reaches OpenCode", async ({ request }) => {

@@ -8,6 +8,7 @@ import { ConversationPage } from "./pages/Conversation.js";
 import { SettingsPage } from "./pages/Settings.js";
 import { NotificationsPage } from "./pages/Notifications.js";
 import { ToolsPage } from "./pages/Tools.js";
+import { FilesPage } from "./pages/Files.js";
 import { DocsPage } from "./pages/Docs.js";
 import { DocPage } from "./pages/DocPage.js";
 import { PlanningPage } from "./pages/Planning.js";
@@ -29,6 +30,7 @@ createRoot(document.getElementById("root")!).render(
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/settings/notifications" element={<NotificationsPage />} />
               <Route path="/tools" element={<ToolsPage />} />
+              <Route path="/files" element={<FilesPage />} />
               <Route path="/docs" element={<DocsPage />} />
               <Route path="/docs/:slug" element={<DocPage />} />
               <Route path="/planning" element={<PlanningPage />} />

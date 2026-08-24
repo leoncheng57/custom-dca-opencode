@@ -7,6 +7,7 @@ import {
   listWorkspace,
   readWorkspaceFile,
 } from "../opencode/workspace.js";
+import { highlightSource, isHighlighted } from "../highlight.js";
 import { PathError, requireReadableWorkspacePath, requireRelativePath, requireWorkspaceDirectory } from "../paths.js";
 
 function fail(res: Response, error: unknown): void {
@@ -28,12 +29,22 @@ export function workspaceRoutes(config: OpencodeConfig): Router {
       .catch((error: unknown) => fail(res, error));
   });
   router.get("/workspace/file", (req, res) => {
+    // Opt-in so the existing workspace overlay keeps its lean payload; only the
+    // /files viewer pays for markup it actually renders.
+    const wantsHighlight = req.query.highlight === "1";
     requireWorkspaceDirectory(req.query.directory)
       .then(async (directory) => {
         const relative = requireRelativePath(req.query.path);
         if (!relative) throw new PathError(400, "'path' is required");
         const safeRelative = await requireReadableWorkspacePath(directory, relative);
-        return readWorkspaceFile(config, directory, safeRelative);
+        const file = await readWorkspaceFile(config, directory, safeRelative);
+        if (!wantsHighlight || file.type !== "text") return file;
+        // Highlight the canonical path, never the caller's alias — the same
+        // rule requireReadableWorkspacePath states for the read itself.
+        const outcome = await highlightSource(file.content, safeRelative);
+        return isHighlighted(outcome)
+          ? { ...file, highlight: outcome }
+          : { ...file, highlightSkipped: outcome.skipped };
       })
       .then((file) => res.json(file))
       .catch((error: unknown) => fail(res, error));
