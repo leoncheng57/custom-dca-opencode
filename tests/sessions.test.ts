@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { listMessages, messagePageCursor, toSummary } from "../server/opencode/sessions.js";
+import { getSessionTurnDiff, listMessages, messagePageCursor, toSummary } from "../server/opencode/sessions.js";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -89,5 +89,36 @@ describe("session message pages", () => {
       Link: '<http://opencode.test/message?before=link-cursor>; rel="next"',
     }))).toBe("header-cursor");
     expect(messagePageCursor(new Headers({ Link: '<not a url>; rel="next", <http://x>; rel="prev"' }))).toBeNull();
+  });
+});
+
+describe("session turn diffs", () => {
+  it("scopes and encodes the upstream request, filters sensitive paths, and exposes only the public shape", async () => {
+    let requested: URL | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      requested = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
+      return Response.json([
+        { file: "src/index.ts", patch: "@@ -1 +1 @@\n-old\n+new", additions: 1, deletions: 1, status: "modified", secret: "hidden" },
+        { file: ".env.local", patch: "@@ -1 +1 @@\n-TOKEN=old\n+TOKEN=new", additions: 1, deletions: 1, status: "modified" },
+        { patch: "missing file", additions: 1, deletions: 0, status: "added" },
+        { file: 42, patch: "wrong file type", additions: 1, deletions: 0, status: "added" },
+        { file: "   ", patch: "blank file", additions: 1, deletions: 0, status: "added" },
+        { file: "src/no-patch.ts", additions: 1, deletions: 0, status: "added" },
+        { file: "src/bad-count.ts", patch: "bad count", additions: 0.5, deletions: 0, status: "added" },
+        { file: "src/bad-status.ts", patch: "bad status", additions: 1, deletions: 0, status: "renamed" },
+      ]);
+    }));
+
+    await expect(getSessionTurnDiff(
+      { baseUrl: "http://opencode.test" },
+      "/tmp/project",
+      "ses/1",
+      "msg/1",
+    )).resolves.toEqual([
+      { file: "src/index.ts", patch: "@@ -1 +1 @@\n-old\n+new", additions: 1, deletions: 1, status: "modified" },
+    ]);
+    expect(requested?.pathname).toBe("/session/ses%2F1/diff");
+    expect(requested?.searchParams.get("directory")).toBe("/tmp/project");
+    expect(requested?.searchParams.get("messageID")).toBe("msg/1");
   });
 });

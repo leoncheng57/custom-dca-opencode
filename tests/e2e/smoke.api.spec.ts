@@ -261,6 +261,37 @@ test.describe("transcript", () => {
     expect(body.todos.length).toBe(3);
     expect(body.todos[0]).toMatchObject({ status: "completed" });
   });
+
+  test("returns a message-scoped turn diff without sensitive files", async ({ request }) => {
+    const response = await request.get(
+      `/api/sessions/ses_mock_done/diff?directory=${DIR}&userMessageID=msg_user_001`,
+    );
+    expect(response.ok()).toBe(true);
+    expect(await response.json()).toEqual({
+      changes: [{
+        file: "src/index.ts",
+        patch: "@@ -1 +1 @@\n-old\n+new",
+        additions: 1,
+        deletions: 1,
+        status: "modified",
+      }],
+    });
+
+    const assistant = await request.get(
+      `/api/sessions/ses_mock_done/diff?directory=${DIR}&userMessageID=msg_asst_001`,
+    );
+    expect(assistant.ok()).toBe(true);
+    expect(await assistant.json()).toEqual({ changes: [] });
+
+    const unknown = await request.get(
+      `/api/sessions/ses_mock_done/diff?directory=${DIR}&userMessageID=msg_unknown`,
+    );
+    expect(unknown.ok()).toBe(true);
+    expect(await unknown.json()).toEqual({ changes: [] });
+
+    const missingMessage = await request.get(`/api/sessions/ses_mock_done/diff?directory=${DIR}`);
+    expect(missingMessage.status()).toBe(400);
+  });
 });
 
 test.describe("question requests", () => {

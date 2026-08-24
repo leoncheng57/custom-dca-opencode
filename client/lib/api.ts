@@ -260,6 +260,11 @@ export interface MessagePage {
   nextCursor: string | null;
 }
 
+export interface SessionTurnDiff extends VcsFileDiff {
+  patch: string;
+  status: NonNullable<VcsFileDiff["status"]>;
+}
+
 /**
  * Unwrap a response, surfacing the BFF's `{ error }` body when present.
  *
@@ -391,6 +396,11 @@ export const api = {
       ...(options.before ? { before: options.before } : {}),
     })).then((r) =>
       json<MessagePage>(r),
+    ),
+
+  sessionTurnDiff: (directory: string, id: string, userMessageID: string) =>
+    fetch(scoped(`/sessions/${encodeURIComponent(id)}/diff`, directory, { userMessageID })).then((r) =>
+      json<{ changes: SessionTurnDiff[] }>(r),
     ),
 
   todos: (directory: string, id: string) =>
