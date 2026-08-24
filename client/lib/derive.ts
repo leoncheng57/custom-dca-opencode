@@ -33,7 +33,7 @@ function fingerprint(event: TranscriptEvent): string {
     case "thought":
       return event.text;
     case "patch":
-      return `${event.files.join("|")}|${event.userMessageId ?? ""}`;
+      return `${event.files.join("|")}|${event.fileCount}|${event.filesTruncated}|${event.userMessageId ?? ""}`;
     case "status":
       return `${event.label}|${event.detail ?? ""}`;
     case "error":

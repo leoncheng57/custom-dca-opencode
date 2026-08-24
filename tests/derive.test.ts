@@ -123,6 +123,29 @@ describe("mergeEvents", () => {
     expect(mergeEvents(previous, [user("u1", "same text", "build")])).toBe(previous);
   });
 
+  it("replaces bounded patch metadata when the hidden file count grows", () => {
+    const previous: TranscriptEvent[] = [{
+      kind: "patch",
+      id: "patch",
+      messageId: "m1",
+      timestamp: at(1),
+      files: ["a.ts", "b.ts"],
+      fileCount: 2,
+      filesTruncated: false,
+      userMessageId: "u1",
+    }];
+    const incoming: TranscriptEvent[] = [{
+      ...previous[0],
+      kind: "patch",
+      fileCount: 12,
+      filesTruncated: true,
+    }];
+
+    const merged = mergeEvents(previous, incoming);
+    expect(merged).not.toBe(previous);
+    expect(merged[0]).toBe(incoming[0]);
+  });
+
   it("preserves unchanged row identity when a sibling changes", () => {
     const unchanged = agent("a", "stable", at(1));
     const previous = [unchanged, agent("b", "old", at(2))];
