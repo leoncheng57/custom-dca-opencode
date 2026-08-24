@@ -713,7 +713,11 @@ function ActionGroupRow({
 }) {
   const last = calls[calls.length - 1];
   return (
-    <div data-kind="action-group" data-testid="opencode-action-group">
+    <div
+      data-kind="action-group"
+      data-testid="opencode-action-group"
+      data-event-ids={JSON.stringify(calls.map((call) => call.id))}
+    >
       <button
         type="button"
         onClick={onToggle}

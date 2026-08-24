@@ -575,8 +575,9 @@ export function normalizeMessage(message: RawMessage): TranscriptEvent[] {
     if (target && "attachments" in target) target.attachments = attachments;
   }
 
-  // A turn that errored with no parts still needs to say so.
-  if (!events.length && info.error) {
+  // A partial turn can contain useful parts and still fail afterward. Preserve
+  // both the work and the turn-level failure instead of hiding the outcome.
+  if (info.error) {
     events.push({
       kind: "error",
       id: `${info.id ?? "unknown"}:error`,

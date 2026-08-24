@@ -527,6 +527,17 @@ describe("normalizeMessage", () => {
     expect(events[0]).toMatchObject({ kind: "error", message: "boom" });
   });
 
+  it("keeps a turn-level error alongside partial output", () => {
+    const events = normalizeMessage({
+      info: { id: "m9", role: "assistant", time: { created: 5 }, error: { message: "boom" } },
+      parts: [{ id: "p9", messageID: "m9", type: "text", text: "partial answer" }],
+    });
+    expect(events).toMatchObject([
+      { kind: "agent", text: "partial answer" },
+      { kind: "error", message: "boom" },
+    ]);
+  });
+
   it("produces ISO timestamps", () => {
     const [event] = normalizeMessage({
       info: { id: "m10", role: "user", time: { created: 1787000000000 } },

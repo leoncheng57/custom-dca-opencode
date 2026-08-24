@@ -276,8 +276,25 @@ function RunLogPanel({ commands, onJump, onExportCommands, commandExporting, com
 
 function jumpToEvent(id: string): void {
   const row = document.querySelector<HTMLElement>(`[data-event-id="${CSS.escape(id)}"]`);
-  row?.scrollIntoView({ behavior: "smooth", block: "center" });
-  row?.focus({ preventScroll: true });
+  if (row) {
+    row.scrollIntoView({ behavior: "smooth", block: "center" });
+    row.focus({ preventScroll: true });
+    return;
+  }
+
+  const group = Array.from(document.querySelectorAll<HTMLElement>("[data-event-ids]"))
+    .find((candidate) => {
+      try {
+        return (JSON.parse(candidate.dataset.eventIds ?? "[]") as unknown[]).includes(id);
+      } catch {
+        return false;
+      }
+    });
+  const toggle = group?.querySelector<HTMLButtonElement>('[data-testid="opencode-action-group-toggle"]');
+  if (toggle?.getAttribute("aria-expanded") === "false") {
+    toggle.click();
+    requestAnimationFrame(() => jumpToEvent(id));
+  }
 }
 
 function InspectorContent({

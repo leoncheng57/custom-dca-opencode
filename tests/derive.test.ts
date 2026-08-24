@@ -10,7 +10,7 @@ import {
   runningActivity,
   serializeCommands,
 } from "../client/lib/derive.js";
-import type { MessageMode, ToolEvent, TranscriptEvent, UserEvent } from "../client/lib/transcript.js";
+import type { MessageMode, PatchEvent, ToolEvent, TranscriptEvent, UserEvent } from "../client/lib/transcript.js";
 
 const at = (n: number) => new Date(1787000000000 + n * 1000).toISOString();
 
@@ -23,6 +23,20 @@ function tool(id: string, over: Partial<ToolEvent> = {}): ToolEvent {
     status: "completed",
     name: "bash",
     attachments: [],
+    ...over,
+  };
+}
+
+function patch(id: string, over: Partial<PatchEvent> = {}): PatchEvent {
+  return {
+    kind: "patch",
+    id,
+    messageId: "m1",
+    timestamp: at(1),
+    files: ["src/a.ts"],
+    fileCount: 1,
+    filesTruncated: false,
+    userMessageId: "u1",
     ...over,
   };
 }
@@ -286,30 +300,30 @@ describe("extractCommands", () => {
     expect(entry.id).toBe("anchor-me");
   });
 
-  it("includes applied patch milestones in chronological order", () => {
+  it("includes applied patch milestones in authoritative input order", () => {
     const entries = extractCommands([
       tool("read-first", { name: "read", detail: "src/old.ts", timestamp: at(3) }),
-      {
-        kind: "status",
-        id: "patch-second",
-        messageId: "m1",
-        timestamp: at(1),
-        label: "Edited 2 files",
-        detail: "src/a.ts, src/b.ts",
-      },
+      patch("patch-second", { files: ["src/a.ts", "src/b.ts"], fileCount: 2, timestamp: at(1) }),
       tool("command-third", { detail: "npm test", timestamp: at(2) }),
     ]);
-    expect(entries.map((entry) => entry.id)).toEqual(["patch-second", "command-third", "read-first"]);
-    expect(entries[0]).toMatchObject({ category: "edit", activityKind: "change", name: "patch", status: "ok", fileCount: 2, fileSummary: "src/a.ts, src/b.ts" });
+    expect(entries.map((entry) => entry.id)).toEqual(["read-first", "patch-second", "command-third"]);
+    expect(entries[1]).toMatchObject({ category: "edit", activityKind: "change", name: "patch", status: "ok", fileCount: 2, fileSummary: "src/a.ts, src/b.ts" });
   });
 
-  it("classifies only exact patch status events as edits", () => {
-    const base = { kind: "status" as const, messageId: "m1", timestamp: at(1) };
+  it("ignores ordinary status events", () => {
     expect(extractCommands([
-      { ...base, id: "compaction", label: "Context compacted", detail: "src/a.ts" },
-      { ...base, id: "loose", label: "Edited files", detail: "src/a.ts" },
-      { ...base, id: "bad-grammar", label: "Edited 1 files", detail: "src/a.ts" },
+      { kind: "status", id: "compaction", messageId: "m1", timestamp: at(1), label: "Context compacted", detail: "src/a.ts" },
     ])).toEqual([]);
+  });
+
+  it("preserves source order when activity timestamps tie", () => {
+    const timestamp = at(1);
+    const entries = extractCommands([
+      tool("z", { detail: "first", timestamp }),
+      patch("a", { timestamp }),
+      tool("m", { detail: "third", timestamp }),
+    ]);
+    expect(entries.map((entry) => entry.id)).toEqual(["z", "a", "m"]);
   });
 
   it("includes turn failures and failed tool details", () => {
@@ -326,11 +340,21 @@ describe("extractCommands", () => {
   it("exports only shell commands from a mixed activity timeline", () => {
     const script = serializeCommands(extractCommands([
       tool("read", { name: "read", detail: "src/a.ts" }),
-      { kind: "status", id: "patch", messageId: "m1", timestamp: at(2), label: "Edited 1 file", detail: "src/a.ts" },
+      patch("patch", { timestamp: at(2) }),
       tool("shell", { name: "bash", detail: "npm test" }),
     ]));
     expect(script).toContain("npm test");
     expect(script).not.toContain("src/a.ts");
+  });
+
+  it("does not export a shell tool without captured command text", () => {
+    const script = serializeCommands(extractCommands([
+      tool("unknown-shell", { name: "bash", title: "Shell command" }),
+      tool("known-shell", { name: "bash", detail: "npm test" }),
+    ]));
+    expect(script).toContain("npm test");
+    expect(script).not.toContain("Shell command");
+    expect(script.split("\n")).not.toContain("bash");
   });
 });
 
