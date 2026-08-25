@@ -1483,8 +1483,8 @@ test.describe("workspace UI", () => {
     await expect(failed.getByRole("link")).toHaveAttribute("rel", "noreferrer");
     await page.getByTestId("opencode-desktop-inspector-close").click();
     await page.getByTestId("opencode-mobile-workspace-open").click();
-    await page.getByTestId("opencode-file-node").filter({ hasText: "README.md" }).click();
-    await expect(page.getByTestId("opencode-file-viewer")).toContainText("Mock project");
+    await page.getByTestId("opencode-tree-file").filter({ hasText: "README.md" }).click();
+    await expect(page.getByTestId("opencode-code-viewer")).toContainText("Mock project");
     await page.getByTestId("opencode-workspace-changes").click();
     await expect(page.getByTestId("opencode-diff-viewer")).toContainText("+new");
     await page.getByTestId("opencode-workspace-preview").click();

@@ -17,7 +17,7 @@
 // Run standalone:  npx tsx tests/e2e/mock-opencode.ts [port]
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -92,6 +92,57 @@ function modeMessages(): unknown[] {
     prose("msg_mode_agent_conflict", { role: "assistant", agent: "plan", mode: "build" }, "Conflicted response: metadata disagrees.", 1787500005000),
     // Text chosen not to collide with the substring matchers above.
     prose("msg_mode_agent_wide", { role: "assistant", mode: "build" }, `Containment fixture for a mode-marked row.\n\n${hostileMarkdown}`, 1787500006000),
+  ];
+}
+
+// ── Workspace file reference fixture ────────────────────────────────────────
+//
+// One assistant turn carrying every candidate shape the parser distinguishes,
+// so a single deterministic session proves both that verified references
+// become controls and that unsafe, missing, ignored, secret, prose and fenced
+// candidates stay inert. Built by join() because the body contains a fence.
+function filesMessages(directory: string): unknown[] {
+  const prose = [
+    "Reviewing the fixture project.",
+    "",
+    "The port constant is at `src/index.ts:12`, and the defaults span `src/index.ts:8-11`.",
+    "",
+    "Git-style ranges work too: `docs/guide.md#L1-L3`.",
+    "",
+    "An explicit local link: [the guide](file:docs/guide.md#L3).",
+    "",
+    "None of these may become controls: `src/missing.ts`, `../../etc/passwd`, `.env`,",
+    "`generated.txt`, `https://example.test/src/index.ts`, and `npm test`.",
+    "",
+    "A prose mention of src/index.ts must stay prose.",
+    "",
+    "```text",
+    "`src/index.ts:12`",
+    "```",
+    "",
+    "Deeply nested: `src/deep/nested.ts`.",
+  ].join("\n");
+  return [
+    {
+      info: { id: "msg_files_user", role: "user", agent: "build", time: { created: 1787600000000 } },
+      parts: [
+        { id: "prt_files_user", messageID: "msg_files_user", type: "text", text: "Show me the entry point." },
+        {
+          // A structured attachment: an absolute path the UI must relativise
+          // before it can be validated or opened.
+          id: "prt_files_attachment",
+          messageID: "msg_files_user",
+          type: "file",
+          filename: "index.ts",
+          mime: "text/plain",
+          source: { type: "file", path: `${directory}/src/index.ts` },
+        },
+      ],
+    },
+    {
+      info: { id: "msg_files_agent", role: "assistant", agent: "build", mode: "build", time: { created: 1787600001000, completed: 1787600002000 } },
+      parts: [{ id: "prt_files_agent", messageID: "msg_files_agent", type: "text", text: prose }],
+    },
   ];
 }
 
@@ -315,6 +366,13 @@ const API_PERMISSION_DIRECTORY_INPUT = "/tmp/mock-api-permissions";
 const TOOL_FAILURE_DIRECTORY_INPUT = "/tmp/mock-tool-failure";
 const CATALOGUE_FAILURE_DIRECTORY_INPUT = "/tmp/mock-catalogue-failure";
 const POLICY_FAILURE_DIRECTORY_INPUT = "/tmp/mock-policy-failure";
+// Workspace file viewer fixture. Unlike the canned `/file` responses used by
+// the smoke tests, this project exists on disk with real nested directories,
+// a real .gitignore and a real symlink escape — the BFF's containment checks
+// are filesystem checks, so a fake listing would prove nothing about them.
+// Owned by workspace-files.ui.spec.ts and workspace-references.api.spec.ts,
+// which only read from it.
+const FILES_DIRECTORY_INPUT = "/tmp/mock-files-project";
 const SUBAGENT_DIRECTORY_INPUT = "/tmp/mock-subagent-project";
 const MANAGED_SUBAGENT_DIRECTORY_INPUT = "/tmp/mock-managed-subagent-project";
 mkdirSync(SUBAGENT_DIRECTORY_INPUT, { recursive: true });
@@ -343,6 +401,106 @@ if (!existsSync(path.join(MOCK_DIRECTORY, ".git"))) {
   writeFileSync(path.join(MOCK_DIRECTORY, "README.md"), "# Mock project\n");
   execFileSync("git", ["-C", MOCK_DIRECTORY, "add", "README.md"]);
   execFileSync("git", ["-C", MOCK_DIRECTORY, "-c", "user.name=E2E", "-c", "user.email=e2e@example.test", "commit", "-qm", "fixture"]);
+}
+
+// ── Workspace file viewer fixture ───────────────────────────────────────────
+//
+// Written eagerly and deterministically so the viewer's line numbers, range
+// highlight and breadcrumbs can be asserted by exact value.
+
+/** Line 12 is the one the transcript cites; keep it stable. */
+const FIXTURE_INDEX_TS = [
+  "// src/index.ts — workspace file viewer fixture.",
+  "",
+  "export interface FixtureOptions {",
+  "  label: string;",
+  "  retries: number;",
+  "}",
+  "",
+  "export const DEFAULTS: FixtureOptions = {",
+  "  label: \"fixture\",",
+  "  retries: 2,",
+  "};",
+  "export const DEFAULT_PORT = 3210;",
+  "",
+  "export function describeFixture(options: FixtureOptions): string {",
+  "  return `${options.label} (${options.retries} retries)`;",
+  "}",
+  "",
+  "export const answer = 42;",
+  "",
+].join("\n");
+
+const FIXTURE_GUIDE_MD = [
+  "# Fixture guide",
+  "",
+  "The workspace viewer reads this file through the same BFF route as any other.",
+  "",
+  "- Nothing here is editable.",
+  "",
+].join("\n");
+
+mkdirSync(FILES_DIRECTORY_INPUT, { recursive: true });
+export const FILES_DIRECTORY = realpathSync(FILES_DIRECTORY_INPUT);
+mkdirSync(path.join(FILES_DIRECTORY, "src", "deep"), { recursive: true });
+mkdirSync(path.join(FILES_DIRECTORY, "docs"), { recursive: true });
+mkdirSync(path.join(FILES_DIRECTORY, "assets"), { recursive: true });
+writeFileSync(path.join(FILES_DIRECTORY, ".gitignore"), "generated.txt\n");
+writeFileSync(path.join(FILES_DIRECTORY, ".env"), "FIXTURE_SECRET=must-not-be-readable\n");
+writeFileSync(path.join(FILES_DIRECTORY, "generated.txt"), "generated output that git ignores\n");
+writeFileSync(path.join(FILES_DIRECTORY, "README.md"), "# Files fixture\n");
+writeFileSync(path.join(FILES_DIRECTORY, "src", "index.ts"), FIXTURE_INDEX_TS);
+writeFileSync(path.join(FILES_DIRECTORY, "src", "deep", "nested.ts"), "export const nested = true;\n");
+writeFileSync(path.join(FILES_DIRECTORY, "docs", "guide.md"), FIXTURE_GUIDE_MD);
+writeFileSync(path.join(FILES_DIRECTORY, "assets", "logo.bin"), Buffer.from([0, 1, 2, 3, 255, 254]));
+if (!existsSync(path.join(FILES_DIRECTORY, ".git"))) {
+  execFileSync("git", ["init", "-q", FILES_DIRECTORY]);
+}
+// A repository with no commits is not a working fixture: `git log` exits
+// non-zero on an unborn branch, and the Changes tab asks for commits and diffs
+// together, so the whole panel would report an error. Keyed on HEAD rather than
+// on .git so a directory left behind by an earlier run is repaired too.
+try {
+  execFileSync("git", ["-C", FILES_DIRECTORY, "rev-parse", "--verify", "-q", "HEAD"], { stdio: "ignore" });
+} catch {
+  // `.env` is deliberately left untracked: it exists to prove the BFF withholds
+  // it, and committing a file named like a secret into a fixture is a bad habit.
+  execFileSync("git", ["-C", FILES_DIRECTORY, "add", "--", ".gitignore", "README.md", "src", "docs", "assets"]);
+  execFileSync("git", [
+    "-C", FILES_DIRECTORY,
+    "-c", "user.name=E2E",
+    "-c", "user.email=e2e@example.test",
+    "commit", "-qm", "workspace file viewer fixture",
+  ]);
+}
+// Registered here rather than in the map literal: the transcript embeds the
+// realpath'd fixture directory, which is only known once it exists.
+messages.set("ses_mock_files", filesMessages(FILES_DIRECTORY));
+
+/** Names this fixture reports as git-ignored, mirroring its .gitignore. */
+const FILES_IGNORED = new Set(["generated.txt", ".git"]);
+
+function fixtureListing(relative: string): Array<Record<string, unknown>> {
+  const absolute = path.join(FILES_DIRECTORY, relative);
+  return readdirSync(absolute, { withFileTypes: true })
+    .filter((entry) => entry.name !== ".git")
+    .map((entry) => ({
+      name: entry.name,
+      path: relative ? `${relative}/${entry.name}` : entry.name,
+      type: entry.isDirectory() ? "directory" : "file",
+      ignored: FILES_IGNORED.has(entry.name),
+    }))
+    .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+}
+
+function fixtureContent(relative: string): Record<string, unknown> {
+  const absolute = path.join(FILES_DIRECTORY, relative);
+  const bytes = readFileSync(absolute);
+  // Mirrors the real server: a file with NUL bytes comes back as binary.
+  if (bytes.includes(0)) {
+    return { type: "binary", mimeType: "application/octet-stream", encoding: "base64", content: bytes.toString("base64") };
+  }
+  return { type: "text", content: bytes.toString("utf8") };
 }
 
 const SESSIONS: Array<Record<string, any>> = [
@@ -637,6 +795,18 @@ const SESSIONS: Array<Record<string, any>> = [
     cost: 0,
     tokens: {},
     time: { created: 1787200500000, updated: 1787200500000 },
+  },
+  {
+    // The workspace file viewer fixture, in its own project so browsing it
+    // cannot perturb the hub counts or the permission fixtures.
+    id: "ses_mock_files",
+    title: "Workspace file viewer fixture",
+    directory: FILES_DIRECTORY,
+    agent: "build",
+    model: { providerID: "anthropic", id: "claude-opus-5" },
+    cost: 0,
+    tokens: {},
+    time: { created: 1787600000000, updated: 1787600002000 },
   },
   {
     id: "ses_mock_share_failure",
@@ -1063,6 +1233,15 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
   }
   if (pathname === "/file") {
     const relative = url.searchParams.get("path") ?? "";
+    // The file-viewer fixture is a real directory tree; everything else keeps
+    // the canned two-level listing the older smoke tests are written against.
+    if (directory === FILES_DIRECTORY) {
+      try {
+        return json(res, 200, fixtureListing(relative));
+      } catch {
+        return json(res, 404, { error: "no such directory" });
+      }
+    }
     return json(res, 200, relative === "src"
       ? [{ name: "index.ts", path: "src/index.ts", type: "file", ignored: false }]
       : [
@@ -1073,6 +1252,13 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
   }
   if (pathname === "/file/content") {
     const relative = url.searchParams.get("path") ?? "";
+    if (directory === FILES_DIRECTORY) {
+      try {
+        return json(res, 200, fixtureContent(relative));
+      } catch {
+        return json(res, 404, { error: "no such file" });
+      }
+    }
     return json(res, 200, { type: "text", content: relative === "README.md" ? "# Mock project" : "export const answer = 42;" });
   }
   if (pathname === "/vcs/diff") {

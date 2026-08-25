@@ -1,40 +1,73 @@
 // client/ds/markdown.tsx
 //
-// Lightweight markdown renderer used wherever the app needs to show
-// a small slice of LLM-generated markdown (assistant prose in the
-// follow-up activity log, and — historically — the ops-review draft
-// preview, see OpsReviewDraftPreview.tsx for a near-identical
-// in-house copy still in use there).
+// Markdown rendering for LLM-generated prose (assistant turns, forge review
+// bodies, repository documentation).
 //
-// The codebase has no markdown library on purpose: the supported
-// surface is small (headings, bold/italic, inline code, links,
-// unordered lists, paragraphs, horizontal rules) and is matched by
-// the `prose-markdown` typography class in theme/tokens.css. If we ever need
-// fenced code blocks, GFM tables, or nested lists in agent prose,
-// reach for `react-markdown` + `remark-gfm` rather than extending
-// this regex chain.
+// This used to be a chain of regexes producing an HTML string that was handed
+// to `dangerouslySetInnerHTML`. Issue #140 needed *interactive* nodes — a
+// verified `scripts/launchd.ts:222` has to become a real button — and injecting
+// controls by pattern-matching generated HTML is precisely the design that
+// turns a rendering bug into an injection bug. The renderer therefore works on
+// parsed markdown nodes now (`react-markdown` + `remark-gfm`), and emits React
+// elements. Nothing on this path builds or interprets an HTML string.
+//
+// Sanitization, restated because it moved rather than disappeared:
+//
+//   - Raw HTML in the source is NOT rendered. `react-markdown` drops `html`
+//     nodes unless `rehype-raw` is installed, and it is deliberately not.
+//     `untrusted` additionally entity-escapes the source first, so the markup
+//     survives as visible text instead of vanishing — the previous behaviour.
+//   - Link targets are gated by `isSafeHref`. An unsafe target renders as
+//     plain text, exactly as before.
+//   - Images never reach the network. `Attachment.url` in the transcript is
+//     "not necessarily an http URL", and an `<img>` built from agent prose is
+//     an SSRF and tracking-pixel surface for a value the agent chose. The alt
+//     text is rendered instead.
+//   - Workspace file references only become interactive where a
+//     WorkspaceReferenceProvider is mounted AND the server confirmed the path
+//     is readable. `untrusted` opts out entirely: forge comments must not gain
+//     workspace affordances.
 
-import { Fragment, memo, useMemo } from "react";
+import { Fragment, createContext, memo, useContext } from "react";
+import ReactMarkdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
 
+import { describeLineRange } from "../lib/fileReferences.js";
+import { useWorkspaceReference } from "../lib/workspaceReferences.js";
+import { FileReference } from "./file-reference.js";
 import { cn } from "./utils.js";
 
-/** Allowed link protocols when rendering untrusted markdown. */
-function isSafeHref(url: string): boolean {
-  return /^(https?:\/\/|mailto:|\/|#)/i.test(url.trim());
+/** Allowed link protocols when rendering markdown. Relative targets pass. */
+export function isSafeHref(url: string): boolean {
+  const value = url.trim();
+  if (/^(https?:\/\/|mailto:|\/|#)/i.test(value)) return true;
+  // No scheme at all is a relative link, which cannot escape the origin.
+  return !/^[A-Za-z][A-Za-z0-9+.-]*:/.test(value);
 }
 
-/** Bare http(s) URL in plain text, for autolinking. Stops at whitespace,
- * angle brackets and quotes; trailing sentence punctuation is trimmed
- * separately by `splitTrailingPunctuation`. */
+/**
+ * Attributes for an outbound link.
+ *
+ * Root-relative and hash targets stay in this tab when the caller opts in
+ * (repository documentation rendered inside the app); everything else opens
+ * in a new tab without a referrer.
+ */
+export function linkAttributes(
+  url: string,
+  internalLinksInSameTab?: boolean,
+): { target?: "_blank"; rel?: "noreferrer" } {
+  const sameTab = internalLinksInSameTab && /^(?:\/|#)/u.test(url.trim());
+  return sameTab ? {} : { target: "_blank", rel: "noreferrer" };
+}
+
+/** Bare http(s) URL in plain text, for autolinking. */
 const BARE_URL_PATTERN = "https?:\\/\\/[^\\s<>\"']+";
 
 /**
  * Split a matched URL into the link target and any trailing sentence
  * punctuation that shouldn't be part of it ("see https://x.dev." →
  * link https://x.dev, text "."). A closing paren stays in the URL only
- * while the URL still has an unmatched opening paren, so Wikipedia-style
- * `/Foo_(bar)` paths survive but a plain `(https://x.dev)` doesn't
- * swallow the `)`.
+ * while the URL still has an unmatched opening paren.
  */
 function splitTrailingPunctuation(match: string): [url: string, trailing: string] {
   let end = match.length;
@@ -55,180 +88,168 @@ function splitTrailingPunctuation(match: string): [url: string, trailing: string
   return [match.slice(0, end), match.slice(end)];
 }
 
-/** Escape raw HTML so it renders as text instead of markup. Quotes are
- * escaped too so escaped text can never terminate an HTML attribute. */
+/** Escape raw HTML so it renders as text instead of markup or nothing. */
 function escapeHtml(text: string): string {
   return text
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+    .replace(/>/g, "&gt;");
 }
 
-/** Attribute-escape a URL for href="..." emission (defense in depth —
- * untrusted sources are already entity-escaped, but never trust the
- * pipeline). Percent-encodes quote and angle-bracket characters so the
- * href can neither terminate the attribute nor embed markup. */
-function escapeAttribute(url: string): string {
-  return url
-    .replace(/"/g, "%22")
-    .replace(/'/g, "%27")
-    .replace(/</g, "%3C")
-    .replace(/>/g, "%3E");
-}
-
-export interface MarkdownToHtmlOpts {
-  /**
-   * Treat the source as untrusted: raw HTML is escaped to text before
-   * markdown conversion, and link hrefs are restricted to
-   * http(s)/mailto/relative. Use for any content that originates from
-   * (or is synthesized from) external users — e.g. Hindsight bank
-   * content built from Slack threads.
-   */
-  untrusted?: boolean;
-  /** Keep root-relative and hash links in the current tab. Useful for
-   * repository-owned documentation rendered inside the application. */
-  internalLinksInSameTab?: boolean;
-}
+// ── Node components ─────────────────────────────────────────────────────────
 
 /**
- * Convert a small subset of markdown to HTML.
+ * Fenced-block marker.
  *
- * Output is wrapped in a `prose-markdown` div so the typography rules
- * in `styles.css` apply. Used with `dangerouslySetInnerHTML`. For
- * agent-emitted assistant prose persisted server-side the default
- * (trusted) mode is acceptable — the regexes below only generate a
- * closed set of tags. For anything derived from external/user input,
- * pass `untrusted: true` (or `<Markdown untrusted>`), which escapes
- * raw HTML and drops javascript:-style link targets.
+ * `react-markdown` renders both an inline code span and a fenced block through
+ * the `code` component, and a fenced block without an info string carries no
+ * className to tell them apart. The `pre` wrapper flags its subtree instead,
+ * which is exact rather than heuristic — and the distinction matters: a path
+ * inside a fenced example must stay documentation.
  */
-export function markdownToHtml(md: string, opts?: MarkdownToHtmlOpts): string {
-  if (opts?.untrusted) md = escapeHtml(md);
-  // Placeholder stash: segments where the URL autolinker must not look
-  // (code blocks, inline code, already-emitted <a> tags) are swapped for
-  // NUL-delimited tokens and restored after autolinking. Strip NULs from
-  // the source first so input can never spoof a token.
-  const stash: string[] = [];
-  const keep = (segment: string) => `\u0000${stash.push(segment) - 1}\u0000`;
-  md = md.replace(/\u0000/g, "");
-  // Fenced code blocks (must run before inline transforms)
-  let html = md.replace(/```(\w*)\n([\s\S]*?)```/g, (_match, _lang, code) =>
-    keep(`<pre><code>${code.replace(/</g, "&lt;").replace(/>/g, "&gt;").trimEnd()}</code></pre>`)
-  );
+const FencedBlockContext = createContext(false);
 
-  // GFM tables: detect consecutive lines with pipes
-  html = html.replace(
-    /(^\|.+\|$\n^\|[\s:|-]+\|$\n(^\|.+\|$\n?)+)/gm,
-    (tableBlock) => {
-      const lines = tableBlock.trim().split("\n");
-      if (lines.length < 2) return tableBlock;
-      const parseRow = (line: string) =>
-        line.split("|").slice(1, -1).map((c) => c.trim());
-      const headers = parseRow(lines[0]);
-      // lines[1] is the separator row — skip it
-      const rows = lines.slice(2).map(parseRow);
-      const headerHtml = headers.map((h) => `<th>${h}</th>`).join("");
-      const bodyHtml = rows
-        .map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`)
-        .join("");
-      return `<table><thead><tr>${headerHtml}</tr></thead><tbody>${bodyHtml}</tbody></table>`;
-    },
-  );
-
-  html = html
-    // Headings
-    .replace(/^#### (.+)$/gm, "<h4>$1</h4>")
-    .replace(/^### (.+)$/gm, "<h3>$1</h3>")
-    .replace(/^## (.+)$/gm, "<h2>$1</h2>")
-    .replace(/^# (.+)$/gm, "<h1>$1</h1>")
-    // Horizontal rules
-    .replace(/^---$/gm, "<hr/>")
-    // Bold / italic
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*(.+?)\*/g, "<em>$1</em>")
-    // Inline code
-    .replace(/`([^`]+)`/g, (_match, code: string) => keep(`<code>${code}</code>`))
-    // Links (untrusted mode: unsafe protocols render as plain text, and
-    // the href is attribute-escaped so a crafted URL containing quotes
-    // can't break out of the attribute — attribute-injection XSS)
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, text: string, url: string) => {
-      if (opts?.untrusted) {
-        if (!isSafeHref(url)) return text;
-        const sameTab = opts.internalLinksInSameTab && /^(?:\/|#)/u.test(url.trim());
-        const attributes = sameTab ? "" : ' target="_blank" rel="noreferrer"';
-        return keep(`<a href="${escapeAttribute(url)}"${attributes}>${text}</a>`);
-      }
-      const sameTab = opts?.internalLinksInSameTab && /^(?:\/|#)/u.test(url.trim());
-      const attributes = sameTab ? "" : ' target="_blank" rel="noreferrer"';
-      return keep(`<a href="${url}"${attributes}>${text}</a>`);
-    })
-    // Autolink bare URLs in the remaining plain text — URLs inside code
-    // or already-emitted links are stashed as tokens, so they're immune.
-    // Scheme is fixed to http(s) by the pattern, so this is safe in
-    // untrusted mode too.
-    .replace(new RegExp(BARE_URL_PATTERN, "g"), (match) => {
-      const [url, trailing] = splitTrailingPunctuation(match);
-      if (!url) return match;
-      return `${keep(`<a href="${escapeAttribute(url)}" target="_blank" rel="noreferrer">${url}</a>`)}${trailing}`;
-    })
-    // Restore stashed segments before block-level (list/paragraph) wrapping.
-    .replace(/\u0000(\d+)\u0000/g, (_match, i: string) => stash[Number(i)]);
-
-  // Unordered lists: consecutive lines starting with "- "
-  html = html.replace(/(^- .+$(\n- .+$)*)/gm, (block) => {
-    const items = block
-      .split("\n")
-      .map((l) => `<li>${l.replace(/^- /, "")}</li>`)
-      .join("");
-    return `<ul>${items}</ul>`;
-  });
-
-  // Paragraphs: wrap remaining non-tag lines
-  html = html
-    .split("\n\n")
-    .map((chunk) => {
-      const trimmed = chunk.trim();
-      if (!trimmed) return "";
-      if (/^<(h[1-4]|ul|ol|hr|blockquote|pre|table)/.test(trimmed)) return trimmed;
-      return `<p>${trimmed.replace(/\n/g, "<br/>")}</p>`;
-    })
-    .join("\n");
-
-  return html;
+interface MarkdownOptions {
+  untrusted: boolean;
+  internalLinksInSameTab: boolean;
 }
+
+const MarkdownOptionsContext = createContext<MarkdownOptions>({
+  untrusted: false,
+  internalLinksInSameTab: false,
+});
+
+function InlineCode({ text, className }: { text: string; className?: string }) {
+  const { untrusted } = useContext(MarkdownOptionsContext);
+  // Hooks cannot be called conditionally, so the lookup always runs and the
+  // untrusted opt-out is applied to its result.
+  const reference = useWorkspaceReference(text);
+  if (!untrusted && reference) {
+    return (
+      <FileReference path={reference.target.path} lineLabel={describeLineRange(reference.target)} onOpen={reference.open}>
+        {text}
+      </FileReference>
+    );
+  }
+  return <code className={className}>{text}</code>;
+}
+
+function MarkdownLink({ href, children }: { href: string; children: React.ReactNode }) {
+  const { untrusted, internalLinksInSameTab } = useContext(MarkdownOptionsContext);
+  const reference = useWorkspaceReference(href);
+  if (!untrusted && reference) {
+    return (
+      <FileReference path={reference.target.path} lineLabel={describeLineRange(reference.target)} onOpen={reference.open}>
+        {children}
+      </FileReference>
+    );
+  }
+  // An unsafe or unresolvable target degrades to its own text rather than
+  // rendering an anchor the reader cannot trust.
+  if (!isSafeHref(href)) return <>{children}</>;
+  return (
+    <a href={href} {...linkAttributes(href, internalLinksInSameTab)}>
+      {children}
+    </a>
+  );
+}
+
+const COMPONENTS: Components = {
+  pre: ({ children }) => (
+    <FencedBlockContext.Provider value={true}>
+      <pre>{children}</pre>
+    </FencedBlockContext.Provider>
+  ),
+  code: function CodeNode({ className, children }) {
+    const fenced = useContext(FencedBlockContext);
+    const text = typeof children === "string" ? children : "";
+    if (fenced || !text) return <code className={className}>{children}</code>;
+    return <InlineCode text={text} className={className} />;
+  },
+  a: ({ href, children }) => <MarkdownLink href={href ?? ""}>{children}</MarkdownLink>,
+  // See the module header: agent-chosen image sources are never fetched.
+  img: ({ alt }) => <>{alt ?? ""}</>,
+};
+
+/**
+ * Treat a single newline as a line break.
+ *
+ * CommonMark folds them into spaces, but agent prose (and the previous
+ * renderer, which emitted `<br/>`) uses them as hard breaks. Restoring that
+ * here keeps existing transcripts reading the way they were written; the
+ * alternative was a further runtime dependency for fifteen lines of visitor.
+ */
+function remarkSoftBreaks() {
+  interface Node {
+    type: string;
+    value?: string;
+    children?: Node[];
+  }
+  const walk = (node: Node): void => {
+    if (!node.children) return;
+    const next: Node[] = [];
+    for (const child of node.children) {
+      if (child.type === "text" && typeof child.value === "string" && child.value.includes("\n")) {
+        child.value.split("\n").forEach((piece, index) => {
+          if (index > 0) next.push({ type: "break" });
+          if (piece) next.push({ type: "text", value: piece });
+        });
+        continue;
+      }
+      next.push(child);
+      walk(child);
+    }
+    node.children = next;
+  };
+  return (tree: Node) => walk(tree);
+}
+
+const PLUGINS = [remarkGfm, remarkSoftBreaks];
 
 interface MarkdownProps {
   /** Raw markdown source. Empty/whitespace renders as nothing. */
   source: string;
   /** Optional extra classes appended to the `prose-markdown` wrapper. */
   className?: string;
-  /** Escape raw HTML + restrict link protocols. Set for content derived
-   * from external users (see markdownToHtml docs). */
+  /**
+   * Escape raw HTML and opt out of workspace file references. Set for content
+   * derived from external users (forge comments, review bodies).
+   */
   untrusted?: boolean;
   /** Keep root-relative and hash links in this tab. */
   internalLinksInSameTab?: boolean;
 }
 
-export const Markdown = memo(function Markdown({ source, className, untrusted, internalLinksInSameTab }: MarkdownProps) {
-  const html = useMemo(
-    () => markdownToHtml(source, { untrusted, internalLinksInSameTab }),
-    [source, untrusted, internalLinksInSameTab],
-  );
+export const Markdown = memo(function Markdown({
+  source,
+  className,
+  untrusted = false,
+  internalLinksInSameTab = false,
+}: MarkdownProps) {
   if (!source || !source.trim()) return null;
   return (
-    <div
-      className={cn("prose-markdown", className)}
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
+    <MarkdownOptionsContext.Provider value={{ untrusted, internalLinksInSameTab }}>
+      <div className={cn("prose-markdown", className)}>
+        <ReactMarkdown
+          remarkPlugins={PLUGINS}
+          components={COMPONENTS}
+          // Targets are inspected by MarkdownLink, which gates them and may
+          // turn them into workspace references; react-markdown's own
+          // transform would rewrite `file:` before that decision is made.
+          urlTransform={(url) => url}
+        >
+          {untrusted ? escapeHtml(source) : source}
+        </ReactMarkdown>
+      </div>
+    </MarkdownOptionsContext.Provider>
   );
 });
 
 /**
  * Render plain text with bare http(s) URLs turned into clickable links.
- * Emits real React elements (no innerHTML), so it is safe for raw user
- * input — use it where text should stay verbatim (e.g. chat user
- * bubbles) but pasted links should still open.
+ * Emits real React elements, so it is safe for raw user input — use it where
+ * text should stay verbatim (e.g. chat user bubbles) but pasted links should
+ * still open.
  */
 export function LinkifiedText({ text }: { text: string }) {
   // Split on a capturing group: odd indices are the matched URLs.

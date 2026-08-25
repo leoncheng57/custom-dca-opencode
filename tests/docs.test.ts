@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { markdownToHtml } from "../client/ds/markdown.js";
+import { isSafeHref, linkAttributes } from "../client/ds/markdown.js";
 import { DOCS, getDoc, rewriteDocLinks } from "../client/lib/docs.js";
 
 describe("documentation catalogue", () => {
@@ -30,10 +30,21 @@ describe("documentation catalogue", () => {
 
 describe("documentation markdown links", () => {
   it("keeps app links in this tab without changing external link behavior", () => {
-    const html = markdownToHtml("[Architecture](/docs/architecture) [Source](https://example.com)", {
-      internalLinksInSameTab: true,
-    });
-    expect(html).toContain('<a href="/docs/architecture">Architecture</a>');
-    expect(html).toContain('<a href="https://example.com" target="_blank" rel="noreferrer">Source</a>');
+    expect(linkAttributes("/docs/architecture", true)).toEqual({});
+    expect(linkAttributes("#result", true)).toEqual({});
+    expect(linkAttributes("https://example.com", true)).toEqual({ target: "_blank", rel: "noreferrer" });
+    // Without the opt-in even an in-app target opens in a new tab, which is
+    // what every other markdown surface still does.
+    expect(linkAttributes("/docs/architecture")).toEqual({ target: "_blank", rel: "noreferrer" });
+  });
+
+  it("permits only navigable link protocols", () => {
+    expect(isSafeHref("https://example.com")).toBe(true);
+    expect(isSafeHref("mailto:someone@example.com")).toBe(true);
+    expect(isSafeHref("/docs/architecture")).toBe(true);
+    expect(isSafeHref("docs/architecture.md")).toBe(true);
+    expect(isSafeHref("javascript:alert(1)")).toBe(false);
+    expect(isSafeHref("  javascript:alert(1)")).toBe(false);
+    expect(isSafeHref("data:text/html,<script>")).toBe(false);
   });
 });

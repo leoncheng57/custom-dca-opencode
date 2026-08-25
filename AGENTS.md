@@ -296,6 +296,24 @@ several decisions below.
     native derivation copies a historical parent deny but discards its later Build allow. The
     resolved Plan agent alone is not read-only after project policy merges, so session-level Plan
     enforcement remains required.
+20. **A file reference is data the server verified, never a URL the client trusted.**
+    The client contract is `WorkspaceTarget { path, startLine?, endLine? }`, not a route:
+    following a reference must not change the browser location, because the drawer is a
+    temporary overlay and the reader's place in the transcript is the thing being
+    preserved. Candidates come from parsed Markdown nodes — inline code spans and explicit
+    links only — so bare prose, fenced examples, absolute paths, `~`, `..`, `file://`,
+    UNC/Windows drives, query strings and non-line fragments never become candidates at
+    all. Surviving candidates are collected from the frozen `TranscriptEvent` list rather
+    than during render, deduplicated, and validated in one batched
+    `POST /api/workspace/references` (64 per request, rejected rather than truncated),
+    because each check spawns `git check-ignore` and one request per rendered code span
+    would be a process storm on a streaming turn. Only `status: "file"` becomes
+    interactive, and the UI opens the server's canonical `resolvedPath`, never the
+    candidate — a symlink alias re-resolved later could point somewhere else.
+    `server/opencode/workspace.ts` reuses `requireReadableWorkspacePath`, the same
+    authority the read routes use, so validation can never be a wider door than the route
+    it gates. A client-side match grants nothing; an unverified candidate simply renders
+    as the ordinary text it renders as today.
 
 ## Client conventions (inherited from the OpenHands runner, still enforced)
 
@@ -307,6 +325,33 @@ several decisions below.
   phone-transfer matrix entirely in the browser, avoiding URL disclosure to an
   external image service. The app reads its matrix API and renders a React SVG
   path rather than injecting the package's generated markup.
+- `react-markdown` + `remark-gfm` render agent prose. `client/ds/markdown.tsx` used to
+  be a regex chain producing an HTML string for `dangerouslySetInnerHTML`, and its own
+  header comment named these two packages as the replacement once the surface grew.
+  Issue #140 grew it: a verified `scripts/launchd.ts:222` has to become a real button,
+  and injecting controls by pattern-matching generated HTML is how a rendering bug
+  becomes an injection bug. Rendering from parsed nodes also *removes*
+  `dangerouslySetInnerHTML` from this path entirely. Consequences worth stating: raw
+  HTML in the source is dropped rather than rendered (no `rehype-raw`, deliberately),
+  `untrusted` still entity-escapes first so that markup survives as visible text,
+  markdown images render their alt text instead of an `<img>` — an agent-chosen `src`
+  is an SSRF and tracking-pixel surface — and a ~15-line local remark plugin restores
+  single-newline hard breaks rather than adding `remark-breaks` for that alone.
+- CodeMirror 6 (`@codemirror/{state,view,language,search}` plus the
+  `lang-{javascript,json,css,html,markdown,python}` grammars) is the read-only file
+  viewer, loaded through `React.lazy` so a reader who never opens a file never
+  downloads a parser — it is a ~550 kB chunk that stays out of the main bundle. It was
+  chosen over Monaco, which does not support mobile browsers, and over embedding
+  OpenVSCode Server, Theia or the OpenCode UI, which would each add a second process,
+  a second security surface and a competing notion of workspace state. Read-only is
+  enforced twice, by `EditorState.readOnly` and `EditorView.editable`, because this
+  surface must never imply the reader can save. The grammar list is short on purpose:
+  every grammar is bytes in that chunk, and an unknown extension renders as plain text
+  rather than being guessed at. `@lezer/highlight` is a direct dependency because the
+  viewer maps grammar roles onto app-owned semantic syntax tokens; CodeMirror's fixed
+  default palette contains low-contrast primary blue and purple on this app's dark
+  surface. Both light and dark token sets must keep every syntax foreground at WCAG AA
+  text contrast against the editor surface.
 - The transcript renderer consumes a backend-neutral `TranscriptEvent`. Row components
   must never touch raw OpenCode `Part` shapes — that mapping lives in exactly one place
   (`client/lib/events.ts`), which is what made this migration a ~363-line adapter
