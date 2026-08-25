@@ -39,11 +39,6 @@ import {
 
 const WRAP_KEY = "opencode.wrapOutput.v1";
 
-// Issue #72: the conversation actions read as a toolbar, not as five buttons.
-// Only the pointer-fine rendering shrinks — a coarse pointer still gets a 44px
-// hit area, which is larger than the 40px the shared `sm` size gives it.
-const COMPACT_ACTION = "h-7 px-2 text-[11px] pointer-coarse:h-11 pointer-coarse:px-3";
-
 export function ConversationPage() {
   const { id = "" } = useParams();
   const [params] = useSearchParams();
@@ -183,6 +178,11 @@ export function ConversationPage() {
       cancelled = true;
     };
   }, [directory, id, stream.running]);
+
+  useEffect(() => {
+    if (!directory || !id) return;
+    void api.modelLimit(directory, id).then((result) => setContextLimit(result.context)).catch(() => setContextLimit(null));
+  }, [directory, id]);
 
   // A sub-agent transcript is meaningless without the work that spawned it,
   // and the parent id alone is not navigable in the UI. Resolve it to a title
@@ -497,7 +497,17 @@ export function ConversationPage() {
           </button>}
         </div>
 
-        <div className="grid grid-cols-6 gap-1 sm:ml-auto sm:w-fit" aria-label="Session actions" data-testid="opencode-mobile-conversation-actions">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="hidden min-w-0 items-center gap-2 text-xs tabular-nums text-[var(--color-text-muted)] sm:flex">
+            {session && session.cost > 0 && <span data-testid="opencode-session-cost">{formatCost(session.cost)}</span>}
+            {contextTokens > 0 && (
+              <span data-testid="opencode-context-tokens" title="Latest turn context tokens">
+                context {Intl.NumberFormat(undefined, { notation: "compact" }).format(contextTokens)}
+                {displayedContextLimit ? ` / ${Math.round((contextTokens / displayedContextLimit) * 100)}%` : ""}
+              </span>
+            )}
+          </div>
+          <div className="grid min-w-0 flex-1 grid-cols-6 gap-1 sm:ml-auto sm:flex-none" aria-label="Session actions" data-testid="opencode-mobile-conversation-actions">
           <Button
             size="md"
             variant="ghost"
@@ -547,10 +557,16 @@ export function ConversationPage() {
             </summary>
             <div className="absolute right-0 z-30 mt-1 grid min-w-40 overflow-hidden rounded-lg border border-[var(--color-border-default)] bg-[var(--color-background-surface)] p-1 shadow-xl">
               <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); toggleWrap(); }} data-testid="opencode-mobile-wrap-toggle">{wrap ? "Disable wrapping" : "Enable wrapping"}</button>
-              <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setShareTarget({ kind: "session" }); }} data-testid="opencode-mobile-share-export-open">Share</button>
+              <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => {
+                const menu = event.currentTarget.closest("details");
+                menu?.removeAttribute("open");
+                menu?.querySelector<HTMLElement>("summary")?.focus();
+                setShareTarget({ kind: "session" });
+              }} data-testid="opencode-mobile-share-export-open">Share</button>
               <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setRequestedInspectorTab("catalog"); setInspectorOpen(true); }} data-testid="opencode-mobile-catalog-open">Catalog</button>
             </div>
           </details>
+          </div>
         </div>
 
       </header>
