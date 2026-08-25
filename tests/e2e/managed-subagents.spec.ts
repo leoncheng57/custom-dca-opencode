@@ -79,6 +79,50 @@ test("creates an idempotent independently configured child", async ({ request })
   });
 });
 
+test("records a redacted send-time instruction audit for managed sends", async ({ request }) => {
+  const launch = await request.post(scoped(`/sessions/${API_PARENT}/managed-children`), {
+    data: {
+      prompt: "Deploy the probe using ghp_abcdefghijklmnopqrstuvwx and report back",
+      agent: "build",
+      authorization: "modify",
+      idempotencyKey: "managed-audit-probe",
+    },
+  });
+  expect(launch.status()).toBe(201);
+  const childID = (await launch.json() as { session: { id: string } }).session.id;
+
+  const report = await (await request.get(scoped(`/sessions/${API_PARENT}/subagents`))).json() as {
+    instructions: Array<Record<string, unknown>>;
+  };
+  const record = report.instructions.find(
+    (item) => item.targetSessionID === childID && item.source === "managed-child-launch",
+  );
+  expect(record).toMatchObject({
+    delivery: "acknowledged",
+    parentSessionID: API_PARENT,
+    targetAgent: "build",
+  });
+  // The token never reaches the persisted audit record.
+  expect(record?.text).toContain("[redacted-token]");
+  expect(String(record?.text)).not.toContain("ghp_abcdefghijklmnopqrstuvwx");
+
+  const followup = await request.post(scoped(`/sessions/${childID}/prompt`), {
+    data: { text: "Second instruction carrying sk-abcdefghijklmnop1234 for the API", mode: "build" },
+  });
+  expect(followup.status()).toBe(202);
+  const after = await (await request.get(scoped(`/sessions/${API_PARENT}/subagents`))).json() as {
+    instructions: Array<Record<string, unknown>>;
+  };
+  const followupRecord = after.instructions.find(
+    (item) => item.targetSessionID === childID && item.source === "managed-child-prompt",
+  );
+  expect(followupRecord).toMatchObject({ delivery: "acknowledged", targetAgent: "build" });
+  expect(followupRecord?.text).toContain("[redacted-token]");
+  // Newest first, so the follow-up precedes its own launch record.
+  const forChild = after.instructions.filter((item) => item.targetSessionID === childID);
+  expect(forChild.map((item) => item.source)).toEqual(["managed-child-prompt", "managed-child-launch"]);
+});
+
 test("advertises only the retained Managed Child agents", async ({ request }) => {
   const response = await request.get(scoped("/managed-child-agents"));
   expect(response.status()).toBe(200);
@@ -176,6 +220,16 @@ test("rejects malformed Managed Child metadata instead of falling back to root p
   expect((await followup.json()).error).toContain("configuration could not be verified");
   const prompts = await (await fetch(`${MOCK_URL}/test/prompt-payloads`)).json() as Array<Record<string, unknown>>;
   expect(prompts.some((item) => JSON.stringify(item).includes(text))).toBe(false);
+  // The refused attempt is still audited, marked rejected with the safe reason.
+  const report = await (await request.get(scoped(`/sessions/${API_PARENT}/subagents`))).json() as {
+    instructions: Array<Record<string, unknown>>;
+  };
+  expect(report.instructions.find(
+    (item) => item.targetSessionID === childID && item.source === "managed-child-prompt",
+  )).toMatchObject({
+    delivery: "rejected",
+    reason: expect.stringContaining("could not be verified"),
+  });
 });
 
 test("fails closed before creating a child for invalid input or parent", async ({ request }) => {
@@ -200,8 +254,18 @@ test("deletes a child when asynchronous prompt submission fails", async ({ reque
   });
   expect(response.status()).toBe(502);
   expect(await response.json()).toMatchObject({ error: expect.stringContaining("503") });
-  const report = await (await request.get(scoped(`/sessions/${FAILURE_PARENT}/subagents`))).json() as { tasks: unknown[] };
+  const report = await (await request.get(scoped(`/sessions/${FAILURE_PARENT}/subagents`))).json() as {
+    tasks: unknown[];
+    instructions: Array<Record<string, unknown>>;
+  };
   expect(report.tasks).toEqual([]);
+  // The child was cleaned up, but the audit of the rejected launch send
+  // remains, keyed to this parent.
+  expect(report.instructions.find((item) => item.source === "managed-child-launch")).toMatchObject({
+    delivery: "rejected",
+    parentSessionID: FAILURE_PARENT,
+    reason: expect.stringContaining("503"),
+  });
 });
 
 test("reports a child that may remain when partial-launch cleanup also fails", async ({ request }) => {
@@ -263,6 +327,15 @@ test("launches a General Managed Child through explicit human confirmation", asy
   await expect(row.getByTestId("opencode-managed-child-requested-agent")).toHaveText("agent: general");
   await expect(row.getByTestId("opencode-subagent-requested-model")).toContainText("openai/gpt-5.6-sol");
   await expect(row.getByTestId("opencode-subagent-policy-status")).toHaveText("policy: verified at launch");
+  // The launch assignment renders as a machine-authored audit row, never a
+  // human chat bubble, and the panel states the audit's coverage honestly.
+  const instruction = row.getByTestId("opencode-subagent-instruction").first();
+  await expect(instruction).toBeVisible();
+  await expect(instruction).toHaveAttribute("data-delivery", "acknowledged");
+  await expect(instruction).toContainText("machine-authored");
+  await expect(instruction.getByTestId("opencode-subagent-instruction-source")).toHaveText("Launch assignment");
+  await expect(instruction.getByTestId("opencode-subagent-instruction-text")).toContainText("Run the independent General child");
+  await expect(page.getByTestId("opencode-subagent-instruction-coverage")).toContainText("not observable");
   const prompts = await (await fetch(`${MOCK_URL}/test/prompt-payloads`)).json() as Array<Record<string, unknown>>;
   const payload = prompts.find((item) => (item.parts as Array<{ text?: string }> | undefined)
     ?.some((part) => part.text === "Run the independent General child"));

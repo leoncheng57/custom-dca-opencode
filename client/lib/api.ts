@@ -86,11 +86,31 @@ export interface SubagentTask {
   detail?: string;
 }
 
+/**
+ * A machine-authored instruction this app itself sent to a child session.
+ * Explicit send-time audit data — never inferred from transcript wording.
+ */
+export interface InstructionRecord {
+  id: string;
+  at: number;
+  source: "managed-child-launch" | "managed-child-prompt";
+  directory: string;
+  targetSessionID: string;
+  parentSessionID?: string;
+  targetAgent?: string;
+  text: string;
+  truncated?: true;
+  delivery: "acknowledged" | "rejected";
+  reason?: string;
+}
+
 export interface SubagentReport {
   parentID: string;
   tasks: SubagentTask[];
   capabilities: { backgroundSubagents: boolean; managedChildren: boolean };
   truncated: boolean;
+  /** Newest first; covers only instructions this app sent (issue #91). */
+  instructions: InstructionRecord[];
 }
 
 export interface HealthResponse {

@@ -11,7 +11,7 @@
 
 import { Badge, type BadgeVariant } from "../ds/badge.js";
 import { Button } from "../ds/button.js";
-import { formatCost, type SubagentReport, type SubagentTask } from "../lib/api.js";
+import { formatCost, type InstructionRecord, type SubagentReport, type SubagentTask } from "../lib/api.js";
 import { formatRelative } from "../lib/derive.js";
 import {
   SUBAGENT_STATE_LABELS,
@@ -40,16 +40,62 @@ function StateBadge({ task }: { task: SubagentTask }) {
   );
 }
 
+/**
+ * A machine-authored instruction audit row (issue #91).
+ *
+ * Every record here was written by this app at the moment it submitted an
+ * instruction to the child — it is send-time evidence, not transcript
+ * inference — so the row can honestly claim machine authorship and a
+ * delivery outcome the BFF actually observed.
+ */
+function InstructionRow({ record }: { record: InstructionRecord }) {
+  return (
+    <li
+      className="min-w-0 rounded border border-[var(--color-border-default)] bg-[var(--color-background-surface-neutral-muted)] p-2"
+      data-testid="opencode-subagent-instruction"
+      data-delivery={record.delivery}
+      data-target={record.targetSessionID}
+    >
+      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-[var(--color-text-muted)]">
+        <Badge variant="neutral" className="text-[9px]">machine-authored</Badge>
+        <span data-testid="opencode-subagent-instruction-source">
+          {record.source === "managed-child-launch" ? "Launch assignment" : "Follow-up instruction"}
+        </span>
+        <Badge
+          variant={record.delivery === "acknowledged" ? "success" : "danger"}
+          className="text-[9px]"
+          data-testid="opencode-subagent-instruction-delivery"
+        >
+          {record.delivery}
+        </Badge>
+        {record.targetAgent && <span>agent: {record.targetAgent}</span>}
+        <span>{formatRelative(new Date(record.at).toISOString())}</span>
+      </div>
+      <p className="mt-1 break-words text-[11px] leading-relaxed text-[var(--color-text-muted)]" data-testid="opencode-subagent-instruction-text">
+        {record.text}
+        {record.truncated && "\u2026"}
+      </p>
+      {record.reason && (
+        <p className="mt-1 break-words text-[11px] text-[var(--color-text-danger)]" data-testid="opencode-subagent-instruction-reason">
+          {record.reason}
+        </p>
+      )}
+    </li>
+  );
+}
+
 function TaskRow({
   task,
   directory,
   busy,
   onAbort,
+  instructions,
 }: {
   task: SubagentTask;
   directory: string;
   busy: boolean;
   onAbort: (childID: string) => void;
+  instructions: InstructionRecord[];
 }) {
   // Only work the connected server reports as busy can be stopped by it.
   // Offering Stop for an `unknown` row would promise control we do not have.
@@ -90,6 +136,14 @@ function TaskRow({
         <p className="mt-1 break-words text-[11px] text-[var(--color-text-danger)]" data-testid="opencode-subagent-detail">
           {task.detail}
         </p>
+      )}
+
+      {instructions.length > 0 && (
+        <ul className="mt-2 space-y-1.5" data-testid="opencode-subagent-instructions">
+          {instructions.map((record) => (
+            <InstructionRow key={record.id} record={record} />
+          ))}
+        </ul>
       )}
 
       <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -151,6 +205,12 @@ export function SubagentPanel({
 }) {
   const tasks = report?.tasks ?? [];
   const summary = summarizeSubagentStates(tasks);
+  // A rejected launch can leave a record whose child was cleaned up and so has
+  // no ledger row. The audit outlives the session it addressed on purpose.
+  const knownChildren = new Set(tasks.map((task) => task.sessionID));
+  const orphanInstructions = (report?.instructions ?? []).filter(
+    (record) => !knownChildren.has(record.targetSessionID),
+  );
   const canPromote = report?.capabilities.backgroundSubagents === true
     && tasks.some((task) => task.state === "running" && !task.background);
 
@@ -219,9 +279,33 @@ export function SubagentPanel({
               directory={directory}
               busy={busyChild === task.sessionID}
               onAbort={onAbort}
+              instructions={(report?.instructions ?? []).filter(
+                (record) => record.targetSessionID === task.sessionID,
+              )}
             />
           ))}
         </ul>
+      )}
+
+      {orphanInstructions.length > 0 && (
+        <div data-testid="opencode-subagent-orphan-instructions">
+          <h3 className="text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]">
+            Instructions to children that no longer appear above
+          </h3>
+          <ul className="mt-1.5 space-y-1.5">
+            {orphanInstructions.map((record) => (
+              <InstructionRow key={record.id} record={record} />
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {report && (
+        <p className="text-[10px] leading-relaxed text-[var(--color-text-muted)]" data-testid="opencode-subagent-instruction-coverage">
+          Instruction audit covers only instructions this app sent to Managed Children.
+          Prompts an agent authored through the native task tool, and external
+          orchestration controllers, are not observable from here.
+        </p>
       )}
 
       {report?.truncated && (
