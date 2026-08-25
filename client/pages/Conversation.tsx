@@ -102,6 +102,14 @@ export function ConversationPage() {
   const stopDialogRef = useRef<HTMLElement | null>(null);
   const [parent, setParent] = useState<SessionSummary | null>(null);
 
+  useEffect(() => {
+    const protectDraft = (event: Event) => {
+      if (draft.trim() || attachments.length) event.preventDefault();
+    };
+    window.addEventListener("opencode:before-app-refresh", protectDraft);
+    return () => window.removeEventListener("opencode:before-app-refresh", protectDraft);
+  }, [draft, attachments.length]);
+
   // Keep event identity stable across polls so memoised rows do not churn.
   const [events, setEvents] = useState<TranscriptEvent[]>([]);
   const eventScope = useRef(`${directory}\0${id}`);

@@ -37,6 +37,30 @@ test.describe("appearance", () => {
     expect(await page.evaluate(() => localStorage.getItem("theme"))).toBe("dark");
   });
 
+  test("keeps Refresh app between search and appearance controls", async ({ page }) => {
+    await page.goto("/");
+    const refresh = page.getByTestId("opencode-nav-refresh");
+    await expect(refresh).toHaveAccessibleName("Refresh app");
+    await expect(refresh).toHaveAttribute("title", "Refresh app");
+    const order = await page.locator("nav[aria-label='Main'] > *").evaluateAll((items) => items.map((item) => item.getAttribute("data-testid")));
+    expect(order).toEqual(expect.arrayContaining([
+      "opencode-palette-open",
+      "opencode-nav-refresh",
+      "opencode-nav-theme-toggle",
+    ]));
+    expect(order.indexOf("opencode-palette-open")).toBeLessThan(order.indexOf("opencode-nav-refresh"));
+    expect(order.indexOf("opencode-nav-refresh")).toBeLessThan(order.indexOf("opencode-nav-theme-toggle"));
+  });
+
+  test("asks before discarding an unsent conversation draft", async ({ page }) => {
+    await page.goto("/sessions/ses_mock_done?directory=/tmp/mock-project");
+    const composer = page.getByTestId("opencode-composer");
+    await composer.fill("Do not lose this");
+    page.once("dialog", (dialog) => void dialog.dismiss());
+    await page.getByTestId("opencode-nav-refresh").click();
+    await expect(composer).toHaveValue("Do not lose this");
+  });
+
   test("preserves explicit choices across reloads and can return to System", async ({ page }) => {
     await page.emulateMedia({ colorScheme: "light" });
     await page.goto("/settings");

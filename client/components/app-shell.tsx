@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Moon, Search, Sun } from "lucide-react";
+import { Moon, RefreshCw, Search, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 
@@ -15,6 +15,7 @@ import {
   type PaletteCommand,
 } from "../lib/palette.js";
 import { selectPhoneUrl } from "../lib/phoneTransfer.js";
+import { refreshApp } from "../lib/appRefresh.js";
 import { useNotifyWatcher } from "../lib/useNotifyWatcher.js";
 import { NavOverflowMenu } from "./nav-overflow-menu.js";
 import { NotificationPopover } from "./notification-popover.js";
@@ -31,6 +32,7 @@ export function AppShell() {
   const [paletteQuery, setPaletteQuery] = useState("");
   const [paletteSessions, setPaletteSessions] = useState<SessionSummary[]>([]);
   const [paletteStatus, setPaletteStatus] = useState<string | undefined>();
+  const [refreshing, setRefreshing] = useState(false);
   const paletteRequest = useRef(0);
 
   const directory = resolvePaletteDirectory(location.search, localStorage.getItem(DIRECTORY_STORAGE_KEY));
@@ -45,6 +47,14 @@ export function AppShell() {
       // The browser origin is still useful when the optional config route is unavailable.
     }
     setPhoneUrl(selectPhoneUrl(configuredUrl, window.location.href));
+  };
+
+  const reloadApp = () => {
+    if (refreshing) return;
+    const beforeRefresh = new Event("opencode:before-app-refresh", { cancelable: true });
+    if (!window.dispatchEvent(beforeRefresh) && !window.confirm("Discard your unsent message and refresh?")) return;
+    setRefreshing(true);
+    void refreshApp();
   };
 
   const closePalette = () => {
@@ -112,6 +122,13 @@ export function AppShell() {
         keywords: ["phone", "qr", "transfer"],
         run: () => void openPhoneTransfer(),
       },
+      {
+        id: "refresh-app",
+        title: "Refresh app",
+        subtitle: "Reload the current page and check for an app update",
+        keywords: ["reload", "pwa", "update"],
+        run: reloadApp,
+      },
       ...(["system", "light", "dark"] as const).map((appearance) => ({
         id: `appearance-${appearance}`,
         title: `Use ${appearance[0].toUpperCase()}${appearance.slice(1)} appearance`,
@@ -152,6 +169,19 @@ export function AppShell() {
             data-testid="opencode-palette-open"
           >
             <Search aria-hidden="true" size={16} />
+          </Button>
+          <Button
+            aria-label="Refresh app"
+            className="size-8 shrink-0 p-0 pointer-coarse:size-11"
+            disabled={refreshing}
+            size="sm"
+            title="Refresh app"
+            type="button"
+            variant="ghost"
+            onClick={reloadApp}
+            data-testid="opencode-nav-refresh"
+          >
+            <RefreshCw aria-hidden="true" size={16} className={refreshing ? "animate-spin" : undefined} />
           </Button>
           <Button
             aria-label={`Use ${resolvedTheme === "dark" ? "light" : "dark"} appearance`}
