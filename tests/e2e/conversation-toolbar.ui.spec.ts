@@ -164,6 +164,8 @@ test.describe("desktop conversation action bar", () => {
     const actions = page.getByTestId("opencode-mobile-conversation-actions");
     await expect(actions).toBeVisible();
     await expect(actions).not.toContainText("Workspace");
+    const actionsBox = await box(actions);
+    expect(DESKTOP.width - (actionsBox.x + actionsBox.width)).toBeLessThanOrEqual(20);
     for (const id of [
       "opencode-mobile-workspace-open",
       "opencode-mobile-reviews-open",

@@ -497,7 +497,7 @@ export function ConversationPage() {
           </button>}
         </div>
 
-        <div className="grid grid-cols-6 gap-1 sm:w-fit" aria-label="Session actions" data-testid="opencode-mobile-conversation-actions">
+        <div className="grid grid-cols-6 gap-1 sm:ml-auto sm:w-fit" aria-label="Session actions" data-testid="opencode-mobile-conversation-actions">
           <Button
             size="md"
             variant="ghost"
