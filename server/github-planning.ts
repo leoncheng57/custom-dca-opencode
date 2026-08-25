@@ -20,7 +20,8 @@ export const PLANNING_LIMITS = {
   perPage: 100,
   /** Bounded fan-out: at most 500 records, then we report truncation. */
   pages: 5,
-  labels: 20,
+  labels: 100,
+  createLabels: 20,
   titleCharacters: 300,
   timeoutMs: 10_000,
   cacheMs: 60_000,
@@ -28,6 +29,9 @@ export const PLANNING_LIMITS = {
   createTitleCharacters: 256,
   createBodyCharacters: 65_536,
   labelNameCharacters: 100,
+  detailBodyCharacters: 20_000,
+  commentBodyCharacters: 8_000,
+  comments: 50,
 } as const;
 
 export type PlanningItemType = "issue" | "pull_request";
@@ -36,6 +40,14 @@ export type PlanningError = "Authentication unavailable" | "Rate limited" | "Rej
 
 export interface PlanningLabel { name: string; description: string | null }
 export interface CreatePlanningIssueInput { title: string; body: string; labels: string[] }
+export interface UpdatePlanningLabelsInput { labels: string[] }
+export interface PlanningComment {
+  id: string;
+  author: string;
+  body: string;
+  createdAt: string;
+  bodyTruncated: boolean;
+}
 
 export class PlanningInputError extends Error {}
 
@@ -62,6 +74,16 @@ export interface PlanningSnapshot {
   /** True when more records exist than PLANNING_LIMITS allows us to fetch. */
   truncated: boolean;
   fetchedAt: string;
+}
+
+export interface PlanningItemDetails {
+  item: PlanningItem;
+  itemLabelsTruncated: boolean;
+  body: string;
+  bodyTruncated: boolean;
+  comments: PlanningComment[];
+  commentsTruncated: boolean;
+  commentsError: PlanningError | null;
 }
 
 class PlanningFetchError extends Error {
@@ -115,6 +137,20 @@ function createUrl(): URL {
     `/repos/${encodeURIComponent(PLANNING_REPOSITORY.owner)}/${encodeURIComponent(PLANNING_REPOSITORY.repo)}/issues`,
     githubApi(),
   );
+}
+
+function itemUrl(number: number): URL {
+  return new URL(
+    `/repos/${encodeURIComponent(PLANNING_REPOSITORY.owner)}/${encodeURIComponent(PLANNING_REPOSITORY.repo)}/issues/${number}`,
+    githubApi(),
+  );
+}
+
+function commentsUrl(number: number): URL {
+  const url = new URL(`${itemUrl(number).pathname}/comments`, githubApi());
+  url.searchParams.set("per_page", String(PLANNING_LIMITS.comments + 1));
+  url.searchParams.set("page", "1");
+  return url;
 }
 
 /**
@@ -194,6 +230,35 @@ async function fetchLabelsPage(page: number): Promise<PlanningPage> {
   };
 }
 
+export function validatePlanningNumber(value: unknown): number {
+  const source = typeof value === "number" ? String(value) : value;
+  if (typeof source !== "string" || !/^[1-9]\d*$/u.test(source)) throw new PlanningInputError("Issue number is invalid");
+  const number = Number(source);
+  if (!Number.isSafeInteger(number)) throw new PlanningInputError("Issue number is invalid");
+  return number;
+}
+
+export function validatePlanningLabels(value: unknown, limit: number = PLANNING_LIMITS.labels): string[] {
+  if (!Array.isArray(value)) throw new PlanningInputError("Labels must be a list");
+  const labels: string[] = [];
+  const normalized = new Set<string>();
+  const priorities = new Set<string>();
+  for (const raw of value) {
+    if (typeof raw !== "string") throw new PlanningInputError("Every label must be text");
+    const label = raw.trim();
+    if (!label || label.length > PLANNING_LIMITS.labelNameCharacters) throw new PlanningInputError("Label is invalid or too long");
+    const key = label.toLocaleLowerCase();
+    if (!normalized.has(key)) {
+      normalized.add(key);
+      labels.push(label);
+    }
+    if (["priority:high", "priority:medium", "priority:low"].includes(key)) priorities.add(key);
+    if (labels.length > limit) throw new PlanningInputError(`At most ${limit} labels may be selected`);
+  }
+  if (priorities.size > 1) throw new PlanningInputError("Select at most one priority label");
+  return labels;
+}
+
 export function validateCreatePlanningIssue(value: unknown): CreatePlanningIssueInput {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new PlanningInputError("Issue must be an object");
   const source = value as Record<string, unknown>;
@@ -207,16 +272,15 @@ export function validateCreatePlanningIssue(value: unknown): CreatePlanningIssue
   if (source.body !== undefined && typeof source.body !== "string") throw new PlanningInputError("Description must be text");
   const body = String(source.body ?? "");
   if (body.length > PLANNING_LIMITS.createBodyCharacters || body.includes("\0")) throw new PlanningInputError("Description is invalid or too long");
-  if (source.labels !== undefined && !Array.isArray(source.labels)) throw new PlanningInputError("Labels must be a list");
-  const labels: string[] = [];
-  for (const raw of (source.labels ?? []) as unknown[]) {
-    if (typeof raw !== "string") throw new PlanningInputError("Every label must be text");
-    const label = raw.trim();
-    if (!label || label.length > PLANNING_LIMITS.labelNameCharacters) throw new PlanningInputError("Label is invalid or too long");
-    if (!labels.includes(label)) labels.push(label);
-    if (labels.length > PLANNING_LIMITS.labels) throw new PlanningInputError(`At most ${PLANNING_LIMITS.labels} labels may be selected`);
-  }
+  const labels = validatePlanningLabels(source.labels ?? [], PLANNING_LIMITS.createLabels);
   return { title, body, labels };
+}
+
+export function validateUpdatePlanningLabels(value: unknown): UpdatePlanningLabelsInput {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new PlanningInputError("Label update must be an object");
+  const source = value as Record<string, unknown>;
+  if (Object.keys(source).some((key) => key !== "labels") || !("labels" in source)) throw new PlanningInputError("Label update must contain only labels");
+  return { labels: validatePlanningLabels(source.labels) };
 }
 
 function labelNames(value: unknown): string[] {
@@ -268,6 +332,95 @@ export function normalizePlanningItem(raw: Record<string, unknown>): PlanningIte
   };
 }
 
+function boundedText(value: unknown, limit: number): { value: string; truncated: boolean } {
+  const source = typeof value === "string" ? value : "";
+  return { value: source.slice(0, limit), truncated: source.length > limit };
+}
+
+export function normalizePlanningComment(raw: Record<string, unknown>): PlanningComment {
+  const body = boundedText(raw.body, PLANNING_LIMITS.commentBodyCharacters);
+  return {
+    id: String(raw.id ?? ""),
+    author: typeof (raw.user as { login?: unknown } | null)?.login === "string"
+      ? String((raw.user as { login: string }).login)
+      : "unknown",
+    body: body.value,
+    createdAt: String(raw.created_at ?? ""),
+    bodyTruncated: body.truncated,
+  };
+}
+
+async function planningRequest(target: URL, init: RequestInit = {}): Promise<unknown> {
+  const headers = new Headers(init.headers);
+  if (!headers.has("Accept")) headers.set("Accept", "application/vnd.github+json");
+  headers.set("X-GitHub-Api-Version", "2022-11-28");
+  headers.set("User-Agent", "custom-dca-opencode");
+  if (process.env.GITHUB_TOKEN) headers.set("Authorization", `Bearer ${process.env.GITHUB_TOKEN}`);
+  let response: Response;
+  try {
+    response = await fetch(target, {
+      ...init,
+      headers,
+      redirect: "error",
+      signal: AbortSignal.timeout(PLANNING_LIMITS.timeoutMs),
+    });
+  } catch {
+    throw new PlanningFetchError("Unavailable", 502);
+  }
+  if (!response.ok) throw classifiedError(response);
+  try {
+    return await response.json();
+  } catch {
+    throw new PlanningFetchError("Unavailable", 502);
+  }
+}
+
+function trustedPlanningItem(raw: Record<string, unknown>): PlanningItem | null {
+  const item = normalizePlanningItem(raw);
+  if (!item) return null;
+  item.url = `${PLANNING_REPOSITORY.url}/${item.type === "pull_request" ? "pull" : "issues"}/${item.number}`;
+  return item;
+}
+
+export async function getPlanningItemDetails(value: unknown): Promise<PlanningItemDetails> {
+  const number = validatePlanningNumber(value);
+  const [itemResult, commentsResult] = await Promise.allSettled([
+    planningRequest(itemUrl(number)),
+    planningRequest(commentsUrl(number)),
+  ]);
+  if (itemResult.status === "rejected") throw itemResult.reason;
+  if (!itemResult.value || typeof itemResult.value !== "object" || Array.isArray(itemResult.value)) {
+    throw new PlanningFetchError("Unavailable", 502);
+  }
+  const raw = itemResult.value as Record<string, unknown>;
+  const item = trustedPlanningItem(raw);
+  if (!item || item.number !== number) throw new PlanningFetchError("Unavailable", 502);
+  const body = boundedText(raw.body, PLANNING_LIMITS.detailBodyCharacters);
+
+  let comments: PlanningComment[] = [];
+  let commentsTruncated = false;
+  let commentsError: PlanningError | null = null;
+  if (commentsResult.status === "fulfilled" && Array.isArray(commentsResult.value)) {
+    commentsTruncated = commentsResult.value.length > PLANNING_LIMITS.comments;
+    comments = commentsResult.value
+      .slice(0, PLANNING_LIMITS.comments)
+      .filter((entry): entry is Record<string, unknown> => !!entry && typeof entry === "object" && !Array.isArray(entry))
+      .map(normalizePlanningComment);
+  } else {
+    commentsError = commentsResult.status === "rejected" ? planningErrorMessage(commentsResult.reason) : "Unavailable";
+  }
+
+  return {
+    item,
+    itemLabelsTruncated: Array.isArray(raw.labels) && raw.labels.length > PLANNING_LIMITS.labels,
+    body: body.value,
+    bodyTruncated: body.truncated,
+    comments,
+    commentsTruncated,
+    commentsError,
+  };
+}
+
 async function loadSnapshot(): Promise<PlanningSnapshot> {
   const items: PlanningItem[] = [];
   let truncated = false;
@@ -288,6 +441,12 @@ let inFlight: Promise<PlanningSnapshot> | null = null;
 let cacheGeneration = 0;
 let labelsCached: { labels: PlanningLabel[]; truncated: boolean; expiresAt: number } | null = null;
 let labelsInFlight: Promise<{ labels: PlanningLabel[]; truncated: boolean }> | null = null;
+
+function invalidatePlanningSnapshot(): void {
+  cacheGeneration += 1;
+  cached = null;
+  inFlight = null;
+}
 
 /** Tests only. Module-level cache would otherwise leak between cases. */
 export function resetPlanningCache(): void {
@@ -345,6 +504,36 @@ export function getPlanningLabels(): Promise<{ labels: PlanningLabel[]; truncate
   return request;
 }
 
+export async function updatePlanningItemLabels(numberValue: unknown, value: unknown): Promise<PlanningItem> {
+  const number = validatePlanningNumber(numberValue);
+  const input = validateUpdatePlanningLabels(value);
+  if (!process.env.GITHUB_TOKEN) throw new PlanningFetchError("Authentication unavailable", 503);
+  const catalogue = await getPlanningLabels();
+  if (catalogue.truncated) throw new PlanningInputError("Label catalogue is too large to update safely");
+  const canonicalLabels = new Map(catalogue.labels.map((label) => [label.name.toLocaleLowerCase(), label.name]));
+  input.labels = input.labels.map((label) => {
+    const canonical = canonicalLabels.get(label.toLocaleLowerCase());
+    if (!canonical) throw new PlanningInputError(`Unknown label: ${label}`);
+    return canonical;
+  });
+  const current = await planningRequest(itemUrl(number));
+  if (!current || typeof current !== "object" || Array.isArray(current)) throw new PlanningFetchError("Unavailable", 502);
+  const currentLabels = (current as Record<string, unknown>).labels;
+  if (Array.isArray(currentLabels) && currentLabels.length > PLANNING_LIMITS.labels) {
+    throw new PlanningInputError("Item has too many labels to update safely");
+  }
+  const raw = await planningRequest(itemUrl(number), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new PlanningFetchError("Unavailable", 502);
+  const item = trustedPlanningItem(raw as Record<string, unknown>);
+  if (!item || item.number !== number) throw new PlanningFetchError("Unavailable", 502);
+  invalidatePlanningSnapshot();
+  return item;
+}
+
 export async function createPlanningIssue(value: unknown): Promise<PlanningItem> {
   const input = validateCreatePlanningIssue(value);
   const token = process.env.GITHUB_TOKEN;
@@ -371,11 +560,8 @@ export async function createPlanningIssue(value: unknown): Promise<PlanningItem>
   let raw: unknown;
   try { raw = await response.json(); } catch { throw new PlanningFetchError("Unavailable", 502); }
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new PlanningFetchError("Unavailable", 502);
-  const issue = normalizePlanningItem(raw as Record<string, unknown>);
+  const issue = trustedPlanningItem(raw as Record<string, unknown>);
   if (!issue || issue.type !== "issue") throw new PlanningFetchError("Unavailable", 502);
-  issue.url = `${PLANNING_REPOSITORY.url}/issues/${issue.number}`;
-  cacheGeneration += 1;
-  cached = null;
-  inFlight = null;
+  invalidatePlanningSnapshot();
   return issue;
 }

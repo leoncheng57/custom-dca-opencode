@@ -15,6 +15,70 @@ createServer((req, res) => {
     res.end(JSON.stringify({ detailRequests, mergeBody }));
     return;
   }
+  const planningDetail = req.url?.match(/^\/repos\/leoncheng57\/custom-dca-opencode\/issues\/(101|102)$/u);
+  const planningComments = req.url?.match(/^\/repos\/leoncheng57\/custom-dca-opencode\/issues\/(101|102)\/comments\?/u);
+  if (planningComments && req.method === "GET") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(planningComments[1] === "101" ? [
+      {
+        id: 1001,
+        body: "First **planning comment**.\n\n<script data-unsafe-comment>bad()</script>",
+        user: { login: "reviewer" },
+        created_at: "2026-08-22T10:30:00Z",
+      },
+      {
+        id: 1002,
+        body: "A second comment with [documentation](https://example.com/docs).",
+        user: { login: "maintainer" },
+        created_at: "2026-08-23T11:00:00Z",
+      },
+    ] : [{ id: 2001, body: "PR conversation comment.", user: { login: "reviewer" }, created_at: "2026-08-23T12:00:00Z" }]));
+    return;
+  }
+  if (planningDetail && req.method === "GET") {
+    const isPull = planningDetail[1] === "102";
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      id: Number(planningDetail[1]),
+      number: Number(planningDetail[1]),
+      title: isPull ? "Add the project planning feed" : "Improve the mobile planning view",
+      body: isPull ? "## Pull request description\n\nReady for review." : "## Planning context\n\nMake the roadmap easier to scan.\n\n<div data-unsafe-description>unsafe</div>",
+      state: "open",
+      labels: isPull
+        ? [{ name: "priority:medium" }, { name: "server" }]
+        : [{ name: "priority:high" }, { name: "frontend" }, { name: "mobile" }],
+      user: { login: isPull ? "contributor" : "maintainer" },
+      html_url: `https://github.com/leoncheng57/custom-dca-opencode/${isPull ? "pull" : "issues"}/${planningDetail[1]}`,
+      created_at: isPull ? "2026-08-15T10:00:00Z" : "2026-08-12T09:00:00Z",
+      updated_at: isPull ? "2026-08-22T08:15:00Z" : "2026-08-21T16:30:00Z",
+      comments: isPull ? 1 : 4,
+      ...(isPull ? { pull_request: { merged_at: null } } : {}),
+    }));
+    return;
+  }
+  if (planningDetail && req.method === "PATCH") {
+    let raw = "";
+    req.on("data", (chunk) => (raw += chunk));
+    req.on("end", () => {
+      const input = JSON.parse(raw) as { labels: string[] };
+      const isPull = planningDetail[1] === "102";
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        id: Number(planningDetail[1]),
+        number: Number(planningDetail[1]),
+        title: isPull ? "Add the project planning feed" : "Improve the mobile planning view",
+        state: "open",
+        labels: input.labels.map((name) => ({ name })),
+        user: { login: isPull ? "contributor" : "maintainer" },
+        html_url: `https://github.com/leoncheng57/custom-dca-opencode/${isPull ? "pull" : "issues"}/${planningDetail[1]}`,
+        created_at: isPull ? "2026-08-15T10:00:00Z" : "2026-08-12T09:00:00Z",
+        updated_at: "2026-08-25T12:00:00Z",
+        comments: isPull ? 1 : 4,
+        ...(isPull ? { pull_request: { merged_at: null } } : {}),
+      }));
+    });
+    return;
+  }
   if (req.url?.startsWith("/repos/leoncheng57/custom-dca-opencode/issues?") && req.method === "GET") {
     const page = new URL(req.url, `http://${req.headers.host}`).searchParams.get("page");
     res.writeHead(200, { "Content-Type": "application/json" });

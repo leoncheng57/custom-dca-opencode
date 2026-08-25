@@ -319,6 +319,22 @@ export interface PlanningSnapshot {
 
 export interface PlanningLabel { name: string; description: string | null }
 export interface CreatePlanningIssueInput { title: string; body: string; labels: string[] }
+export interface PlanningComment {
+  id: string;
+  author: string;
+  body: string;
+  createdAt: string;
+  bodyTruncated: boolean;
+}
+export interface PlanningItemDetails {
+  item: PlanningItem;
+  itemLabelsTruncated: boolean;
+  body: string;
+  bodyTruncated: boolean;
+  comments: PlanningComment[];
+  commentsTruncated: boolean;
+  commentsError: string | null;
+}
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -624,6 +640,13 @@ export const api = {
   /** Not project-scoped: the planning feed is one fixed repository (see server/github-planning.ts). */
   planningItems: (refresh = false) => fetch(`/api/planning/items${refresh ? "?refresh=1" : ""}`).then((r) => json<PlanningSnapshot>(r)),
   planningLabels: () => fetch("/api/planning/labels").then((r) => json<{ labels: PlanningLabel[]; truncated: boolean }>(r)),
+  planningItemDetails: (number: number) => fetch(`/api/planning/items/${encodeURIComponent(number)}`).then((r) => json<{ details: PlanningItemDetails }>(r)),
+  updatePlanningItemLabels: (number: number, labels: string[]) =>
+    fetch(`/api/planning/items/${encodeURIComponent(number)}/labels`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ labels }),
+    }).then((r) => json<{ item: PlanningItem }>(r)),
   createPlanningIssue: (input: CreatePlanningIssueInput) =>
     fetch("/api/planning/issues", {
       method: "POST",
