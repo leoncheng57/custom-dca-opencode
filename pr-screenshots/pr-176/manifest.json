@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 2,
+  "prNumber": 176,
+  "sourceSha": "afb86ede1b9ea874d95a183aef3bbfd7b022c231",
+  "capturedAt": "2026-08-25T21:21:01.217Z",
+  "screenshots": [
+    {
+      "requestedRoute": "/sessions/ses_mock_managed_ui_parent?directory=/tmp/mock-managed-subagent-project",
+      "fullPage": false,
+      "captures": {
+        "desktop": {
+          "filename": "01-sessions-ses_mock_managed_ui_parent-directory-tmp-mock-managed-subagent-project-8d5cf59c--desktop.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 800
+          },
+          "bytes": 34126,
+          "sha256": "50040eeeda6d5a586d9b27085f43348f7f247e1ce5f9925fcb64cdf80b72b802"
+        },
+        "mobile": {
+          "filename": "01-sessions-ses_mock_managed_ui_parent-directory-tmp-mock-managed-subagent-project-18f5e596--mobile.png",
+          "dimensions": {
+            "width": 390,
+            "height": 740
+          },
+          "bytes": 22745,
+          "sha256": "c2c51c05b230641f7071f40b94a5119da5f162f6731b59b9ffee6f1b30e8df58"
+        }
+      }
+    }
+  ]
+}
