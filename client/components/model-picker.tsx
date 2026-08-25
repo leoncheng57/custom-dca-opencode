@@ -22,6 +22,7 @@ export function ModelPicker({
   testId,
   label = "Model",
   disabled = false,
+  portalLayer = "default",
 }: {
   catalogue: ModelCatalogue | null;
   value?: ModelSelection;
@@ -29,6 +30,8 @@ export function ModelPicker({
   testId: string;
   label?: string;
   disabled?: boolean;
+  /** Nested dialogs render above their owning modal instead of behind it. */
+  portalLayer?: "default" | "nested";
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -37,6 +40,7 @@ export function ModelPicker({
   const searchRef = useRef<HTMLInputElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const details = catalogue?.models.find((model) => sameModelID(model, value));
+  const portalZIndex = portalLayer === "nested" ? "z-[100]" : "z-[90]";
   const pinKeys = useMemo(() => new Set(pins.map(modelKey)), [pins]);
 
   useEffect(() => {
@@ -140,7 +144,7 @@ export function ModelPicker({
       <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 text-[var(--color-text-muted)]" />
     </button>
     {open && createPortal(
-      <div className="fixed inset-0 z-[90] flex items-end justify-center sm:items-start sm:p-4 sm:pt-[10vh]" data-testid={`${testId}-panel`}>
+      <div className={`fixed inset-0 ${portalZIndex} flex items-end justify-center sm:items-start sm:p-4 sm:pt-[10vh]`} data-testid={`${testId}-panel`}>
         <button type="button" aria-label="Close model picker" className="absolute inset-0 bg-[var(--color-background-overlay)]" onClick={close} />
         <div className="relative flex max-h-[82dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-[var(--color-border-default)] bg-[var(--color-background-surface)] shadow-xl sm:max-h-[72vh] sm:max-w-xl sm:rounded-xl" role="dialog" aria-modal="true" aria-label={`${label} picker`} onKeyDown={(event) => { if (event.key === "Escape") close(); }}>
           <div className="flex items-center gap-2 border-b border-[var(--color-border-default)] p-3">

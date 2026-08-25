@@ -151,6 +151,17 @@ test("launches a Build child from a Plan parent through explicit human confirmat
   await expect(dialog.getByTestId("opencode-managed-child-submit")).toBeDisabled();
   await dialog.getByTestId("opencode-managed-child-build-confirm").check();
   await expect(dialog.getByTestId("opencode-managed-child-model")).toHaveAttribute("value", "anthropic/claude-opus-5");
+  await dialog.getByTestId("opencode-managed-child-model").click();
+  const picker = page.getByTestId("opencode-managed-child-model-panel");
+  await expect(picker).toBeVisible();
+  expect(await picker.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    const top = document.elementFromPoint(rect.left + rect.width / 2, rect.top + Math.min(rect.height / 2, 120));
+    return top === element || element.contains(top);
+  })).toBe(true);
+  await picker.getByTestId("opencode-managed-child-model-search").fill("GPT-5.6 Sol");
+  await picker.locator('[data-testid="opencode-managed-child-model-option"][data-model-key="openai/gpt-5.6-sol"]').click();
+  await expect(dialog.getByTestId("opencode-managed-child-model")).toHaveAttribute("value", "openai/gpt-5.6-sol");
   await dialog.getByTestId("opencode-managed-child-submit").click();
   await expect(dialog).toHaveCount(0);
 
@@ -158,7 +169,12 @@ test("launches a Build child from a Plan parent through explicit human confirmat
   await expect(row).toBeVisible();
   await expect(row.getByTestId("opencode-subagent-origin")).toHaveText("Human launch");
   await expect(row.getByTestId("opencode-subagent-requested-mode")).toHaveText("requested: build");
+  await expect(row.getByTestId("opencode-subagent-requested-model")).toContainText("openai/gpt-5.6-sol");
   await expect(row.getByTestId("opencode-subagent-policy-status")).toHaveText("policy: verified at launch");
+  const prompts = await (await fetch(`${MOCK_URL}/test/prompt-payloads`)).json() as Array<Record<string, unknown>>;
+  const payload = prompts.find((item) => (item.parts as Array<{ text?: string }> | undefined)
+    ?.some((part) => part.text === "Build the independent UI child"));
+  expect(payload).toMatchObject({ model: { providerID: "openai", modelID: "gpt-5.6-sol" } });
   await row.getByTestId("opencode-subagent-open").click();
   await expect(page.getByTestId("opencode-parent-link")).toContainText("Managed UI parent");
 });
