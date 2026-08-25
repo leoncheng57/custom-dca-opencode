@@ -283,6 +283,18 @@ export interface ReminderSummary {
   triggers: string[];
 }
 
+export interface WorkflowSummary {
+  id: string;
+  title: string;
+  description: string;
+  /**
+   * The trusted server-resolved injector text, exposed read-only so it can be
+   * previewed before submission. Sends only ever name the workflow by id; the
+   * server resolves this text again at submit time.
+   */
+  injector: string;
+}
+
 export interface MessagePage {
   messages: RawMessage[];
   running: boolean;
@@ -493,6 +505,7 @@ export const api = {
     model?: ModelSelection,
     attachments?: Array<{ filename: string; mime: string; url: string }>,
     reminder?: string,
+    workflow?: string,
   ) =>
     fetch(scoped(`/sessions/${encodeURIComponent(id)}/prompt`, directory), {
       method: "POST",
@@ -503,6 +516,7 @@ export const api = {
         ...(model ? { model } : {}),
         ...(attachments?.length ? { attachments } : {}),
         ...(reminder ? { reminder } : {}),
+        ...(workflow ? { workflow } : {}),
       }),
     }).then((r) => json<{ accepted: boolean }>(r)),
 
@@ -521,6 +535,7 @@ export const api = {
     mode: AgentMode;
     model?: ModelSelection;
     idempotencyKey: string;
+    workflow?: string;
   }) =>
     fetch(scoped(`/sessions/${encodeURIComponent(id)}/managed-children`, directory), {
       method: "POST",
@@ -736,6 +751,8 @@ export const api = {
     }).then((r) => json<{ rejected: boolean }>(r)),
   reminders: () =>
     fetch("/api/reminders").then((r) => json<{ reminders: ReminderSummary[] }>(r)),
+  workflows: () =>
+    fetch("/api/workflows").then((r) => json<{ workflows: WorkflowSummary[] }>(r)),
 
   /** SSE endpoint URL — consumed by EventSource, not fetch. */
   eventsUrl: (directory?: string) =>

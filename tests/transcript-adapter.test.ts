@@ -480,7 +480,7 @@ describe("frozen contract", () => {
   // Verified against 1,133 real messages / 1,592 events from a live 1.18.19
   // server before being written down.
   const ALLOWED: Record<string, string[]> = {
-    user: ["kind", "id", "messageId", "timestamp", "text", "reminders", "attachments", "mode"],
+    user: ["kind", "id", "messageId", "timestamp", "text", "reminders", "workflows", "attachments", "mode"],
     agent: ["kind", "id", "messageId", "timestamp", "text", "mode"],
     thought: ["kind", "id", "messageId", "timestamp", "text", "durationMs"],
     tool: [
@@ -505,7 +505,7 @@ describe("frozen contract", () => {
   it("emits only scalars, except attachments", () => {
     for (const event of events) {
       for (const [key, value] of Object.entries(event)) {
-        if (key === "attachments" || key === "reminders" || key === "files") continue;
+        if (key === "attachments" || key === "reminders" || key === "workflows" || key === "files") continue;
         expect(
           value === null || typeof value !== "object",
           `${event.kind}.${key} must not be a nested backend object`,

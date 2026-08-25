@@ -314,6 +314,23 @@ several decisions below.
     authority the read routes use, so validation can never be a wider door than the route
     it gates. A client-side match grants nothing; an unverified candidate simply renders
     as the ordinary text it renders as today.
+21. **Composer workflows are forms first, and their injectors are visible-but-trusted.**
+    The Workflows picker beside Reminder (#167) offers exactly three guided actions —
+    Playwright UI review, send an update to another session, launch a Managed Child.
+    Choosing one only opens a form; the sole exits are Cancel, "Apply to composer"
+    (fills the draft, never sends), or the explicit Send/Launch on a preview that shows
+    the exact generated prompt AND the trusted injector. Injectors invert the reminder
+    secrecy rule deliberately: `GET /api/workflows` exposes the body so it can be read
+    before submission, but sends still only carry the workflow *id* — the server
+    (`server/workflows/workflows.ts`) resolves the text again at submit time, so a
+    tampered browser cannot author hidden prompt content. The injector rides the
+    persisted message as a `<workflow name="id">` sentinel with byte-identical
+    client/server splitters (dual-copy-tested like reminders); the transcript strips it
+    back out of the user bubble. Session updates send in the TARGET session's own mode
+    (a hardcoded Build would restore write access to a session left in Plan), and the
+    dialog states that prompt_async 204/202 means accepted, not completed. The
+    managed-child form reuses decision #19's route with the same Build authorization
+    checkbox and creates no task card and no automatic hand-back.
 
 ## Client conventions (inherited from the OpenHands runner, still enforced)
 

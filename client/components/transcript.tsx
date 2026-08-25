@@ -266,6 +266,19 @@ function UserBubble({ event, onExport }: { event: UserEvent; onExport?: (event: 
           <pre className="mt-1 whitespace-pre-wrap break-words font-sans leading-relaxed">{reminder.body}</pre>
         </details>
       ))}
+      {event.workflows.map((workflow, index) => (
+        <details
+          open
+          key={`${workflow.name}-${index}`}
+          className="max-w-[90%] rounded-lg border border-[var(--color-border-default)] p-2 text-left text-[11px] text-[var(--color-text-muted)] sm:max-w-[75%]"
+          data-testid="opencode-manual-workflow"
+        >
+          <summary className="cursor-pointer font-medium" data-testid="opencode-manual-workflow-toggle">
+            workflow attached - {workflow.name}
+          </summary>
+          <pre className="mt-1 whitespace-pre-wrap break-words font-sans leading-relaxed">{workflow.body}</pre>
+        </details>
+      ))}
       {event.mode && <ModePill mode={event.mode} />}
       {(event.text || event.attachments.length > 0) && (
         <div

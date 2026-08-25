@@ -44,6 +44,7 @@ import {
 } from "../opencode/config.js";
 import { reminderCatalogue } from "../reminders/loader.js";
 import { isValidReminderId, type ReminderPreset } from "../reminders/reminders.js";
+import { isValidWorkflowId, workflowCatalogue, type WorkflowPreset } from "../workflows/workflows.js";
 import { eventClickUrl } from "../publicAppUrl.js";
 import { parseQuestionRequests, validateQuestionAnswers, type QuestionRequest } from "../opencode/questions.js";
 import { getCapabilities } from "../opencode/capabilities.js";
@@ -100,6 +101,19 @@ function promptReminder(value: unknown): ReminderPreset | undefined {
   if (!isValidReminderId(value)) throw new HttpError(400, "reminder must be a valid preset id");
   const preset = reminderCatalogue().find((item) => item.id === value);
   if (!preset) throw new HttpError(400, `unknown reminder "${value}"`);
+  return preset;
+}
+
+/**
+ * Resolve a workflow injector by id. The browser only ever names the workflow;
+ * the trusted injector text is resolved here so a tampered client cannot
+ * author hidden prompt content.
+ */
+function promptWorkflow(value: unknown): WorkflowPreset | undefined {
+  if (value === undefined) return undefined;
+  if (!isValidWorkflowId(value)) throw new HttpError(400, "workflow must be a valid workflow id");
+  const preset = workflowCatalogue().find((item) => item.id === value);
+  if (!preset) throw new HttpError(400, `unknown workflow "${value}"`);
   return preset;
 }
 
@@ -394,7 +408,7 @@ export function sessionRoutes(
     "/sessions/:id/prompt",
     sessionRoute(async (req, res) => {
       const directory = await directoryOf(req);
-      const { text, model, attachments, reminder } = req.body ?? {};
+      const { text, model, attachments, reminder, workflow } = req.body ?? {};
       if (typeof text !== "string" || !text.trim()) {
         throw new HttpError(400, "'text' is required");
       }
@@ -404,6 +418,7 @@ export function sessionRoutes(
         model: await selectedModel(config, directory, model),
         attachments: promptAttachments(attachments),
         reminder: promptReminder(reminder),
+        workflow: promptWorkflow(workflow),
       });
       // 202: accepted, running server-side. Progress arrives over SSE.
       res.status(202).json({ accepted: true });
@@ -457,7 +472,7 @@ export function sessionRoutes(
       if (!body || typeof body !== "object" || Array.isArray(body)) {
         throw new HttpError(400, "body must contain prompt, mode and idempotencyKey");
       }
-      const allowed = new Set(["prompt", "mode", "model", "idempotencyKey"]);
+      const allowed = new Set(["prompt", "mode", "model", "idempotencyKey", "workflow"]);
       for (const key of Object.keys(body)) {
         if (!allowed.has(key)) throw new HttpError(400, `unsupported managed child field '${key}'`);
       }
@@ -478,6 +493,7 @@ export function sessionRoutes(
         mode: body.mode,
         model: await selectedModel(config, directory, body.model),
         idempotencyKey,
+        workflow: promptWorkflow(body.workflow),
       });
       res.status(201).json({ session });
     }),
