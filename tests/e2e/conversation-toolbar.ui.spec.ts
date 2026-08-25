@@ -57,7 +57,7 @@ test.describe("mobile conversation action bar", () => {
     await expect(controls[3]).toHaveAccessibleName("Turn auto permissions on");
     await expect(controls[4]).toHaveAccessibleName("Auto permissions safety");
     await expect(controls[5]).toHaveAccessibleName("More session actions");
-    await expect(controls[3]).toHaveText("");
+    await expect(controls[3]).toContainText("OFF");
     const autoGroup = page.getByTestId("opencode-mobile-auto-permissions-group");
     await expect(autoGroup.getByTestId("opencode-mobile-auto-permissions-state")).toHaveText("OFF");
     await expect(page.getByTestId("opencode-mobile-auto-permissions-group")).toContainText("OFF");
