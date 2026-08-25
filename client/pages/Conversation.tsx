@@ -184,11 +184,6 @@ export function ConversationPage() {
     };
   }, [directory, id, stream.running]);
 
-  useEffect(() => {
-    if (!directory || !id) return;
-    void api.modelLimit(directory, id).then((result) => setContextLimit(result.context)).catch(() => setContextLimit(null));
-  }, [directory, id]);
-
   // A sub-agent transcript is meaningless without the work that spawned it,
   // and the parent id alone is not navigable in the UI. Resolve it to a title
   // so the banner can name the session it links to; a failure degrades to the
@@ -477,8 +472,8 @@ export function ConversationPage() {
 
   return (
     <main className="flex h-full min-h-0 flex-col overflow-hidden" data-testid="opencode-conversation">
-      {/* The session title owns the header context. On phones, the primary
-          session actions follow it directly so they do not hide in overflow. */}
+      {/* The session title owns the header context. The same action set follows
+          it at every width so changing viewport does not change the workflow. */}
       <header className="flex shrink-0 flex-col gap-1.5 border-b border-[var(--color-border-default)] px-3 py-2 sm:px-4 sm:py-2.5">
         <div className="flex min-w-0 items-center gap-2">
           <Link to={`/?directory=${encodeURIComponent(directory)}`} className="hidden shrink-0 text-sm underline sm:inline">
@@ -492,7 +487,7 @@ export function ConversationPage() {
           {stream.running && <button
             ref={stopTriggerRef}
             type="button"
-            className="flex min-h-11 min-w-11 items-center justify-center rounded-md text-[var(--color-text-danger)] hover:bg-[var(--color-background-surface-danger-muted)] sm:hidden"
+            className="flex min-h-11 min-w-11 items-center justify-center rounded-md text-[var(--color-text-danger)] hover:bg-[var(--color-background-surface-danger-muted)]"
             onClick={() => { setStopError(null); setStopConfirmOpen(true); }}
             aria-label="Stop running agent"
             title="Stop running agent"
@@ -502,7 +497,7 @@ export function ConversationPage() {
           </button>}
         </div>
 
-        <div className="grid grid-cols-6 gap-1 sm:hidden" aria-label="Session actions" data-testid="opencode-mobile-conversation-actions">
+        <div className="grid grid-cols-6 gap-1 sm:w-fit" aria-label="Session actions" data-testid="opencode-mobile-conversation-actions">
           <Button
             size="md"
             variant="ghost"
@@ -558,46 +553,6 @@ export function ConversationPage() {
           </details>
         </div>
 
-        <div className="hidden min-w-0 flex-wrap items-center gap-x-2 gap-y-1 sm:flex" data-testid="opencode-conversation-toolbar">
-          {session && session.cost > 0 && (
-            <span className="hidden text-xs tabular-nums text-[var(--color-text-muted)] sm:inline" data-testid="opencode-session-cost">
-              {formatCost(session.cost)}
-            </span>
-          )}
-          {contextTokens > 0 && (
-            <span className="hidden text-xs tabular-nums text-[var(--color-text-muted)] sm:inline" data-testid="opencode-context-tokens" title="Latest turn context tokens">
-              context {Intl.NumberFormat(undefined, { notation: "compact" }).format(contextTokens)}
-              {displayedContextLimit ? ` / ${Math.round((contextTokens / displayedContextLimit) * 100)}%` : ""}
-            </span>
-          )}
-          <AutoPermissionsControl directory={directory} testId="opencode-conversation-auto-permissions" variant="compact" />
-          <span className="flex-1" aria-hidden="true" />
-          <div className="hidden items-center gap-1.5 sm:flex">
-            <Button size="sm" variant="secondary" className={COMPACT_ACTION} onClick={toggleWrap} data-testid="opencode-wrap-toggle">
-              {wrap ? "Wrap: on" : "Wrap: off"}
-            </Button>
-            <Button size="sm" variant="secondary" className={COMPACT_ACTION} onClick={() => setShareTarget({ kind: "session" })} data-testid="opencode-share-export-open">
-              Share
-            </Button>
-            <Button size="sm" variant="secondary" className={COMPACT_ACTION} onClick={() => setWorkspaceOpen(true)} data-testid="opencode-workspace-open">
-              Workspace
-            </Button>
-            <Button className={`${COMPACT_ACTION} lg:hidden`} size="sm" variant="secondary" onClick={() => setInspectorOpen(true)} data-testid="opencode-mobile-inspector-open">
-              Details
-            </Button>
-          </div>
-          {stream.running && (
-            <Button
-              size="sm"
-              variant="secondary"
-              className={COMPACT_ACTION}
-              onClick={() => void api.abort(directory, id).then(stream.refresh)}
-              data-testid="opencode-abort"
-            >
-              Stop
-            </Button>
-          )}
-        </div>
       </header>
 
       {parentID && (

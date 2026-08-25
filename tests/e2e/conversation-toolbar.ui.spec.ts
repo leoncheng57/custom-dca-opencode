@@ -154,25 +154,30 @@ test.describe("mobile conversation action bar", () => {
   });
 });
 
-test.describe("desktop conversation toolbar", () => {
+test.describe("desktop conversation action bar", () => {
   test.use({ viewport: DESKTOP, hasTouch: false });
 
-  test("retains compact desktop actions and the inline auto-permissions control", async ({ page }) => {
+  test("uses the same icon-led actions as mobile", async ({ page }) => {
     await resetAutoPermissions(page);
     await page.goto(conversation);
 
-    const toolbar = page.getByTestId("opencode-conversation-toolbar");
-    await expect(toolbar).toBeVisible();
-    await expect(page.getByTestId("opencode-mobile-conversation-actions")).toBeHidden();
-    await expect(toolbar.getByTestId("opencode-conversation-auto-permissions")).toContainText("Auto");
-    for (const id of ["opencode-wrap-toggle", "opencode-share-export-open", "opencode-workspace-open"]) {
-      expect((await box(toolbar.getByTestId(id))).height, `${id} remains compact on desktop`).toBeLessThanOrEqual(32);
+    const actions = page.getByTestId("opencode-mobile-conversation-actions");
+    await expect(actions).toBeVisible();
+    await expect(actions).not.toContainText("Workspace");
+    for (const id of [
+      "opencode-mobile-workspace-open",
+      "opencode-mobile-reviews-open",
+      "opencode-mobile-runlog-open",
+      "opencode-mobile-auto-permissions-toggle",
+      "opencode-mobile-auto-permissions-info",
+    ]) {
+      await expect(actions.getByTestId(id)).toBeVisible();
     }
   });
 
-  test("retains the existing desktop Stop button", async ({ page }) => {
+  test("uses the title-row Stop control from mobile", async ({ page }) => {
     await page.goto(runningConversation);
-    await expect(page.getByTestId("opencode-abort")).toBeVisible();
-    await expect(page.getByTestId("opencode-mobile-stop-open")).toBeHidden();
+    await expect(page.getByTestId("opencode-mobile-stop-open")).toBeVisible();
+    await expect(page.getByTestId("opencode-abort")).toHaveCount(0);
   });
 });
