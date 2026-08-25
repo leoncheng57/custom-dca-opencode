@@ -15,6 +15,70 @@ createServer((req, res) => {
     res.end(JSON.stringify({ detailRequests, mergeBody }));
     return;
   }
+  const planningDetail = req.url?.match(/^\/repos\/leoncheng57\/custom-dca-opencode\/issues\/(101|102)$/u);
+  const planningComments = req.url?.match(/^\/repos\/leoncheng57\/custom-dca-opencode\/issues\/(101|102)\/comments\?/u);
+  if (planningComments && req.method === "GET") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(planningComments[1] === "101" ? [
+      {
+        id: 1001,
+        body: "First **planning comment**.\n\n<script data-unsafe-comment>bad()</script>",
+        user: { login: "reviewer" },
+        created_at: "2026-08-22T10:30:00Z",
+      },
+      {
+        id: 1002,
+        body: "A second comment with [documentation](https://example.com/docs).",
+        user: { login: "maintainer" },
+        created_at: "2026-08-23T11:00:00Z",
+      },
+    ] : [{ id: 2001, body: "PR conversation comment.", user: { login: "reviewer" }, created_at: "2026-08-23T12:00:00Z" }]));
+    return;
+  }
+  if (planningDetail && req.method === "GET") {
+    const isPull = planningDetail[1] === "102";
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      id: Number(planningDetail[1]),
+      number: Number(planningDetail[1]),
+      title: isPull ? "Add the project planning feed" : "Improve the mobile planning view",
+      body: isPull ? "## Pull request description\n\nReady for review." : "## Planning context\n\nMake the roadmap easier to scan.\n\n<div data-unsafe-description>unsafe</div>",
+      state: "open",
+      labels: isPull
+        ? [{ name: "priority:medium" }, { name: "server" }]
+        : [{ name: "priority:high" }, { name: "frontend" }, { name: "mobile" }],
+      user: { login: isPull ? "contributor" : "maintainer" },
+      html_url: `https://github.com/leoncheng57/custom-dca-opencode/${isPull ? "pull" : "issues"}/${planningDetail[1]}`,
+      created_at: isPull ? "2026-08-15T10:00:00Z" : "2026-08-12T09:00:00Z",
+      updated_at: isPull ? "2026-08-22T08:15:00Z" : "2026-08-21T16:30:00Z",
+      comments: isPull ? 1 : 4,
+      ...(isPull ? { pull_request: { merged_at: null } } : {}),
+    }));
+    return;
+  }
+  if (planningDetail && req.method === "PATCH") {
+    let raw = "";
+    req.on("data", (chunk) => (raw += chunk));
+    req.on("end", () => {
+      const input = JSON.parse(raw) as { labels: string[] };
+      const isPull = planningDetail[1] === "102";
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        id: Number(planningDetail[1]),
+        number: Number(planningDetail[1]),
+        title: isPull ? "Add the project planning feed" : "Improve the mobile planning view",
+        state: "open",
+        labels: input.labels.map((name) => ({ name })),
+        user: { login: isPull ? "contributor" : "maintainer" },
+        html_url: `https://github.com/leoncheng57/custom-dca-opencode/${isPull ? "pull" : "issues"}/${planningDetail[1]}`,
+        created_at: isPull ? "2026-08-15T10:00:00Z" : "2026-08-12T09:00:00Z",
+        updated_at: "2026-08-25T12:00:00Z",
+        comments: isPull ? 1 : 4,
+        ...(isPull ? { pull_request: { merged_at: null } } : {}),
+      }));
+    });
+    return;
+  }
   if (req.url?.startsWith("/repos/leoncheng57/custom-dca-opencode/issues?") && req.method === "GET") {
     const page = new URL(req.url, `http://${req.headers.host}`).searchParams.get("page");
     res.writeHead(200, { "Content-Type": "application/json" });
@@ -24,7 +88,7 @@ createServer((req, res) => {
         number: 101,
         title: "Improve the mobile planning view",
         state: "open",
-        labels: [{ name: "frontend", color: "123456" }, { name: "mobile", color: "abcdef" }],
+        labels: [{ name: "priority:high", color: "ff0000" }, { name: "frontend", color: "123456" }, { name: "mobile", color: "abcdef" }],
         user: { login: "maintainer" },
         html_url: "https://github.com/leoncheng57/custom-dca-opencode/issues/101",
         created_at: "2026-08-12T09:00:00Z",
@@ -36,7 +100,7 @@ createServer((req, res) => {
         number: 102,
         title: "Add the project planning feed",
         state: "open",
-        labels: [{ name: "server", color: "654321" }],
+        labels: [{ name: "priority:medium", color: "ffaa00" }, { name: "server", color: "654321" }],
         user: { login: "contributor" },
         html_url: "https://github.com/leoncheng57/custom-dca-opencode/pull/102",
         created_at: "2026-08-15T10:00:00Z",
@@ -49,13 +113,37 @@ createServer((req, res) => {
         number: 99,
         title: "Ship session-first notifications",
         state: "closed",
-        labels: [{ name: "notifications", color: "fedcba" }],
+        labels: [{ name: "priority:low", color: "cccccc" }, { name: "notifications", color: "fedcba" }],
         user: { login: "maintainer" },
         html_url: "https://github.com/leoncheng57/custom-dca-opencode/pull/99",
         created_at: "2026-08-01T12:00:00Z",
         updated_at: "2026-08-20T18:45:00Z",
         comments: 8,
         pull_request: { merged_at: "2026-08-20T18:45:00Z" },
+      },
+      {
+        id: 104,
+        number: 104,
+        title: "Resolve contradictory priorities",
+        state: "open",
+        labels: [{ name: "priority:high", color: "ff0000" }, { name: "priority:low", color: "cccccc" }, { name: "planning", color: "123456" }],
+        user: { login: "maintainer" },
+        html_url: "https://github.com/leoncheng57/custom-dca-opencode/issues/104",
+        created_at: "2026-08-18T09:00:00Z",
+        updated_at: "2026-08-23T16:30:00Z",
+        comments: 1,
+      },
+      {
+        id: 105,
+        number: 105,
+        title: "Audit the label catalogue",
+        state: "open",
+        labels: [{ name: "enhancement", color: "123456" }],
+        user: { login: "maintainer" },
+        html_url: "https://github.com/leoncheng57/custom-dca-opencode/issues/105",
+        created_at: "2026-08-19T09:00:00Z",
+        updated_at: "2026-08-24T16:30:00Z",
+        comments: 0,
       },
     ] : []));
     return;
@@ -66,6 +154,9 @@ createServer((req, res) => {
       { name: "frontend", description: "Client-side work", color: "123456" },
       { name: "mobile", description: "Phone experience", color: "abcdef" },
       { name: "server", description: "BFF and integration work", color: "654321" },
+      { name: "priority:high", description: "Work now", color: "ff0000" },
+      { name: "priority:medium", description: "Plan next", color: "ffaa00" },
+      { name: "priority:low", description: "Backlog", color: "cccccc" },
     ]));
     return;
   }

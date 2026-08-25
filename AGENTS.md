@@ -249,8 +249,26 @@ several decisions below.
     explicitly rather than silently implying the feed is complete. Creation accepts
     only a bounded title, Markdown description and names from the bounded label
     catalogue, posts with the server-only `GITHUB_TOKEN`, and invalidates the read
-    cache only after GitHub confirms the issue. The browser still cannot select a
-    repository or project directory.
+    cache only after GitHub confirms the issue. A deep-linked item dialog reads a
+    bounded 20,000-character description and the first 50 conversation comments,
+    with each comment bounded at 8,000 characters; externally-authored Markdown is
+    always rendered as untrusted. The same fixed-repository seam replaces labels on
+    issues and pull requests only after validating them against a complete repository
+    label catalogue, preserves up to 100 existing labels and refuses replacement
+    when the upstream item exceeds that bound, permits at most one recognized
+    priority label, and updates the grouped browser snapshot only after GitHub
+    succeeds. The browser still cannot select a repository or project directory.
+17a. **Planning is a priority-first queue with deterministic ownership.** Exact,
+    case-insensitive `priority:high`, `priority:medium`, and `priority:low` labels
+    select the outer section; items with multiple distinct priority labels appear
+    only in an expanded `Needs triage` section rather than being silently promoted
+    or demoted. Within a priority section, the alphabetically first non-priority
+    label owns the item and `Untagged` sorts last, while every label remains visible
+    on the row. High priority and conflicts open by default; lower queues collapse
+    so a large backlog does not obscure current work. Five row-density treatments
+    are a device-local display preference in `localStorage`, not repository planning
+    data; the densest treatment is the first-visit default, and row labels share the
+    status line rather than consuming another vertical band.
 18. **PWA push supplements rather than replaces ntfy.** Web Push is a third independent
     delivery channel with its own server-backed enabled flag and event matrix. Device
     subscriptions are persisted server-side with mode `0600`; VAPID private material is
