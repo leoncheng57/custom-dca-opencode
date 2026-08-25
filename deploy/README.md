@@ -1,16 +1,60 @@
-# macOS LaunchAgents
+# Deployment operations
 
-The recommended supervised unit is the production BFF and built SPA. It uses the
-label `ai.custom-dca-opencode.bff`, listens on port `3210` by default, and writes
-separate logs under `.state/logs/`.
+The production deployment is deliberately split so app upgrades do not interrupt
+agent turns:
+
+```text
+Phone or browser
+      |
+      v
+Tailscale HTTPS
+      |
+      v
+launchd: UI + BFF (:3210) ----> OpenCode (:4097)
+      |                                |
+      +-- rebuilt on app upgrade        +-- left running
+```
+
+The supervised unit is `ai.custom-dca-opencode.bff`. It serves the built SPA and
+production BFF on port `3210` by default, with logs under `.state/logs/`. OpenCode
+is a separate, long-lived process named by `OPENCODE_URL` in `.env`.
+
+## Upgrade after GitHub changes
+
+Run these commands from the repository root:
+
+```bash
+git pull --ff-only
+npm ci
+npm run service:install -- --port=3210
+```
+
+`service:install` rebuilds the SPA and BFF, replaces the matching LaunchAgent, and
+starts the new BFF process. A connected browser briefly reconnects. OpenCode is not
+restarted, so active agent turns continue.
+
+### Verify the upgrade
+
+```bash
+curl --fail http://127.0.0.1:3210/api/health
+npm run service:status
+tailscale serve status
+```
+
+When Tailscale Serve is configured, also load the HTTPS origin shown by
+`tailscale serve status`. A successful `/api/health` response reports whether the
+BFF can reach OpenCode and whether their expected versions match.
+
+> Do not restart OpenCode during an active turn. An OpenCode restart interrupts
+> that turn; its session history remains, but the turn is not resumed automatically.
+
+## First-time setup
 
 ```bash
 cp .env.example .env
 chmod 600 .env
-npm run service:install
-npm run service:status
-npm run service:logs
-npm run service:uninstall
+npm ci
+npm run service:install -- --port=3210
 ```
 
 Use `npm run service:install -- --port=3211` to choose another supervised port.
@@ -20,11 +64,20 @@ idempotent: it rebuilds the app, replaces only
 matching `gui/$UID/ai.custom-dca-opencode.bff` job. Uninstall does not use `pkill`,
 does not touch OpenCode, and preserves logs.
 
+## Operations checklist
+
+- Check service state: `npm run service:status`
+- Follow BFF logs: `npm run service:logs`
+- Remove the BFF service: `npm run service:uninstall`
+- Keep `.env` mode `0600`; it contains credentials and is never copied to the plist.
+
 Keep credentials such as `OPENCODE_SERVER_PASSWORD`, forge tokens, and notification
 tokens in the repo-root `.env`, never in a plist. Keep that file mode `0600`.
 `launchd` does not load `.zshrc`, `.zprofile`, or other shell profiles. The BFF still
 loads `.env` with dotenv because its plist sets `WorkingDirectory` to the repository
 root before starting `dist/server/index.js`.
+
+## OpenCode connection
 
 The BFF never starts OpenCode. It connects to the one server named by `OPENCODE_URL`
 in `.env`. Verify that server first rather than starting another:
@@ -34,16 +87,17 @@ curl --fail --user "${OPENCODE_SERVER_USERNAME:-opencode}:$OPENCODE_SERVER_PASSW
   "$OPENCODE_URL/global/health"
 ```
 
-For tailnet access, proxy the dedicated supervised port and inspect the resulting
-Serve configuration:
+## Tailscale access
+
+Proxy the dedicated supervised port and inspect the resulting Serve configuration:
 
 ```bash
 tailscale serve --bg http://127.0.0.1:3210
 tailscale serve status
 ```
 
-Set `PUBLIC_APP_URL` in `.env` to the HTTPS origin shown by Tailscale, then reinstall
-the service so the rebuilt process reads it.
+Set `PUBLIC_APP_URL` in `.env` to the HTTPS origin shown by Tailscale, then rerun
+`npm run service:install -- --port=3210` so the BFF reads the new value.
 
 ## Optional OpenCode Unit
 
