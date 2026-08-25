@@ -17,9 +17,24 @@ import {
 import { selectPhoneUrl } from "../lib/phoneTransfer.js";
 import { refreshApp } from "../lib/appRefresh.js";
 import { useNotifyWatcher } from "../lib/useNotifyWatcher.js";
+import { getDoc } from "../lib/docs.js";
 import { NavOverflowMenu } from "./nav-overflow-menu.js";
 import { NotificationPopover } from "./notification-popover.js";
 import { PhoneTransferDialog } from "./phone-transfer-dialog.js";
+
+const APP_NAME = "DCA";
+
+function documentTitle(pathname: string): string {
+  if (pathname === "/") return `Sessions | ${APP_NAME}`;
+  if (pathname.startsWith("/sessions/")) return `Session | ${APP_NAME}`;
+  if (pathname === "/settings") return `Settings | ${APP_NAME}`;
+  if (pathname === "/settings/notifications") return `Notifications | ${APP_NAME}`;
+  if (pathname === "/tools") return `Tools | ${APP_NAME}`;
+  if (pathname === "/docs") return `Docs | ${APP_NAME}`;
+  if (pathname.startsWith("/docs/")) return `${getDoc(pathname.slice("/docs/".length))?.title ?? "Document"} | ${APP_NAME}`;
+  if (pathname === "/planning") return `Planning | ${APP_NAME}`;
+  return APP_NAME;
+}
 
 export function AppShell() {
   const { activeCount, refresh } = useNotificationCenter();
@@ -34,6 +49,10 @@ export function AppShell() {
   const [paletteStatus, setPaletteStatus] = useState<string | undefined>();
   const [refreshing, setRefreshing] = useState(false);
   const paletteRequest = useRef(0);
+
+  useEffect(() => {
+    document.title = documentTitle(location.pathname);
+  }, [location.pathname]);
 
   const directory = resolvePaletteDirectory(location.search, localStorage.getItem(DIRECTORY_STORAGE_KEY));
   const scopedPath = (path: string) =>
