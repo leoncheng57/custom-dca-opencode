@@ -571,7 +571,13 @@ export function ConversationPage() {
                 menu?.querySelector<HTMLElement>("summary")?.focus();
                 setShareTarget({ kind: "session" });
               }} data-testid="opencode-mobile-share-export-open">Share</button>
-              <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setRequestedInspectorTab("catalog"); setInspectorOpen(true); }} data-testid="opencode-mobile-catalog-open">Catalog</button>
+              <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => {
+                const menu = event.currentTarget.closest("details");
+                menu?.removeAttribute("open");
+                menu?.querySelector<HTMLElement>("summary")?.focus();
+                setRequestedInspectorTab("catalog");
+                setInspectorOpen(true);
+              }} data-testid="opencode-mobile-catalog-open">Catalog</button>
             </div>
           </details>
           </div>

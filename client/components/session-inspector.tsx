@@ -510,6 +510,7 @@ function DesktopInspector({ title, onClose, children }: { title: string; onClose
 }
 
 export function SessionInspector({ directory, sessionID, events, todos, todosLoaded, todosError, requestedTab, mobileOpen = false, onMobileClose }: SessionInspectorProps & { sessionID: string }) {
+  const [desktopViewport, setDesktopViewport] = useState(() => window.matchMedia("(min-width: 1024px)").matches);
   const commandScope = `${directory}\0${sessionID}`;
   const commands = useMemo(() => extractCommands(events), [events]);
   const links = useMemo(() => extractMrUrls(events), [events]);
@@ -538,8 +539,17 @@ export function SessionInspector({ directory, sessionID, events, todos, todosLoa
   useEffect(() => {
     if (!requestedTab) return;
     if (requestedTab === "reviews" || requestedTab === "catalog") setSurfaceTab(requestedTab);
-    else setTab(requestedTab);
+    else {
+      setSurfaceTab(undefined);
+      setTab(requestedTab);
+    }
   }, [requestedTab]);
+  useEffect(() => {
+    const query = window.matchMedia("(min-width: 1024px)");
+    const updateViewport = () => setDesktopViewport(query.matches);
+    query.addEventListener("change", updateViewport);
+    return () => query.removeEventListener("change", updateViewport);
+  }, []);
   const exportCompleteCommands = useCallback(() => {
     const generation = commandExportGeneration.current;
     setCommandExporting(true);
@@ -627,12 +637,12 @@ export function SessionInspector({ directory, sessionID, events, todos, todosLoa
       >
         {content(jumpToEvent)}
       </aside>
-      {mobileOpen && onMobileClose && surfaceTab && (
+      {mobileOpen && onMobileClose && surfaceTab && desktopViewport && (
         <DesktopInspector title={TAB_LABELS[surfaceTab]} onClose={onMobileClose}>
           {content(jumpToEvent, [surfaceTab], surfaceTab)}
         </DesktopInspector>
       )}
-      {mobileOpen && onMobileClose && (
+      {mobileOpen && onMobileClose && !desktopViewport && (
         <MobileInspector title={mobileTitle} onClose={onMobileClose}>
           {(close) => content((eventId) => {
             close();

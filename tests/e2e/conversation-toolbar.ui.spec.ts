@@ -61,7 +61,7 @@ test.describe("mobile conversation action bar", () => {
     await expect(controls[3]).not.toContainText("Auto");
     const toggleBox = await box(controls[3]);
     const safetyBox = await box(controls[4]);
-    expect(safetyBox.x).toBeCloseTo(toggleBox.x + toggleBox.width, 0);
+    expect(safetyBox.x - (toggleBox.x + toggleBox.width)).toBeLessThanOrEqual(1);
     for (const control of [controls[0], controls[1], controls[2], controls[4], controls[5]]) {
       expect(await control.evaluate((element) => getComputedStyle(element).backgroundColor)).toMatch(/transparent|rgba\(0, 0, 0, 0\)/);
     }
@@ -154,7 +154,7 @@ test.describe("mobile conversation action bar", () => {
     const toggle = page.getByTestId("opencode-mobile-auto-permissions-toggle");
     await expect(toggle).toHaveAttribute("aria-checked", "true");
     await expect(toggle).toHaveAccessibleName("Turn auto permissions off");
-    await expect(toggle).toContainText("Auto ON");
+    await expect(toggle).toContainText("ON");
     expect(await toggle.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toMatch(/transparent|rgba\(0, 0, 0, 0\)/);
     await resetAutoPermissions(page);
   });

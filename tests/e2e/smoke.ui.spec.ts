@@ -1481,6 +1481,7 @@ test.describe("workspace UI", () => {
     const failed = page.getByTestId("opencode-review-check").filter({ hasText: "test" });
     await expect(failed).toHaveAttribute("data-status", "failed");
     await expect(failed.getByRole("link")).toHaveAttribute("rel", "noreferrer");
+    await page.getByTestId("opencode-desktop-inspector-close").click();
     await page.getByTestId("opencode-mobile-workspace-open").click();
     await page.getByTestId("opencode-file-node").filter({ hasText: "README.md" }).click();
     await expect(page.getByTestId("opencode-file-viewer")).toContainText("Mock project");
