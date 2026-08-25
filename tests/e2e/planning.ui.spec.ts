@@ -1,15 +1,22 @@
 import { expect, test } from "@playwright/test";
 
 test.describe("project planning", () => {
-  test("lists issues and pull requests with labels and both dates", async ({ page }) => {
+  test("groups work by priority and keeps conflicts in triage", async ({ page }) => {
     await page.goto("/planning");
 
     await expect(page.getByTestId("opencode-planning")).toBeVisible();
     await expect(page.getByTestId("opencode-planning-list")).toBeVisible();
-    await expect(page.getByTestId("opencode-planning-row")).toHaveCount(2);
+    await expect(page.getByTestId("opencode-planning-row")).toHaveCount(4);
+    await expect(page.getByTestId("opencode-planning-section-conflict")).toHaveJSProperty("open", true);
+    await expect(page.getByTestId("opencode-planning-section-high")).toHaveJSProperty("open", true);
+    await expect(page.getByTestId("opencode-planning-section-medium")).toHaveJSProperty("open", false);
+    await expect(page.getByTestId("opencode-planning-section-none")).toHaveJSProperty("open", false);
+    await expect(page.getByText("Resolve contradictory priorities")).toBeVisible();
+    await expect(page.getByText("Resolve priority conflict")).toBeVisible();
     await expect(page.getByText("Improve the mobile planning view")).toBeVisible();
+    await page.getByTestId("opencode-planning-section-medium-toggle").click();
     await expect(page.getByText("Add the project planning feed")).toBeVisible();
-    await expect(page.getByText("frontend")).toBeVisible();
+    await expect(page.getByTestId("opencode-planning-group-high-frontend")).toBeVisible();
     await expect(page.getByText("Created Aug 12, 2026")).toBeVisible();
     await expect(page.getByText("Last activity Aug 21, 2026")).toBeVisible();
 
@@ -25,10 +32,12 @@ test.describe("project planning", () => {
 
     await page.getByTestId("opencode-planning-type-pull_request").click();
     await expect(page.getByTestId("opencode-planning-row")).toHaveCount(1);
+    await page.getByTestId("opencode-planning-section-medium-toggle").click();
     await expect(page.getByText("Add the project planning feed")).toBeVisible();
 
     await page.getByTestId("opencode-planning-state-closed").click();
     await expect(page.getByTestId("opencode-planning-row")).toHaveCount(1);
+    await page.getByTestId("opencode-planning-section-low-toggle").click();
     await expect(page.getByText("Ship session-first notifications")).toBeVisible();
     await expect(page.getByText("Merged", { exact: true })).toBeVisible();
 
@@ -58,6 +67,19 @@ test.describe("project planning", () => {
     await expect(page.getByText("Last activity Aug 21, 2026")).toBeVisible();
   });
 
+  test("changes density and persists it across reloads", async ({ page }) => {
+    await page.goto("/planning");
+    const list = page.getByTestId("opencode-planning-list");
+    await expect(list).toHaveAttribute("data-density", "dense");
+
+    await page.getByTestId("opencode-planning-density-comfortable").click();
+    await expect(list).toHaveAttribute("data-density", "comfortable");
+    await expect(page.getByTestId("opencode-planning-density-comfortable")).toHaveAttribute("aria-pressed", "true");
+
+    await page.reload();
+    await expect(page.getByTestId("opencode-planning-list")).toHaveAttribute("data-density", "comfortable");
+  });
+
   test("creates an issue with selected labels and restores focus", async ({ page }) => {
     await page.goto("/planning");
     const trigger = page.getByTestId("opencode-planning-create");
@@ -77,6 +99,7 @@ test.describe("project planning", () => {
     await expect(page.getByTestId("opencode-planning-created-link"))
       .toHaveAttribute("href", "https://github.com/leoncheng57/custom-dca-opencode/issues/103");
     const createdRow = page.getByTestId("opencode-planning-row").filter({ hasText: "Create issues from planning" });
+    await page.getByTestId("opencode-planning-section-none-toggle").click();
     await expect(createdRow).toBeVisible();
     await expect(createdRow.getByText("frontend")).toBeVisible();
   });

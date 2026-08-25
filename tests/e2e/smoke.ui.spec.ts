@@ -752,8 +752,8 @@ test.describe("composer", () => {
     // and asserting it stays visible is an assertion about that file's timing.
     await fetch(`${MOCK_URL}/test/questions/reset?scope=ui`, { method: "POST" });
     await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
-    const control = page.getByTestId("opencode-conversation-auto-permissions");
-    const toggle = control.getByTestId("opencode-conversation-auto-permissions-toggle");
+    const control = page.getByTestId("opencode-mobile-auto-permissions");
+    const toggle = control.getByTestId("opencode-mobile-auto-permissions-toggle");
     await expect(toggle).toHaveAttribute("aria-checked", "false");
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-checked", "true");
@@ -775,7 +775,7 @@ test.describe("composer", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: failedID, sessionID: "ses_mock_done", permission: "external_directory", patterns: ["/tmp/*"] }),
     });
-    await expect(control.getByTestId("opencode-conversation-auto-permissions-error"))
+    await expect(control.getByTestId("opencode-mobile-auto-permissions-error"))
       .toContainText("Could not auto-approve external_directory");
     await expect(page.getByTestId("opencode-permission-request").filter({ hasText: "/tmp/*" })).toBeVisible();
 
@@ -1481,7 +1481,7 @@ test.describe("workspace UI", () => {
     const failed = page.getByTestId("opencode-review-check").filter({ hasText: "test" });
     await expect(failed).toHaveAttribute("data-status", "failed");
     await expect(failed.getByRole("link")).toHaveAttribute("rel", "noreferrer");
-    await page.getByTestId("opencode-workspace-open").click();
+    await page.getByTestId("opencode-mobile-workspace-open").click();
     await page.getByTestId("opencode-tree-file").filter({ hasText: "README.md" }).click();
     await expect(page.getByTestId("opencode-code-viewer")).toContainText("Mock project");
     await page.getByTestId("opencode-workspace-changes").click();

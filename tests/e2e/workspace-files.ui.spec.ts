@@ -145,6 +145,9 @@ test.describe("workspace files tab", () => {
     await page.goto(conversation);
   });
 
+  // `opencode-mobile-workspace-open` is the only workspace opener at every
+  // breakpoint since the session actions were aligned across widths (#144);
+  // the id keeps its historical name.
   test("browses lazily, keeps tabs and breadcrumbs, and marks changed files", async ({ page }) => {
     const listings: string[] = [];
     page.on("request", (request) => {
@@ -152,7 +155,7 @@ test.describe("workspace files tab", () => {
       if (url.pathname === "/api/workspace/tree") listings.push(url.searchParams.get("path") ?? "");
     });
 
-    await page.getByTestId("opencode-workspace-open").click();
+    await page.getByTestId("opencode-mobile-workspace-open").click();
     const tree = page.getByTestId("opencode-file-tree");
     await expect(tree.getByTestId("opencode-tree-directory")).toHaveCount(3);
     await expect(tree.getByTestId("opencode-tree-file").filter({ hasText: "README.md" })).toBeVisible();
@@ -191,7 +194,7 @@ test.describe("workspace files tab", () => {
   });
 
   test("filters loaded entries and states that the search is scoped", async ({ page }) => {
-    await page.getByTestId("opencode-workspace-open").click();
+    await page.getByTestId("opencode-mobile-workspace-open").click();
     const tree = page.getByTestId("opencode-file-tree");
     await tree.getByTestId("opencode-tree-directory").filter({ hasText: "docs" }).click();
     await expect(tree.getByTestId("opencode-tree-file").filter({ hasText: "guide.md" })).toBeVisible();
@@ -213,14 +216,14 @@ test.describe("workspace files tab", () => {
         : route.fallback();
     });
 
-    await page.getByTestId("opencode-workspace-open").click();
+    await page.getByTestId("opencode-mobile-workspace-open").click();
     await page.getByTestId("opencode-file-tree").getByTestId("opencode-tree-file").filter({ hasText: "README.md" }).click();
     await expect(page.getByTestId("opencode-file-error")).toContainText("Could not open README.md");
     await expect(page.getByTestId("opencode-code-viewer")).toHaveCount(0);
   });
 
   test("says so rather than rendering a binary file", async ({ page }) => {
-    await page.getByTestId("opencode-workspace-open").click();
+    await page.getByTestId("opencode-mobile-workspace-open").click();
     const tree = page.getByTestId("opencode-file-tree");
     await tree.getByTestId("opencode-tree-directory").filter({ hasText: "assets" }).click();
     await tree.getByTestId("opencode-tree-file").filter({ hasText: "logo.bin" }).click();
@@ -229,7 +232,7 @@ test.describe("workspace files tab", () => {
   });
 
   test("keeps Changes and Preview working alongside the new Files tab", async ({ page }) => {
-    await page.getByTestId("opencode-workspace-open").click();
+    await page.getByTestId("opencode-mobile-workspace-open").click();
     await page.getByTestId("opencode-workspace-changes").click();
     await expect(page.getByTestId("opencode-diff-viewer")).toContainText("+new");
     await page.getByTestId("opencode-workspace-preview").click();
