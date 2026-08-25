@@ -23,10 +23,10 @@ import path from "node:path";
 
 import { NOTIFY_EVENTS, type NotifyEvent } from "./preferences.js";
 
-export type NtfyDelivery = "sent" | "off" | "failed";
+export type NtfyDelivery = "sent" | "pending" | "off" | "failed";
 /** "allowed" is preference intent. The BFF cannot confirm a browser rendered it. */
 export type DesktopDelivery = "allowed" | "off";
-export type WebPushDelivery = "sent" | "partial" | "off" | "failed";
+export type WebPushDelivery = "sent" | "partial" | "pending" | "off" | "failed";
 // Older reasons remain readable because v1 records are already persisted on
 // deployed servers. New writes use only "checked".
 export type ResolutionReason = "checked" | "replied" | "reconciled" | "dismissed" | "suppressed";
@@ -107,6 +107,12 @@ export interface HistoryFilters {
   hideSubagent?: boolean;
 }
 
+/** App-icon badges count unresolved notifications that were eligible for delivery. */
+export const APP_BADGE_FILTERS: Readonly<Required<HistoryFilters>> = {
+  hideAutoApproved: true,
+  hideSubagent: true,
+};
+
 export interface HistoryQuery extends HistoryFilters {
   limit?: number;
   kind?: NotifyEvent;
@@ -140,12 +146,12 @@ function optionalString(value: unknown): string | undefined {
 function normalizeDelivery(value: unknown): NotificationDelivery {
   const source = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
   const ntfy: NtfyDelivery =
-    source.ntfy === "sent" || source.ntfy === "failed" ? source.ntfy : "off";
+    source.ntfy === "sent" || source.ntfy === "pending" || source.ntfy === "failed" ? source.ntfy : "off";
   return {
     ntfy,
     ...(optionalString(source.ntfyError) ? { ntfyError: String(source.ntfyError) } : {}),
     desktop: source.desktop === "allowed" ? "allowed" : "off",
-    webPush: source.webPush === "sent" || source.webPush === "partial" || source.webPush === "failed" ? source.webPush : "off",
+    webPush: source.webPush === "sent" || source.webPush === "partial" || source.webPush === "pending" || source.webPush === "failed" ? source.webPush : "off",
     ...(optionalString(source.webPushError) ? { webPushError: String(source.webPushError) } : {}),
     ...(isSuppressionReason(source.suppressed) ? { suppressed: source.suppressed } : {}),
   };
@@ -198,6 +204,7 @@ export class HistoryStore {
   private loaded: Promise<void> | null = null;
   private queue: Promise<void> = Promise.resolve();
   private writeCounter = 0;
+  private badgeRevision = 0;
 
   constructor(
     readonly file = process.env.NOTIFICATION_HISTORY_FILE ||
@@ -210,6 +217,7 @@ export class HistoryStore {
     this.loaded ??= readFile(this.file, "utf8")
       .then((raw) => {
         const parsed: unknown = JSON.parse(raw);
+        const persistedRevision = Number((parsed as Record<string, unknown>)?.badgeRevision);
         const source = Array.isArray(parsed)
           ? parsed
           : Array.isArray((parsed as Record<string, unknown>)?.records)
@@ -218,23 +226,29 @@ export class HistoryStore {
         this.records = source
           .map(normalizeRecord)
           .filter((record): record is NotificationRecord => record !== null);
+        const recoveredRevision = Number.isSafeInteger(persistedRevision) && persistedRevision >= 0
+          ? persistedRevision
+          : this.records.reduce((latest, record) => Math.max(latest, record.at), 0);
+        this.badgeRevision = Math.max(Date.now(), recoveredRevision);
         this.prune();
       })
       .catch(() => {
         // Missing or malformed history starts empty rather than failing the
         // notification path. Losing the log is survivable; dropping alerts is not.
         this.records = [];
+        this.badgeRevision = Date.now();
       });
     return this.loaded;
   }
 
   private persist(): void {
     const snapshot = this.records.slice();
+    const badgeRevision = this.badgeRevision;
     this.queue = this.queue
       .then(async () => {
         await mkdir(path.dirname(this.file), { recursive: true });
         const temporary = `${this.file}.${process.pid}.${(this.writeCounter += 1)}.tmp`;
-        await writeFile(temporary, `${JSON.stringify({ version: 2, records: snapshot }, null, 2)}\n`, {
+        await writeFile(temporary, `${JSON.stringify({ version: 2, badgeRevision, records: snapshot }, null, 2)}\n`, {
           mode: 0o600,
         });
         await rename(temporary, this.file);
@@ -291,6 +305,7 @@ export class HistoryStore {
       delivery: entry.delivery,
     };
     this.records.push(record);
+    if (entry.delivery.suppressed === undefined) this.bumpBadgeRevision();
     this.prune();
     this.persist();
     return record;
@@ -310,9 +325,19 @@ export class HistoryStore {
     } else {
       return record;
     }
+    if (record.delivery.suppressed === undefined) this.bumpBadgeRevision();
     if (resolved) {
       this.prune();
     }
+    this.persist();
+    return record;
+  }
+
+  async setDelivery(id: string, delivery: NotificationDelivery): Promise<NotificationRecord | undefined> {
+    await this.load();
+    const record = this.records.find((candidate) => candidate.id === id);
+    if (!record) return undefined;
+    record.delivery = delivery;
     this.persist();
     return record;
   }
@@ -343,6 +368,23 @@ export class HistoryStore {
           : 0),
       0,
     );
+  }
+
+  appBadgeCount(): Promise<number> {
+    return this.activeCount(undefined, APP_BADGE_FILTERS);
+  }
+
+  async appBadgeSnapshot(): Promise<{ count: number; revision: number }> {
+    await this.load();
+    const count = this.records.reduce(
+      (total, record) => total + (isActive(record) && !isFilteredOut(record, APP_BADGE_FILTERS) ? 1 : 0),
+      0,
+    );
+    return { count, revision: this.badgeRevision };
+  }
+
+  private bumpBadgeRevision(): void {
+    this.badgeRevision = Math.max(Date.now(), this.badgeRevision + 1);
   }
 
   /**

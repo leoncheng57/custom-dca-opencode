@@ -119,7 +119,13 @@ export async function sendWebPush(
   if (!config) throw new Error("Web Push is not configured");
   webpush.setVapidDetails(config.subject, config.publicKey, config.privateKey);
   const click = typeof message.click === "string" && message.click.length <= 2048 ? message.click : undefined;
-  const payload = JSON.stringify({ title: message.title, body: message.body, click });
+  const badgeCount = Number.isSafeInteger(message.badgeCount) && Number(message.badgeCount) >= 0
+    ? Number(message.badgeCount)
+    : undefined;
+  const badgeRevision = Number.isSafeInteger(message.badgeRevision) && Number(message.badgeRevision) >= 0
+    ? Number(message.badgeRevision)
+    : undefined;
+  const payload = JSON.stringify({ title: message.title, body: message.body, click, badgeCount, badgeRevision });
   let sent = 0;
   let failed = 0;
   const expired: string[] = [];

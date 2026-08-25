@@ -562,6 +562,20 @@ describe("notification noise filters", () => {
     expect(await history.suppressedActiveCounts("/tmp/a")).toEqual({ "auto-permissions": 0, subagent: 1 });
   });
 
+  it("counts delivered unresolved records globally for the installed-app badge", async () => {
+    const history = await mixedHistory();
+    const initial = await history.appBadgeSnapshot();
+    expect(await history.appBadgeCount()).toBe(2);
+    const root = (await history.list()).find((record) => record.title === "root idle")!;
+    await history.setResolved(root.id, true);
+    expect(await history.appBadgeCount()).toBe(1);
+    const resolved = await history.appBadgeSnapshot();
+    expect(resolved.revision).toBeGreaterThan(initial.revision);
+    await history.setResolved(root.id, false);
+    expect(await history.appBadgeCount()).toBe(2);
+    expect((await history.appBadgeSnapshot()).revision).toBeGreaterThan(resolved.revision);
+  });
+
   it("defaults to the unfiltered log so an existing caller loses nothing", async () => {
     const history = await mixedHistory();
     expect(await history.list()).toHaveLength(4);

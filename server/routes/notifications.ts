@@ -133,7 +133,7 @@ export function notificationRoutes(
           hideAutoApproved: queryFlag(req.query.hideAutoApproved),
           hideSubagent: queryFlag(req.query.hideSubagent),
         };
-        const [records, activeCount, suppressedActive] = await Promise.all([
+        const [records, activeCount, appBadge, suppressedActive] = await Promise.all([
           history.list({
             ...(Number.isFinite(limitParam) ? { limit: limitParam } : {}),
             ...(kind ? { kind } : {}),
@@ -143,9 +143,10 @@ export function notificationRoutes(
             ...filters,
           }),
           history.activeCount(directory, filters),
+          history.appBadgeSnapshot(),
           history.suppressedActiveCounts(directory),
         ]);
-        res.json({ records, activeCount, suppressedActive });
+        res.json({ records, activeCount, appBadgeCount: appBadge.count, appBadgeRevision: appBadge.revision, suppressedActive });
       })
       .catch((error: unknown) =>
         res.status(500).json({ error: error instanceof Error ? error.message : String(error) }),
@@ -164,7 +165,8 @@ export function notificationRoutes(
           res.status(404).json({ error: "notification not found" });
           return;
         }
-        res.json({ record, activeCount: await history.activeCount() });
+        const appBadge = await history.appBadgeSnapshot();
+        res.json({ record, activeCount: await history.activeCount(), appBadgeCount: appBadge.count, appBadgeRevision: appBadge.revision });
       })
       .catch((error: unknown) =>
         res.status(500).json({ error: error instanceof Error ? error.message : String(error) }),
@@ -183,7 +185,8 @@ export function notificationRoutes(
           return;
         }
         await history.setResolved(id, true);
-        res.json({ dismissed: true, activeCount: await history.activeCount() });
+        const appBadge = await history.appBadgeSnapshot();
+        res.json({ dismissed: true, activeCount: await history.activeCount(), appBadgeCount: appBadge.count, appBadgeRevision: appBadge.revision });
       })
       .catch((error: unknown) =>
         res.status(500).json({ error: error instanceof Error ? error.message : String(error) }),
