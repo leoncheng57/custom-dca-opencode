@@ -79,7 +79,15 @@ export function AutoPermissionsControl({
   if (pill) {
     return (
       <div className="relative" data-testid={testId}>
-        <div className="inline-flex min-h-11 overflow-hidden rounded-full border border-[var(--color-border-default)]" data-testid={`${testId}-group`}>
+        <div
+          className={cn(
+            "inline-flex min-h-11 items-center rounded-xl border px-1 transition-colors",
+            enabled
+              ? "border-[var(--color-text-info)] bg-[var(--color-background-surface-info-muted)] text-[var(--color-text-info)]"
+              : "border-[var(--color-border-default)] text-[var(--color-text-muted)]",
+          )}
+          data-testid={`${testId}-group`}
+        >
           <button
             type="button"
             role="switch"
@@ -90,20 +98,18 @@ export function AutoPermissionsControl({
             disabled={!status || saving || !directory}
             onClick={() => void toggle()}
             title={actionLabel}
-            className={cn(
-              "flex min-h-11 min-w-20 items-center justify-between px-2 text-[11px] font-semibold disabled:opacity-50",
-              enabled
-                ? "bg-[var(--color-background-surface-info-muted)] text-[var(--color-text-info)]"
-                : "text-[var(--color-text-muted)] hover:bg-[var(--hh-row-hover)]",
-            )}
+            className="flex min-h-9 min-w-16 items-center justify-center rounded-full disabled:opacity-50"
             data-testid={`${testId}-toggle`}
           >
-            <span>{enabled ? "ON" : "OFF"}</span>
-            <span aria-hidden="true" className="relative h-5 w-9 rounded-full border border-current">
-              <span className={`absolute top-0.5 h-3.5 w-3.5 rounded-full transition-transform ${enabled ? "translate-x-4 bg-current" : "left-0.5 bg-[var(--color-background-surface)]"}`} />
+            <span aria-hidden="true" className="relative h-7 w-14 rounded-full border border-current">
+              <span className={cn(
+                "absolute left-1 top-1 h-[1.125rem] w-[1.125rem] rounded-full bg-current transition-transform",
+                enabled && "translate-x-7",
+              )} />
             </span>
           </button>
-          {trailing && <div className="flex shrink-0 border-l border-[var(--color-border-default)]">{trailing}</div>}
+          <span className="min-w-8 text-center text-[11px] font-semibold" data-testid={`${testId}-state`}>{enabled ? "ON" : "OFF"}</span>
+          {trailing && <div className="flex shrink-0">{trailing}</div>}
         </div>
         <span id={`${testId}-description`} className="sr-only">{safetyDescription}</span>
         {(status?.error || requestError) && (

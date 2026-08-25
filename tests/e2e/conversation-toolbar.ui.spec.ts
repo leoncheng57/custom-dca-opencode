@@ -45,8 +45,8 @@ test.describe("mobile conversation action bar", () => {
     ];
     for (const control of controls) {
       const rect = await box(control);
-      expect(rect.height).toBeGreaterThanOrEqual(44);
-      expect(rect.width).toBeGreaterThanOrEqual(control === controls[3] ? 80 : 48);
+      expect(rect.height).toBeGreaterThanOrEqual(control === controls[3] || control === controls[4] ? 36 : 44);
+      expect(rect.width).toBeGreaterThanOrEqual(control === controls[3] ? 64 : control === controls[4] ? 36 : 48);
       await expect(control).toHaveAttribute("title", /.+/);
     }
     await expect(controls[0]).toHaveAccessibleName("Open workspace");
@@ -57,11 +57,10 @@ test.describe("mobile conversation action bar", () => {
     await expect(controls[3]).toHaveAccessibleName("Turn auto permissions on");
     await expect(controls[4]).toHaveAccessibleName("Auto permissions safety");
     await expect(controls[5]).toHaveAccessibleName("More session actions");
-    await expect(controls[3]).toContainText("OFF");
-    await expect(controls[3]).not.toContainText("Auto");
-    const toggleBox = await box(controls[3]);
-    const safetyBox = await box(controls[4]);
-    expect(safetyBox.x - (toggleBox.x + toggleBox.width)).toBeLessThanOrEqual(1);
+    await expect(controls[3]).toHaveText("");
+    const autoGroup = page.getByTestId("opencode-mobile-auto-permissions-group");
+    await expect(autoGroup.getByTestId("opencode-mobile-auto-permissions-state")).toHaveText("OFF");
+    await expect(page.getByTestId("opencode-mobile-auto-permissions-group")).toContainText("OFF");
     for (const control of [controls[0], controls[1], controls[2], controls[4], controls[5]]) {
       expect(await control.evaluate((element) => getComputedStyle(element).backgroundColor)).toMatch(/transparent|rgba\(0, 0, 0, 0\)/);
     }
@@ -154,8 +153,8 @@ test.describe("mobile conversation action bar", () => {
     const toggle = page.getByTestId("opencode-mobile-auto-permissions-toggle");
     await expect(toggle).toHaveAttribute("aria-checked", "true");
     await expect(toggle).toHaveAccessibleName("Turn auto permissions off");
-    await expect(toggle).toContainText("ON");
-    expect(await toggle.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toMatch(/transparent|rgba\(0, 0, 0, 0\)/);
+    await expect(page.getByTestId("opencode-mobile-auto-permissions-state")).toHaveText("ON");
+    expect(await page.getByTestId("opencode-mobile-auto-permissions-group").evaluate((element) => getComputedStyle(element).backgroundColor)).not.toMatch(/transparent|rgba\(0, 0, 0, 0\)/);
     await resetAutoPermissions(page);
   });
 });

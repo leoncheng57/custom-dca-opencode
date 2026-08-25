@@ -554,7 +554,7 @@ export function ConversationPage() {
             testId="opencode-mobile-auto-permissions"
             variant="pill"
             trailing={
-              <Button size="md" variant="ghost" className="min-h-11 min-w-12 rounded-none px-0" onClick={() => setAutoSafetyOpen(true)} aria-label="Auto permissions safety" title="Auto permissions safety" data-testid="opencode-mobile-auto-permissions-info">
+              <Button size="md" variant="ghost" className="min-h-9 min-w-9 rounded-lg px-0" onClick={() => setAutoSafetyOpen(true)} aria-label="Auto permissions safety" title="Auto permissions safety" data-testid="opencode-mobile-auto-permissions-info">
                 <Info aria-hidden="true" className="h-3.5 w-3.5" />
               </Button>
             }
