@@ -10,7 +10,9 @@ import { Link } from "react-router-dom";
 
 import { Markdown } from "../ds/markdown.js";
 import { Badge } from "../ds/badge.js";
+import { FileReference } from "../ds/file-reference.js";
 import { cn } from "../ds/utils.js";
+import { useWorkspaceAttachmentReference } from "../lib/workspaceReferences.js";
 import { api, ApiError, type SessionTurnDiff } from "../lib/api.js";
 import { formatClockTime, formatDurationMs, formatRelative, type DisplayItem, type RunningActivity } from "../lib/derive.js";
 import type {
@@ -49,6 +51,42 @@ function TimeLabel({ timestamp, className }: { timestamp: string; className?: st
 }
 
 /**
+ * One attachment chip.
+ *
+ * A workspace path the server confirmed is readable becomes a control that
+ * opens the file; anything else keeps the inert chip it has always been. The
+ * control still never carries `Attachment.url` — it carries a validated
+ * workspace path, and opening it goes through the read route like any other
+ * file. See the note on `Attachments` for why the URL is untouchable.
+ */
+function AttachmentChip({ item }: { item: Attachment }) {
+  const reference = useWorkspaceAttachmentReference(item.path);
+  if (reference) {
+    return (
+      <FileReference
+        path={reference.target.path}
+        onOpen={reference.open}
+        testId="opencode-attachment-reference"
+        className="inline-flex items-center gap-1 rounded-full text-[11px] no-underline"
+      >
+        <span aria-hidden>📎</span>
+        <span className="max-w-48 truncate">{item.filename}</span>
+      </FileReference>
+    );
+  }
+  return (
+    <span
+      title={item.path ?? item.filename}
+      className="inline-flex items-center gap-1 rounded-full border border-[var(--color-border-default)] px-2 py-0.5 text-[11px] text-[var(--color-text-muted)]"
+      data-testid="opencode-attachment-chip-inert"
+    >
+      <span aria-hidden>📎</span>
+      <span className="max-w-48 truncate">{item.filename}</span>
+    </span>
+  );
+}
+
+/**
  * Attachments render as filename chips, never as <img src={url}>.
  *
  * `Attachment.url` is explicitly "not necessarily an http URL" and can point
@@ -73,16 +111,7 @@ function Attachments({ items }: { items: Attachment[] }) {
             />
           );
         }
-        return (
-          <span
-            key={`${item.filename}-${index}`}
-            title={item.path ?? item.filename}
-            className="inline-flex items-center gap-1 rounded-full border border-[var(--color-border-default)] px-2 py-0.5 text-[11px] text-[var(--color-text-muted)]"
-          >
-            <span aria-hidden>📎</span>
-            <span className="max-w-48 truncate">{item.filename}</span>
-          </span>
-        );
+        return <AttachmentChip key={`${item.filename}-${index}`} item={item} />;
       })}
     </div>
   );

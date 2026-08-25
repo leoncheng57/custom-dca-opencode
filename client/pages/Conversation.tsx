@@ -22,6 +22,8 @@ import { composerEnterAction } from "../lib/composerKeys.js";
 import { collapseActionGroups, mergeEvents, runningActivity } from "../lib/derive.js";
 import { normalizeTranscript, type RawMessage } from "../lib/events.js";
 import { parseInspectorTab, type InspectorTab } from "../lib/inspectorTabs.js";
+import { referenceCandidatesFromEvents, type WorkspaceTarget } from "../lib/fileReferences.js";
+import { WorkspaceReferenceProvider, useWorkspaceReferences } from "../lib/workspaceReferences.js";
 import { useSessionStream } from "../lib/useSessionStream.js";
 import type { TranscriptEvent } from "../lib/transcript.js";
 import type { ShareTarget } from "../lib/sessionSharing.js";
@@ -63,6 +65,7 @@ export function ConversationPage() {
   const [sending, setSending] = useState(false);
   const [composerError, setComposerError] = useState<string | null>(null);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [workspaceTarget, setWorkspaceTarget] = useState<WorkspaceTarget | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [requestedInspectorTab, setRequestedInspectorTab] = useState<InspectorTab | undefined>();
   const appliedPanelScope = useRef("");
@@ -245,6 +248,22 @@ export function ConversationPage() {
 
   const items = useMemo(() => collapseActionGroups(events), [events]);
   const activity = useMemo(() => runningActivity(events), [events]);
+
+  // Reference validation is derived from the transcript rather than from
+  // rendering, so a streaming turn produces one batched request per new set of
+  // paths instead of one per rendered code span.
+  const referenceCandidates = useMemo(
+    () => referenceCandidatesFromEvents(events, directory),
+    [directory, events],
+  );
+  const resolvedReferences = useWorkspaceReferences(directory, referenceCandidates);
+  // Opening a file must not change the route or the transcript scroll: the
+  // drawer is an overlay and the transcript stays mounted underneath it.
+  const openWorkspaceTarget = useCallback((target: WorkspaceTarget) => {
+    setWorkspaceTarget(target);
+    setWorkspaceOpen(true);
+  }, []);
+  const clearWorkspaceTarget = useCallback(() => setWorkspaceTarget(null), []);
   const latestUsage = transcript.usage.at(-1);
   const contextTokens = latestUsage
     ? latestUsage.tokens.input + latestUsage.tokens.output + latestUsage.tokens.reasoning + latestUsage.tokens.cacheRead + latestUsage.tokens.cacheWrite
@@ -729,15 +748,21 @@ export function ConversationPage() {
                 No transcript events yet.
               </p>
             ) : (
-              <Transcript
-                items={items}
-                wrap={wrap}
-                collapsedGroups={collapsedGroups}
-                onToggleGroup={toggleGroup}
-                onExport={exportMessage}
+              <WorkspaceReferenceProvider
                 directory={directory}
-                sessionId={id}
-              />
+                resolved={resolvedReferences}
+                onOpen={openWorkspaceTarget}
+              >
+                <Transcript
+                  items={items}
+                  wrap={wrap}
+                  collapsedGroups={collapsedGroups}
+                  onToggleGroup={toggleGroup}
+                  onExport={exportMessage}
+                  directory={directory}
+                  sessionId={id}
+                />
+              </WorkspaceReferenceProvider>
             )}
             {stream.running && (
               <div className="mt-6">
@@ -880,7 +905,14 @@ export function ConversationPage() {
           </>}
         </div>
       </footer>
-      {workspaceOpen && <WorkspacePanels directory={directory} onClose={() => setWorkspaceOpen(false)} />}
+      {workspaceOpen && (
+        <WorkspacePanels
+          directory={directory}
+          onClose={() => setWorkspaceOpen(false)}
+          target={workspaceTarget}
+          onTargetConsumed={clearWorkspaceTarget}
+        />
+      )}
       {autoSafetyOpen && (
         <div className="fixed inset-0 z-[90] flex items-end justify-center sm:items-start sm:p-4 sm:pt-[10vh]" data-testid="opencode-mobile-auto-permissions-safety-sheet">
           <button type="button" className="absolute inset-0 bg-[var(--color-background-overlay)]" aria-label="Close auto permissions safety" onClick={() => setAutoSafetyOpen(false)} data-testid="opencode-mobile-auto-permissions-safety-scrim" />

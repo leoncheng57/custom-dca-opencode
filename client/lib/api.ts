@@ -187,6 +187,19 @@ export interface VcsFileDiff {
   status?: "added" | "deleted" | "modified";
 }
 
+/** Mirrors `server/opencode/workspace.ts`; only `file` may become interactive. */
+export type WorkspaceReferenceStatus = "file" | "directory" | "invalid" | "forbidden" | "missing";
+
+export interface WorkspaceReference {
+  path: string;
+  status: WorkspaceReferenceStatus;
+  /** Canonical target to read. Present only when `status === "file"`. */
+  resolvedPath?: string;
+}
+
+/** Server-enforced ceiling; callers must chunk rather than be truncated. */
+export const WORKSPACE_REFERENCE_BATCH = 64;
+
 export interface GitCommit {
   sha: string;
   shortSha: string;
@@ -593,8 +606,17 @@ export const api = {
     fetch(scoped("/workspace/tree", directory, { path })).then((r) =>
       json<{ path: string; dirs: WorkspaceNode[]; files: WorkspaceNode[] }>(r),
     ),
-  workspaceFile: (directory: string, path: string) =>
-    fetch(scoped("/workspace/file", directory, { path })).then((r) => json<WorkspaceFile>(r)),
+  workspaceFile: (directory: string, path: string, signal?: AbortSignal) =>
+    fetch(scoped("/workspace/file", directory, { path }), { signal }).then((r) => json<WorkspaceFile>(r)),
+  /** Batched on purpose: one request per rendered code span would spawn a
+   * `git check-ignore` process per span. See server/routes/workspace.ts. */
+  workspaceReferences: (directory: string, paths: string[], signal?: AbortSignal) =>
+    fetch(scoped("/workspace/references", directory), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paths }),
+      signal,
+    }).then((r) => json<{ references: WorkspaceReference[] }>(r)),
   changes: (directory: string, mode: "git" | "branch") =>
     fetch(scoped("/workspace/changes", directory, { mode })).then((r) =>
       json<{ changes: VcsFileDiff[] }>(r),
