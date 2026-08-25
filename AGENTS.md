@@ -23,7 +23,7 @@ several decisions below.
   OpenAPI 3.1 with 162 paths / 188 operations; the published docs show ~60. When in
   doubt, curl `/doc`, not the website.
 - **The live `GET /doc` is the contract.** The SDK's classic query types are narrower
-  than the 1.18.21 server and its event union is stale, so `server/opencode/client.ts`
+  than the 1.18.22 server and its event union is stale, so `server/opencode/client.ts`
   owns a small typed fetch seam instead of casting around the SDK.
 - Tests: `npm test` (vitest, `tests/*.test.ts`, node environment, import with `.js`
   suffixes). `npm run typecheck` runs the client, server, and screenshot-tool tsconfigs.
@@ -249,8 +249,15 @@ several decisions below.
     explicitly rather than silently implying the feed is complete. Creation accepts
     only a bounded title, Markdown description and names from the bounded label
     catalogue, posts with the server-only `GITHUB_TOKEN`, and invalidates the read
-    cache only after GitHub confirms the issue. The browser still cannot select a
-    repository or project directory.
+    cache only after GitHub confirms the issue. A deep-linked item dialog reads a
+    bounded 20,000-character description and the first 50 conversation comments,
+    with each comment bounded at 8,000 characters; externally-authored Markdown is
+    always rendered as untrusted. The same fixed-repository seam replaces labels on
+    issues and pull requests only after validating them against a complete repository
+    label catalogue, preserves up to 100 existing labels and refuses replacement
+    when the upstream item exceeds that bound, permits at most one recognized
+    priority label, and updates the grouped browser snapshot only after GitHub
+    succeeds. The browser still cannot select a repository or project directory.
 17a. **Planning is a priority-first queue with deterministic ownership.** Exact,
     case-insensitive `priority:high`, `priority:medium`, and `priority:low` labels
     select the outer section; items with multiple distinct priority labels appear
@@ -258,9 +265,10 @@ several decisions below.
     or demoted. Within a priority section, the alphabetically first non-priority
     label owns the item and `Untagged` sorts last, while every label remains visible
     on the row. High priority and conflicts open by default; lower queues collapse
-    so a large backlog does not obscure current work. Comfortable, compact, and
-    dense row treatments are a device-local display preference in `localStorage`,
-    not repository planning data; dense is the first-visit default.
+    so a large backlog does not obscure current work. Five row-density treatments
+    are a device-local display preference in `localStorage`, not repository planning
+    data; the densest treatment is the first-visit default, and row labels share the
+    status line rather than consuming another vertical band.
 18. **PWA push supplements rather than replaces ntfy.** Web Push is a third independent
     delivery channel with its own server-backed enabled flag and event matrix. Device
     subscriptions are persisted server-side with mode `0600`; VAPID private material is
@@ -275,6 +283,19 @@ several decisions below.
     Every push snapshots that authoritative global count; opening the app and resolving or
     reopening a record resynchronizes it. A change made on another device therefore reaches
     the phone on its next push or app open, not through a separate badge-only background job.
+19. **Human-managed children are a separate privilege lane from native tasks.** Native `task`
+    delegation remains agent-initiated and keeps OpenCode's parent-session deny ceiling, task
+    parts, depth accounting and hand-back. The sub-agent panel's **Launch child** action is an
+    explicit human authorization: the BFF resolves a Plan/Build policy and validated model,
+    creates a child with `parentID`, metadata and an exact creation-time ruleset, rereads the
+    session to verify every security-relevant field, then submits directly to that child. The
+    browser never authors raw rules, and this route must never be registered as an agent tool.
+    Managed children appear in the normal hierarchy but create no parent task part or synthetic
+    hand-back; their lifecycle is derived from their own status/transcript and may remain
+    `unknown`. Live 1.18.22 probes confirmed direct creation and also confirmed #75's asymmetry:
+    native derivation copies a historical parent deny but discards its later Build allow. The
+    resolved Plan agent alone is not read-only after project policy merges, so session-level Plan
+    enforcement remains required.
 
 ## Client conventions (inherited from the OpenHands runner, still enforced)
 

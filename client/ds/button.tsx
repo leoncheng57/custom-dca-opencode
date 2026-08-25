@@ -4,6 +4,7 @@ import { cn } from "./utils.js";
 type ButtonVariant =
   | "primary"
   | "secondary"
+  | "info"
   | "danger"
   | "ghost"
   | "accent-cyan"
@@ -35,6 +36,10 @@ const SECONDARY =
   "bg-[var(--color-background-surface)] text-[var(--color-text-default)] " +
   "shadow-[inset_0_0_0_1px_var(--hh-border)] " +
   "hover:bg-[var(--hh-row-hover)] active:bg-[var(--hh-row-hover)]";
+
+const INFO =
+  "bg-[var(--color-background-action-info)] text-white " +
+  "hover:bg-[var(--color-background-action-info-hover)] active:bg-[var(--color-background-action-info-hover)]";
 
 const CYAN =
   "border bg-[light-dark(oklch(0.715_0.143_215.221/0.1),rgba(8,145,178,0.35))] border-[light-dark(oklch(0.609_0.126_221.723/0.4),#22d3ee)] " +
@@ -69,6 +74,7 @@ const variantClasses: Record<ButtonVariant, string> = {
   // ── Core variants ────────────────────────────────────────────────────
   primary: PRIMARY,
   secondary: SECONDARY,
+  info: INFO,
   danger: RED,
   ghost: GHOST,
 

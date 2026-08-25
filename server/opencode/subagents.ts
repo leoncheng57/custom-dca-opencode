@@ -28,6 +28,7 @@
 import { request, type OpencodeConfig } from "./client.js";
 import { getCapabilities, type Capabilities } from "./capabilities.js";
 import { listMessages, runningSessions, toSummary, type SessionSummary } from "./sessions.js";
+import type { ModelSelection } from "./config.js";
 
 /** Newest parent messages scanned for delegation intent. */
 export const SUBAGENT_ENRICHMENT_MESSAGE_LIMIT = 100;
@@ -57,6 +58,13 @@ export interface SubagentTask {
   title: string;
   /** Sub-agent type requested at launch, when the task part recorded one. */
   agent?: string;
+  /** How this child was launched, when upstream metadata makes it knowable. */
+  origin?: "native-task" | "managed-human";
+  /** Human-requested policy provenance; not proof of effective capability. */
+  requestedMode?: "plan" | "build";
+  requestedModel?: ModelSelection;
+  policySource?: "creation-permission";
+  effectivePolicyObserved?: boolean;
   /** One-line delegation intent from the task tool input. */
   description?: string;
   state: SubagentState;
@@ -371,7 +379,16 @@ export function deriveSubagentTasks(input: DeriveSubagentsInput): SubagentTask[]
       ...(launch?.description ? { description: launch.description } : {}),
       state: resolved.state,
       evidence: resolved.evidence,
-      background: launch?.background === true,
+      ...(child?.managed
+        ? {
+            origin: "managed-human" as const,
+            requestedMode: child.managed.requestedMode,
+            ...(child.managed.requestedModel ? { requestedModel: child.managed.requestedModel } : {}),
+            policySource: child.managed.policySource,
+            effectivePolicyObserved: child.managed.effectivePolicyObserved,
+          }
+        : launch ? { origin: "native-task" as const } : {}),
+      background: child?.managed?.background === true || launch?.background === true,
       present: child !== undefined,
       createdAt,
       updatedAt,

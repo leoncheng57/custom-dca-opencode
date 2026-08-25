@@ -37,7 +37,7 @@ against the production SPA and real BFF with only OpenCode and preview targets m
 ## Requirements
 
 - Node 22+
-- A running `opencode serve` (or `opencode web`) — v1.18.21
+- A running `opencode serve` (or `opencode web`) — v1.18.22
 - Optional: Tailscale, for phone access
 
 ## Quick start
@@ -59,8 +59,10 @@ npm run service:status
 See [`deploy/README.md`](deploy/README.md) for logs, uninstall, Tailscale Serve,
 paths containing spaces, and the optional OpenCode unit. The BFF installer never
 starts a second OpenCode server; it uses `OPENCODE_URL` from `.env`.
-The OpenCode 1.18.21 compatibility check is recorded in
-[`docs/opencode-1.18.21-api-audit.md`](docs/opencode-1.18.21-api-audit.md).
+The baseline OpenCode 1.18.21 compatibility check is recorded in
+[`docs/opencode-1.18.21-api-audit.md`](docs/opencode-1.18.21-api-audit.md); managed child creation
+was subsequently validated live against 1.18.22 and is documented in
+[`docs/subagents.md`](docs/subagents.md).
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the development and pull request workflow.
 The running app exposes the architecture and canonical guides at `/docs`; the same contributor
 material also has a standalone themed [visual reading index](docs/contributing/index.html).

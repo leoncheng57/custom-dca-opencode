@@ -17,7 +17,9 @@ import { useSubagents, type SubagentsState } from "../lib/useSubagents.js";
 import type { TranscriptEvent } from "../lib/transcript.js";
 import { ReviewCard } from "./review-card.js";
 import { SubagentPanel } from "./subagent-panel.js";
+import { ManagedChildDialog } from "./managed-child-dialog.js";
 import { Link } from "react-router-dom";
+import type { ModelCatalogue, ModelSelection } from "../lib/models.js";
 
 interface SessionInspectorProps {
   directory: string;
@@ -28,6 +30,8 @@ interface SessionInspectorProps {
   requestedTab?: InspectorTab;
   mobileOpen?: boolean;
   onMobileClose?: () => void;
+  modelCatalogue: ModelCatalogue | null;
+  defaultModel?: ModelSelection;
 }
 
 const TAB_LABELS: Record<InspectorTab, string> = {
@@ -318,6 +322,7 @@ function InspectorContent({
   commandExportError,
   subagents,
   tabs,
+  onOpenManagedChild,
 }: {
   catalogue: CatalogResponse | null;
   catalogError: string | null;
@@ -337,6 +342,7 @@ function InspectorContent({
   commandExportError: string | null;
   subagents: SubagentsState;
   tabs: readonly InspectorTab[];
+  onOpenManagedChild: () => void;
 }) {
   const subagentCount = subagents.report?.tasks.length ?? 0;
   return (
@@ -395,6 +401,7 @@ function InspectorContent({
             onRefresh={subagents.refresh}
             onAbort={subagents.abortChild}
             onPromote={subagents.promote}
+            onOpenLaunch={onOpenManagedChild}
           />
         )}
 
@@ -509,7 +516,7 @@ function DesktopInspector({ title, onClose, children }: { title: string; onClose
   );
 }
 
-export function SessionInspector({ directory, sessionID, events, todos, todosLoaded, todosError, requestedTab, mobileOpen = false, onMobileClose }: SessionInspectorProps & { sessionID: string }) {
+export function SessionInspector({ directory, sessionID, events, todos, todosLoaded, todosError, requestedTab, mobileOpen = false, onMobileClose, modelCatalogue, defaultModel }: SessionInspectorProps & { sessionID: string }) {
   const [desktopViewport, setDesktopViewport] = useState(() => window.matchMedia("(min-width: 1024px)").matches);
   const commandScope = `${directory}\0${sessionID}`;
   const commands = useMemo(() => extractCommands(events), [events]);
@@ -521,6 +528,7 @@ export function SessionInspector({ directory, sessionID, events, todos, todosLoa
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [commandExporting, setCommandExporting] = useState(false);
   const [commandExportError, setCommandExportError] = useState<string | null>(null);
+  const [managedChildOpen, setManagedChildOpen] = useState(false);
   const commandExportScope = useRef(commandScope);
   const commandExportGeneration = useRef(0);
   if (commandExportScope.current !== commandScope) {
@@ -569,6 +577,7 @@ export function SessionInspector({ directory, sessionID, events, todos, todosLoa
   useEffect(() => {
     setCommandExporting(false);
     setCommandExportError(null);
+    setManagedChildOpen(false);
   }, [commandScope]);
   useEffect(() => () => { commandExportGeneration.current += 1; }, []);
 
@@ -618,6 +627,10 @@ export function SessionInspector({ directory, sessionID, events, todos, todosLoa
       commandExportError={commandExportError}
       subagents={subagents}
       tabs={tabs}
+      onOpenManagedChild={() => {
+        subagents.clearLaunchError();
+        setManagedChildOpen(true);
+      }}
     />
   );
   const mobileTabs = requestedTab === "reviews"
@@ -650,6 +663,16 @@ export function SessionInspector({ directory, sessionID, events, todos, todosLoa
           }, surfaceTab ? [surfaceTab] : mobileTabs, surfaceTab ?? tab)}
         </MobileInspector>
       )}
+      <ManagedChildDialog
+        key={commandScope}
+        open={managedChildOpen}
+        catalogue={modelCatalogue}
+        defaultModel={defaultModel}
+        submitting={subagents.launching}
+        error={subagents.launchError}
+        onClose={() => setManagedChildOpen(false)}
+        onSubmit={subagents.launchChild}
+      />
     </>
   );
 }
