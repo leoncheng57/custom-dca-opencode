@@ -2,13 +2,18 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   createPlanningIssue,
+  getPlanningItemDetails,
   getPlanningLabels,
   getPlanningSnapshot,
   normalizePlanningItem,
   PLANNING_LIMITS,
   planningErrorMessage,
   resetPlanningCache,
+  updatePlanningItemLabels,
   validateCreatePlanningIssue,
+  validatePlanningLabels,
+  validatePlanningNumber,
+  validateUpdatePlanningLabels,
 } from "../server/github-planning.js";
 
 function response(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
@@ -160,6 +165,7 @@ describe("GitHub planning issue creation", () => {
       { title: "ok", body: 1 },
       { title: "ok", labels: "frontend" },
       { title: "ok", labels: [1] },
+      { title: "ok", labels: Array.from({ length: PLANNING_LIMITS.createLabels + 1 }, (_, index) => `label-${index}`) },
       { title: "x".repeat(PLANNING_LIMITS.createTitleCharacters + 1) },
       { title: "ok", body: "x".repeat(PLANNING_LIMITS.createBodyCharacters + 1) },
     ]) expect(() => validateCreatePlanningIssue(invalid)).toThrow();
@@ -229,6 +235,157 @@ describe("GitHub planning issue creation", () => {
     await getPlanningSnapshot();
     expect(reads).toBe(1);
     await createPlanningIssue({ title: "New", body: "", labels: [] });
+    await getPlanningSnapshot();
+    expect(reads).toBe(2);
+  });
+});
+
+describe("GitHub planning item details", () => {
+  it("validates issue numbers and label replacements strictly", () => {
+    expect(validatePlanningNumber("123")).toBe(123);
+    expect(validatePlanningLabels([" frontend ", "FRONTEND", "priority:high"])).toEqual(["frontend", "priority:high"]);
+    expect(validateUpdatePlanningLabels({ labels: ["frontend"] })).toEqual({ labels: ["frontend"] });
+    for (const invalid of ["0", "1.5", "1e2", "-1", "", Number.MAX_SAFE_INTEGER + 1]) {
+      expect(() => validatePlanningNumber(invalid)).toThrow("Issue number is invalid");
+    }
+    expect(() => validatePlanningLabels(["priority:high", "priority:low"])).toThrow("Select at most one priority label");
+    expect(() => validatePlanningLabels(Array.from({ length: PLANNING_LIMITS.labels + 1 }, (_, index) => `label-${index}`)))
+      .toThrow(`At most ${PLANNING_LIMITS.labels} labels may be selected`);
+    expect(() => validateUpdatePlanningLabels({ labels: [], title: "no" })).toThrow("Label update must contain only labels");
+  });
+
+  it("loads a bounded body and first 50 conversation comments for issues and pull requests", async () => {
+    const longBody = "x".repeat(PLANNING_LIMITS.detailBodyCharacters + 1);
+    const longComment = "y".repeat(PLANNING_LIMITS.commentBodyCharacters + 1);
+    const fetchMock = vi.fn(async (input: URL | RequestInfo) => {
+      const url = String(input);
+      if (url.includes("/comments")) {
+        expect(url).toContain("per_page=51");
+        return response(Array.from({ length: 51 }, (_, index) => ({
+          id: index + 1,
+          body: index === 0 ? longComment : `Comment ${index + 1}`,
+          user: { login: `author-${index + 1}` },
+          created_at: "2026-08-21T11:30:00Z",
+        })));
+      }
+      return response(rawItem(101, {
+        body: longBody,
+        labels: Array.from({ length: PLANNING_LIMITS.labels + 1 }, (_, index) => ({ name: `label-${index}` })),
+        pull_request: { merged_at: null },
+        html_url: "https://attacker.invalid/item",
+      }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const details = await getPlanningItemDetails("101");
+
+    expect(details.item).toMatchObject({ number: 101, type: "pull_request", url: "https://github.com/leoncheng57/custom-dca-opencode/pull/101" });
+    expect(details.item.labels).toHaveLength(PLANNING_LIMITS.labels);
+    expect(details.itemLabelsTruncated).toBe(true);
+    expect(details.body).toHaveLength(PLANNING_LIMITS.detailBodyCharacters);
+    expect(details.bodyTruncated).toBe(true);
+    expect(details.comments).toHaveLength(PLANNING_LIMITS.comments);
+    expect(details.comments[0]).toMatchObject({ author: "author-1", bodyTruncated: true });
+    expect(details.commentsTruncated).toBe(true);
+    expect(details.commentsError).toBeNull();
+  });
+
+  it("keeps item details available when comments fail", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: URL | RequestInfo) => String(input).includes("/comments")
+      ? response({ secret: "do not leak" }, 500)
+      : response(rawItem(7, { body: "Visible description" }))));
+
+    const details = await getPlanningItemDetails(7);
+
+    expect(details.body).toBe("Visible description");
+    expect(details.comments).toEqual([]);
+    expect(details.commentsError).toBe("Unavailable");
+  });
+});
+
+describe("GitHub planning label updates", () => {
+  it("requires authentication and rejects priority conflicts before requesting GitHub", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(updatePlanningItemLabels(1, { labels: ["frontend"] })).rejects.toThrow("Authentication unavailable");
+    await expect(updatePlanningItemLabels(1, { labels: ["priority:high", "priority:low"] })).rejects.toThrow("Select at most one priority label");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("replaces only labels on the fixed repository and normalizes the updated item", async () => {
+    vi.stubEnv("GITHUB_TOKEN", "server-secret");
+    const fetchMock = vi.fn(async (input: URL | RequestInfo, init?: RequestInit) => {
+      if (String(input).includes("/labels?")) {
+        return response([
+          { name: "priority:medium", description: "Plan next" },
+          { name: "frontend", description: "Client work" },
+        ]);
+      }
+      if (init?.method !== "PATCH") return response(rawItem(102, { labels: [{ name: "priority:high" }] }));
+      expect(String(input)).toBe("https://api.github.com/repos/leoncheng57/custom-dca-opencode/issues/102");
+      expect(init?.method).toBe("PATCH");
+      expect(new Headers(init?.headers).get("authorization")).toBe("Bearer server-secret");
+      expect(JSON.parse(String(init?.body))).toEqual({ labels: ["priority:medium", "frontend"] });
+      return response(rawItem(102, {
+        labels: [{ name: "priority:medium" }, { name: "frontend" }],
+        pull_request: { merged_at: null },
+        html_url: "https://attacker.invalid/item",
+      }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const item = await updatePlanningItemLabels(102, { labels: ["priority:medium", "frontend"] });
+
+    expect(item).toMatchObject({
+      number: 102,
+      type: "pull_request",
+      labels: ["priority:medium", "frontend"],
+      url: "https://github.com/leoncheng57/custom-dca-opencode/pull/102",
+    });
+  });
+
+  it("rejects labels outside the complete repository catalogue", async () => {
+    vi.stubEnv("GITHUB_TOKEN", "server-secret");
+    const fetchMock = vi.fn(async (input: URL | RequestInfo) => {
+      expect(String(input)).toContain("/labels?");
+      return response([{ name: "frontend", description: "Client work" }]);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(updatePlanningItemLabels(1, { labels: ["not-a-repository-label"] }))
+      .rejects.toThrow("Unknown label: not-a-repository-label");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses replacement when the current item has labels the editor cannot represent", async () => {
+    vi.stubEnv("GITHUB_TOKEN", "server-secret");
+    const fetchMock = vi.fn(async (input: URL | RequestInfo) => {
+      if (String(input).includes("/labels?")) return response([{ name: "frontend", description: "Client work" }]);
+      return response(rawItem(1, {
+        labels: Array.from({ length: PLANNING_LIMITS.labels + 1 }, (_, index) => ({ name: `label-${index}` })),
+      }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(updatePlanningItemLabels(1, { labels: ["frontend"] }))
+      .rejects.toThrow("Item has too many labels to update safely");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("invalidates a warm snapshot only after a successful label update", async () => {
+    vi.stubEnv("GITHUB_TOKEN", "server-secret");
+    let reads = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: URL | RequestInfo, init?: RequestInit) => {
+      if (String(input).includes("/labels?")) return response([{ name: "frontend", description: "Client work" }]);
+      if (init?.method === "PATCH") return response(rawItem(1, { labels: [{ name: "frontend" }] }));
+      if (String(input).endsWith("/issues/1")) return response(rawItem(1, { labels: [] }));
+      reads += 1;
+      return response([rawItem(reads)]);
+    }));
+    await getPlanningSnapshot();
+    await getPlanningSnapshot();
+    expect(reads).toBe(1);
+    await updatePlanningItemLabels(1, { labels: ["frontend"] });
     await getPlanningSnapshot();
     expect(reads).toBe(2);
   });

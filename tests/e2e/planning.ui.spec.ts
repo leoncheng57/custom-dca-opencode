@@ -14,6 +14,12 @@ test.describe("project planning", () => {
     await expect(page.getByText("Resolve contradictory priorities")).toBeVisible();
     await expect(page.getByText("Resolve priority conflict")).toBeVisible();
     await expect(page.getByText("Improve the mobile planning view")).toBeVisible();
+    const highRow = page.getByTestId("opencode-planning-row").filter({ hasText: "Improve the mobile planning view" });
+    const [statusBox, priorityBox] = await Promise.all([
+      highRow.getByText("Open", { exact: true }).boundingBox(),
+      highRow.getByText("priority:high", { exact: true }).boundingBox(),
+    ]);
+    expect(Math.abs((statusBox?.y ?? 0) - (priorityBox?.y ?? 0))).toBeLessThan(4);
     await page.getByTestId("opencode-planning-section-medium-toggle").click();
     await expect(page.getByText("Add the project planning feed")).toBeVisible();
     await expect(page.getByTestId("opencode-planning-group-high-frontend")).toBeVisible();
@@ -21,9 +27,79 @@ test.describe("project planning", () => {
     await expect(page.getByText("Last activity Aug 21, 2026")).toBeVisible();
 
     const issueLink = page.getByTestId("opencode-planning-item-101");
-    await expect(issueLink).toHaveAttribute("href", "https://github.com/leoncheng57/custom-dca-opencode/issues/101");
-    await expect(issueLink).toHaveAttribute("target", "_blank");
-    await expect(issueLink).toHaveAttribute("rel", "noopener noreferrer");
+    await expect(issueLink).toHaveAttribute("aria-haspopup", "dialog");
+    const externalLink = page.getByTestId("opencode-planning-item-101-external");
+    await expect(externalLink).toHaveAttribute("href", "https://github.com/leoncheng57/custom-dca-opencode/issues/101");
+    await expect(externalLink).toHaveAttribute("target", "_blank");
+    await expect(externalLink).toHaveAttribute("rel", "noopener noreferrer");
+  });
+
+  test("opens deep-linked issue and pull request details with safe Markdown comments", async ({ page }) => {
+    await page.goto("/planning");
+    const issueTrigger = page.getByTestId("opencode-planning-item-101");
+    await issueTrigger.click();
+
+    await expect(page).toHaveURL(/\/planning\?item=101$/u);
+    await expect(page.getByTestId("opencode-planning-item-dialog")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Improve the mobile planning view" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Planning context" })).toBeVisible();
+    await expect(page.getByText("First planning comment.")).toBeVisible();
+    await expect(page.getByTestId("opencode-planning-item-comment")).toHaveCount(2);
+    await expect(page.locator("[data-unsafe-description], [data-unsafe-comment]")).toHaveCount(0);
+    await expect(page.getByTestId("opencode-planning-item-external"))
+      .toHaveAttribute("href", "https://github.com/leoncheng57/custom-dca-opencode/issues/101");
+
+    await page.getByTestId("opencode-planning-item-close").click();
+    await expect(page.getByTestId("opencode-planning-item-dialog")).toHaveCount(0);
+    await expect(issueTrigger).toBeFocused();
+
+    await page.goto("/planning?item=102");
+    await expect(page.getByRole("heading", { name: "Add the project planning feed" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Pull request description" })).toBeVisible();
+    await expect(page.getByTestId("opencode-planning-item-dialog")).toContainText("Pull request");
+  });
+
+  test("changes labels, enforces one priority, and regroups the item immediately", async ({ page }) => {
+    await page.goto("/planning");
+    await page.getByTestId("opencode-planning-item-101").click();
+    const high = page.getByTestId("opencode-planning-item-label-priority:high");
+    const medium = page.getByTestId("opencode-planning-item-label-priority:medium");
+    await expect(high).toBeChecked();
+    await medium.check();
+    await expect(medium).toBeChecked();
+    await expect(high).not.toBeChecked();
+
+    await page.getByTestId("opencode-planning-item-save").click();
+    await expect(page.getByTestId("opencode-planning-item-save-success")).toHaveText("Labels updated.");
+    await expect(page.getByTestId("opencode-planning-item-dialog")).toBeVisible();
+    await page.getByTestId("opencode-planning-item-close").click();
+    await expect(page.getByTestId("opencode-planning-list")).toBeFocused();
+
+    await page.getByTestId("opencode-planning-section-medium-toggle").click();
+    const updatedRow = page.getByTestId("opencode-planning-row").filter({ hasText: "Improve the mobile planning view" });
+    await expect(updatedRow).toBeVisible();
+    await expect(updatedRow.getByText("priority:medium")).toBeVisible();
+  });
+
+  test("keeps a failed label edit selected and retryable", async ({ page }) => {
+    let requests = 0;
+    await page.route("**/api/planning/items/101/labels", async (route) => {
+      requests += 1;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      await route.fulfill({ status: 422, contentType: "application/json", body: JSON.stringify({ error: "Rejected by GitHub" }) });
+    });
+    await page.goto("/planning?item=101");
+    const medium = page.getByTestId("opencode-planning-item-label-priority:medium");
+    await medium.check();
+    await page.getByTestId("opencode-planning-item-save").evaluate((button) => {
+      button.click();
+      button.click();
+    });
+
+    await expect(page.getByTestId("opencode-planning-item-save-error")).toContainText("Rejected by GitHub");
+    await expect(medium).toBeChecked();
+    await expect(page.getByTestId("opencode-planning-item-dialog")).toBeVisible();
+    expect(requests).toBe(1);
   });
 
   test("filters by type and state and identifies merged pull requests", async ({ page }) => {
@@ -70,7 +146,7 @@ test.describe("project planning", () => {
   test("changes density and persists it across reloads", async ({ page }) => {
     await page.goto("/planning");
     const list = page.getByTestId("opencode-planning-list");
-    await expect(list).toHaveAttribute("data-density", "dense");
+    await expect(list).toHaveAttribute("data-density", "densest");
 
     await page.getByTestId("opencode-planning-density-comfortable").click();
     await expect(list).toHaveAttribute("data-density", "comfortable");
@@ -138,5 +214,14 @@ test.describe("project planning", () => {
     const metrics = await page.evaluate(() => ({ body: document.body.scrollWidth, viewport: document.documentElement.clientWidth }));
     expect(metrics.body).toBeLessThanOrEqual(metrics.viewport);
     await expect(page.getByTestId("opencode-planning-create-submit")).toBeVisible();
+  });
+
+  test("keeps the item detail dialog usable at mobile width", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 740 });
+    await page.goto("/planning?item=101");
+    await expect(page.getByTestId("opencode-planning-item-dialog")).toBeVisible();
+    const metrics = await page.evaluate(() => ({ body: document.body.scrollWidth, viewport: document.documentElement.clientWidth }));
+    expect(metrics.body).toBeLessThanOrEqual(metrics.viewport);
+    await expect(page.getByTestId("opencode-planning-item-save")).toBeVisible();
   });
 });

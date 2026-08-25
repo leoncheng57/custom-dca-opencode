@@ -7,6 +7,7 @@ import { Badge, type BadgeVariant } from "../ds/badge.js";
 import { Button } from "../ds/button.js";
 import { LoadingIndicator } from "../ds/loading-indicator.js";
 import { CreateIssueDialog } from "../components/create-issue-dialog.js";
+import { PlanningItemDialog } from "../components/planning-item-dialog.js";
 import {
   api,
   type PlanningItem,
@@ -18,7 +19,7 @@ import { groupPlanningItems, type PlanningSection } from "../lib/planningGroups.
 
 type TypeFilter = "all" | PlanningItemType;
 type StateFilter = "all" | PlanningItemState;
-type PlanningDensity = "comfortable" | "compact" | "dense";
+type PlanningDensity = "comfortable" | "compact" | "dense" | "denser" | "densest";
 
 const DENSITY_STORAGE_KEY = "opencode.planning.density";
 
@@ -38,6 +39,8 @@ const DENSITY_OPTIONS: Array<{ value: PlanningDensity; label: string }> = [
   { value: "comfortable", label: "Comfortable" },
   { value: "compact", label: "Compact" },
   { value: "dense", label: "Dense" },
+  { value: "denser", label: "Denser" },
+  { value: "densest", label: "Densest" },
 ];
 
 const DENSITY_CLASSES: Record<PlanningDensity, {
@@ -64,16 +67,28 @@ const DENSITY_CLASSES: Record<PlanningDensity, {
     title: "text-sm leading-5",
     metadata: "text-[11px] leading-4",
   },
+  denser: {
+    row: "px-3 py-2 sm:px-4",
+    content: "space-y-1",
+    title: "text-[13px] leading-4",
+    metadata: "text-[10px] leading-3",
+  },
+  densest: {
+    row: "px-3 py-1.5 sm:px-4 sm:py-2",
+    content: "space-y-1",
+    title: "text-xs leading-4",
+    metadata: "text-[11px] leading-3",
+  },
 };
 
 function initialDensity(): PlanningDensity {
   try {
     const stored = localStorage.getItem(DENSITY_STORAGE_KEY);
-    if (stored === "comfortable" || stored === "compact" || stored === "dense") return stored;
+    if (stored === "comfortable" || stored === "compact" || stored === "dense" || stored === "denser" || stored === "densest") return stored;
   } catch {
     // Storage may be unavailable in hardened browser contexts.
   }
-  return "dense";
+  return "densest";
 }
 
 function formatDate(value: string): string {
@@ -111,13 +126,19 @@ function labelBadge(label: string): BadgeVariant {
   }
 }
 
-function PlanningRow({ item, density, conflict }: {
+function PlanningRow({ item, density, conflict, onOpen }: {
   item: PlanningItem;
   density: PlanningDensity;
   conflict: boolean;
+  onOpen: (item: PlanningItem) => void;
 }) {
   const status = stateBadge(item);
   const classes = DENSITY_CLASSES[density];
+  const badgeClass = density === "densest"
+    ? "px-1.5 py-0 text-[10px]"
+    : density === "denser"
+      ? "px-2 py-0 text-[10px]"
+      : "";
   return (
     <li className={classes.row} data-testid="opencode-planning-row">
       <div className="flex min-w-0 items-start gap-3">
@@ -129,41 +150,47 @@ function PlanningRow({ item, density, conflict }: {
         </span>
         <div className={`min-w-0 flex-1 ${classes.content}`}>
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={item.type === "pull_request" ? "info" : "neutral"}>
+            <Badge className={badgeClass} variant={item.type === "pull_request" ? "info" : "neutral"}>
               {item.type === "pull_request" ? "Pull request" : "Issue"}
             </Badge>
             <span className="text-xs font-medium tabular-nums text-[var(--color-text-muted)]">
               #{item.number}
             </span>
-            <Badge variant={status.variant}>{status.label}</Badge>
+            <Badge className={badgeClass} variant={status.variant}>{status.label}</Badge>
             {conflict && (
-              <Badge className="gap-1 normal-case" variant="danger">
+              <Badge className={`${badgeClass} gap-1 normal-case`} variant="danger">
                 <AlertTriangle aria-hidden="true" size={11} />
                 Resolve priority conflict
               </Badge>
             )}
+            {item.labels.map((label) => (
+              <Badge className={`${badgeClass} normal-case`} key={label} variant={labelBadge(label)}>
+                {label}
+              </Badge>
+            ))}
           </div>
 
-          <a
-            className={`group inline-flex max-w-full items-start gap-1.5 font-semibold text-[var(--color-text-default)] hover:text-[var(--color-text-info)] focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)] ${classes.title}`}
-            data-testid={`opencode-planning-item-${item.number}`}
-            href={item.url}
-            rel="noopener noreferrer"
-            target="_blank"
-          >
-            <span>{item.title || "Untitled"}</span>
-            <ExternalLink aria-hidden="true" className="mt-0.5 shrink-0 opacity-60 group-hover:opacity-100" size={14} />
-          </a>
-
-          {item.labels.length > 0 && (
-            <div className="flex flex-wrap gap-1.5" aria-label="Labels">
-              {item.labels.map((label) => (
-                <Badge className="normal-case" key={label} variant={labelBadge(label)}>
-                  {label}
-                </Badge>
-              ))}
-            </div>
-          )}
+          <div className="flex min-w-0 items-start gap-1.5">
+            <button
+              aria-haspopup="dialog"
+              className={`min-w-0 break-words text-left font-semibold text-[var(--color-text-default)] hover:text-[var(--color-text-info)] focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)] ${classes.title}`}
+              data-testid={`opencode-planning-item-${item.number}`}
+              onClick={() => onOpen(item)}
+              type="button"
+            >
+              {item.title || "Untitled"}
+            </button>
+            <a
+              aria-label={`Open ${item.type === "pull_request" ? "pull request" : "issue"} #${item.number} on GitHub`}
+              className="mt-0.5 shrink-0 rounded text-[var(--color-text-muted)] hover:text-[var(--color-text-info)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]"
+              data-testid={`opencode-planning-item-${item.number}-external`}
+              href={item.url}
+              rel="noopener noreferrer"
+              target="_blank"
+            >
+              <ExternalLink aria-hidden="true" size={14} />
+            </a>
+          </div>
 
           <div className={`flex flex-wrap gap-x-4 gap-y-1 text-[var(--color-text-muted)] ${classes.metadata}`}>
             <span>Created {formatDate(item.createdAt)}</span>
@@ -182,7 +209,11 @@ function PlanningRow({ item, density, conflict }: {
   );
 }
 
-function PlanningGroupSection({ section, density }: { section: PlanningSection; density: PlanningDensity }) {
+function PlanningGroupSection({ section, density, onOpen }: {
+  section: PlanningSection;
+  density: PlanningDensity;
+  onOpen: (item: PlanningItem) => void;
+}) {
   const [open, setOpen] = useState(section.defaultOpen);
   const isConflict = section.id === "conflict";
 
@@ -225,6 +256,7 @@ function PlanningGroupSection({ section, density }: { section: PlanningSection; 
                   density={density}
                   item={item}
                   key={`${item.type}-${item.id}`}
+                  onOpen={onOpen}
                 />
               ))}
             </ul>
@@ -279,6 +311,10 @@ export function PlanningPage() {
     && (stateFilter === "all" || item.state === stateFilter),
   );
   const sections = groupPlanningItems(items);
+  const itemParam = params.get("item");
+  const selectedItemNumber = itemParam && /^[1-9]\d*$/u.test(itemParam) && Number.isSafeInteger(Number(itemParam))
+    ? Number(itemParam)
+    : null;
 
   const chooseDensity = (value: PlanningDensity) => {
     setDensity(value);
@@ -324,7 +360,7 @@ export function PlanningPage() {
               }}
               size="sm"
               type="button"
-              variant="accent-cyan"
+              variant="info"
             >
               <Plus aria-hidden="true" size={14} />
               New issue
@@ -435,9 +471,15 @@ export function PlanningPage() {
           className="space-y-3"
           data-density={density}
           data-testid="opencode-planning-list"
+          tabIndex={-1}
         >
           {sections.map((section) => (
-            <PlanningGroupSection density={density} key={section.id} section={section} />
+            <PlanningGroupSection
+              density={density}
+              key={section.id}
+              onOpen={(item) => setParams({ item: String(item.number) })}
+              section={section}
+            />
           ))}
         </div>
       ) : null}
@@ -450,6 +492,19 @@ export function PlanningPage() {
           onCreated={(issue) => {
             setCreated(issue);
             setSnapshot((current) => current ? { ...current, items: [issue, ...current.items] } : current);
+          }}
+        />
+      )}
+      {selectedItemNumber !== null && (
+        <PlanningItemDialog
+          itemNumber={selectedItemNumber}
+          key={selectedItemNumber}
+          onClose={() => setParams({}, { replace: true })}
+          onUpdated={(updated) => {
+            setSnapshot((current) => current ? {
+              ...current,
+              items: current.items.map((item) => item.number === updated.number ? updated : item),
+            } : current);
           }}
         />
       )}
