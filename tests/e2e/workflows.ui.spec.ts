@@ -203,6 +203,16 @@ test.describe("workflow picker UI", () => {
     await dialog.getByTestId("composer-workflow-done-close").click();
   });
 
+  test("keeps the picker attachment out of an ordinary send", async ({ page }) => {
+    const marker = `WF-PLAIN-${Date.now()}`;
+    await page.goto(mainSession);
+    await page.getByTestId("opencode-composer").fill(marker);
+    await page.getByTestId("opencode-send").click();
+    const payload = await promptPayloadContaining(marker);
+    expect(payload).toBeDefined();
+    expect(promptText(payload!)).not.toContain("<workflow");
+  });
+
   test("build mode requires its own authorization, and cancel abandons cleanly", async ({ page }) => {
     const marker = `WF-CANCELLED-${Date.now()}`;
     await page.goto(mainSession);
@@ -224,5 +234,46 @@ test.describe("workflow picker UI", () => {
     expect(await promptPayloadContaining(marker)).toBeUndefined();
     const sessionPayloads = await (await fetch(`${MOCK_URL}/test/session-payloads`)).json() as Array<Record<string, unknown>>;
     expect(sessionPayloads.find((item) => item.title === marker)).toBeUndefined();
+  });
+});
+
+test.describe("mobile composer collapse guard", () => {
+  test.use({ viewport: { width: 390, height: 740 }, hasTouch: true });
+
+  // Regression for the keyboard-open collapse: on a real touch device
+  // `pointerdown` fires when the finger LANDS and the textarea `blur` fires
+  // when it LIFTS, several frames later. The old excuse was disarmed one
+  // animation frame after pointerdown, so by blur time it had always expired
+  // and tapping Model / Reminder / Workflows collapsed the composer and
+  // unmounted the picker it was opening. The waits below recreate that gap.
+  test("pressing composer controls with the keyboard open never collapses the composer", async ({ page }) => {
+    await page.goto(mainSession);
+    const composer = page.getByTestId("opencode-composer");
+    const collapsed = page.getByTestId("opencode-composer-expand");
+
+    for (const control of ["composer-workflow-select", "composer-reminder-select", "opencode-composer-model"]) {
+      await composer.tap();
+      await expect(composer).toBeFocused();
+      await page.getByTestId(control).dispatchEvent("pointerdown");
+      await page.waitForTimeout(150); // finger still down; frames pass
+      await composer.evaluate((element) => (element as HTMLTextAreaElement).blur());
+      await page.waitForTimeout(80); // let the rAF collapse check run
+      await expect(collapsed, `${control} press must not collapse the composer`).toHaveCount(0);
+    }
+
+    // A blur with no control press must still collapse (tapping the transcript).
+    await composer.tap();
+    await composer.evaluate((element) => (element as HTMLTextAreaElement).blur());
+    await expect(collapsed).toBeVisible();
+    await collapsed.tap();
+
+    // And the full gesture: tapping Workflows opens the chooser with the
+    // composer still expanded behind it.
+    await composer.tap();
+    await page.getByTestId("composer-workflow-select").tap();
+    await expect(page.getByTestId("composer-workflow-panel")).toBeVisible();
+    await expect(collapsed).toHaveCount(0);
+    await page.getByTestId("composer-workflow-close").tap();
+    await expect(composer).toBeVisible();
   });
 });
