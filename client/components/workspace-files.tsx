@@ -436,7 +436,11 @@ export function WorkspaceFiles({
 
       <div
         className={cn(
-          "min-h-0 flex-1 flex-col",
+          // `min-w-0` is load-bearing, not tidiness: a flex item defaults to
+          // `min-width: auto`, so CodeMirror's intrinsic line width would stop
+          // this pane shrinking to the drawer and push the toolbar past the
+          // drawer's edge, where the wrap toggle became unreachable.
+          "min-h-0 min-w-0 flex-1 flex-col",
           mobileView === "file" ? "flex" : "hidden sm:flex",
         )}
         data-testid="opencode-file-pane"

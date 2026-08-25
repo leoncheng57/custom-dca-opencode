@@ -205,7 +205,10 @@ export default function CodeViewer({
   }, [content, path, target]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col" data-testid="opencode-code-viewer" data-path={path}>
+    // `min-w-0` here and on the scroll host keeps the editor's own horizontal
+    // scrolling local: without it the document's intrinsic width propagates up
+    // through the flex chain and widens the drawer's file pane instead.
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col" data-testid="opencode-code-viewer" data-path={path}>
       <div className="flex items-center gap-2 border-b border-[var(--color-border-default)] px-2 py-1">
         <button
           type="button"
@@ -223,7 +226,7 @@ export default function CodeViewer({
           {content ? content.split("\n").length : 0} lines
         </span>
       </div>
-      <div ref={host} className="thin-scrollbar min-h-0 flex-1 overflow-hidden" />
+      <div ref={host} className="thin-scrollbar min-h-0 min-w-0 flex-1 overflow-hidden" />
     </div>
   );
 }

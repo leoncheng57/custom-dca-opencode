@@ -193,6 +193,32 @@ test.describe("workspace files tab", () => {
     await expect(page.getByTestId("opencode-file-tab")).toHaveCount(1);
   });
 
+  // A flex item defaults to `min-width: auto`, so CodeMirror's intrinsic line
+  // width once pushed this toolbar 93px past the drawer's edge. Nothing
+  // scrolled to reveal it and the drawer clipped it silently, so `Wrap` was
+  // simply unreachable — invisible to an overflow assertion on the document.
+  test("keeps every viewer control inside the drawer at desktop width", async ({ page }) => {
+    await page.getByTestId("opencode-mobile-workspace-open").click();
+    const tree = page.getByTestId("opencode-file-tree");
+    await tree.getByTestId("opencode-tree-directory").filter({ hasText: "src" }).click();
+    await tree.getByTestId("opencode-tree-file").filter({ hasText: "index.ts" }).click();
+    await expect(page.getByTestId("opencode-code-viewer")).toBeVisible();
+
+    const drawerRight = await page
+      .getByTestId("opencode-workspace-panels")
+      .evaluate((element) => element.getBoundingClientRect().right);
+    for (const id of ["opencode-copy-path", "opencode-copy-content", "opencode-code-wrap", "opencode-code-search"]) {
+      const box = await page.getByTestId(id).boundingBox();
+      expect(box, id).not.toBeNull();
+      expect(box!.x + box!.width, `${id} must stay inside the drawer`).toBeLessThanOrEqual(drawerRight + 1);
+    }
+    // The editor scrolls its own long lines rather than widening the pane.
+    const paneOverflow = await page
+      .getByTestId("opencode-file-pane")
+      .evaluate((element) => element.scrollWidth - element.clientWidth);
+    expect(paneOverflow).toBeLessThanOrEqual(1);
+  });
+
   test("filters loaded entries and states that the search is scoped", async ({ page }) => {
     await page.getByTestId("opencode-mobile-workspace-open").click();
     const tree = page.getByTestId("opencode-file-tree");
