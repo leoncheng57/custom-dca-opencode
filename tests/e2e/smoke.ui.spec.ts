@@ -47,6 +47,17 @@ async function selectModel(page: Page, testId: string, key: string): Promise<voi
 }
 
 test.describe("hub", () => {
+  test("uses route and session names in browser tabs", async ({ page }) => {
+    await page.goto(hub);
+    await expect(page).toHaveTitle("Sessions | DCA");
+
+    await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
+    await expect(page).toHaveTitle("Add a health endpoint | DCA");
+
+    await page.goto("/planning");
+    await expect(page).toHaveTitle("Planning | DCA");
+  });
+
   test("lists sessions for the directory", async ({ page }) => {
     await page.goto(hub);
     await expect(page.getByTestId("opencode-session-list")).toBeVisible();

@@ -40,6 +40,7 @@ import {
 } from "../lib/models.js";
 
 const WRAP_KEY = "opencode.wrapOutput.v1";
+const APP_NAME = "DCA";
 
 export function ConversationPage() {
   const { id = "" } = useParams();
@@ -99,6 +100,10 @@ export function ConversationPage() {
   const stopTriggerRef = useRef<HTMLButtonElement | null>(null);
   const stopDialogRef = useRef<HTMLElement | null>(null);
   const [parent, setParent] = useState<SessionSummary | null>(null);
+
+  useEffect(() => {
+    if (session?.title) document.title = `${session.title} | ${APP_NAME}`;
+  }, [session?.title]);
 
   useEffect(() => {
     const protectDraft = (event: Event) => {
