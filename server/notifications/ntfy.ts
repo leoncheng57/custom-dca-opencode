@@ -6,6 +6,10 @@ export interface NotificationMessage {
   body: string;
   priority?: "default" | "high";
   click?: string;
+  /** Global unresolved delivered-notification count for installed PWA badges. */
+  badgeCount?: number;
+  /** Monotonic revision prevents out-of-order pushes from regressing a badge. */
+  badgeRevision?: number;
 }
 
 export async function sendNtfy(

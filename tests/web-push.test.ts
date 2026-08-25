@@ -100,6 +100,20 @@ describe("Web Push delivery", () => {
     const subscriptions = new PushSubscriptionStore(path.join(os.tmpdir(), `dca-web-push-delivery-${process.pid}-${Date.now()}.json`));
     await subscriptions.add({ endpoint: "https://fcm.googleapis.com/device", keys: { p256dh: "key", auth: "auth" } });
     const history = new HistoryStore(path.join(os.tmpdir(), `dca-web-push-history-${process.pid}-${Date.now()}.json`));
+    await history.append({
+      kind: "idle",
+      directory: "/tmp/other-project",
+      title: "Other project",
+      body: "",
+      delivery: { ntfy: "off", desktop: "off", webPush: "sent" },
+    });
+    await history.append({
+      kind: "idle",
+      directory: "/tmp/hidden-child",
+      title: "Suppressed child",
+      body: "",
+      delivery: { ntfy: "off", desktop: "off", webPush: "off", suppressed: "subagent" },
+    });
     const preferences = {
       read: async () => normalizePreferences({
         ntfy: { enabled: false, server: "https://ntfy.sh", topic: "" },
@@ -120,9 +134,12 @@ describe("Web Push delivery", () => {
     service.start();
     bus.emit("event", { type: "session.idle", directory: "/tmp/project", properties: { sessionID: "ses_push" } });
 
-    await vi.waitFor(async () => expect(await history.list()).toHaveLength(1));
-    expect(send).toHaveBeenCalledOnce();
-    expect((await history.list())[0].delivery).toMatchObject({ ntfy: "off", webPush: "sent" });
+    await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
+    const payload = JSON.parse(String(send.mock.calls[0][1])) as { badgeCount: number; badgeRevision: number };
+    expect(payload.badgeCount).toBe(2);
+    expect(payload.badgeRevision).toBeGreaterThan(0);
+    await vi.waitFor(async () => expect((await history.list()).find((record) => record.sessionID === "ses_push")?.delivery)
+      .toMatchObject({ ntfy: "off", webPush: "sent" }));
     service.stop();
   });
 });
@@ -133,6 +150,10 @@ describe("notification service worker", () => {
     expect(source).toContain('addEventListener("push"');
     expect(source).toContain('addEventListener("notificationclick"');
     expect(source).toContain("target.origin === self.location.origin");
+    expect(source).toContain("setAppBadge");
+    expect(source).toContain("clearAppBadge");
+    expect(source).toContain("SYNC_BADGE");
+    expect(source).toContain("storedBadgeState");
     expect(source).not.toContain('addEventListener("fetch"');
     expect(source).not.toMatch(/caches\.|CacheStorage/u);
   });

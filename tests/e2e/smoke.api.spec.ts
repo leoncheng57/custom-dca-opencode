@@ -935,6 +935,8 @@ test.describe("notification history", () => {
   ): Promise<{
     records: Array<Record<string, unknown>>;
     activeCount: number;
+    appBadgeCount: number;
+    appBadgeRevision: number;
     suppressedActive: Record<string, number>;
   }> {
     return await (await request.get(`/api/notifications/history?limit=200${query}`)).json();
@@ -1016,10 +1018,15 @@ test.describe("notification history", () => {
     await expect.poll(async () => Boolean(record((await history(request)).records, requestID))).toBe(true);
 
     const before = await history(request);
+    expect(typeof before.appBadgeCount).toBe("number");
+    expect(typeof before.appBadgeRevision).toBe("number");
     const id = record(before.records, requestID)!.id as string;
     const resolved = await request.patch(`/api/notifications/${id}`, { data: { resolved: true } });
     expect(resolved.status()).toBe(200);
-    expect((await resolved.json()).record).toMatchObject({ id, resolvedBy: "checked" });
+    const resolvedBody = await resolved.json();
+    expect(resolvedBody.record).toMatchObject({ id, resolvedBy: "checked" });
+    expect(typeof resolvedBody.appBadgeCount).toBe("number");
+    expect(resolvedBody.appBadgeRevision).toBeGreaterThan(before.appBadgeRevision);
 
     const after = await history(request);
     expect(record(after.records, requestID)).toMatchObject({ resolvedBy: "checked" });

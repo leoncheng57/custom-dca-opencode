@@ -286,8 +286,17 @@ export class NotificationService {
       return;
     }
 
-    const delivery = await this.deliver(preferences, message);
-    const record = await this.history.append({ ...common, delivery });
+    const record = await this.history.append({
+      ...common,
+      delivery: this.pendingDelivery(preferences, message),
+    });
+    const badge = await this.history.appBadgeSnapshot();
+    const delivery = await this.deliver(preferences, {
+      ...message,
+      badgeCount: badge.count,
+      badgeRevision: badge.revision,
+    });
+    await this.history.setDelivery(record.id, delivery);
     this.emitRecorded(record.id, event.directory, sessionID);
 
     if (kind === "permission" && details && event.directory) {
@@ -412,6 +421,20 @@ export class NotificationService {
   }
 
   /** Send over every enabled channel and report what actually happened. */
+  private pendingDelivery(
+    preferences: NotificationPreferences,
+    message: NotificationMessage,
+  ): NotificationDelivery {
+    return {
+      ntfy: preferences.ntfy.enabled && Boolean(preferences.ntfy.topic) && preferences.ntfy.events[message.event]
+        ? "pending"
+        : "off",
+      desktop: preferences.browser.desktop && preferences.browser.events[message.event] ? "allowed" : "off",
+      webPush: preferences.webPush.enabled && preferences.webPush.events[message.event] ? "pending" : "off",
+    };
+  }
+
+  /** Send over every enabled channel and report what actually happened. */
   private async deliver(
     preferences: NotificationPreferences,
     message: NotificationMessage,
@@ -485,9 +508,6 @@ export class NotificationService {
               ...outboundMessage(parkedEvent, "parked", this.sessionTitle(directory, pending.sessionID), seconds),
               ...(eventClickUrl(this.publicAppUrl, parkedEvent) ? { click: eventClickUrl(this.publicAppUrl, parkedEvent) } : {}),
             };
-            const delivery = await this.deliver(preferences, message);
-            // The parked alert escalates an already-counted permission. It is
-            // logged for the record but must not add a second active item.
             const parkedTitle = this.sessionTitle(directory, pending.sessionID);
             const record = await this.history.append({
               kind: "parked",
@@ -499,8 +519,17 @@ export class NotificationService {
               body: `${pending.permission} has waited ${seconds}s for a reply`,
               displayBody: inAppMessage(parkedEvent, "parked", seconds),
               ...(message.click ? { click: message.click } : {}),
-              delivery,
+              delivery: this.pendingDelivery(preferences, message),
             });
+            const badge = await this.history.appBadgeSnapshot();
+            const delivery = await this.deliver(preferences, {
+              ...message,
+              badgeCount: badge.count,
+              badgeRevision: badge.revision,
+            });
+            await this.history.setDelivery(record.id, delivery);
+            // The parked alert is a separately delivered notification and also
+            // stamps its parent permission for the in-app escalation marker.
             this.emitRecorded(record.id, directory, pending.sessionID);
             await this.history.markParked(directory, pending.id);
             this.bus.emit("event", {

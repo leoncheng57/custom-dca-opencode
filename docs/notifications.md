@@ -4,6 +4,12 @@ PWA push and ntfy are independent. Either, both, or neither may be enabled. Brow
 desktop notifications still require an open page; PWA push and ntfy can arrive while
 the page is backgrounded or closed.
 
+Installed PWAs also show an app-icon badge with the number of unresolved delivered
+notifications across all projects. Auto-approved permission and sub-agent audit records
+are excluded because they were never sent to the user. Opening the app and resolving or
+reopening a record synchronizes the badge. Changes made on another device synchronize on
+the phone's next push or app open.
+
 ## Support matrix
 
 | Platform | Requirements | Background/closed delivery |

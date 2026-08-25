@@ -154,11 +154,11 @@ export interface NotificationRecord {
   resolvedBy?: "checked" | "replied" | "reconciled" | "dismissed" | "suppressed";
   parkedAt?: number;
   delivery: {
-    ntfy: "sent" | "off" | "failed";
+    ntfy: "sent" | "pending" | "off" | "failed";
     ntfyError?: string;
     /** Desktop-notification preference; sound and speech are device-local. */
     desktop: "allowed" | "off";
-    webPush?: "sent" | "partial" | "off" | "failed";
+    webPush?: "sent" | "partial" | "pending" | "off" | "failed";
     webPushError?: string;
     suppressed?: NotificationSuppression;
   };
@@ -563,20 +563,22 @@ export const api = {
       json<{
         records: NotificationRecord[];
         activeCount: number;
+        appBadgeCount: number;
+        appBadgeRevision: number;
         suppressedActive?: SuppressedActiveCounts;
       }>(r),
     );
   },
   dismissNotification: (id: string) =>
     fetch(`/api/notifications/${encodeURIComponent(id)}/dismiss`, { method: "POST" }).then((r) =>
-      json<{ dismissed: boolean; activeCount: number }>(r),
+      json<{ dismissed: boolean; activeCount: number; appBadgeCount: number; appBadgeRevision: number }>(r),
     ),
   setNotificationResolved: (id: string, resolved: boolean) =>
     fetch(`/api/notifications/${encodeURIComponent(id)}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ resolved }),
-    }).then((r) => json<{ record: NotificationRecord; activeCount: number }>(r)),
+    }).then((r) => json<{ record: NotificationRecord; activeCount: number; appBadgeCount: number; appBadgeRevision: number }>(r)),
 
   autoPermissions: (directory: string) =>
     fetch(scoped("/auto-approve", directory)).then((r) => json<AutoPermissionStatus>(r)),

@@ -260,6 +260,11 @@ several decisions below.
     `web-push` is the runtime dependency because standards-compliant payload encryption,
     VAPID signing, and browser push-service requests are cryptographic protocol work that
     should not be reimplemented locally.
+    Installed-PWA app badges use the global unresolved count across every project, excluding
+    auto-permission and sub-agent records because those categories were never delivered.
+    Every push snapshots that authoritative global count; opening the app and resolving or
+    reopening a record resynchronizes it. A change made on another device therefore reaches
+    the phone on its next push or app open, not through a separate badge-only background job.
 
 ## Client conventions (inherited from the OpenHands runner, still enforced)
 
