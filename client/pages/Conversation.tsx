@@ -509,11 +509,11 @@ export function ConversationPage() {
               </span>
             )}
           </div>
-          <div className="flex min-w-0 flex-1 items-center gap-1 sm:ml-auto sm:w-fit sm:flex-none" aria-label="Session actions" data-testid="opencode-mobile-conversation-actions">
+          <div className="flex min-w-0 flex-1 items-center justify-end gap-1 sm:ml-auto sm:w-fit sm:flex-none" aria-label="Session actions" data-testid="opencode-mobile-conversation-actions">
           <Button
             size="md"
             variant="ghost"
-            className="min-h-11 min-w-0 px-0"
+            className="min-h-11 min-w-12 px-0"
             onClick={() => setWorkspaceOpen(true)}
             aria-label="Open workspace"
             title="Open workspace"
@@ -524,7 +524,7 @@ export function ConversationPage() {
           <Button
             size="md"
             variant="ghost"
-            className="min-h-11 min-w-0 px-0"
+            className="min-h-11 min-w-12 px-0"
             onClick={() => {
               setRequestedInspectorTab("reviews");
               setInspectorOpen(true);
@@ -538,7 +538,7 @@ export function ConversationPage() {
           <Button
             size="md"
             variant="ghost"
-            className="min-h-11 min-w-0 px-0"
+            className="min-h-11 min-w-12 px-0"
             onClick={() => {
               setRequestedInspectorTab("runlog");
               setInspectorOpen(true);
@@ -549,14 +549,14 @@ export function ConversationPage() {
           >
             <Waves aria-hidden="true" className="h-3.5 w-3.5" />
           </Button>
-          <div className="flex min-w-0 flex-1 items-center gap-1 sm:flex-none" data-testid="opencode-auto-permissions-actions">
+          <div className="flex min-w-0 items-center gap-1" data-testid="opencode-auto-permissions-actions">
             <AutoPermissionsControl directory={directory} testId="opencode-mobile-auto-permissions" variant="pill" />
-            <Button size="md" variant="ghost" className="min-h-11 min-w-11 shrink-0 px-0" onClick={() => setAutoSafetyOpen(true)} aria-label="Auto permissions safety" title="Auto permissions safety" data-testid="opencode-mobile-auto-permissions-info">
+            <Button size="md" variant="ghost" className="min-h-11 min-w-12 shrink-0 px-0" onClick={() => setAutoSafetyOpen(true)} aria-label="Auto permissions safety" title="Auto permissions safety" data-testid="opencode-mobile-auto-permissions-info">
               <Info aria-hidden="true" className="h-3.5 w-3.5" />
             </Button>
           </div>
           <details className="relative" data-testid="opencode-mobile-session-menu">
-            <summary className="flex min-h-11 min-w-11 cursor-pointer list-none items-center justify-center rounded-md text-[var(--color-text-muted)] hover:bg-[var(--hh-row-hover)] [&::-webkit-details-marker]:hidden" aria-label="More session actions" title="More session actions">
+            <summary className="flex min-h-11 min-w-12 cursor-pointer list-none items-center justify-center rounded-md text-[var(--color-text-muted)] hover:bg-[var(--hh-row-hover)] [&::-webkit-details-marker]:hidden" aria-label="More session actions" title="More session actions">
               <Ellipsis aria-hidden="true" className="h-3.5 w-3.5" />
             </summary>
             <div className="absolute right-0 z-30 mt-1 grid min-w-40 overflow-hidden rounded-lg border border-[var(--color-border-default)] bg-[var(--color-background-surface)] p-1 shadow-xl">

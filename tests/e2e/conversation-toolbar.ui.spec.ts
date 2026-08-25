@@ -46,7 +46,7 @@ test.describe("mobile conversation action bar", () => {
     for (const control of controls) {
       const rect = await box(control);
       expect(rect.height).toBeGreaterThanOrEqual(44);
-      expect(rect.width).toBeGreaterThanOrEqual(44);
+      expect(rect.width).toBeGreaterThanOrEqual(control === controls[3] ? 80 : 48);
       await expect(control).toHaveAttribute("title", /.+/);
     }
     await expect(controls[0]).toHaveAccessibleName("Open workspace");
@@ -58,6 +58,7 @@ test.describe("mobile conversation action bar", () => {
     await expect(controls[4]).toHaveAccessibleName("Auto permissions safety");
     await expect(controls[5]).toHaveAccessibleName("More session actions");
     await expect(controls[3]).toContainText("OFF");
+    await expect(controls[3]).not.toContainText("Auto");
     for (const control of [controls[0], controls[1], controls[2], controls[4], controls[5]]) {
       expect(await control.evaluate((element) => getComputedStyle(element).backgroundColor)).toMatch(/transparent|rgba\(0, 0, 0, 0\)/);
     }
