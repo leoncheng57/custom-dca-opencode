@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 2,
+  "prNumber": 177,
+  "sourceSha": "cd2932151e6c0a65aadcf9cb480248ff3f1f29b5",
+  "capturedAt": "2026-08-25T21:21:40.492Z",
+  "screenshots": [
+    {
+      "requestedRoute": "/sessions/ses_mock_agent_reviewer?directory=/tmp/mock-session-agents-project",
+      "fullPage": false,
+      "captures": {
+        "desktop": {
+          "filename": "01-sessions-ses_mock_agent_reviewer-directory-tmp-mock-session-agents-project-b6b86fe8--desktop.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 800
+          },
+          "bytes": 46268,
+          "sha256": "ccde44eeabb482238e476204f376de1451419a26e7ff58a2a2c14b891ae23ce1"
+        },
+        "mobile": {
+          "filename": "01-sessions-ses_mock_agent_reviewer-directory-tmp-mock-session-agents-project-e68ee6a5--mobile.png",
+          "dimensions": {
+            "width": 390,
+            "height": 740
+          },
+          "bytes": 34758,
+          "sha256": "7f2eae7e8060f66d6e1b5acf7181161a100361c25e58abb2497c703d4b0c4592"
+        }
+      }
+    }
+  ]
+}
