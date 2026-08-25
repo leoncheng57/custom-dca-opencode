@@ -549,12 +549,16 @@ export function ConversationPage() {
           >
             <Waves aria-hidden="true" className="h-3.5 w-3.5" />
           </Button>
-          <div className="flex min-w-0 items-center gap-1" data-testid="opencode-auto-permissions-actions">
-            <AutoPermissionsControl directory={directory} testId="opencode-mobile-auto-permissions" variant="pill" />
-            <Button size="md" variant="ghost" className="min-h-11 min-w-12 shrink-0 px-0" onClick={() => setAutoSafetyOpen(true)} aria-label="Auto permissions safety" title="Auto permissions safety" data-testid="opencode-mobile-auto-permissions-info">
-              <Info aria-hidden="true" className="h-3.5 w-3.5" />
-            </Button>
-          </div>
+          <AutoPermissionsControl
+            directory={directory}
+            testId="opencode-mobile-auto-permissions"
+            variant="pill"
+            trailing={
+              <Button size="md" variant="ghost" className="min-h-11 min-w-12 rounded-none px-0" onClick={() => setAutoSafetyOpen(true)} aria-label="Auto permissions safety" title="Auto permissions safety" data-testid="opencode-mobile-auto-permissions-info">
+                <Info aria-hidden="true" className="h-3.5 w-3.5" />
+              </Button>
+            }
+          />
           <details className="relative" data-testid="opencode-mobile-session-menu">
             <summary className="flex min-h-11 min-w-12 cursor-pointer list-none items-center justify-center rounded-md text-[var(--color-text-muted)] hover:bg-[var(--hh-row-hover)] [&::-webkit-details-marker]:hidden" aria-label="More session actions" title="More session actions">
               <Ellipsis aria-hidden="true" className="h-3.5 w-3.5" />

@@ -59,6 +59,9 @@ test.describe("mobile conversation action bar", () => {
     await expect(controls[5]).toHaveAccessibleName("More session actions");
     await expect(controls[3]).toContainText("OFF");
     await expect(controls[3]).not.toContainText("Auto");
+    const toggleBox = await box(controls[3]);
+    const safetyBox = await box(controls[4]);
+    expect(safetyBox.x).toBeCloseTo(toggleBox.x + toggleBox.width, 0);
     for (const control of [controls[0], controls[1], controls[2], controls[4], controls[5]]) {
       expect(await control.evaluate((element) => getComputedStyle(element).backgroundColor)).toMatch(/transparent|rgba\(0, 0, 0, 0\)/);
     }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { ShieldAlert } from "lucide-react";
 
 import { Alert } from "../ds/alert.js";
@@ -22,10 +22,12 @@ export function AutoPermissionsControl({
   directory,
   testId,
   variant = "block",
+  trailing,
 }: {
   directory: string;
   testId: string;
   variant?: AutoPermissionsVariant;
+  trailing?: ReactNode;
 }) {
   const [status, setStatus] = useState<AutoPermissionStatus | null>(null);
   const [saving, setSaving] = useState(false);
@@ -77,29 +79,32 @@ export function AutoPermissionsControl({
   if (pill) {
     return (
       <div className="relative" data-testid={testId}>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={enabled}
-          aria-label={actionLabel}
-          aria-describedby={`${testId}-description`}
-          aria-busy={saving}
-          disabled={!status || saving || !directory}
-          onClick={() => void toggle()}
-          title={actionLabel}
-          className={cn(
-            "flex min-h-11 w-full min-w-20 items-center justify-between rounded-full border px-2 text-[11px] font-semibold disabled:opacity-50",
-            enabled
-              ? "border-[var(--color-text-info)] bg-[var(--color-background-surface-info-muted)] text-[var(--color-text-info)]"
-              : "border-[var(--color-border-default)] text-[var(--color-text-muted)] hover:bg-[var(--hh-row-hover)]",
-          )}
-          data-testid={`${testId}-toggle`}
-        >
-          <span>{enabled ? "ON" : "OFF"}</span>
-          <span aria-hidden="true" className="relative h-5 w-9 rounded-full border border-current">
-            <span className={`absolute top-0.5 h-3.5 w-3.5 rounded-full transition-transform ${enabled ? "translate-x-4 bg-current" : "left-0.5 bg-[var(--color-background-surface)]"}`} />
-          </span>
-        </button>
+        <div className="inline-flex min-h-11 overflow-hidden rounded-full border border-[var(--color-border-default)]" data-testid={`${testId}-group`}>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={enabled}
+            aria-label={actionLabel}
+            aria-describedby={`${testId}-description`}
+            aria-busy={saving}
+            disabled={!status || saving || !directory}
+            onClick={() => void toggle()}
+            title={actionLabel}
+            className={cn(
+              "flex min-h-11 min-w-20 items-center justify-between px-2 text-[11px] font-semibold disabled:opacity-50",
+              enabled
+                ? "bg-[var(--color-background-surface-info-muted)] text-[var(--color-text-info)]"
+                : "text-[var(--color-text-muted)] hover:bg-[var(--hh-row-hover)]",
+            )}
+            data-testid={`${testId}-toggle`}
+          >
+            <span>{enabled ? "ON" : "OFF"}</span>
+            <span aria-hidden="true" className="relative h-5 w-9 rounded-full border border-current">
+              <span className={`absolute top-0.5 h-3.5 w-3.5 rounded-full transition-transform ${enabled ? "translate-x-4 bg-current" : "left-0.5 bg-[var(--color-background-surface)]"}`} />
+            </span>
+          </button>
+          {trailing && <div className="flex shrink-0 border-l border-[var(--color-border-default)]">{trailing}</div>}
+        </div>
         <span id={`${testId}-description`} className="sr-only">{safetyDescription}</span>
         {(status?.error || requestError) && (
           <p
