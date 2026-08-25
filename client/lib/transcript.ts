@@ -50,6 +50,8 @@ export interface UserEvent extends TranscriptBase {
   text: string;
   /** Per-message reminder blocks split from the persisted text sentinel. */
   reminders: Array<{ name: string; body: string }>;
+  /** Trusted workflow injector blocks split from the persisted text sentinel. */
+  workflows: Array<{ name: string; body: string }>;
   /** Files the user referenced or attached, if any. */
   attachments: Attachment[];
   /** Mode this prompt was sent under, when the backend states it exactly. */

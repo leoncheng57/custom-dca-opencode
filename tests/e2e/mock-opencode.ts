@@ -375,8 +375,13 @@ const POLICY_FAILURE_DIRECTORY_INPUT = "/tmp/mock-policy-failure";
 const FILES_DIRECTORY_INPUT = "/tmp/mock-files-project";
 const SUBAGENT_DIRECTORY_INPUT = "/tmp/mock-subagent-project";
 const MANAGED_SUBAGENT_DIRECTORY_INPUT = "/tmp/mock-managed-subagent-project";
+// Composer workflow sends append user messages to their sessions and launch a
+// managed child under ses_mock_workflow_main, so the fixtures live in a
+// directory only workflows.ui.spec.ts uses.
+const WORKFLOW_DIRECTORY_INPUT = "/tmp/mock-workflow-project";
 mkdirSync(SUBAGENT_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(MANAGED_SUBAGENT_DIRECTORY_INPUT, { recursive: true });
+mkdirSync(WORKFLOW_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(MOCK_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(SECOND_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(AUTO_DIRECTORY_INPUT, { recursive: true });
@@ -396,6 +401,7 @@ const CATALOGUE_FAILURE_DIRECTORY = realpathSync(CATALOGUE_FAILURE_DIRECTORY_INP
 const POLICY_FAILURE_DIRECTORY = realpathSync(POLICY_FAILURE_DIRECTORY_INPUT);
 export const SUBAGENT_DIRECTORY = realpathSync(SUBAGENT_DIRECTORY_INPUT);
 export const MANAGED_SUBAGENT_DIRECTORY = realpathSync(MANAGED_SUBAGENT_DIRECTORY_INPUT);
+export const WORKFLOW_DIRECTORY = realpathSync(WORKFLOW_DIRECTORY_INPUT);
 if (!existsSync(path.join(MOCK_DIRECTORY, ".git"))) {
   execFileSync("git", ["init", "-q", MOCK_DIRECTORY]);
   writeFileSync(path.join(MOCK_DIRECTORY, "README.md"), "# Mock project\n");
@@ -504,6 +510,28 @@ function fixtureContent(relative: string): Record<string, unknown> {
 }
 
 const SESSIONS: Array<Record<string, any>> = [
+  {
+    // The session workflows.ui.spec.ts drives its composer from.
+    id: "ses_mock_workflow_main",
+    title: "Workflow picker main",
+    directory: WORKFLOW_DIRECTORY,
+    agent: "build",
+    model: { providerID: "anthropic", id: "claude-opus-5" },
+    cost: 0,
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    time: { created: 1787000000000, updated: 1787000012000 },
+  },
+  {
+    // The "Send an update to another session" delivery target.
+    id: "ses_mock_workflow_target",
+    title: "Workflow update target",
+    directory: WORKFLOW_DIRECTORY,
+    agent: "build",
+    model: { providerID: "anthropic", id: "claude-opus-5" },
+    cost: 0,
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    time: { created: 1787000000000, updated: 1787000011000 },
+  },
   {
     id: "ses_mock_done",
     title: "Add a health endpoint",

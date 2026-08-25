@@ -53,6 +53,7 @@ function user(id: string, text: string, mode?: MessageMode): UserEvent {
     timestamp: at(1),
     text,
     reminders: [],
+    workflows: [],
     attachments: [],
     ...(mode ? { mode } : {}),
   };

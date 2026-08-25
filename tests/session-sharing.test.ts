@@ -19,6 +19,7 @@ const events: TranscriptEvent[] = [
     timestamp: "2026-08-21T12:00:00.000Z",
     text: "Please inspect the project.",
     reminders: [{ name: "secret", body: "hidden reminder body" }],
+    workflows: [{ name: "wf-private", body: "hidden workflow injector" }],
     attachments: [{ filename: "diagram.png", mime: "image/png", url: "data:image/png;base64,SECRET", path: "/secret/path" }],
   },
   {
@@ -58,7 +59,7 @@ describe("session sharing serialization", () => {
     expect(markdown).toContain("Readable reasoning");
     expect(markdown).toContain("bash · completed");
     expect(markdown).toContain("diagram.png (image/png)");
-    expect(markdown).not.toMatch(/hidden reminder|SECRET|dangerous raw|token=|\/secret\/path/);
+    expect(markdown).not.toMatch(/hidden reminder|hidden workflow|SECRET|dangerous raw|token=|\/secret\/path/);
   });
 
   it("limits a single-message export to visible author content and attachment metadata", () => {
@@ -67,7 +68,7 @@ describe("session sharing serialization", () => {
     expect(markdown).toContain("Please inspect the project.");
     expect(markdown).toContain("diagram.png (image/png)");
     expect(markdown).not.toContain("Assistant message");
-    expect(markdown).not.toMatch(/hidden reminder|SECRET|\/secret\/path/);
+    expect(markdown).not.toMatch(/hidden reminder|hidden workflow|SECRET|\/secret\/path/);
   });
 
   it("produces a versioned allowlisted JSON export", () => {
@@ -83,7 +84,7 @@ describe("session sharing serialization", () => {
         { type: "message", author: "assistant", text: "I inspected it." },
       ],
     });
-    expect(json).not.toMatch(/hidden reminder|SECRET|dangerous raw|token=|\/secret\/path/);
+    expect(json).not.toMatch(/hidden reminder|hidden workflow|SECRET|dangerous raw|token=|\/secret\/path/);
   });
 
   it("exports the authoritative patch file count when names are truncated", () => {

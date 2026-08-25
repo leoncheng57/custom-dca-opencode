@@ -33,6 +33,7 @@ import { PushSubscriptionStore, webPushConfig } from "./notifications/webpush.js
 import { forgeRoutes } from "./routes/forge.js";
 import { planningRoutes } from "./routes/planning.js";
 import { reminderRoutes } from "./routes/reminders.js";
+import { workflowRoutes } from "./routes/workflows.js";
 import { appConfigRoutes } from "./routes/appConfig.js";
 import { projectRoutes } from "./routes/projects.js";
 import { modelPinRoutes } from "./routes/modelPins.js";
@@ -81,6 +82,7 @@ app.use("/api", notificationRoutes(notificationStore, notificationHistory, pushS
 app.use("/api", forgeRoutes());
 app.use("/api", planningRoutes());
 app.use("/api", reminderRoutes());
+app.use("/api", workflowRoutes());
 app.use("/api", appConfigRoutes(publicAppUrl));
 app.use("/api", projectRoutes());
 app.use("/api", modelPinRoutes());

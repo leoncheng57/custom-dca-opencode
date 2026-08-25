@@ -29,6 +29,7 @@ import type {
   UsageSnapshot,
 } from "./transcript.js";
 import { splitReminderTags } from "./reminders.js";
+import { splitWorkflowTags } from "./workflows.js";
 
 // ── Minimal structural types for what we consume ────────────────────────────
 // Intentionally not imported from the SDK: the client bundle should not depend
@@ -412,14 +413,16 @@ function normalizePart(
           };
         }
         const split = splitReminderTags(text);
-        if (!split.text && split.reminders.length === 0) return null;
+        const workflowSplit = splitWorkflowTags(split.text);
+        if (!workflowSplit.text && split.reminders.length === 0 && workflowSplit.workflows.length === 0) return null;
         return {
           kind: "user",
           id,
           messageId,
           timestamp: iso(created, created),
-          text: split.text,
+          text: workflowSplit.text,
           reminders: split.reminders,
+          workflows: workflowSplit.workflows,
           attachments: [],
           ...(mode ? { mode } : {}),
         };

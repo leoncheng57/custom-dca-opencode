@@ -15,6 +15,7 @@
 import { createHash } from "node:crypto";
 
 import { withReminderTag, type ReminderPreset } from "../reminders/reminders.js";
+import { withWorkflowTag, type WorkflowPreset } from "../workflows/workflows.js";
 import { isSensitiveWorkspacePath } from "../paths.js";
 import { request, requestWithResponse, type OpencodeConfig } from "./client.js";
 import type { VcsFileDiff } from "./workspace.js";
@@ -677,6 +678,19 @@ export interface PromptInput {
   model?: ModelSelection;
   attachments?: Array<{ filename: string; mime: string; url: string }>;
   reminder?: Pick<ReminderPreset, "id" | "body">;
+  workflow?: Pick<WorkflowPreset, "id" | "injector">;
+}
+
+/**
+ * The persisted message text: the visible prompt plus any trusted sentinel
+ * blocks. The workflow injector rides closest to the prompt it belongs to;
+ * a reminder (a separate, per-message concept) is appended after it.
+ */
+function composePromptText(input: PromptInput): string {
+  let text = input.text;
+  if (input.workflow) text = withWorkflowTag(text, input.workflow);
+  if (input.reminder) text = withReminderTag(text, input.reminder);
+  return text;
 }
 
 async function submitPromptAsync(
@@ -697,7 +711,7 @@ async function submitPromptAsync(
       parts: [
         {
           type: "text",
-          text: input.reminder ? withReminderTag(input.text, input.reminder) : input.text,
+          text: composePromptText(input),
         },
         ...(input.attachments ?? []).map((attachment) => ({
           type: "file" as const,
@@ -735,6 +749,8 @@ export interface ManagedChildInput {
   mode: AgentMode;
   model?: ModelSelection;
   idempotencyKey: string;
+  /** Optional composer workflow whose trusted injector rides the first prompt. */
+  workflow?: Pick<WorkflowPreset, "id" | "injector">;
 }
 
 interface ManagedLaunchEntry {
@@ -783,6 +799,7 @@ export function createManagedChild(
     text: input.text,
     mode: input.mode,
     model: input.model,
+    workflow: input.workflow?.id,
   });
   const existing = managedLaunches.get(key);
   if (existing) {
@@ -852,6 +869,7 @@ export function createManagedChild(
         text: input.text,
         mode: input.mode,
         model: input.model,
+        workflow: input.workflow,
       }));
       return child;
     } catch (error) {

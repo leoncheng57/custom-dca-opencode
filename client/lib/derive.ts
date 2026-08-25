@@ -27,7 +27,7 @@ function fingerprint(event: TranscriptEvent): string {
     case "tool":
       return `${event.status}|${event.output ?? ""}|${event.error ?? ""}|${event.durationMs ?? ""}|${event.commandText ?? ""}`;
     case "user":
-      return `${event.mode ?? ""}|${event.text}|${event.reminders.map((reminder) => `${reminder.name}:${reminder.body}`).join("|")}`;
+      return `${event.mode ?? ""}|${event.text}|${event.reminders.map((reminder) => `${reminder.name}:${reminder.body}`).join("|")}|${event.workflows.map((workflow) => `${workflow.name}:${workflow.body}`).join("|")}`;
     case "agent":
       return `${event.mode ?? ""}|${event.text}`;
     case "thought":

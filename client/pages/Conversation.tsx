@@ -15,7 +15,9 @@ import { ModelPicker } from "../components/model-picker.js";
 import { QuestionRequest } from "../components/question-request.js";
 import { ReminderPicker } from "../components/reminder-picker.js";
 import { ShareExportDialog } from "../components/share-export-dialog.js";
-import { api, ApiError, formatCost, type ReminderSummary, type SessionSummary } from "../lib/api.js";
+import { WorkflowDialog } from "../components/workflow-dialog.js";
+import { WorkflowPicker } from "../components/workflow-picker.js";
+import { api, ApiError, formatCost, type ReminderSummary, type SessionSummary, type WorkflowSummary } from "../lib/api.js";
 import { latestModeMessageID, modeFromSession, type AgentMode } from "../lib/agentMode.js";
 import { MAX_IMAGE_ATTACHMENTS, readImageAttachment, selectImageFiles, type ImageAttachment } from "../lib/attachments.js";
 import { composerEnterAction } from "../lib/composerKeys.js";
@@ -70,6 +72,9 @@ export function ConversationPage() {
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [reminderCatalogue, setReminderCatalogue] = useState<ReminderSummary[]>([]);
   const [selectedReminder, setSelectedReminder] = useState("");
+  const [workflowCatalogue, setWorkflowCatalogue] = useState<WorkflowSummary[]>([]);
+  const [selectedWorkflow, setSelectedWorkflow] = useState("");
+  const [activeWorkflow, setActiveWorkflow] = useState<WorkflowSummary | null>(null);
   const [mode, setMode] = useState<AgentMode>("build");
   const [agentIdentityKnown, setAgentIdentityKnown] = useState(false);
   const derivedModeMessage = useRef<string | undefined>(undefined);
@@ -242,6 +247,11 @@ export function ConversationPage() {
       if (!cancelled) setReminderCatalogue(result.reminders);
     }).catch(() => {
       // A missing catalogue is optional; keep the picker hidden.
+    });
+    void api.workflows().then((result) => {
+      if (!cancelled) setWorkflowCatalogue(result.workflows);
+    }).catch(() => {
+      // Same as reminders: an unreachable catalogue only hides the picker.
     });
     return () => {
       cancelled = true;
@@ -422,11 +432,14 @@ export function ConversationPage() {
         modelOverride,
         attachments,
         selectedReminder || undefined,
+        selectedWorkflow || undefined,
       );
       setDraft("");
       setAttachments([]);
-      // Per-message choice: never let a reminder silently ride on later turns.
+      // Per-message choices: never let a reminder or a workflow injector
+      // silently ride on later turns.
       setSelectedReminder("");
+      setSelectedWorkflow("");
       if (modelOverride) {
         setCurrentModel(modelOverride);
         modelSelectionDirty.current = false;
@@ -888,6 +901,14 @@ export function ConversationPage() {
                   onChange={setSelectedReminder}
                 />
               )}
+              {workflowCatalogue.length > 0 && (
+                <WorkflowPicker
+                  catalogue={workflowCatalogue}
+                  attached={selectedWorkflow}
+                  onDetach={() => setSelectedWorkflow("")}
+                  onPick={setActiveWorkflow}
+                />
+              )}
               <span className="flex-1" aria-hidden="true" />
               <Button size="sm" className="min-h-11 shrink-0 sm:min-h-8" onClick={() => void send()} disabled={!agentIdentityKnown || sending || !draft.trim()} data-testid="opencode-send">
                 {sending ? "Sending…" : "Send"}
@@ -927,6 +948,25 @@ export function ConversationPage() {
             </div>
           </section>
         </div>
+      )}
+      {activeWorkflow && (
+        <WorkflowDialog
+          workflow={activeWorkflow}
+          directory={directory}
+          sessionID={id}
+          mode={mode}
+          modelCatalogue={modelCatalogue}
+          defaultModel={selectedModel}
+          onClose={() => setActiveWorkflow(null)}
+          onApplyToComposer={(draftText, workflowID) => {
+            setDraft(draftText);
+            setSelectedWorkflow(workflowID);
+            setActiveWorkflow(null);
+            setComposerCollapsed(false);
+            requestAnimationFrame(() => composerRef.current?.focus());
+          }}
+          onSent={() => stream.refresh()}
+        />
       )}
       {shareTarget && session && (
         <ShareExportDialog
