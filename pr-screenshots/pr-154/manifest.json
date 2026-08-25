@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 2,
+  "prNumber": 154,
+  "sourceSha": "df2407e0cc0a1c790d8d19329f2b384d61c57d50",
+  "capturedAt": "2026-08-25T16:42:20.475Z",
+  "screenshots": [
+    {
+      "requestedRoute": "/sessions/ses_mock_files?directory=/private/tmp/mock-files-project",
+      "fullPage": false,
+      "captures": {
+        "desktop": {
+          "filename": "01-sessions-ses_mock_files-directory-private-tmp-mock-files-project-2634edd8--desktop.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 800
+          },
+          "bytes": 58487,
+          "sha256": "eb985448572c93f41222f30aee93b85b6ad34ada51e77c3c8b331fc311bc67d9"
+        },
+        "mobile": {
+          "filename": "01-sessions-ses_mock_files-directory-private-tmp-mock-files-project-0dd743b0--mobile.png",
+          "dimensions": {
+            "width": 390,
+            "height": 740
+          },
+          "bytes": 36812,
+          "sha256": "1d77e2433086253eae62bbdde956a577cabfd0fe9790b37bf55ac2caed7f5329"
+        }
+      }
+    }
+  ]
+}
