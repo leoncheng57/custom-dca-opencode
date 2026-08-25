@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 2,
+  "prNumber": 170,
+  "sourceSha": "c9cfb45539cd914dc4c939680d9eb545f0266c31",
+  "capturedAt": "2026-08-25T19:31:53.158Z",
+  "screenshots": [
+    {
+      "requestedRoute": "/docs?directory=/tmp/mock-project",
+      "fullPage": false,
+      "captures": {
+        "desktop": {
+          "filename": "01-docs-directory-tmp-mock-project-35723079--desktop.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 800
+          },
+          "bytes": 108012,
+          "sha256": "33f956340cd90477ac23559791331f5116a7697c02822b055d7d62b8d6841913"
+        },
+        "mobile": {
+          "filename": "01-docs-directory-tmp-mock-project-ea8e2545--mobile.png",
+          "dimensions": {
+            "width": 390,
+            "height": 740
+          },
+          "bytes": 51860,
+          "sha256": "f357fc75dd2802bb8ea1533b6830b7e73c6e734eae5e5667e74169bed189d2c5"
+        }
+      }
+    },
+    {
+      "requestedRoute": "/docs/subagents?directory=/tmp/mock-project",
+      "fullPage": true,
+      "captures": {
+        "desktop": {
+          "filename": "02-docs-subagents-directory-tmp-mock-project-92c9231a--desktop--full.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 800
+          },
+          "bytes": 106195,
+          "sha256": "c16b04ca70823dbada1e89d92855acc114ae0e1e49b0016988b7eced9e5f1185"
+        },
+        "mobile": {
+          "filename": "02-docs-subagents-directory-tmp-mock-project-d9f3cedb--mobile--full.png",
+          "dimensions": {
+            "width": 390,
+            "height": 740
+          },
+          "bytes": 55746,
+          "sha256": "2e196c19e1067cc8cc6ece6a282a3ececa324d5bc7a159095df0fb7f8c6d79f1"
+        }
+      }
+    }
+  ]
+}
