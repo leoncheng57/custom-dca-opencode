@@ -76,7 +76,7 @@ export function AutoPermissionsControl({
   const safetyDescription = status?.error ?? requestError ?? "Auto permissions safety information is available next to this switch.";
   if (pill) {
     return (
-      <div data-testid={testId}>
+      <div className="relative" data-testid={testId}>
         <button
           type="button"
           role="switch"
@@ -99,6 +99,14 @@ export function AutoPermissionsControl({
           {enabled ? "ON" : "OFF"}
         </button>
         <span id={`${testId}-description`} className="sr-only">{safetyDescription}</span>
+        {(status?.error || requestError) && (
+          <p
+            className="absolute right-0 top-full z-20 mt-1 min-w-64 rounded-md border border-[var(--color-border-default)] bg-[var(--color-background-surface)] p-2 text-xs font-medium text-[var(--color-text-danger)] shadow-lg"
+            data-testid={`${testId}-error`}
+          >
+            Auto permissions error: {status?.error ?? requestError}
+          </p>
+        )}
       </div>
     );
   }

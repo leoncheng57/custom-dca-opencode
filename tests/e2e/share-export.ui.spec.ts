@@ -1,9 +1,18 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 const DIR = process.platform === "darwin" ? "/private/tmp/mock-project" : "/tmp/mock-project";
 const conversation = `/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`;
 const paginatedConversation = `/sessions/ses_mock_paginated?directory=${encodeURIComponent(DIR)}`;
 const MOCK_URL = `http://127.0.0.1:${process.env.MOCK_OPENCODE_PORT || 4599}`;
+
+async function openSessionShare(page: Page): Promise<Locator> {
+  const menuTrigger = page.getByTestId("opencode-mobile-session-menu").locator(":scope > summary");
+  await menuTrigger.click();
+  const trigger = page.getByTestId("opencode-mobile-share-export-open");
+  await trigger.focus();
+  await trigger.click();
+  return menuTrigger;
+}
 
 test.describe.serial("share and export", () => {
   test.beforeEach(async () => {
@@ -17,9 +26,7 @@ test.describe.serial("share and export", () => {
   test("runs the full modal operations without exporting tools or signatures and restores focus", async ({ page, context }) => {
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     await page.goto(conversation);
-    const trigger = page.getByTestId("opencode-share-export-open");
-    await trigger.focus();
-    await trigger.click();
+    let trigger = await openSessionShare(page);
 
     const dialog = page.getByTestId("opencode-share-export-dialog");
     await expect(dialog).toBeVisible();
@@ -47,7 +54,7 @@ test.describe.serial("share and export", () => {
     await expect(dialog.getByTestId("opencode-share-url")).toHaveAttribute("href", "https://share.e2e.example.test/s/ses_mock_done");
     await dialog.getByTestId("opencode-share-export-close").click();
     await page.reload();
-    await trigger.click();
+    trigger = await openSessionShare(page);
     await expect(page.getByTestId("opencode-share-url")).toHaveAttribute("href", "https://share.e2e.example.test/s/ses_mock_done");
     const reopenedDialog = page.getByTestId("opencode-share-export-dialog");
     await reopenedDialog.getByTestId("opencode-share-revoke").click();
@@ -89,7 +96,7 @@ test.describe.serial("share and export", () => {
     await page.goto(paginatedConversation);
     await expect(page.getByText("Paged message 1", { exact: true })).toHaveCount(0);
 
-    await page.getByTestId("opencode-share-export-open").click();
+    await openSessionShare(page);
     const dialog = page.getByTestId("opencode-share-export-dialog");
     await expect(dialog.getByTestId("opencode-export-loading")).toBeVisible();
     await expect(dialog.getByTestId("opencode-export-copy")).toBeDisabled();
@@ -124,7 +131,7 @@ test.describe.serial("share and export", () => {
     });
 
     await page.goto(paginatedConversation);
-    await page.getByTestId("opencode-share-export-open").click();
+    await openSessionShare(page);
     const dialog = page.getByTestId("opencode-share-export-dialog");
     await expect(dialog.getByTestId("opencode-export-error")).toContainText("temporary export failure");
     await expect(dialog.getByTestId("opencode-export-copy")).toBeDisabled();
@@ -140,7 +147,7 @@ test.describe.serial("share and export", () => {
       });
     });
     await page.goto(conversation);
-    await page.getByTestId("opencode-share-export-open").click();
+    await openSessionShare(page);
     await page.getByTestId("opencode-export-native-share").click();
     const shared = await page.evaluate(() => (globalThis as typeof globalThis & { sharedData?: ShareData }).sharedData);
     expect(shared?.text).toContain("Add a health endpoint to the server.");
@@ -157,7 +164,7 @@ test.describe.serial("share and export", () => {
       await route.continue();
     });
     await page.goto(conversation);
-    await page.getByTestId("opencode-share-export-open").click();
+    await openSessionShare(page);
     await page.getByTestId("opencode-share-create").click();
     const confirm = page.getByTestId("opencode-share-confirm");
     await confirm.click();
@@ -170,8 +177,7 @@ test.describe.serial("share and export", () => {
   test("contains the modal and controls at 390px", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 740 });
     await page.goto(conversation);
-    await page.getByTestId("opencode-mobile-session-menu").locator("summary").click();
-    await page.getByTestId("opencode-mobile-share-export-open").click();
+    await openSessionShare(page);
     const dialog = page.getByTestId("opencode-share-export-dialog");
     await expect(dialog).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
