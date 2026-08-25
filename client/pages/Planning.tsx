@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ExternalLink, GitPullRequest, MessageSquare, Plus, RefreshCw } from "lucide-react";
+import { AlertTriangle, ChevronRight, ExternalLink, GitPullRequest, MessageSquare, Plus, RefreshCw } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 
 import { Alert } from "../ds/alert.js";
@@ -14,9 +14,13 @@ import {
   type PlanningItemType,
   type PlanningSnapshot,
 } from "../lib/api.js";
+import { groupPlanningItems, type PlanningSection } from "../lib/planningGroups.js";
 
 type TypeFilter = "all" | PlanningItemType;
 type StateFilter = "all" | PlanningItemState;
+type PlanningDensity = "comfortable" | "compact" | "dense";
+
+const DENSITY_STORAGE_KEY = "opencode.planning.density";
 
 const TYPE_FILTERS: Array<{ value: TypeFilter; label: string }> = [
   { value: "all", label: "All" },
@@ -29,6 +33,48 @@ const STATE_FILTERS: Array<{ value: StateFilter; label: string }> = [
   { value: "closed", label: "Closed" },
   { value: "all", label: "All" },
 ];
+
+const DENSITY_OPTIONS: Array<{ value: PlanningDensity; label: string }> = [
+  { value: "comfortable", label: "Comfortable" },
+  { value: "compact", label: "Compact" },
+  { value: "dense", label: "Dense" },
+];
+
+const DENSITY_CLASSES: Record<PlanningDensity, {
+  row: string;
+  content: string;
+  title: string;
+  metadata: string;
+}> = {
+  comfortable: {
+    row: "p-5 sm:p-6",
+    content: "space-y-3",
+    title: "text-lg leading-7",
+    metadata: "text-sm leading-5",
+  },
+  compact: {
+    row: "p-4 sm:p-5",
+    content: "space-y-2.5",
+    title: "text-base leading-6",
+    metadata: "text-xs leading-4",
+  },
+  dense: {
+    row: "px-4 py-2.5 sm:px-5 sm:py-3",
+    content: "space-y-1.5",
+    title: "text-sm leading-5",
+    metadata: "text-[11px] leading-4",
+  },
+};
+
+function initialDensity(): PlanningDensity {
+  try {
+    const stored = localStorage.getItem(DENSITY_STORAGE_KEY);
+    if (stored === "comfortable" || stored === "compact" || stored === "dense") return stored;
+  } catch {
+    // Storage may be unavailable in hardened browser contexts.
+  }
+  return "compact";
+}
 
 function formatDate(value: string): string {
   const date = new Date(value);
@@ -57,10 +103,23 @@ function stateBadge(item: PlanningItem): { label: string; variant: BadgeVariant 
   return { label: "Closed", variant: "neutral" };
 }
 
-function PlanningRow({ item }: { item: PlanningItem }) {
+function labelBadge(label: string): BadgeVariant {
+  switch (label.trim().toLocaleLowerCase()) {
+    case "priority:high": return "danger";
+    case "priority:medium": return "warning";
+    default: return "neutral";
+  }
+}
+
+function PlanningRow({ item, density, conflict }: {
+  item: PlanningItem;
+  density: PlanningDensity;
+  conflict: boolean;
+}) {
   const status = stateBadge(item);
+  const classes = DENSITY_CLASSES[density];
   return (
-    <li className="p-4 sm:p-5" data-testid="opencode-planning-row">
+    <li className={classes.row} data-testid="opencode-planning-row">
       <div className="flex min-w-0 items-start gap-3">
         <span
           aria-hidden="true"
@@ -68,7 +127,7 @@ function PlanningRow({ item }: { item: PlanningItem }) {
         >
           {item.type === "pull_request" ? <GitPullRequest size={18} /> : <span className="text-base font-bold">#</span>}
         </span>
-        <div className="min-w-0 flex-1 space-y-2.5">
+        <div className={`min-w-0 flex-1 ${classes.content}`}>
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={item.type === "pull_request" ? "info" : "neutral"}>
               {item.type === "pull_request" ? "Pull request" : "Issue"}
@@ -77,10 +136,16 @@ function PlanningRow({ item }: { item: PlanningItem }) {
               #{item.number}
             </span>
             <Badge variant={status.variant}>{status.label}</Badge>
+            {conflict && (
+              <Badge className="gap-1 normal-case" variant="danger">
+                <AlertTriangle aria-hidden="true" size={11} />
+                Resolve priority conflict
+              </Badge>
+            )}
           </div>
 
           <a
-            className="group inline-flex max-w-full items-start gap-1.5 font-semibold text-[var(--color-text-default)] hover:text-[var(--color-text-info)] focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]"
+            className={`group inline-flex max-w-full items-start gap-1.5 font-semibold text-[var(--color-text-default)] hover:text-[var(--color-text-info)] focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)] ${classes.title}`}
             data-testid={`opencode-planning-item-${item.number}`}
             href={item.url}
             rel="noopener noreferrer"
@@ -93,14 +158,14 @@ function PlanningRow({ item }: { item: PlanningItem }) {
           {item.labels.length > 0 && (
             <div className="flex flex-wrap gap-1.5" aria-label="Labels">
               {item.labels.map((label) => (
-                <Badge className="normal-case" key={label} variant="neutral">
+                <Badge className="normal-case" key={label} variant={labelBadge(label)}>
                   {label}
                 </Badge>
               ))}
             </div>
           )}
 
-          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--color-text-muted)]">
+          <div className={`flex flex-wrap gap-x-4 gap-y-1 text-[var(--color-text-muted)] ${classes.metadata}`}>
             <span>Created {formatDate(item.createdAt)}</span>
             <span>Last activity {formatDate(item.updatedAt)}</span>
             {item.author && <span>by {item.author}</span>}
@@ -117,6 +182,59 @@ function PlanningRow({ item }: { item: PlanningItem }) {
   );
 }
 
+function PlanningGroupSection({ section, density }: { section: PlanningSection; density: PlanningDensity }) {
+  const [open, setOpen] = useState(section.defaultOpen);
+  const isConflict = section.id === "conflict";
+
+  return (
+    <details
+      className="group overflow-hidden rounded-lg border border-[var(--color-border-default)] bg-[var(--color-background-surface)]"
+      data-testid={`opencode-planning-section-${section.id}`}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+      open={open}
+    >
+      <summary
+        className="flex cursor-pointer list-none items-center justify-between gap-4 px-4 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-border-focus)] [&::-webkit-details-marker]:hidden"
+        data-testid={`opencode-planning-section-${section.id}-toggle`}
+      >
+        <div className="flex min-w-0 items-center gap-3">
+          <ChevronRight aria-hidden="true" className="h-4 w-4 shrink-0 text-[var(--color-text-muted)] transition-transform group-open:rotate-90" />
+          <div className="min-w-0">
+            <h2 className={`font-semibold ${isConflict ? "text-[var(--color-text-danger)]" : "text-[var(--color-text-default)]"}`}>
+              {section.title}
+            </h2>
+            <p className="truncate text-xs text-[var(--color-text-muted)]">{section.subtitle}</p>
+          </div>
+        </div>
+        <Badge variant={isConflict ? "danger" : section.id === "high" ? "warning" : "neutral"}>
+          {section.count} {section.count === 1 ? "item" : "items"}
+        </Badge>
+      </summary>
+
+      <div className="border-t border-[var(--color-border-default)]">
+        {section.groups.map((tagGroup) => (
+          <section data-testid={`opencode-planning-group-${section.id}-${tagGroup.label.toLocaleLowerCase()}`} key={tagGroup.label}>
+            <header className="flex items-center justify-between gap-3 border-b border-[var(--color-border-default)] bg-[var(--color-background-base)] px-4 py-2">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">{tagGroup.label}</h3>
+              <span className="text-xs tabular-nums text-[var(--color-text-muted)]">{tagGroup.items.length}</span>
+            </header>
+            <ul className="divide-y divide-[var(--color-border-default)]">
+              {tagGroup.items.map((item) => (
+                <PlanningRow
+                  conflict={isConflict}
+                  density={density}
+                  item={item}
+                  key={`${item.type}-${item.id}`}
+                />
+              ))}
+            </ul>
+          </section>
+        ))}
+      </div>
+    </details>
+  );
+}
+
 export function PlanningPage() {
   const [params, setParams] = useSearchParams();
   const [snapshot, setSnapshot] = useState<PlanningSnapshot | null>(null);
@@ -124,6 +242,7 @@ export function PlanningPage() {
   const [loading, setLoading] = useState(true);
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [stateFilter, setStateFilter] = useState<StateFilter>("open");
+  const [density, setDensity] = useState<PlanningDensity>(initialDensity);
   const [createOpen, setCreateOpen] = useState(() => params.get("create") === "1");
   const [created, setCreated] = useState<PlanningItem | null>(null);
 
@@ -159,6 +278,16 @@ export function PlanningPage() {
     (typeFilter === "all" || item.type === typeFilter)
     && (stateFilter === "all" || item.state === stateFilter),
   );
+  const sections = groupPlanningItems(items);
+
+  const chooseDensity = (value: PlanningDensity) => {
+    setDensity(value);
+    try {
+      localStorage.setItem(DENSITY_STORAGE_KEY, value);
+    } catch {
+      // The visual preference still applies for this page lifetime.
+    }
+  };
 
   return (
     <main className="mx-auto max-w-5xl space-y-5 p-4 sm:p-6" data-testid="opencode-planning">
@@ -222,37 +351,57 @@ export function PlanningPage() {
 
       <section
         aria-label="Planning filters"
-        className="flex flex-col gap-3 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-background-surface)] p-3 sm:flex-row sm:items-center sm:justify-between"
+        className="flex flex-col gap-3 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-background-surface)] p-3"
       >
-        <div className="flex flex-wrap gap-1" aria-label="Item type">
-          {TYPE_FILTERS.map(({ value, label }) => (
-            <Button
-              aria-pressed={typeFilter === value}
-              data-testid={`opencode-planning-type-${value}`}
-              key={value}
-              onClick={() => setTypeFilter(value)}
-              size="sm"
-              type="button"
-              variant={typeFilter === value ? "primary" : "ghost"}
-            >
-              {label}
-            </Button>
-          ))}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap gap-1" aria-label="Item type">
+            {TYPE_FILTERS.map(({ value, label }) => (
+              <Button
+                aria-pressed={typeFilter === value}
+                data-testid={`opencode-planning-type-${value}`}
+                key={value}
+                onClick={() => setTypeFilter(value)}
+                size="sm"
+                type="button"
+                variant={typeFilter === value ? "primary" : "ghost"}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-1" aria-label="Item state">
+            {STATE_FILTERS.map(({ value, label }) => (
+              <Button
+                aria-pressed={stateFilter === value}
+                data-testid={`opencode-planning-state-${value}`}
+                key={value}
+                onClick={() => setStateFilter(value)}
+                size="sm"
+                type="button"
+                variant={stateFilter === value ? "primary" : "ghost"}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
         </div>
-        <div className="flex flex-wrap gap-1" aria-label="Item state">
-          {STATE_FILTERS.map(({ value, label }) => (
+        <div className="flex flex-wrap items-center gap-2 border-t border-[var(--color-border-default)] pt-3">
+          <span className="mr-1 text-xs font-medium text-[var(--color-text-muted)]">Display density</span>
+          <div className="flex flex-wrap gap-1" aria-label="Display density">
+            {DENSITY_OPTIONS.map(({ value, label }) => (
             <Button
-              aria-pressed={stateFilter === value}
-              data-testid={`opencode-planning-state-${value}`}
+              aria-pressed={density === value}
+              data-testid={`opencode-planning-density-${value}`}
               key={value}
-              onClick={() => setStateFilter(value)}
+              onClick={() => chooseDensity(value)}
               size="sm"
               type="button"
-              variant={stateFilter === value ? "primary" : "ghost"}
+              variant={density === value ? "secondary" : "ghost"}
             >
               {label}
             </Button>
           ))}
+          </div>
         </div>
       </section>
 
@@ -280,13 +429,16 @@ export function PlanningPage() {
         >
           No items match these filters.
         </div>
-      ) : items.length > 0 ? (
-        <ul
-          className="divide-y divide-[var(--color-border-default)] overflow-hidden rounded-lg border border-[var(--color-border-default)] bg-[var(--color-background-surface)]"
+      ) : sections.length > 0 ? (
+        <div
+          className="space-y-3"
+          data-density={density}
           data-testid="opencode-planning-list"
         >
-          {items.map((item) => <PlanningRow item={item} key={`${item.type}-${item.id}`} />)}
-        </ul>
+          {sections.map((section) => (
+            <PlanningGroupSection density={density} key={section.id} section={section} />
+          ))}
+        </div>
       ) : null}
       {createOpen && (
         <CreateIssueDialog

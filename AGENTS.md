@@ -251,6 +251,16 @@ several decisions below.
     catalogue, posts with the server-only `GITHUB_TOKEN`, and invalidates the read
     cache only after GitHub confirms the issue. The browser still cannot select a
     repository or project directory.
+17a. **Planning is a priority-first queue with deterministic ownership.** Exact,
+    case-insensitive `priority:high`, `priority:medium`, and `priority:low` labels
+    select the outer section; items with multiple distinct priority labels appear
+    only in an expanded `Needs triage` section rather than being silently promoted
+    or demoted. Within a priority section, the alphabetically first non-priority
+    label owns the item and `Untagged` sorts last, while every label remains visible
+    on the row. High priority and conflicts open by default; lower queues collapse
+    so a large backlog does not obscure current work. Comfortable, compact, and
+    dense row treatments are a device-local display preference in `localStorage`,
+    not repository planning data.
 18. **PWA push supplements rather than replaces ntfy.** Web Push is a third independent
     delivery channel with its own server-backed enabled flag and event matrix. Device
     subscriptions are persisted server-side with mode `0600`; VAPID private material is
