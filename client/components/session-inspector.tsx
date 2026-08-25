@@ -12,12 +12,14 @@ import {
   type CommandEntry,
 } from "../lib/derive.js";
 import { api, type CatalogResponse, type McpStatus, type Todo } from "../lib/api.js";
-import { INSPECTOR_TABS, type InspectorTab } from "../lib/inspectorTabs.js";
+import { type InspectorTab } from "../lib/inspectorTabs.js";
 import { useSubagents, type SubagentsState } from "../lib/useSubagents.js";
 import type { TranscriptEvent } from "../lib/transcript.js";
 import { ReviewCard } from "./review-card.js";
 import { SubagentPanel } from "./subagent-panel.js";
+import { ManagedChildDialog } from "./managed-child-dialog.js";
 import { Link } from "react-router-dom";
+import type { ModelCatalogue, ModelSelection } from "../lib/models.js";
 
 interface SessionInspectorProps {
   directory: string;
@@ -28,6 +30,8 @@ interface SessionInspectorProps {
   requestedTab?: InspectorTab;
   mobileOpen?: boolean;
   onMobileClose?: () => void;
+  modelCatalogue: ModelCatalogue | null;
+  defaultModel?: ModelSelection;
 }
 
 const TAB_LABELS: Record<InspectorTab, string> = {
@@ -37,6 +41,8 @@ const TAB_LABELS: Record<InspectorTab, string> = {
   reviews: "Reviews",
   catalog: "Catalog",
 };
+
+const CORE_INSPECTOR_TABS = ["todo", "runlog", "subagents"] as const;
 
 function statusVariant(status: string): BadgeVariant {
   if (status === "completed" || status === "connected") return "success";
@@ -316,6 +322,7 @@ function InspectorContent({
   commandExportError,
   subagents,
   tabs,
+  onOpenManagedChild,
 }: {
   catalogue: CatalogResponse | null;
   catalogError: string | null;
@@ -335,6 +342,7 @@ function InspectorContent({
   commandExportError: string | null;
   subagents: SubagentsState;
   tabs: readonly InspectorTab[];
+  onOpenManagedChild: () => void;
 }) {
   const subagentCount = subagents.report?.tasks.length ?? 0;
   return (
@@ -393,6 +401,7 @@ function InspectorContent({
             onRefresh={subagents.refresh}
             onAbort={subagents.abortChild}
             onPromote={subagents.promote}
+            onOpenLaunch={onOpenManagedChild}
           />
         )}
 
@@ -477,16 +486,49 @@ function MobileInspector({ title, onClose, children }: { title: string; onClose:
   );
 }
 
-export function SessionInspector({ directory, sessionID, events, todos, todosLoaded, todosError, requestedTab, mobileOpen = false, onMobileClose }: SessionInspectorProps & { sessionID: string }) {
+function DesktopInspector({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  const dialogRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    dialogRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      previousFocus?.focus();
+    };
+  }, [onClose]);
+
+  return (
+    <div className="hidden lg:block" data-testid="opencode-desktop-inspector-surface">
+      <button type="button" className="fixed inset-0 z-50 bg-[var(--color-background-overlay)]" aria-label={`Close ${title.toLowerCase()}`} onClick={onClose} />
+      <section ref={dialogRef} tabIndex={-1} className="fixed inset-y-0 right-0 z-50 flex w-[28rem] max-w-[calc(100vw-2rem)] flex-col overflow-hidden border-l border-[var(--color-border-default)] bg-[var(--color-background-surface)] shadow-xl" role="dialog" aria-modal="true" aria-label={title} data-testid="opencode-desktop-inspector">
+        <header className="flex min-h-11 shrink-0 items-center border-b border-[var(--color-border-default)] px-4">
+          <h2 className="text-sm font-semibold">{title}</h2>
+          <Button className="ml-auto" size="sm" variant="ghost" onClick={onClose} data-testid="opencode-desktop-inspector-close">Close</Button>
+        </header>
+        <div className="thin-scrollbar min-h-0 flex-1 overflow-y-auto" data-inspector-scroll>{children}</div>
+      </section>
+    </div>
+  );
+}
+
+export function SessionInspector({ directory, sessionID, events, todos, todosLoaded, todosError, requestedTab, mobileOpen = false, onMobileClose, modelCatalogue, defaultModel }: SessionInspectorProps & { sessionID: string }) {
+  const [desktopViewport, setDesktopViewport] = useState(() => window.matchMedia("(min-width: 1024px)").matches);
   const commandScope = `${directory}\0${sessionID}`;
   const commands = useMemo(() => extractCommands(events), [events]);
   const links = useMemo(() => extractMrUrls(events), [events]);
   const [tab, setTab] = useState<InspectorTab>("todo");
+  const [surfaceTab, setSurfaceTab] = useState<Extract<InspectorTab, "reviews" | "catalog">>();
   const [catalogue, setCatalogue] = useState<{ directory: string; value: CatalogResponse } | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [commandExporting, setCommandExporting] = useState(false);
   const [commandExportError, setCommandExportError] = useState<string | null>(null);
+  const [managedChildOpen, setManagedChildOpen] = useState(false);
   const commandExportScope = useRef(commandScope);
   const commandExportGeneration = useRef(0);
   if (commandExportScope.current !== commandScope) {
@@ -503,8 +545,19 @@ export function SessionInspector({ directory, sessionID, events, todos, todosLoa
   catalogueRef.current = catalogue;
   directoryRef.current = directory;
   useEffect(() => {
-    if (requestedTab) setTab(requestedTab);
+    if (!requestedTab) return;
+    if (requestedTab === "reviews" || requestedTab === "catalog") setSurfaceTab(requestedTab);
+    else {
+      setSurfaceTab(undefined);
+      setTab(requestedTab);
+    }
   }, [requestedTab]);
+  useEffect(() => {
+    const query = window.matchMedia("(min-width: 1024px)");
+    const updateViewport = () => setDesktopViewport(query.matches);
+    query.addEventListener("change", updateViewport);
+    return () => query.removeEventListener("change", updateViewport);
+  }, []);
   const exportCompleteCommands = useCallback(() => {
     const generation = commandExportGeneration.current;
     setCommandExporting(true);
@@ -524,6 +577,7 @@ export function SessionInspector({ directory, sessionID, events, todos, todosLoa
   useEffect(() => {
     setCommandExporting(false);
     setCommandExportError(null);
+    setManagedChildOpen(false);
   }, [commandScope]);
   useEffect(() => () => { commandExportGeneration.current += 1; }, []);
 
@@ -548,12 +602,12 @@ export function SessionInspector({ directory, sessionID, events, todos, todosLoa
   }, [directory]);
 
   useEffect(() => {
-    if (tab === "catalog") loadCatalogue();
-  }, [loadCatalogue, tab]);
+    if (surfaceTab === "catalog") loadCatalogue();
+  }, [loadCatalogue, surfaceTab]);
 
   useEffect(() => () => catalogRequest.current?.controller.abort(), []);
 
-  const content = (onJump: (id: string) => void, tabs: readonly InspectorTab[] = INSPECTOR_TABS) => (
+  const content = (onJump: (id: string) => void, tabs: readonly InspectorTab[] = CORE_INSPECTOR_TABS, activeTab = tab) => (
     <InspectorContent
       catalogue={catalogue?.directory === directory ? catalogue.value : null}
       catalogError={catalogError}
@@ -564,7 +618,7 @@ export function SessionInspector({ directory, sessionID, events, todos, todosLoa
       todos={todos}
       todosLoaded={todosLoaded}
       todosError={todosError}
-      tab={tab}
+      tab={activeTab}
       onTabChange={setTab}
       onCatalogRefresh={() => loadCatalogue(true)}
       onJump={onJump}
@@ -573,6 +627,10 @@ export function SessionInspector({ directory, sessionID, events, todos, todosLoa
       commandExportError={commandExportError}
       subagents={subagents}
       tabs={tabs}
+      onOpenManagedChild={() => {
+        subagents.clearLaunchError();
+        setManagedChildOpen(true);
+      }}
     />
   );
   const mobileTabs = requestedTab === "reviews"
@@ -592,14 +650,29 @@ export function SessionInspector({ directory, sessionID, events, todos, todosLoa
       >
         {content(jumpToEvent)}
       </aside>
-      {mobileOpen && onMobileClose && (
+      {mobileOpen && onMobileClose && surfaceTab && desktopViewport && (
+        <DesktopInspector title={TAB_LABELS[surfaceTab]} onClose={onMobileClose}>
+          {content(jumpToEvent, [surfaceTab], surfaceTab)}
+        </DesktopInspector>
+      )}
+      {mobileOpen && onMobileClose && !desktopViewport && (
         <MobileInspector title={mobileTitle} onClose={onMobileClose}>
           {(close) => content((eventId) => {
             close();
             setTimeout(() => jumpToEvent(eventId), 0);
-          }, mobileTabs)}
+          }, surfaceTab ? [surfaceTab] : mobileTabs, surfaceTab ?? tab)}
         </MobileInspector>
       )}
+      <ManagedChildDialog
+        key={commandScope}
+        open={managedChildOpen}
+        catalogue={modelCatalogue}
+        defaultModel={defaultModel}
+        submitting={subagents.launching}
+        error={subagents.launchError}
+        onClose={() => setManagedChildOpen(false)}
+        onSubmit={subagents.launchChild}
+      />
     </>
   );
 }

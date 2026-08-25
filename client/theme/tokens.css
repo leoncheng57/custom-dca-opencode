@@ -54,6 +54,8 @@
   /* ── Actions */
   --color-background-action-primary: #16a34a;
   --color-background-action-primary-hover: #15803d;
+  --color-background-action-info: #2563eb;
+  --color-background-action-info-hover: #1d4ed8;
   --color-background-action-ghost-hover: #f3f4f6;
   --color-text-action-ghost: #374151;
 
@@ -125,6 +127,8 @@
 
   --color-background-action-primary: #22c55e;
   --color-background-action-primary-hover: #16a34a;
+  --color-background-action-info: #3b82f6;
+  --color-background-action-info-hover: #2563eb;
   --color-background-action-ghost-hover: #22252c;
   --color-text-action-ghost: #d1d5db;
 

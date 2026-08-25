@@ -15,6 +15,7 @@ import { PathError, requireWorkspaceDirectory } from "../paths.js";
 import {
   abortSession,
   createSession,
+  createManagedChild,
   deleteSession,
   getSession,
   getSessionTurnDiff,
@@ -26,6 +27,9 @@ import {
   shareSession,
   unshareSession,
   ModePolicyActivationError,
+  ManagedChildIdempotencyError,
+  ManagedChildCapacityError,
+  ManagedChildCleanupError,
   SessionAgentIdentityError,
   type AgentMode,
 } from "../opencode/sessions.js";
@@ -42,6 +46,7 @@ import { reminderCatalogue } from "../reminders/loader.js";
 import { isValidReminderId, type ReminderPreset } from "../reminders/reminders.js";
 import { eventClickUrl } from "../publicAppUrl.js";
 import { parseQuestionRequests, validateQuestionAnswers, type QuestionRequest } from "../opencode/questions.js";
+import { getCapabilities } from "../opencode/capabilities.js";
 
 /** Resolve and validate the project scope for a request. */
 async function directoryOf(req: Request): Promise<string> {
@@ -151,6 +156,18 @@ function fail(res: Response, error: unknown, options: { notFoundOn5xx?: boolean 
   }
   if (error instanceof ModePolicyActivationError) {
     res.status(502).json({ error: error.message });
+    return;
+  }
+  if (error instanceof ManagedChildIdempotencyError) {
+    res.status(409).json({ error: error.message });
+    return;
+  }
+  if (error instanceof ManagedChildCapacityError) {
+    res.status(503).json({ error: error.message });
+    return;
+  }
+  if (error instanceof ManagedChildCleanupError) {
+    res.status(502).json({ error: error.message, childID: error.childID, cleanupFailed: true });
     return;
   }
   if (error instanceof SessionAgentIdentityError) {
@@ -424,6 +441,45 @@ export function sessionRoutes(
     sessionRoute(async (req, res) => {
       const directory = await directoryOf(req);
       res.json(await listSubagents(config, directory, paramOf(req, "id")));
+    }),
+  );
+
+  router.post(
+    "/sessions/:id/managed-children",
+    asyncRoute(async (req, res) => {
+      const directory = await directoryOf(req);
+      const parentID = paramOf(req, "id");
+      await ownedSession(directory, parentID);
+      if (!(await getCapabilities(config, directory)).managedChildren) {
+        throw new HttpError(409, "managed children require OpenCode 1.18.22 or newer");
+      }
+      const body = req.body;
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
+        throw new HttpError(400, "body must contain prompt, mode and idempotencyKey");
+      }
+      const allowed = new Set(["prompt", "mode", "model", "idempotencyKey"]);
+      for (const key of Object.keys(body)) {
+        if (!allowed.has(key)) throw new HttpError(400, `unsupported managed child field '${key}'`);
+      }
+      const text = body.prompt;
+      if (typeof text !== "string" || !text.trim() || text.length > 100_000) {
+        throw new HttpError(400, "prompt must be a non-empty string of at most 100000 characters");
+      }
+      if (body.mode !== "plan" && body.mode !== "build") {
+        throw new HttpError(400, "mode must be 'plan' or 'build'");
+      }
+      const idempotencyKey = body.idempotencyKey;
+      if (typeof idempotencyKey !== "string" || !/^[A-Za-z0-9._:-]{1,128}$/u.test(idempotencyKey)) {
+        throw new HttpError(400, "idempotencyKey must contain 1-128 safe characters");
+      }
+      const session = await createManagedChild(config, directory, {
+        parentID,
+        text: text.trim(),
+        mode: body.mode,
+        model: await selectedModel(config, directory, body.model),
+        idempotencyKey,
+      });
+      res.status(201).json({ session });
     }),
   );
 

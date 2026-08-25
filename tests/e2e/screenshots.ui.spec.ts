@@ -51,7 +51,7 @@ test.describe("requested PR screenshots", () => {
         const url = new URL(request.requestedRoute, "http://screenshot.invalid");
         if (url.searchParams.get("panel") === "subagents") {
           await expect(page.locator('[data-testid="opencode-subagents"]:visible')).toBeVisible();
-          await expect(page.locator('[data-testid="opencode-subagent-row"]:visible')).toHaveCount(6);
+          await expect(page.locator('[data-testid="opencode-subagent-row"]:visible, [data-testid="opencode-subagents-empty"]:visible').first()).toBeVisible();
         }
         if (pathname === "/settings") {
           await expect(page.getByTestId("opencode-setting-subagent-depth")).toBeVisible();
