@@ -118,7 +118,9 @@ export function ConversationPage() {
     if (appliedPanelScope.current === scope) return;
     appliedPanelScope.current = scope;
     setRequestedInspectorTab(panelParam);
-    if (window.matchMedia("(max-width: 1023.98px)").matches) setInspectorOpen(true);
+    if (panelParam === "reviews" || panelParam === "catalog" || window.matchMedia("(max-width: 1023.98px)").matches) {
+      setInspectorOpen(true);
+    }
   }, [id, panelParam]);
   useEffect(() => {
     const scope = `${directory}\0${id}`;
@@ -507,7 +509,7 @@ export function ConversationPage() {
               </span>
             )}
           </div>
-          <div className="grid min-w-0 flex-1 grid-cols-6 gap-1 sm:ml-auto sm:flex-none" aria-label="Session actions" data-testid="opencode-mobile-conversation-actions">
+          <div className="flex min-w-0 flex-1 items-center gap-1 sm:ml-auto sm:w-fit sm:flex-none" aria-label="Session actions" data-testid="opencode-mobile-conversation-actions">
           <Button
             size="md"
             variant="ghost"
@@ -547,10 +549,12 @@ export function ConversationPage() {
           >
             <Waves aria-hidden="true" className="h-3.5 w-3.5" />
           </Button>
-          <AutoPermissionsControl directory={directory} testId="opencode-mobile-auto-permissions" variant="pill" />
-          <Button size="md" variant="ghost" className="min-h-11 min-w-0 px-0" onClick={() => setAutoSafetyOpen(true)} aria-label="Auto permissions safety" title="Auto permissions safety" data-testid="opencode-mobile-auto-permissions-info">
-            <Info aria-hidden="true" className="h-3.5 w-3.5" />
-          </Button>
+          <div className="flex min-w-0 flex-1 items-center gap-1 sm:flex-none" data-testid="opencode-auto-permissions-actions">
+            <AutoPermissionsControl directory={directory} testId="opencode-mobile-auto-permissions" variant="pill" />
+            <Button size="md" variant="ghost" className="min-h-11 min-w-11 shrink-0 px-0" onClick={() => setAutoSafetyOpen(true)} aria-label="Auto permissions safety" title="Auto permissions safety" data-testid="opencode-mobile-auto-permissions-info">
+              <Info aria-hidden="true" className="h-3.5 w-3.5" />
+            </Button>
+          </div>
           <details className="relative" data-testid="opencode-mobile-session-menu">
             <summary className="flex min-h-11 min-w-11 cursor-pointer list-none items-center justify-center rounded-md text-[var(--color-text-muted)] hover:bg-[var(--hh-row-hover)] [&::-webkit-details-marker]:hidden" aria-label="More session actions" title="More session actions">
               <Ellipsis aria-hidden="true" className="h-3.5 w-3.5" />

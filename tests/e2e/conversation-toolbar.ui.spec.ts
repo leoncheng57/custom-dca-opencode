@@ -147,9 +147,11 @@ test.describe("mobile conversation action bar", () => {
     await expect(safety).toContainText("This affects every session using this project directory and resets to off when the BFF restarts.");
     await safety.getByTestId("opencode-mobile-auto-permissions-safety-close").click();
     await page.getByTestId("opencode-mobile-auto-permissions-toggle").click();
-    await expect(page.getByTestId("opencode-mobile-auto-permissions-toggle")).toHaveAttribute("aria-checked", "true");
-    await expect(page.getByTestId("opencode-mobile-auto-permissions-toggle")).toHaveAccessibleName("Turn auto permissions off");
-    await expect(page.getByTestId("opencode-mobile-auto-permissions-toggle")).toContainText("ON");
+    const toggle = page.getByTestId("opencode-mobile-auto-permissions-toggle");
+    await expect(toggle).toHaveAttribute("aria-checked", "true");
+    await expect(toggle).toHaveAccessibleName("Turn auto permissions off");
+    await expect(toggle).toContainText("Auto ON");
+    expect(await toggle.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toMatch(/transparent|rgba\(0, 0, 0, 0\)/);
     await resetAutoPermissions(page);
   });
 });
@@ -175,6 +177,31 @@ test.describe("desktop conversation action bar", () => {
     ]) {
       await expect(actions.getByTestId(id)).toBeVisible();
     }
+  });
+
+  test("separates Reviews and Catalog from the persistent sidebar", async ({ page }) => {
+    await page.goto(conversation);
+    const sidebar = page.getByTestId("opencode-session-inspector");
+    await expect(sidebar.getByTestId("opencode-inspector-reviews")).toHaveCount(0);
+    await expect(sidebar.getByTestId("opencode-inspector-catalog")).toHaveCount(0);
+
+    const reviews = page.getByTestId("opencode-mobile-reviews-open");
+    await reviews.click();
+    const surface = page.getByTestId("opencode-desktop-inspector");
+    await expect(surface.getByTestId("opencode-merge-request-list")).toBeVisible();
+    await surface.getByTestId("opencode-desktop-inspector-close").click();
+    await expect(reviews).toBeFocused();
+
+    await page.getByTestId("opencode-mobile-session-menu").locator(":scope > summary").click();
+    await page.getByTestId("opencode-mobile-catalog-open").click();
+    await expect(surface.getByTestId("opencode-catalog")).toBeVisible();
+  });
+
+  test("opens dedicated inspector panels from the URL", async ({ page }) => {
+    await page.goto(`${conversation}&panel=reviews`);
+    await expect(page.getByTestId("opencode-desktop-inspector")).toHaveAttribute("aria-label", "Reviews");
+    await page.goto(`${conversation}&panel=catalog`);
+    await expect(page.getByTestId("opencode-desktop-inspector")).toHaveAttribute("aria-label", "Catalog");
   });
 
   test("uses the title-row Stop control from mobile", async ({ page }) => {

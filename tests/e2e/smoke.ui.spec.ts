@@ -1472,7 +1472,7 @@ test.describe("workspace UI", () => {
     await expect(page.getByTestId("opencode-mobile-inspector-open")).toBeHidden();
     await page.getByTestId("opencode-inspector-runlog").click();
     await expect(page.getByTestId("opencode-command-row")).toHaveCount(4);
-    await page.getByTestId("opencode-inspector-reviews").click();
+    await page.getByTestId("opencode-mobile-reviews-open").click();
     await expect(page.getByTestId("opencode-review-card")).toContainText("Mock pull request");
     await expect(page.getByTestId("opencode-review-card")).toContainText("checks passed");
     await page.getByTestId("opencode-review-details-toggle").click();
@@ -1494,7 +1494,7 @@ test.describe("workspace UI", () => {
     await fetch(`${FORGE_URL}/test/forge-reset`, { method: "POST" });
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto(conversation);
-    await page.getByTestId("opencode-inspector-reviews").click();
+    await page.getByTestId("opencode-mobile-reviews-open").click();
     await expect(page.getByTestId("opencode-review-card")).toContainText("Mock pull request");
     expect(await (await fetch(`${FORGE_URL}/test/forge-state`)).json()).toMatchObject({ detailRequests: 0 });
     await page.getByTestId("opencode-review-details-toggle").click();
@@ -1506,7 +1506,7 @@ test.describe("workspace UI", () => {
     await fetch(`${FORGE_URL}/test/forge-reset`, { method: "POST" });
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto(conversation);
-    await page.getByTestId("opencode-inspector-reviews").dispatchEvent("click");
+    await page.getByTestId("opencode-mobile-reviews-open").click();
     await expect(page.getByTestId("opencode-merge-review")).toBeVisible();
     page.once("dialog", (dialog) => dialog.accept());
     await page.getByTestId("opencode-merge-review").dispatchEvent("click");
@@ -1517,14 +1517,9 @@ test.describe("workspace UI", () => {
   test("review card remains width-safe in a mobile cockpit host", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto(conversation);
-    await page.getByTestId("opencode-inspector-reviews").dispatchEvent("click");
+    await page.getByTestId("opencode-mobile-reviews-open").click();
     await expect(page.getByTestId("opencode-review-card")).toBeVisible();
     await page.setViewportSize({ width: 390, height: 740 });
-    await page.getByTestId("opencode-session-inspector").evaluate((element) => {
-      element.style.display = "block";
-      element.style.width = "390px";
-      element.style.maxWidth = "100%";
-    });
     const cardWidth = await page.getByTestId("opencode-review-card").evaluate((element) => element.getBoundingClientRect().width);
     expect(cardWidth).toBeLessThanOrEqual(390);
     const overflow = await page.getByTestId("opencode-review-card").evaluate((element) => element.scrollWidth - element.clientWidth);

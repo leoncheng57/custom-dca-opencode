@@ -13,8 +13,8 @@ const POLL_MS = 3_000;
  * the conversation action buttons instead of eating a row of its own. Both
  * variants keep the same danger treatment, the same Details disclosure and the
  * same error paragraph — compactness is only allowed to cost padding, never
- * discoverability. `pill` is the phone action-bar control; its adjacent info
- * button owns the full safety explanation.
+ * discoverability. `pill` is the action-bar switch; its adjacent info button
+ * owns the full safety explanation.
  */
 type AutoPermissionsVariant = "block" | "compact" | "pill";
 
@@ -88,15 +88,17 @@ export function AutoPermissionsControl({
           onClick={() => void toggle()}
           title={actionLabel}
           className={cn(
-            "flex min-h-11 w-full min-w-11 items-center justify-center gap-1 rounded-full px-1 text-[10px] font-semibold disabled:opacity-50",
+            "flex min-h-11 w-full min-w-28 items-center justify-between rounded-full border px-2 text-[11px] font-semibold disabled:opacity-50",
             enabled
-              ? "bg-[var(--color-background-surface-danger-muted)] text-[var(--color-text-danger)]"
-              : "text-[var(--color-text-muted)] hover:bg-[var(--hh-row-hover)]",
+              ? "border-[var(--color-text-info)] bg-[var(--color-background-surface-info-muted)] text-[var(--color-text-info)]"
+              : "border-[var(--color-border-default)] text-[var(--color-text-muted)] hover:bg-[var(--hh-row-hover)]",
           )}
           data-testid={`${testId}-toggle`}
         >
-          <span aria-hidden="true" className={`h-4 w-4 rounded-full border border-current ${enabled ? "bg-current" : "bg-transparent"}`} />
-          {enabled ? "ON" : "OFF"}
+          <span>Auto {enabled ? "ON" : "OFF"}</span>
+          <span aria-hidden="true" className="relative h-5 w-9 rounded-full border border-current">
+            <span className={`absolute top-0.5 h-3.5 w-3.5 rounded-full transition-transform ${enabled ? "translate-x-4 bg-current" : "left-0.5 bg-[var(--color-background-surface)]"}`} />
+          </span>
         </button>
         <span id={`${testId}-description`} className="sr-only">{safetyDescription}</span>
         {(status?.error || requestError) && (
