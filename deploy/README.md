@@ -88,6 +88,21 @@ BFF can reach OpenCode and whether their expected versions match.
 > Do not restart OpenCode during an active turn. An OpenCode restart interrupts
 > that turn; its session history remains, but the turn is not resumed automatically.
 
+## Failure modes and recovery
+
+`launchd` makes the BFF recoverable, not infallible. These outcomes determine
+whether the phone-accessible app is temporarily unavailable:
+
+| Failure point | What remains available | Recovery |
+|---|---|---|
+| UI or BFF build fails | The existing BFF remains serving because the installer builds before replacing the LaunchAgent. | Fix the build error, then rerun the upgrade commands. |
+| Replacing the LaunchAgent fails after the old BFF stops | The app can be down because no BFF is listening on `:3210`. OpenCode remains running. | Run `npm run service:status` and `npm run service:logs`, fix the reported issue, then rerun `npm run service:install -- --port=3210`. |
+| The new BFF exits after launch | The app is down until the service can stay running. launchd attempts to keep the BFF alive. | Inspect `npm run service:logs`; common causes are invalid `.env` values, a missing dependency, or an upstream configuration problem. |
+| Tailscale or its Serve configuration is unavailable | The local BFF can still be healthy, but the phone HTTPS origin is unreachable. | Check `tailscale status` and `tailscale serve status`, then bring Tailscale up or recreate the Serve route if needed. |
+
+Start diagnosis from the inside out: BFF health, LaunchAgent state and logs, then
+Tailscale. Do not restart OpenCode merely to recover the UI/BFF.
+
 ## First-time setup
 
 ```bash
