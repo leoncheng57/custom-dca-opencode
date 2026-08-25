@@ -98,17 +98,25 @@ export function AutoPermissionsControl({
             disabled={!status || saving || !directory}
             onClick={() => void toggle()}
             title={actionLabel}
-            className="flex min-h-9 min-w-16 items-center justify-center rounded-full disabled:opacity-50"
+            className="flex min-h-9 min-w-[4.5rem] items-center justify-center rounded-full disabled:opacity-50"
             data-testid={`${testId}-toggle`}
           >
-            <span aria-hidden="true" className="relative h-7 w-14 rounded-full border border-current">
+            <span aria-hidden="true" className="relative h-7 w-16 rounded-full border border-current">
               <span className={cn(
                 "absolute left-1 top-1 h-[1.125rem] w-[1.125rem] rounded-full bg-current transition-transform",
-                enabled && "translate-x-7",
+                enabled && "translate-x-9",
               )} />
+              <span
+                className={cn(
+                  "absolute top-1/2 -translate-y-1/2 text-[10px] font-semibold",
+                  enabled ? "left-2" : "right-2",
+                )}
+                data-testid={`${testId}-state`}
+              >
+                {enabled ? "ON" : "OFF"}
+              </span>
             </span>
           </button>
-          <span className="min-w-8 text-center text-[11px] font-semibold" data-testid={`${testId}-state`}>{enabled ? "ON" : "OFF"}</span>
           {trailing && <div className="flex shrink-0">{trailing}</div>}
         </div>
         <span id={`${testId}-description`} className="sr-only">{safetyDescription}</span>
