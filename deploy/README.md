@@ -19,6 +19,43 @@ The supervised unit is `ai.custom-dca-opencode.bff`. It serves the built SPA and
 production BFF on port `3210` by default, with logs under `.state/logs/`. OpenCode
 is a separate, long-lived process named by `OPENCODE_URL` in `.env`.
 
+## Why launchd supervises the app
+
+Production has one Node process for both the UI and BFF: Express serves the built
+React files as well as `/api` routes. A browser refresh cannot replace that process's
+already-loaded server code. It must be restarted after a new server build.
+
+`launchd` is the supervisor for that one process. It starts the BFF after login,
+keeps it alive if it exits, gives it a fixed working directory and environment, and
+writes stable logs. This avoids tying the phone-accessible app to an open terminal,
+`nohup`, or a manually maintained background process.
+
+## What changes during an app upgrade
+
+`npm run service:install -- --port=3210` has this lifecycle:
+
+```text
+existing BFF keeps serving :3210
+          |
+          +--> build UI assets into dist/client
+          +--> compile BFF into dist/server
+          |
+          v
+launchd stops the old BFF and starts the new BFF
+          |
+          +--> browser reconnects briefly
+          +--> Tailscale retries the same :3210 target
+          +--> OpenCode continues its active turns
+```
+
+| Component | During `service:install` |
+|---|---|
+| Built UI and BFF | Rebuilt, then served by the new BFF process. |
+| LaunchAgent | Replaced and restarted for `ai.custom-dca-opencode.bff` only. |
+| Browser or phone | May briefly reconnect while `:3210` has no BFF listener. |
+| Tailscale Serve | Stays configured and continues proxying to `:3210` after the BFF returns. |
+| OpenCode | Not started, stopped, or restarted. Active agent turns continue. |
+
 ## Upgrade after GitHub changes
 
 Run these commands from the repository root:
@@ -32,6 +69,9 @@ npm run service:install -- --port=3210
 `service:install` rebuilds the SPA and BFF, replaces the matching LaunchAgent, and
 starts the new BFF process. A connected browser briefly reconnects. OpenCode is not
 restarted, so active agent turns continue.
+
+> `npm ci` is separate from `service:install`. Run it after a pull when the lockfile
+> may have changed; the installer builds with the dependencies already on disk.
 
 ### Verify the upgrade
 
@@ -98,6 +138,12 @@ tailscale serve status
 
 Set `PUBLIC_APP_URL` in `.env` to the HTTPS origin shown by Tailscale, then rerun
 `npm run service:install -- --port=3210` so the BFF reads the new value.
+
+Tailscale is not restarted by an app upgrade. Its Serve configuration keeps the same
+local destination, so the only interruption is the short period while launchd replaces
+the BFF. A request in that window can receive a transient connection error or `502`;
+reload after the BFF health check succeeds. Run `tailscale up` or recreate Serve only
+if Tailscale itself stopped or its Serve configuration was removed.
 
 ## Optional OpenCode Unit
 
