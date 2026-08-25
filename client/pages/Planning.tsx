@@ -73,7 +73,7 @@ function initialDensity(): PlanningDensity {
   } catch {
     // Storage may be unavailable in hardened browser contexts.
   }
-  return "compact";
+  return "dense";
 }
 
 function formatDate(value: string): string {
@@ -324,6 +324,7 @@ export function PlanningPage() {
               }}
               size="sm"
               type="button"
+              variant="accent-cyan"
             >
               <Plus aria-hidden="true" size={14} />
               New issue

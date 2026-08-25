@@ -260,7 +260,7 @@ several decisions below.
     on the row. High priority and conflicts open by default; lower queues collapse
     so a large backlog does not obscure current work. Comfortable, compact, and
     dense row treatments are a device-local display preference in `localStorage`,
-    not repository planning data.
+    not repository planning data; dense is the first-visit default.
 18. **PWA push supplements rather than replaces ntfy.** Web Push is a third independent
     delivery channel with its own server-backed enabled flag and event matrix. Device
     subscriptions are persisted server-side with mode `0600`; VAPID private material is

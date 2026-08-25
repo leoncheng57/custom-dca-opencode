@@ -70,14 +70,14 @@ test.describe("project planning", () => {
   test("changes density and persists it across reloads", async ({ page }) => {
     await page.goto("/planning");
     const list = page.getByTestId("opencode-planning-list");
-    await expect(list).toHaveAttribute("data-density", "compact");
-
-    await page.getByTestId("opencode-planning-density-dense").click();
     await expect(list).toHaveAttribute("data-density", "dense");
-    await expect(page.getByTestId("opencode-planning-density-dense")).toHaveAttribute("aria-pressed", "true");
+
+    await page.getByTestId("opencode-planning-density-comfortable").click();
+    await expect(list).toHaveAttribute("data-density", "comfortable");
+    await expect(page.getByTestId("opencode-planning-density-comfortable")).toHaveAttribute("aria-pressed", "true");
 
     await page.reload();
-    await expect(page.getByTestId("opencode-planning-list")).toHaveAttribute("data-density", "dense");
+    await expect(page.getByTestId("opencode-planning-list")).toHaveAttribute("data-density", "comfortable");
   });
 
   test("creates an issue with selected labels and restores focus", async ({ page }) => {
