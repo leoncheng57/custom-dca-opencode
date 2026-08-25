@@ -17,6 +17,14 @@ export interface SessionSummary {
   childCount: number;
   agent?: string;
   model?: ModelSelection;
+  managed?: {
+    origin: "managed-human";
+    requestedMode: AgentMode;
+    requestedModel?: ModelSelection;
+    background: true;
+    policySource: "creation-permission";
+    effectivePolicyObserved: boolean;
+  };
   cost: number;
   tokens: {
     input: number;
@@ -54,6 +62,11 @@ export interface SubagentTask {
   parentID: string;
   title: string;
   agent?: string;
+  origin?: "native-task" | "managed-human";
+  requestedMode?: AgentMode;
+  requestedModel?: ModelSelection;
+  policySource?: "creation-permission";
+  effectivePolicyObserved?: boolean;
   description?: string;
   state: SubagentState;
   evidence: SubagentEvidence;
@@ -68,7 +81,7 @@ export interface SubagentTask {
 export interface SubagentReport {
   parentID: string;
   tasks: SubagentTask[];
-  capabilities: { backgroundSubagents: boolean };
+  capabilities: { backgroundSubagents: boolean; managedChildren: boolean };
   truncated: boolean;
 }
 
@@ -489,6 +502,18 @@ export const api = {
     fetch(scoped(`/sessions/${encodeURIComponent(id)}/subagents`, directory), { signal }).then((r) =>
       json<SubagentReport>(r),
     ),
+
+  createManagedChild: (directory: string, id: string, input: {
+    prompt: string;
+    mode: AgentMode;
+    model?: ModelSelection;
+    idempotencyKey: string;
+  }) =>
+    fetch(scoped(`/sessions/${encodeURIComponent(id)}/managed-children`, directory), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }).then((r) => json<{ session: SessionSummary }>(r)),
 
   abortSubagent: (directory: string, id: string, childID: string) =>
     fetch(
