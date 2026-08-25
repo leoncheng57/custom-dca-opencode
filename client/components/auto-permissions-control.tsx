@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { ShieldAlert } from "lucide-react";
 
 import { Alert } from "../ds/alert.js";
@@ -13,8 +13,8 @@ const POLL_MS = 3_000;
  * the conversation action buttons instead of eating a row of its own. Both
  * variants keep the same danger treatment, the same Details disclosure and the
  * same error paragraph — compactness is only allowed to cost padding, never
- * discoverability. `pill` is the phone action-bar control; its adjacent info
- * button owns the full safety explanation.
+ * discoverability. `pill` is the action-bar switch; its adjacent info button
+ * owns the full safety explanation.
  */
 type AutoPermissionsVariant = "block" | "compact" | "pill";
 
@@ -22,10 +22,12 @@ export function AutoPermissionsControl({
   directory,
   testId,
   variant = "block",
+  trailing,
 }: {
   directory: string;
   testId: string;
   variant?: AutoPermissionsVariant;
+  trailing?: ReactNode;
 }) {
   const [status, setStatus] = useState<AutoPermissionStatus | null>(null);
   const [saving, setSaving] = useState(false);
@@ -77,27 +79,38 @@ export function AutoPermissionsControl({
   if (pill) {
     return (
       <div className="relative" data-testid={testId}>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={enabled}
-          aria-label={actionLabel}
-          aria-describedby={`${testId}-description`}
-          aria-busy={saving}
-          disabled={!status || saving || !directory}
-          onClick={() => void toggle()}
-          title={actionLabel}
+        <div
           className={cn(
-            "flex min-h-11 w-full min-w-11 items-center justify-center gap-1 rounded-full px-1 text-[10px] font-semibold disabled:opacity-50",
+            "inline-flex min-h-11 items-center rounded-xl border px-1 transition-colors",
             enabled
-              ? "bg-[var(--color-background-surface-danger-muted)] text-[var(--color-text-danger)]"
-              : "text-[var(--color-text-muted)] hover:bg-[var(--hh-row-hover)]",
+              ? "border-[var(--color-text-info)] bg-[var(--color-background-surface-info-muted)] text-[var(--color-text-info)]"
+              : "border-[var(--color-border-default)] text-[var(--color-text-muted)]",
           )}
-          data-testid={`${testId}-toggle`}
+          data-testid={`${testId}-group`}
         >
-          <span aria-hidden="true" className={`h-4 w-4 rounded-full border border-current ${enabled ? "bg-current" : "bg-transparent"}`} />
-          {enabled ? "ON" : "OFF"}
-        </button>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={enabled}
+            aria-label={actionLabel}
+            aria-describedby={`${testId}-description`}
+            aria-busy={saving}
+            disabled={!status || saving || !directory}
+            onClick={() => void toggle()}
+            title={actionLabel}
+            className="flex min-h-9 min-w-16 items-center justify-center rounded-full disabled:opacity-50"
+            data-testid={`${testId}-toggle`}
+          >
+            <span aria-hidden="true" className="relative h-7 w-14 rounded-full border border-current">
+              <span className={cn(
+                "absolute left-1 top-1 h-[1.125rem] w-[1.125rem] rounded-full bg-current transition-transform",
+                enabled && "translate-x-7",
+              )} />
+            </span>
+          </button>
+          <span className="min-w-8 text-center text-[11px] font-semibold" data-testid={`${testId}-state`}>{enabled ? "ON" : "OFF"}</span>
+          {trailing && <div className="flex shrink-0">{trailing}</div>}
+        </div>
         <span id={`${testId}-description`} className="sr-only">{safetyDescription}</span>
         {(status?.error || requestError) && (
           <p
