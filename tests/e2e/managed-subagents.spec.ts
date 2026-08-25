@@ -154,6 +154,10 @@ test("launches a Build child from a Plan parent through explicit human confirmat
   await dialog.getByTestId("opencode-managed-child-model").click();
   const picker = page.getByTestId("opencode-managed-child-model-panel");
   await expect(picker).toBeVisible();
+  const parentDialog = dialog.locator('[role="dialog"]');
+  await expect(parentDialog).toHaveAttribute("aria-hidden", "true");
+  expect(await parentDialog.evaluate((element) => element.inert)).toBe(true);
+  await expect(picker.getByTestId("opencode-managed-child-model-search")).toBeFocused();
   expect(await picker.evaluate((element) => {
     const rect = element.getBoundingClientRect();
     const top = document.elementFromPoint(rect.left + rect.width / 2, rect.top + Math.min(rect.height / 2, 120));
@@ -161,6 +165,8 @@ test("launches a Build child from a Plan parent through explicit human confirmat
   })).toBe(true);
   await picker.getByTestId("opencode-managed-child-model-search").fill("GPT-5.6 Sol");
   await picker.locator('[data-testid="opencode-managed-child-model-option"][data-model-key="openai/gpt-5.6-sol"]').click();
+  await expect(parentDialog).not.toHaveAttribute("aria-hidden", "true");
+  expect(await parentDialog.evaluate((element) => element.inert)).toBe(false);
   await expect(dialog.getByTestId("opencode-managed-child-model")).toHaveAttribute("value", "openai/gpt-5.6-sol");
   await dialog.getByTestId("opencode-managed-child-submit").click();
   await expect(dialog).toHaveCount(0);
