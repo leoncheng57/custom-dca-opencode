@@ -757,6 +757,8 @@ export function ConversationPage() {
           requestedTab={requestedInspectorTab}
           mobileOpen={inspectorOpen}
           onMobileClose={() => setInspectorOpen(false)}
+          modelCatalogue={modelCatalogue}
+          defaultModel={selectedModel}
         />
       </div>
 

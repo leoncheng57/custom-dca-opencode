@@ -120,6 +120,10 @@ const GRANDCHILD = "ses_mock_grandchild";
 const CHILD_UNKNOWN = "ses_mock_child_unknown";
 const CHILD_FAILED = "ses_mock_child_failed";
 const CHILD_LAUNCHED = "ses_mock_child_launched";
+const MANAGED_API_PARENT = "ses_mock_managed_api_parent";
+const MANAGED_UI_PARENT = "ses_mock_managed_ui_parent";
+const MANAGED_FAILURE_PARENT = "ses_mock_managed_failure_parent";
+const MANAGED_CLEANUP_FAILURE_PARENT = "ses_mock_managed_cleanup_failure_parent";
 
 function taskPart(
   index: number,
@@ -237,6 +241,7 @@ const messages = new Map<string, unknown[]>([
 ]);
 const promptPayloads: Array<Record<string, unknown> & { sessionID: string }> = [];
 let sessionListRequests = 0;
+let createdSessionSequence = 0;
 let mobileRunning = true;
 const sessionPayloads: Array<Record<string, unknown>> = [];
 const toolIDs = [
@@ -311,7 +316,9 @@ const TOOL_FAILURE_DIRECTORY_INPUT = "/tmp/mock-tool-failure";
 const CATALOGUE_FAILURE_DIRECTORY_INPUT = "/tmp/mock-catalogue-failure";
 const POLICY_FAILURE_DIRECTORY_INPUT = "/tmp/mock-policy-failure";
 const SUBAGENT_DIRECTORY_INPUT = "/tmp/mock-subagent-project";
+const MANAGED_SUBAGENT_DIRECTORY_INPUT = "/tmp/mock-managed-subagent-project";
 mkdirSync(SUBAGENT_DIRECTORY_INPUT, { recursive: true });
+mkdirSync(MANAGED_SUBAGENT_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(MOCK_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(SECOND_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(AUTO_DIRECTORY_INPUT, { recursive: true });
@@ -330,6 +337,7 @@ const TOOL_FAILURE_DIRECTORY = realpathSync(TOOL_FAILURE_DIRECTORY_INPUT);
 const CATALOGUE_FAILURE_DIRECTORY = realpathSync(CATALOGUE_FAILURE_DIRECTORY_INPUT);
 const POLICY_FAILURE_DIRECTORY = realpathSync(POLICY_FAILURE_DIRECTORY_INPUT);
 export const SUBAGENT_DIRECTORY = realpathSync(SUBAGENT_DIRECTORY_INPUT);
+export const MANAGED_SUBAGENT_DIRECTORY = realpathSync(MANAGED_SUBAGENT_DIRECTORY_INPUT);
 if (!existsSync(path.join(MOCK_DIRECTORY, ".git"))) {
   execFileSync("git", ["init", "-q", MOCK_DIRECTORY]);
   writeFileSync(path.join(MOCK_DIRECTORY, "README.md"), "# Mock project\n");
@@ -574,6 +582,50 @@ const SESSIONS: Array<Record<string, any>> = [
     time: { created: 1787390000000, updated: 1787390000000 },
   },
   {
+    id: MANAGED_API_PARENT,
+    title: "Managed API parent",
+    directory: MANAGED_SUBAGENT_DIRECTORY,
+    agent: "plan",
+    model: { providerID: "anthropic", id: "claude-opus-5" },
+    permission: [],
+    cost: 0,
+    tokens: {},
+    time: { created: 1787410000000, updated: 1787410000000 },
+  },
+  {
+    id: MANAGED_UI_PARENT,
+    title: "Managed UI parent",
+    directory: MANAGED_SUBAGENT_DIRECTORY,
+    agent: "plan",
+    model: { providerID: "anthropic", id: "claude-opus-5" },
+    permission: [],
+    cost: 0,
+    tokens: {},
+    time: { created: 1787411000000, updated: 1787411000000 },
+  },
+  {
+    id: MANAGED_FAILURE_PARENT,
+    title: "Managed failure parent",
+    directory: MANAGED_SUBAGENT_DIRECTORY,
+    agent: "plan",
+    model: { providerID: "anthropic", id: "claude-opus-5" },
+    permission: [],
+    cost: 0,
+    tokens: {},
+    time: { created: 1787412000000, updated: 1787412000000 },
+  },
+  {
+    id: MANAGED_CLEANUP_FAILURE_PARENT,
+    title: "Managed cleanup failure parent",
+    directory: MANAGED_SUBAGENT_DIRECTORY,
+    agent: "plan",
+    model: { providerID: "anthropic", id: "claude-opus-5" },
+    permission: [],
+    cost: 0,
+    tokens: {},
+    time: { created: 1787413000000, updated: 1787413000000 },
+  },
+  {
     // Lives in a directory only smoke.api.spec.ts drives, so that file can park,
     // answer and count permission requests without smoke.ui.spec.ts resetting
     // MOCK_DIRECTORY under it.
@@ -752,7 +804,7 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
   const directory = url.searchParams.get("directory");
 
   if (pathname === "/global/health") {
-    return json(res, 200, { healthy: true, version: "1.18.21" });
+    return json(res, 200, { healthy: true, version: "1.18.22" });
   }
 
   if (pathname === "/global/event") {
@@ -1063,18 +1115,27 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     let raw = "";
     req.on("data", (chunk) => (raw += chunk));
     req.on("end", () => {
-      const body = raw ? (JSON.parse(raw) as { title?: string; agent?: string; model?: { providerID?: string; id?: string; modelID?: string; variant?: string } }) : {};
+      const body = raw ? (JSON.parse(raw) as {
+        title?: string;
+        agent?: string;
+        parentID?: string;
+        metadata?: Record<string, unknown>;
+        permission?: PermissionRule[];
+        model?: { providerID?: string; id?: string; modelID?: string; variant?: string };
+      }) : {};
       sessionPayloads.push(body);
       if (body.model && (!body.model.providerID || !body.model.id || body.model.modelID)) {
         return json(res, 400, { error: "session model must use providerID and id" });
       }
       const created = {
-        id: `ses_mock_new_${Date.now()}`,
+        id: `ses_mock_new_${++createdSessionSequence}`,
         title: body.title ?? "Untitled session",
         directory: directory ?? MOCK_DIRECTORY,
         agent: body.agent,
+        parentID: body.parentID,
         model: body.model,
-        permission: [],
+        metadata: body.metadata,
+        permission: body.permission ?? [],
         cost: 0,
         tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
         time: { created: Date.now(), updated: Date.now() },
@@ -1116,6 +1177,9 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
         };
         const parts = Array.isArray(input.parts) ? input.parts as Array<Record<string, unknown>> : [];
         const text = parts.find((part) => part.type === "text")?.text;
+        if (text === "FAIL_MANAGED_PROMPT") {
+          return json(res, 503, { error: "mock managed prompt failure" });
+        }
         if (typeof text === "string") {
           const now = Date.now();
           const sessionMessages = messages.get(id) ?? [];
@@ -1136,6 +1200,24 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
             },
             parts: [{ id: `prt_user_${now}`, messageID: `msg_user_${now}`, type: "text", text }],
           });
+          if (session.metadata?.customDcaManagedChild) {
+            sessionMessages.push({
+              info: {
+                id: `msg_assistant_${now}`,
+                role: "assistant",
+                agent: input.agent,
+                modelID: promptModel?.modelID ?? session.model?.id,
+                providerID: promptModel?.providerID ?? session.model?.providerID,
+                time: { created: now + 1, completed: now + 2 },
+              },
+              parts: [{
+                id: `prt_assistant_${now}`,
+                messageID: `msg_assistant_${now}`,
+                type: "text",
+                text: "Managed child completed its mock assignment.",
+              }],
+            });
+          }
           messages.set(id, sessionMessages);
         }
         res.writeHead(204).end(); // 204, no body — the real contract.
@@ -1165,7 +1247,15 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     if (!session) return unknownError(res);
 
     if (rest === "") {
-      if (req.method === "DELETE") return json(res, 200, true);
+      if (req.method === "DELETE") {
+        if (session.parentID === MANAGED_CLEANUP_FAILURE_PARENT) {
+          return json(res, 503, { error: "mock managed cleanup failure" });
+        }
+        const index = SESSIONS.indexOf(session);
+        if (index >= 0) SESSIONS.splice(index, 1);
+        messages.delete(id);
+        return json(res, 200, true);
+      }
       if (req.method === "PATCH") {
         if (directory === POLICY_FAILURE_DIRECTORY) return json(res, 503, { error: "mock policy activation failed" });
         void body(req).then(async (patch) => {

@@ -12,6 +12,8 @@
 //   - status() only reports sessions owned by the current server process,
 //     which is exactly what makes crash detection possible (detectInterrupted).
 
+import { createHash } from "node:crypto";
+
 import { withReminderTag, type ReminderPreset } from "../reminders/reminders.js";
 import { isSensitiveWorkspacePath } from "../paths.js";
 import { request, requestWithResponse, type OpencodeConfig } from "./client.js";
@@ -46,6 +48,15 @@ interface PermissionRule {
 }
 
 type PermissionRuleset = PermissionRule[];
+
+export interface ManagedChildMetadata {
+  origin: "managed-human";
+  requestedMode: AgentMode;
+  requestedModel?: ModelSelection;
+  background: true;
+  policySource: "creation-permission";
+  effectivePolicyObserved: boolean;
+}
 
 interface RawAgent {
   name?: string;
@@ -98,6 +109,10 @@ function rulesEndWith(rules: PermissionRuleset, suffix: PermissionRuleset): bool
       && existing.pattern === rule.pattern
       && existing.action === rule.action;
   });
+}
+
+function rulesEqual(left: PermissionRuleset, right: PermissionRuleset): boolean {
+  return left.length === right.length && rulesEndWith(left, right);
 }
 
 function permissionNames(tool: string): Set<string> {
@@ -181,6 +196,8 @@ export interface SessionSummary {
   childCount: number;
   agent?: string;
   model?: { providerID?: string; modelID?: string; variant?: string };
+  /** Present only for children explicitly launched by a human through the BFF. */
+  managed?: ManagedChildMetadata;
   cost: number;
   tokens: {
     input: number;
@@ -204,6 +221,7 @@ interface RawSession {
   parentID?: string;
   agent?: string;
   model?: { providerID?: string; modelID?: string; id?: string; variant?: string };
+  metadata?: Record<string, unknown>;
   cost?: number;
   tokens?: {
     input?: number;
@@ -214,6 +232,48 @@ interface RawSession {
   permission?: PermissionRuleset;
   share?: { url?: unknown };
   time?: { created?: number; updated?: number; archived?: number };
+}
+
+const MANAGED_METADATA_KEY = "customDcaManagedChild";
+
+function policyFingerprint(permission: PermissionRuleset): string {
+  return createHash("sha256").update(JSON.stringify(permission)).digest("hex");
+}
+
+function managedChildMetadata(value: unknown, permission?: PermissionRuleset): ManagedChildMetadata | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const source = (value as Record<string, unknown>)[MANAGED_METADATA_KEY];
+  if (!source || typeof source !== "object" || Array.isArray(source)) return undefined;
+  const record = source as Record<string, unknown>;
+  if (
+    record.origin !== "managed-human" ||
+    record.background !== true ||
+    (record.requestedMode !== "plan" && record.requestedMode !== "build")
+  ) {
+    return undefined;
+  }
+  const model = record.requestedModel;
+  const requestedModel = model && typeof model === "object" && !Array.isArray(model)
+    && typeof (model as Record<string, unknown>).providerID === "string"
+    && typeof (model as Record<string, unknown>).modelID === "string"
+    ? {
+        providerID: (model as Record<string, string>).providerID,
+        modelID: (model as Record<string, string>).modelID,
+        ...(typeof (model as Record<string, unknown>).variant === "string"
+          ? { variant: (model as Record<string, string>).variant }
+          : {}),
+      }
+    : undefined;
+  return {
+    origin: "managed-human",
+    requestedMode: record.requestedMode,
+    ...(requestedModel ? { requestedModel } : {}),
+    background: true,
+    policySource: "creation-permission",
+    effectivePolicyObserved: validRuleset(permission)
+      && typeof record.policyFingerprint === "string"
+      && record.policyFingerprint === policyFingerprint(permission),
+  };
 }
 
 export interface SessionMetadata {
@@ -282,10 +342,9 @@ async function activateModePolicy(
   mode: AgentMode,
 ): Promise<void> {
   try {
-    const [toolIDs, session, agents, messages] = await Promise.all([
-      request<unknown>(config, "/experimental/tool/ids", { directory }),
+    const [desiredRules, session, messages] = await Promise.all([
+      resolveModePolicy(config, directory, mode),
       request<RawSession>(config, `/session/${encodeURIComponent(sessionID)}`, { directory }),
-      request<unknown>(config, "/agent", { directory }),
       request<RawMessage[]>(config, `/session/${encodeURIComponent(sessionID)}/message`, {
         directory,
         query: { limit: 100 },
@@ -296,28 +355,13 @@ async function activateModePolicy(
     }
     if (!Array.isArray(messages)) throw new Error("invalid session message history");
     assertModeAgentIdentity(session, messages);
-    if (!Array.isArray(toolIDs) || toolIDs.length === 0 || toolIDs.some((id) => typeof id !== "string" || !id)) {
-      throw new Error("invalid tool catalogue");
-    }
-    if (!Array.isArray(agents)) throw new Error("invalid agent catalogue");
-    const agent = (agents as RawAgent[]).find((candidate) => candidate?.name === mode);
-    const agentRules = agent?.permission;
-    if (!validRuleset(agentRules)) throw new Error(`missing resolved ${mode} agent policy`);
-
-    const restrictedTools = toolIDs.filter((id): id is string => typeof id === "string" && !PLAN_TOOL_ALLOWLIST.has(id));
-    if (restrictedTools.length === 0) throw new Error("tool catalogue has no restricted tools");
     const currentRules = session.permission ?? [];
-    const desiredRules = mode === "plan"
-      ? restrictedTools.map((permission) => ({ permission, pattern: "*", action: "deny" as const }))
-      : buildRulesForTools(agentRules, toolIDs);
-    if (mode === "build" && toolIDs.some((tool) => {
-      const names = permissionNames(tool);
-      return !agentRules.some((rule) => names.has(rule.permission));
-    })) {
-      throw new Error("Build agent policy does not cover every discovered tool");
-    }
     if (rulesEndWith(currentRules, desiredRules)) return;
-    if (mode === "build" && !hasPlanDenial(currentRules, restrictedTools)) return;
+    if (mode === "build" && !hasPlanDenial(
+      currentRules,
+      desiredRules.map((rule) => rule.permission).filter((permission, index, all) =>
+        !PLAN_TOOL_ALLOWLIST.has(permission) && all.indexOf(permission) === index),
+    )) return;
 
     await request<RawSession>(config, `/session/${encodeURIComponent(sessionID)}`, {
       method: "PATCH",
@@ -328,6 +372,38 @@ async function activateModePolicy(
     if (error instanceof SessionAgentIdentityError) throw error;
     throw new ModePolicyActivationError(mode);
   }
+}
+
+async function resolveModePolicy(
+  config: OpencodeConfig,
+  directory: string,
+  mode: AgentMode,
+): Promise<PermissionRuleset> {
+  const [toolIDs, agents] = await Promise.all([
+    request<unknown>(config, "/experimental/tool/ids", { directory }),
+    request<unknown>(config, "/agent", { directory }),
+  ]);
+  if (!Array.isArray(toolIDs) || toolIDs.length === 0 || toolIDs.some((id) => typeof id !== "string" || !id)) {
+    throw new Error("invalid tool catalogue");
+  }
+  if (!Array.isArray(agents)) throw new Error("invalid agent catalogue");
+  const agent = (agents as RawAgent[]).find((candidate) => candidate?.name === mode);
+  const agentRules = agent?.permission;
+  if (!validRuleset(agentRules)) throw new Error(`missing resolved ${mode} agent policy`);
+
+  const tools = toolIDs as string[];
+  const restrictedTools = tools.filter((id) => !PLAN_TOOL_ALLOWLIST.has(id));
+  if (restrictedTools.length === 0) throw new Error("tool catalogue has no restricted tools");
+  if (mode === "plan") {
+    return restrictedTools.map((permission) => ({ permission, pattern: "*", action: "deny" }));
+  }
+  if (tools.some((tool) => {
+    const names = permissionNames(tool);
+    return !agentRules.some((rule) => names.has(rule.permission));
+  })) {
+    throw new Error("Build agent policy does not cover every discovered tool");
+  }
+  return buildRulesForTools(agentRules, tools);
 }
 
 export function toSummary(raw: RawSession, running: boolean): SessionSummary {
@@ -342,6 +418,7 @@ export function toSummary(raw: RawSession, running: boolean): SessionSummary {
     model: raw.model
       ? { providerID: raw.model.providerID, modelID: raw.model.modelID ?? raw.model.id, variant: raw.model.variant }
       : undefined,
+    managed: managedChildMetadata(raw.metadata, raw.permission),
     cost: raw.cost ?? 0,
     tokens: {
       input: raw.tokens?.input ?? 0,
@@ -565,6 +642,8 @@ export interface CreateSessionInput {
   agent?: string;
   model?: ModelSelection;
   parentID?: string;
+  metadata?: Record<string, unknown>;
+  permission?: PermissionRuleset;
 }
 
 export async function createSession(
@@ -585,6 +664,8 @@ export async function createSession(
         },
       } : {}),
       ...(input.parentID ? { parentID: input.parentID } : {}),
+      ...(input.metadata ? { metadata: input.metadata } : {}),
+      ...(input.permission ? { permission: input.permission } : {}),
     },
   });
   return toSummary(raw ?? {}, false);
@@ -596,6 +677,37 @@ export interface PromptInput {
   model?: ModelSelection;
   attachments?: Array<{ filename: string; mime: string; url: string }>;
   reminder?: Pick<ReminderPreset, "id" | "body">;
+}
+
+async function submitPromptAsync(
+  config: OpencodeConfig,
+  directory: string,
+  sessionID: string,
+  input: PromptInput,
+): Promise<void> {
+  await request<void>(config, `/session/${encodeURIComponent(sessionID)}/prompt_async`, {
+    method: "POST",
+    directory,
+    body: {
+      agent: input.mode,
+      ...(input.model ? {
+        model: { providerID: input.model.providerID, modelID: input.model.modelID },
+        ...(input.model.variant ? { variant: input.model.variant } : {}),
+      } : {}),
+      parts: [
+        {
+          type: "text",
+          text: input.reminder ? withReminderTag(input.text, input.reminder) : input.text,
+        },
+        ...(input.attachments ?? []).map((attachment) => ({
+          type: "file" as const,
+          mime: attachment.mime,
+          filename: attachment.filename,
+          url: attachment.url,
+        })),
+      ],
+    },
+  });
 }
 
 /**
@@ -613,30 +725,154 @@ export async function prompt(
 ): Promise<void> {
   await withSessionPromptLock(directory, sessionID, async () => {
     await activateModePolicy(config, directory, sessionID, input.mode);
-    await request<void>(config, `/session/${encodeURIComponent(sessionID)}/prompt_async`, {
-      method: "POST",
-      directory,
-      body: {
-        agent: input.mode,
-        ...(input.model ? {
-          model: { providerID: input.model.providerID, modelID: input.model.modelID },
-          ...(input.model.variant ? { variant: input.model.variant } : {}),
-        } : {}),
-        parts: [
-          {
-            type: "text",
-            text: input.reminder ? withReminderTag(input.text, input.reminder) : input.text,
-          },
-          ...(input.attachments ?? []).map((attachment) => ({
-            type: "file" as const,
-            mime: attachment.mime,
-            filename: attachment.filename,
-            url: attachment.url,
-          })),
-        ],
-      },
-    });
+    await submitPromptAsync(config, directory, sessionID, input);
   });
+}
+
+export interface ManagedChildInput {
+  parentID: string;
+  text: string;
+  mode: AgentMode;
+  model?: ModelSelection;
+  idempotencyKey: string;
+}
+
+interface ManagedLaunchEntry {
+  fingerprint: string;
+  promise: Promise<SessionSummary>;
+  settled: boolean;
+}
+
+const managedLaunches = new Map<string, ManagedLaunchEntry>();
+const MANAGED_LAUNCH_LIMIT = 500;
+
+export class ManagedChildIdempotencyError extends Error {
+  constructor() {
+    super("idempotency key was already used for a different managed child launch");
+    this.name = "ManagedChildIdempotencyError";
+  }
+}
+
+export class ManagedChildCapacityError extends Error {
+  constructor() {
+    super("too many managed child launches are still in progress");
+    this.name = "ManagedChildCapacityError";
+  }
+}
+
+export class ManagedChildCleanupError extends Error {
+  constructor(readonly childID: string, launchError: unknown, cleanupError: unknown) {
+    super(`Managed child launch failed (${launchError instanceof Error ? launchError.message : String(launchError)}), and ${childID} may still exist because cleanup also failed: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`);
+    this.name = "ManagedChildCleanupError";
+  }
+}
+
+function managedChildTitle(text: string): string {
+  const firstLine = text.split(/\r?\n/u, 1)[0]?.replace(/\s+/gu, " ").trim() || "Managed sub-agent";
+  return firstLine.length > 80 ? `${firstLine.slice(0, 79)}…` : firstLine;
+}
+
+export function createManagedChild(
+  config: OpencodeConfig,
+  directory: string,
+  input: ManagedChildInput,
+): Promise<SessionSummary> {
+  const key = `${directory}\0${input.parentID}\0${input.idempotencyKey}`;
+  const fingerprint = JSON.stringify({
+    parentID: input.parentID,
+    text: input.text,
+    mode: input.mode,
+    model: input.model,
+  });
+  const existing = managedLaunches.get(key);
+  if (existing) {
+    if (existing.fingerprint !== fingerprint) return Promise.reject(new ManagedChildIdempotencyError());
+    return existing.promise;
+  }
+
+  if (managedLaunches.size >= MANAGED_LAUNCH_LIMIT) {
+    const settled = [...managedLaunches].find(([, entry]) => entry.settled)?.[0];
+    if (settled) managedLaunches.delete(settled);
+    else return Promise.reject(new ManagedChildCapacityError());
+  }
+
+  const launch = (async () => {
+    let child: SessionSummary | undefined;
+    try {
+      let permission: PermissionRuleset;
+      try {
+        permission = await resolveModePolicy(config, directory, input.mode);
+      } catch {
+        throw new ModePolicyActivationError(input.mode);
+      }
+      const managed = {
+        origin: "managed-human",
+        requestedMode: input.mode,
+        ...(input.model ? { requestedModel: input.model } : {}),
+        background: true as const,
+        policyFingerprint: policyFingerprint(permission),
+      };
+      child = await createSession(config, {
+        directory,
+        parentID: input.parentID,
+        title: managedChildTitle(input.text),
+        agent: input.mode,
+        model: input.model,
+        permission,
+        metadata: { [MANAGED_METADATA_KEY]: managed },
+      });
+      const persisted = await request<RawSession>(config, `/session/${encodeURIComponent(child.id)}`, { directory });
+      const persistedModelID = persisted.model?.modelID ?? persisted.model?.id;
+      const persistedManaged = managedChildMetadata(persisted.metadata, persisted.permission);
+      if (
+        !child.id ||
+        persisted.id !== child.id ||
+        persisted.directory !== directory ||
+        persisted.parentID !== input.parentID ||
+        persisted.agent !== input.mode ||
+        !validRuleset(persisted.permission) ||
+        !rulesEqual(persisted.permission, permission) ||
+        persistedManaged?.requestedMode !== input.mode ||
+        persistedManaged?.background !== true ||
+        persistedManaged?.effectivePolicyObserved !== true ||
+        (input.model && (
+          persisted.model?.providerID !== input.model.providerID ||
+          persistedModelID !== input.model.modelID ||
+          persisted.model?.variant !== input.model.variant ||
+          persistedManaged?.requestedModel?.providerID !== input.model.providerID ||
+          persistedManaged?.requestedModel?.modelID !== input.model.modelID ||
+          persistedManaged?.requestedModel?.variant !== input.model.variant
+        )) ||
+        (!input.model && persistedManaged?.requestedModel !== undefined)
+      ) {
+        throw new Error("OpenCode did not persist the managed child configuration exactly");
+      }
+      child = toSummary(persisted, false);
+      await withSessionPromptLock(directory, child.id, () => submitPromptAsync(config, directory, child!.id, {
+        text: input.text,
+        mode: input.mode,
+        model: input.model,
+      }));
+      return child;
+    } catch (error) {
+      if (child?.id) {
+        try {
+          await deleteSession(config, directory, child.id);
+        } catch (cleanupError) {
+          throw new ManagedChildCleanupError(child.id, error, cleanupError);
+        }
+      }
+      throw error;
+    }
+  })();
+
+  const entry: ManagedLaunchEntry = { fingerprint, promise: launch, settled: false };
+  managedLaunches.set(key, entry);
+  void launch.then(
+    () => { entry.settled = true; },
+    () => { if (managedLaunches.get(key) === entry) managedLaunches.delete(key); },
+  );
+  return launch;
 }
 
 export async function abortSession(

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  createSession,
   getSessionTurnDiff,
   listMessages,
   messagePageCursor,
@@ -36,6 +37,68 @@ describe("session summary share state", () => {
   ])("omits an unsafe upstream share URL: %s", (url) => {
     const summary = toSummary({ share: { url } } as Parameters<typeof toSummary>[0], false);
     expect(summary.shareUrl).toBeUndefined();
+  });
+});
+
+describe("managed child session creation", () => {
+  it("forwards the parent, model, metadata and creation-time policy without leaking raw metadata", async () => {
+    let payload: Record<string, unknown> | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      payload = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return Response.json({
+        id: "ses_child",
+        title: "Managed child",
+        directory: "/tmp/project",
+        parentID: "ses_parent",
+        agent: "build",
+        model: { providerID: "anthropic", id: "claude-opus-5" },
+        metadata: payload?.metadata,
+        permission: payload?.permission,
+        time: { created: 1, updated: 2 },
+      });
+    }));
+
+    const summary = await createSession({ baseUrl: "http://opencode.test" }, {
+      directory: "/tmp/project",
+      parentID: "ses_parent",
+      title: "Managed child",
+      agent: "build",
+      model: { providerID: "anthropic", modelID: "claude-opus-5" },
+      metadata: {
+        customDcaManagedChild: {
+          origin: "managed-human",
+          requestedMode: "build",
+          requestedModel: { providerID: "anthropic", modelID: "claude-opus-5" },
+          background: true,
+          policyFingerprint: "invalid-until-replaced-below",
+        },
+        private: "must not escape",
+      },
+      permission: [{ permission: "bash", pattern: "*", action: "allow" }],
+    });
+
+    expect(payload).toMatchObject({
+      parentID: "ses_parent",
+      agent: "build",
+      model: { providerID: "anthropic", id: "claude-opus-5" },
+      permission: [{ permission: "bash", pattern: "*", action: "allow" }],
+    });
+    expect(summary.managed).toMatchObject({
+      origin: "managed-human",
+      requestedMode: "build",
+      requestedModel: { providerID: "anthropic", modelID: "claude-opus-5" },
+      background: true,
+      policySource: "creation-permission",
+      effectivePolicyObserved: false,
+    });
+    expect(summary).not.toHaveProperty("metadata");
+  });
+
+  it("ignores untrusted metadata that does not match the managed launch marker", () => {
+    const summary = toSummary({
+      metadata: { customDcaManagedChild: { origin: "agent", requestedMode: "build" } },
+    } as Parameters<typeof toSummary>[0], false);
+    expect(summary.managed).toBeUndefined();
   });
 });
 

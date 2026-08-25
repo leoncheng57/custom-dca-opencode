@@ -71,7 +71,12 @@ function TaskRow({
       )}
 
       <div className="mt-1.5 flex flex-wrap gap-x-2 gap-y-1 text-[10px] text-[var(--color-text-muted)]">
+        {task.origin === "managed-human" && <Badge variant="info" className="text-[9px]" data-testid="opencode-subagent-origin">Human launch</Badge>}
+        {task.origin === "native-task" && <Badge variant="neutral" className="text-[9px]" data-testid="opencode-subagent-origin">Native task</Badge>}
         {task.agent && <span data-testid="opencode-subagent-agent">agent: {task.agent}</span>}
+        {task.requestedMode && <span data-testid="opencode-subagent-requested-mode">requested: {task.requestedMode}</span>}
+        {task.requestedModel && <span data-testid="opencode-subagent-requested-model">{task.requestedModel.providerID}/{task.requestedModel.modelID}{task.requestedModel.variant ? ` · ${task.requestedModel.variant}` : ""}</span>}
+        {task.origin === "managed-human" && <span data-testid="opencode-subagent-policy-status">policy: {task.effectivePolicyObserved ? "verified at launch" : "unknown"}</span>}
         {task.background && <span data-testid="opencode-subagent-background">background</span>}
         {task.cost > 0 && <span className="tabular-nums">{formatCost(task.cost)}</span>}
         <span>{formatRelative(task.updatedAt)}</span>
@@ -130,6 +135,7 @@ export function SubagentPanel({
   onRefresh,
   onAbort,
   onPromote,
+  onOpenLaunch,
 }: {
   directory: string;
   report: SubagentReport | null;
@@ -141,6 +147,7 @@ export function SubagentPanel({
   onRefresh: () => void;
   onAbort: (childID: string) => void;
   onPromote: () => void;
+  onOpenLaunch: () => void;
 }) {
   const tasks = report?.tasks ?? [];
   const summary = summarizeSubagentStates(tasks);
@@ -153,9 +160,12 @@ export function SubagentPanel({
         <h2 className="text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]">
           Delegated sub-agents
         </h2>
-        <Button size="sm" variant="secondary" disabled={loading} onClick={onRefresh} data-testid="opencode-subagents-refresh">
-          {loading ? "Refreshing..." : "Refresh"}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          {report?.capabilities.managedChildren && <Button size="sm" className="pointer-coarse:min-h-11" onClick={onOpenLaunch} data-testid="opencode-managed-child-open">Launch child</Button>}
+          <Button size="sm" variant="secondary" disabled={loading} onClick={onRefresh} data-testid="opencode-subagents-refresh">
+            {loading ? "Refreshing..." : "Refresh"}
+          </Button>
+        </div>
       </div>
 
       {summary.length > 0 && (
