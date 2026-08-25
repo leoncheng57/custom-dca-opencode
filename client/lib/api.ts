@@ -73,6 +73,8 @@ export interface SubagentTask {
   requestedMode?: AgentMode;
   requestedAgent?: ManagedChildAgent;
   requestedModel?: ModelSelection;
+  /** Model the task tool resolved for a native child; provenance only. */
+  model?: { providerID: string; modelID: string };
   policySource?: "creation-permission";
   effectivePolicyObserved?: boolean;
   description?: string;

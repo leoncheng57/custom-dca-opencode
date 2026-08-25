@@ -122,6 +122,7 @@ function TaskRow({
         {task.agent && task.origin !== "managed-human" && <span data-testid="opencode-subagent-agent">agent: {task.agent}</span>}
         {task.requestedAgent && <span data-testid="opencode-managed-child-requested-agent">agent: {task.requestedAgent}</span>}
         {task.requestedModel && <span data-testid="opencode-subagent-requested-model">{task.requestedModel.providerID}/{task.requestedModel.modelID}{task.requestedModel.variant ? ` · ${task.requestedModel.variant}` : ""}</span>}
+        {!task.requestedModel && task.model && <span className="break-all" data-testid="opencode-subagent-model">{task.model.providerID}/{task.model.modelID}</span>}
         {task.origin === "managed-human" && <span data-testid="opencode-subagent-policy-status">policy: {task.effectivePolicyObserved ? "verified at launch" : "unknown"}</span>}
         {task.background && <span data-testid="opencode-subagent-background">background</span>}
         {task.cost > 0 && <span className="tabular-nums">{formatCost(task.cost)}</span>}

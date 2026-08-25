@@ -296,6 +296,16 @@ several decisions below.
     native derivation copies a historical parent deny but discards its later Build allow. The
     resolved Plan agent alone is not read-only after project policy merges, so session-level Plan
     enforcement remains required.
+    #75's asymmetry is fixed upstream in anomalyco/opencode#45064 (drop a copied deny when a
+    later rule supersedes it for the exact permission+pattern), and the reference deployment's
+    `ai.opencode.serve` LaunchAgent runs a patched binary
+    (`~/.opencode/bin/opencode-1.18.22-dca`, branch `v1.18.22-dca` in the local opencode
+    checkout = v1.18.22 + that commit; stock plist preserved as
+    `.state/launchd/ai.opencode.serve.plist.bak-stock-binary`). Verified live: a parent with
+    appended `[bash deny, bash allow]` spawned a task child with no inherited bash deny that ran
+    bash successfully. When the upstream fix ships in a release, bump the pin, point the plist
+    back at the stock binary, and re-run the probes. Session-level Plan enforcement is still
+    required regardless — the resolved Plan agent is not read-only after project merges.
 20. **A file reference is data the server verified, never a URL the client trusted.**
     The client contract is `WorkspaceTarget { path, startLine?, endLine? }`, not a route:
     following a reference must not change the browser location, because the drawer is a

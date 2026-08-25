@@ -65,6 +65,12 @@ export interface SubagentTask {
   requestedMode?: "plan" | "build";
   requestedAgent?: ManagedChildAgent;
   requestedModel?: ModelSelection;
+  /**
+   * Model the task tool actually resolved for a native child (issue #90).
+   * Provenance, not a control: per-delegation model selection needs an
+   * upstream task-tool parameter that does not exist yet.
+   */
+  model?: { providerID: string; modelID: string };
   policySource?: "creation-permission";
   effectivePolicyObserved?: boolean;
   /** One-line delegation intent from the task tool input. */
@@ -144,6 +150,12 @@ export interface TaskLaunch {
   error?: string;
   launchedAt: number;
   updatedAt: number;
+  /**
+   * Model the task tool resolved for the child (issue #90): the subagent's
+   * configured model, or the parent's model at delegation time. Provenance
+   * from launch metadata — the task tool offers no per-delegation override.
+   */
+  model?: { providerID: string; modelID: string };
 }
 
 function text(value: unknown): string | undefined {
@@ -169,6 +181,14 @@ export function childSessionIdOf(part: RawPart): string | undefined {
   if (!metadata || typeof metadata !== "object") return undefined;
   const source = metadata as Record<string, unknown>;
   return text(source.sessionId) ?? text(source.sessionID);
+}
+
+function launchModel(metadata: Record<string, unknown>): TaskLaunch["model"] {
+  const source = metadata.model;
+  if (!source || typeof source !== "object") return undefined;
+  const providerID = text((source as Record<string, unknown>).providerID);
+  const modelID = text((source as Record<string, unknown>).modelID);
+  return providerID && modelID ? { providerID, modelID } : undefined;
 }
 
 function launchStatus(raw: string | undefined): TaskLaunch["status"] {
@@ -220,6 +240,9 @@ export function collectTaskLaunches(messages: RawTranscriptMessage[]): TaskLaunc
         error: text(state.error) ?? existing?.error,
         launchedAt: existing ? Math.min(existing.launchedAt, at) : at,
         updatedAt: existing ? Math.max(existing.updatedAt, updated) : updated,
+        ...((launchModel(metadata) ?? existing?.model)
+          ? { model: launchModel(metadata) ?? existing?.model }
+          : {}),
       };
       byChild.set(sessionID, launch);
     }
@@ -398,7 +421,12 @@ export function deriveSubagentTasks(input: DeriveSubagentsInput): SubagentTask[]
             policySource: child.managed.policySource,
             effectivePolicyObserved: child.managed.effectivePolicyObserved,
           }
-        : launch ? { origin: "native-task" as const } : {}),
+        : launch
+          ? {
+              origin: "native-task" as const,
+              ...(launch.model ? { model: launch.model } : {}),
+            }
+          : {}),
       background: child?.managed?.background === true || launch?.background === true,
       present: child !== undefined,
       createdAt,
