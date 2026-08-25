@@ -20,6 +20,7 @@ import { WorkflowPicker } from "../components/workflow-picker.js";
 import { api, ApiError, formatCost, type ReminderSummary, type SessionSummary, type WorkflowSummary } from "../lib/api.js";
 import { latestModeMessageID, modeFromSession, type AgentMode } from "../lib/agentMode.js";
 import { MAX_IMAGE_ATTACHMENTS, readImageAttachment, selectImageFiles, type ImageAttachment } from "../lib/attachments.js";
+import { createComposerCollapseGuard } from "../lib/composerCollapse.js";
 import { composerEnterAction } from "../lib/composerKeys.js";
 import { collapseActionGroups, mergeEvents, runningActivity } from "../lib/derive.js";
 import { normalizeTranscript, type RawMessage } from "../lib/events.js";
@@ -98,7 +99,7 @@ export function ConversationPage() {
   const [composerCollapsed, setComposerCollapsed] = useState(false);
   const composerCardRef = useRef<HTMLDivElement | null>(null);
   const [autoSafetyOpen, setAutoSafetyOpen] = useState(false);
-  const composerWorkflowRef = useRef(false);
+  const collapseGuard = useRef(createComposerCollapseGuard());
   const [stopConfirmOpen, setStopConfirmOpen] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [stopError, setStopError] = useState<string | null>(null);
@@ -807,10 +808,7 @@ export function ConversationPage() {
               {attachments.length > 0 && <span className="text-xs">{attachments.length} attached</span>}
             </button>
           ) : <>
-          <div className="mb-2 flex min-w-0 flex-wrap items-center gap-2" onPointerDownCapture={() => {
-            composerWorkflowRef.current = true;
-            requestAnimationFrame(() => { composerWorkflowRef.current = false; });
-          }}>
+          <div className="mb-2 flex min-w-0 flex-wrap items-center gap-2" onPointerDownCapture={() => collapseGuard.current.markControlInteraction()}>
             <AgentModeToggle mode={agentIdentityKnown ? mode : undefined} onChange={selectMode} disabled={!agentIdentityKnown} testId="opencode-composer-mode" />
             <ModelPicker
               catalogue={modelCatalogue}
@@ -854,11 +852,16 @@ export function ConversationPage() {
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={submitOnEnter}
-              onFocus={() => setComposerCollapsed(false)}
+              onFocus={() => {
+                setComposerCollapsed(false);
+                collapseGuard.current.markComposerFocus();
+              }}
               onBlur={() => {
                 requestAnimationFrame(() => {
-                  if (!composerWorkflowRef.current && window.matchMedia("(max-width: 639.98px)").matches &&
-                      !composerCardRef.current?.contains(document.activeElement)) {
+                  if (collapseGuard.current.shouldCollapseOnBlur({
+                    narrowViewport: window.matchMedia("(max-width: 639.98px)").matches,
+                    focusInsideComposer: composerCardRef.current?.contains(document.activeElement) ?? false,
+                  })) {
                     setComposerCollapsed(true);
                   }
                 });
@@ -883,11 +886,11 @@ export function ConversationPage() {
                 interrupted, permission and question banners at once leaves the
                 transcript only a sliver of a 720px viewport, so every pixel the
                 footer takes comes straight out of readable transcript. */}
-            <div className="flex min-w-0 items-center gap-2 border-t border-[var(--color-border-default)] px-2 py-2 sm:py-1">
-              <label className="inline-flex min-h-11 shrink-0 cursor-pointer items-center rounded-md px-2.5 text-xs font-semibold text-[var(--color-text-muted)] hover:bg-[var(--hh-row-hover)] hover:text-[var(--color-text-default)] sm:min-h-8" onPointerDown={() => {
-                composerWorkflowRef.current = true;
-                requestAnimationFrame(() => { composerWorkflowRef.current = false; });
-              }} data-testid="opencode-attach-label">
+            {/* The whole row arms the collapse guard: Reminder, Workflows and
+                Send used to sit outside the Attach-only guard, so tapping them
+                with the keyboard open collapsed the composer mid-tap. */}
+            <div className="flex min-w-0 items-center gap-2 border-t border-[var(--color-border-default)] px-2 py-2 sm:py-1" onPointerDownCapture={() => collapseGuard.current.markControlInteraction()}>
+              <label className="inline-flex min-h-11 shrink-0 cursor-pointer items-center rounded-md px-2.5 text-xs font-semibold text-[var(--color-text-muted)] hover:bg-[var(--hh-row-hover)] hover:text-[var(--color-text-default)] sm:min-h-8" data-testid="opencode-attach-label">
                 Attach
                 <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple className="sr-only" data-testid="opencode-attach" onChange={(event) => {
                   addAttachments(event.target.files ?? []);
