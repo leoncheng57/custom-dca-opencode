@@ -326,7 +326,11 @@ several decisions below.
   enforced twice, by `EditorState.readOnly` and `EditorView.editable`, because this
   surface must never imply the reader can save. The grammar list is short on purpose:
   every grammar is bytes in that chunk, and an unknown extension renders as plain text
-  rather than being guessed at.
+  rather than being guessed at. `@lezer/highlight` is a direct dependency because the
+  viewer maps grammar roles onto app-owned semantic syntax tokens; CodeMirror's fixed
+  default palette contains low-contrast primary blue and purple on this app's dark
+  surface. Both light and dark token sets must keep every syntax foreground at WCAG AA
+  text contrast against the editor surface.
 - The transcript renderer consumes a backend-neutral `TranscriptEvent`. Row components
   must never touch raw OpenCode `Part` shapes — that mapping lives in exactly one place
   (`client/lib/events.ts`), which is what made this migration a ~363-line adapter

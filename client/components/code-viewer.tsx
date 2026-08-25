@@ -17,8 +17,9 @@
 import { useEffect, useRef } from "react";
 import { Compartment, EditorState, StateEffect, StateField, type Extension } from "@codemirror/state";
 import { Decoration, EditorView, keymap, lineNumbers, type DecorationSet } from "@codemirror/view";
-import { defaultHighlightStyle, syntaxHighlighting } from "@codemirror/language";
+import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { openSearchPanel, search, searchKeymap } from "@codemirror/search";
+import { tags } from "@lezer/highlight";
 import { css } from "@codemirror/lang-css";
 import { html } from "@codemirror/lang-html";
 import { javascript } from "@codemirror/lang-javascript";
@@ -135,6 +136,27 @@ const THEME = EditorView.theme({
   },
 });
 
+/**
+ * App-owned highlighting rather than CodeMirror's fixed default palette.
+ *
+ * `defaultHighlightStyle` includes browser-primary blue and dark purple that
+ * are nearly unreadable on this app's dark surface. Semantic CSS variables let
+ * the same grammar remain high-contrast in both appearances without coupling
+ * the viewer to a third-party light or dark theme.
+ */
+const HIGHLIGHT_STYLE = HighlightStyle.define([
+  { tag: tags.comment, color: "var(--color-syntax-comment)" },
+  { tag: [tags.keyword, tags.modifier], color: "var(--color-syntax-keyword)", fontWeight: "600" },
+  { tag: [tags.typeName, tags.className, tags.namespace], color: "var(--color-syntax-name)" },
+  { tag: [tags.variableName, tags.propertyName, tags.function(tags.variableName)], color: "var(--color-syntax-name)" },
+  { tag: [tags.string, tags.special(tags.string)], color: "var(--color-syntax-string)" },
+  { tag: [tags.number, tags.bool, tags.null, tags.atom], color: "var(--color-syntax-number)" },
+  { tag: [tags.operator, tags.punctuation, tags.bracket], color: "var(--color-syntax-punctuation)" },
+  { tag: [tags.heading, tags.strong], color: "var(--color-syntax-keyword)", fontWeight: "700" },
+  { tag: [tags.link, tags.url], color: "var(--color-syntax-name)", textDecoration: "underline" },
+  { tag: tags.invalid, color: "var(--color-text-danger)", textDecoration: "underline wavy" },
+]);
+
 const wrapping = new Compartment();
 
 export default function CodeViewer({
@@ -165,7 +187,7 @@ export default function CodeViewer({
           referencedLines,
           search({ top: true }),
           keymap.of(searchKeymap),
-          syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+          syntaxHighlighting(HIGHLIGHT_STYLE, { fallback: true }),
           ...(language ? [language] : []),
           wrapping.of(wrap ? EditorView.lineWrapping : []),
           EditorState.readOnly.of(true),

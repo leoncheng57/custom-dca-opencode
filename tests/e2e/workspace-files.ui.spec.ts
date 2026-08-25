@@ -54,6 +54,46 @@ test.describe("workspace file references", () => {
     expect(await page.getByTestId("opencode-transcript").evaluate((element) => element.scrollTop)).toBe(scrollBefore);
   });
 
+  test("keeps the dark syntax palette distinct and readable", async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem("theme", "dark"));
+    await page.emulateMedia({ colorScheme: "dark" });
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(conversation);
+    await page.getByTestId("opencode-file-reference").filter({ hasText: "src/index.ts:12" }).click();
+    await expect(page.locator("html")).toHaveClass(/dark/);
+
+    const palette = await page.getByTestId("opencode-code-viewer").locator(".cm-content").evaluate((content) => {
+      const parseColor = (value: string): [number, number, number] => {
+        const hex = value.trim().match(/^#([\da-f]{6})$/i)?.[1];
+        if (hex) return [Number.parseInt(hex.slice(0, 2), 16), Number.parseInt(hex.slice(2, 4), 16), Number.parseInt(hex.slice(4, 6), 16)];
+        const components = value.match(/[\d.]+/g)?.slice(0, 3).map(Number);
+        if (!components || components.length !== 3) throw new Error(`Unsupported color: ${value}`);
+        return components as [number, number, number];
+      };
+      const luminance = ([red, green, blue]: [number, number, number]) => {
+        const channel = (value: number) => {
+          const normalized = value / 255;
+          return normalized <= 0.04045 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
+        };
+        return 0.2126 * channel(red) + 0.7152 * channel(green) + 0.0722 * channel(blue);
+      };
+      const rootStyle = getComputedStyle(document.documentElement);
+      const background = luminance(parseColor(rootStyle.getPropertyValue("--color-background-surface")));
+      const colors = [...new Set([...content.querySelectorAll("span")]
+        .filter((element) => element.textContent?.trim())
+        .map((element) => getComputedStyle(element).color))];
+      return colors.map((color) => {
+        const foreground = luminance(parseColor(color));
+        return { color, contrast: (Math.max(background, foreground) + 0.05) / (Math.min(background, foreground) + 0.05) };
+      });
+    });
+
+    expect(palette.length).toBeGreaterThanOrEqual(5);
+    expect(palette.map(({ color }) => color)).not.toContain("rgb(0, 0, 255)");
+    expect(palette.map(({ color }) => color)).not.toContain("rgb(119, 0, 136)");
+    for (const token of palette) expect(token.contrast, token.color).toBeGreaterThanOrEqual(4.5);
+  });
+
   test("bands a whole cited range and re-targets an already open file", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto(conversation);
