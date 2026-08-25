@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 2,
+  "prNumber": 147,
+  "sourceSha": "a0e09a9d27bc871069e67485bede9875167eac08",
+  "capturedAt": "2026-08-25T15:54:55.684Z",
+  "screenshots": [
+    {
+      "requestedRoute": "/planning",
+      "fullPage": true,
+      "captures": {
+        "desktop": {
+          "filename": "01-planning-af8ae6e4--desktop--full.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 1001
+          },
+          "bytes": 93380,
+          "sha256": "1fff3e0c5838742fcea4ce68e18f1dd58d2b6236c61dd6c580e00a45b1891d4d"
+        },
+        "mobile": {
+          "filename": "01-planning-70dc264f--mobile--full.png",
+          "dimensions": {
+            "width": 390,
+            "height": 1151
+          },
+          "bytes": 87870,
+          "sha256": "113db0b359b5c23388216601920899f8a5aee6ce1bed284128b1ec022a78b9c2"
+        }
+      }
+    }
+  ]
+}
