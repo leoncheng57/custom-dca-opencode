@@ -164,6 +164,92 @@ Output is written to the ignored `screenshot-output/` directory. See the
 [`README.md`](README.md#pr-screenshots) for route validation, fork, publication, and
 troubleshooting details.
 
+### Capture transient UI state locally
+
+Prefer the route-based `screenshots` block above. Reach for a temporary Playwright spec
+only when the state worth reviewing exists solely after an interaction, such as an open
+workspace drawer, a selected file, or an expanded menu. The workflow accepts a fixed list
+of application routes, and some surfaces are deliberately not routes at all: a file
+reference opens the workspace drawer as an overlay without changing the browser location,
+so no route can reach it. `npm run screenshots:local` runs the same route validation and
+does not help either.
+
+Check three unused ports before running anything:
+
+```bash
+for port in 3531 4732 4733; do lsof -nP -iTCP:"$port" -sTCP:LISTEN; done
+```
+
+Silence means all three are free. Outside CI, Playwright reuses a server that is already
+listening, so a spec left on the default `3410`, `4599`, and `4600` can attach to another
+worktree's BFF and mock and silently screenshot that build instead of yours. Do not kill
+another worktree's listeners; pick a different triple.
+
+Write a throwaway spec in [`tests/e2e/`](tests/e2e/) against the read-only
+`ses_mock_files` fixture:
+
+```ts
+import { expect, test } from "@playwright/test";
+
+// The mock canonicalizes its fixture directory, so macOS needs the /private
+// spelling or the session resolves to a different project.
+const DIR = process.platform === "darwin"
+  ? "/private/tmp/mock-files-project"
+  : "/tmp/mock-files-project";
+
+test("capture the workspace drawer", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("theme", "dark"));
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`/sessions/ses_mock_files?directory=${encodeURIComponent(DIR)}`);
+
+  await page
+    .getByTestId("opencode-file-reference")
+    .filter({ hasText: "src/index.ts:12" })
+    .click();
+
+  // Settle on rendered content rather than on a visible container: the drawer
+  // is visible while the viewer inside it is still a spinner.
+  const viewer = page.getByTestId("opencode-code-viewer");
+  await expect(viewer).toContainText("export const DEFAULT_PORT = 3210;");
+
+  await page
+    .getByTestId("opencode-workspace-panels")
+    .screenshot({ path: "screenshot-output/workspace-drawer.png" });
+});
+```
+
+Set the viewport and the dark color scheme explicitly. The published workflow captures
+dark mode at 1280x800 and 390x740, so an image that omits them will not match the rest of
+the review.
+
+Use `locator.screenshot()` when the subject is one component and the surrounding page is
+noise; it crops to the element and stays legible inline. Use `page.screenshot()` when the
+layout itself is the point, when the state spans several panels, or when an overlay is
+anchored to the viewport rather than to its trigger. Add `{ fullPage: true }` only for a
+surface that scrolls.
+
+Run that one file on the ports you checked:
+
+```bash
+PORT=3531 MOCK_OPENCODE_PORT=4732 MOCK_PREVIEW_PORT=4733 \
+  npx playwright test tests/e2e/transient-capture.spec.ts --workers=1
+```
+
+Then clean up:
+
+- Delete the temporary spec. It captures an image instead of asserting behavior, so it is
+  not a test and must not be committed.
+- Keep the PNGs in the ignored `screenshot-output/` directory and attach them to the pull
+  request as uploads.
+- Confirm `git status --short` reports neither the spec nor the images.
+
+A screenshot documents appearance and is not proof that the interaction is correct, so
+keep a real assertion for the behavior in a permanent spec such as
+[`tests/e2e/workspace-files.ui.spec.ts`](tests/e2e/workspace-files.ui.spec.ts). Broader
+capture and publishing automation is tracked in
+[#119](https://github.com/leoncheng57/custom-dca-opencode/issues/119).
+
 ## Security-sensitive changes
 
 OpenCode tools execute on the host as the current user. Changes involving permissions,
