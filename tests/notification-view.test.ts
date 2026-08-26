@@ -4,6 +4,7 @@ import {
   DEFAULT_NOTIFICATION_VIEW,
   loadNotificationView,
   normalizeNotificationView,
+  parseNotificationHistoryState,
   saveNotificationView,
 } from "../client/lib/notificationView.js";
 import {
@@ -34,14 +35,54 @@ describe("notification view preferences", () => {
     expect(DEFAULT_NOTIFICATION_VIEW.resolvedExpanded).toBe(false);
   });
 
+  it("groups by session and folds the groups by default", () => {
+    // Folding is only safe because a collapsed group still names the kinds
+    // waiting inside it; the chip strip is what stops this default hiding an
+    // unanswered permission behind a number.
+    expect(DEFAULT_NOTIFICATION_VIEW.groupBySession).toBe(true);
+    expect(DEFAULT_NOTIFICATION_VIEW.groupsCollapsed).toBe(true);
+  });
+
   it("round-trips through storage", () => {
     const storage = memoryStorage();
-    saveNotificationView({ version: 1, hideAutoApproved: false, hideSubagent: true, resolvedExpanded: true }, storage);
+    saveNotificationView(
+      {
+        version: 1,
+        hideAutoApproved: false,
+        hideSubagent: true,
+        hidePreferenceOff: false,
+        resolvedExpanded: true,
+        groupBySession: false,
+        groupsCollapsed: false,
+      },
+      storage,
+    );
     expect(loadNotificationView(storage)).toEqual({
       version: 1,
       hideAutoApproved: false,
       hideSubagent: true,
+      hidePreferenceOff: false,
       resolvedExpanded: true,
+      groupBySession: false,
+      groupsCollapsed: false,
+    });
+  });
+
+  it("upgrades a view stored before grouping existed without a version bump", () => {
+    // Deployed browsers already hold a v1 view with only the three original
+    // keys. Absent keys have to take the current default, or an existing
+    // device would silently opt out of the feature.
+    const legacy = memoryStorage(
+      JSON.stringify({ version: 1, hideAutoApproved: false, hideSubagent: false, resolvedExpanded: true }),
+    );
+    expect(loadNotificationView(legacy)).toEqual({
+      version: 1,
+      hideAutoApproved: false,
+      hideSubagent: false,
+      hidePreferenceOff: true,
+      resolvedExpanded: true,
+      groupBySession: true,
+      groupsCollapsed: true,
     });
   });
 
@@ -62,6 +103,28 @@ describe("notification view preferences", () => {
     };
     expect(loadNotificationView(blocked)).toEqual(DEFAULT_NOTIFICATION_VIEW);
     expect(() => saveNotificationView(DEFAULT_NOTIFICATION_VIEW, blocked)).not.toThrow();
+  });
+});
+
+describe("notification history state links", () => {
+  it("reads the two shareable states out of the URL", () => {
+    expect(parseNotificationHistoryState("active")).toBe("active");
+    expect(parseNotificationHistoryState("resolved")).toBe("resolved");
+  });
+
+  it("tolerates casing and stray whitespace from a hand-edited link", () => {
+    expect(parseNotificationHistoryState("  Active ")).toBe("active");
+    expect(parseNotificationHistoryState("RESOLVED")).toBe("resolved");
+  });
+
+  it("shows everything rather than erroring on an absent or unknown state", () => {
+    // A stale bookmark should degrade to the whole history, never to a broken
+    // page or an empty list.
+    expect(parseNotificationHistoryState(null)).toBe("all");
+    expect(parseNotificationHistoryState(undefined)).toBe("all");
+    expect(parseNotificationHistoryState("")).toBe("all");
+    expect(parseNotificationHistoryState("all")).toBe("all");
+    expect(parseNotificationHistoryState("pending")).toBe("all");
   });
 });
 

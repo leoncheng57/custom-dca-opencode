@@ -1179,7 +1179,13 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
   }
   if (pathname === "/test/mobile/idle" && req.method === "POST") {
     mobileRunning = false;
-    emit("session.idle", { sessionID: "ses_mock_mobile" });
+    // The session id is a parameter because the BFF deduplicates identical
+    // events within 5 seconds, keyed by directory + type + session. Spec files
+    // run in parallel against this one mock, so two files idling the SAME
+    // session race: one of them silently loses its notification. Callers that
+    // only need "an idle happened" pass their own id and stop colliding.
+    const sessionID = url.searchParams.get("sessionID") || "ses_mock_mobile";
+    emit("session.idle", { sessionID });
     return json(res, 200, true);
   }
   if (pathname === "/test/mobile/grow" && req.method === "POST") {

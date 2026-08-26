@@ -1,12 +1,15 @@
-import { useMemo, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { useCallback, useMemo, useState } from "react";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 
 import { Alert } from "../ds/alert.js";
 import { Badge } from "../ds/badge.js";
 import { Button } from "../ds/button.js";
 import { NotificationFilters } from "../components/notification-filters.js";
+import { NotificationGroup } from "../components/notification-group.js";
 import { NotificationRecordRow } from "../components/notification-record-row.js";
 import type { NotificationHistoryState } from "../lib/api.js";
+import { groupBySession } from "../lib/notificationGroups.js";
+import { NOTIFICATION_STATE_PARAM, parseNotificationHistoryState } from "../lib/notificationView.js";
 import { DIRECTORY_STORAGE_KEY, resolvePaletteDirectory } from "../lib/palette.js";
 import { useNotificationCenter } from "../lib/useNotificationCenter.js";
 
@@ -23,13 +26,34 @@ const STATES: Array<{ value: NotificationHistoryState; label: string }> = [
  */
 export function NotificationsPage() {
   const [error, setError] = useState("");
-  const [historyState, setHistoryState] = useState<NotificationHistoryState>("all");
+  const [searchParams, setSearchParams] = useSearchParams();
+  // The Active/Resolved split lives in the URL, not component state: "show me
+  // what still needs me" is the view worth bookmarking and sharing, and it was
+  // previously unreachable except by clicking.
+  const historyState = parseNotificationHistoryState(searchParams.get(NOTIFICATION_STATE_PARAM));
+  const selectHistoryState = useCallback(
+    (next: NotificationHistoryState) => {
+      const params = new URLSearchParams(searchParams);
+      // "all" is the absence of the parameter, so the canonical link to the
+      // whole history stays the bare route.
+      if (next === "all") params.delete(NOTIFICATION_STATE_PARAM);
+      else params.set(NOTIFICATION_STATE_PARAM, next);
+      // replace, not push: these pills are a filter, and stacking every one of
+      // them on the history stack would make Back stop meaning "the page I came
+      // from".
+      setSearchParams(params, { replace: true });
+    },
+    [searchParams, setSearchParams],
+  );
   const {
     activeCount,
     records,
     suppressedActive,
     view,
     setView,
+    isGroupExpanded,
+    toggleGroup,
+    setAllGroupsCollapsed,
     loading,
     error: historyError,
     setResolved,
@@ -45,6 +69,11 @@ export function NotificationsPage() {
     const wantActive = historyState === "active";
     return records.filter((record) => (record.resolvedAt === undefined) === wantActive);
   }, [records, historyState]);
+
+  const groups = useMemo(
+    () => (view.groupBySession ? groupBySession(visible) : []),
+    [visible, view.groupBySession],
+  );
 
   // The badge above is the server's unwindowed total, but this list is the
   // newest page only. Unresolved records are retained forever and there is no
@@ -85,7 +114,7 @@ export function NotificationsPage() {
               size="sm"
               variant={historyState === state.value ? "secondary" : "ghost"}
               aria-pressed={historyState === state.value}
-              onClick={() => setHistoryState(state.value)}
+              onClick={() => selectHistoryState(state.value)}
               data-testid={`opencode-history-filter-${state.value}`}
             >
               {state.label}
@@ -93,7 +122,12 @@ export function NotificationsPage() {
           ))}
         </header>
         <div className="border-b border-[var(--color-border-default)] px-3 py-2">
-          <NotificationFilters view={view} onChange={setView} suppressedActive={suppressedActive} />
+          <NotificationFilters
+            view={view}
+            onChange={setView}
+            suppressedActive={suppressedActive}
+            onAllGroupsCollapsedChange={setAllGroupsCollapsed}
+          />
         </div>
         {historyError && <Alert variant="danger">{historyError}</Alert>}
         {hiddenActive > 0 && (
@@ -111,6 +145,18 @@ export function NotificationsPage() {
           <p className="p-3 text-sm text-[var(--color-text-muted)]" data-testid="opencode-history-empty">
             {loading ? "Loading history..." : "No notifications recorded yet."}
           </p>
+        ) : view.groupBySession ? (
+          <ul>
+            {groups.map((group) => (
+              <NotificationGroup
+                key={group.key}
+                group={group}
+                expanded={isGroupExpanded(group.key)}
+                onToggle={() => toggleGroup(group.key)}
+                onResolvedChange={(id, resolved) => void setResolved(id, resolved).catch((e: Error) => setError(e.message))}
+              />
+            ))}
+          </ul>
         ) : (
           <ul>
             {visible.map((record) => (

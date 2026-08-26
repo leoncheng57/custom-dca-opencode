@@ -76,8 +76,8 @@ const defaultPreferences: NotificationPreferences = {
 };
 
 const notificationRecords: NotificationRecord[] = [
-  { id: "note-preview-permission", kind: "permission", at: 1_787_000_020_000, directory: SIMULATOR_DIRECTORY, sessionID: "ses_preview_done", sessionTitle: "Build the PR preview pipeline", requestID: "perm_preview", title: "Permission requested", body: "Open the IDE to review the session.", displayBody: "Run npm test", delivery: { ntfy: "off", desktop: "allowed", webPush: "off" } },
-  { id: "note-preview-idle", kind: "idle", at: 1_787_000_010_000, directory: SIMULATOR_DIRECTORY, sessionID: "ses_preview_done", sessionTitle: "Build the PR preview pipeline", title: "Session finished", body: "Open the IDE to review the session.", resolvedAt: 1_787_000_015_000, resolvedBy: "checked", delivery: { ntfy: "off", desktop: "allowed", webPush: "off" } },
+  { id: "note-preview-permission", kind: "permission", at: 1_787_000_020_000, directory: SIMULATOR_DIRECTORY, sessionID: "ses_preview_done", sessionTitle: "Build the PR preview pipeline", requestID: "perm_preview", title: "Permission requested", body: "Open the IDE to review the session.", displayBody: "Run npm test", detail: "Ready to run the preview build once you approve the command.", delivery: { ntfy: "off", desktop: "allowed", webPush: "off" } },
+  { id: "note-preview-idle", kind: "idle", at: 1_787_000_010_000, directory: SIMULATOR_DIRECTORY, sessionID: "ses_preview_done", sessionTitle: "Build the PR preview pipeline", title: "Session finished", body: "Open the IDE to review the session.", detail: "Published the preview bundle to gh-pages and updated the sticky PR comment.", resolvedAt: 1_787_000_015_000, resolvedBy: "checked", delivery: { ntfy: "off", desktop: "allowed", webPush: "off" } },
 ];
 
 function response(body: unknown, status = 200): Response {
@@ -220,7 +220,7 @@ export function createPublicSimulator(): typeof fetch {
     if (path === "/api/catalog") return response({ servers: mcpServers, skills: [{ name: "browser-check", description: "Check a page in the browser.", location: "browser-check/SKILL.md" }], commands: [{ name: "verify", description: "Run project verification.", source: "command", agent: "build", model: "mock/model", subtask: false }], refreshedAt: new Date().toISOString() });
     if (path === "/api/permissions") return response({ permissions: { "*": "ask", read: "allow", edit: { "*": "allow", "**/.env": "deny" }, bash: { "git *": "allow", "rm -rf *": "deny" } } });
     if (path === "/api/lsp") return response({ servers: { typescript: { status: "connected", root: SIMULATOR_DIRECTORY }, eslint: { status: "disabled" } } });
-    if (path === "/api/notifications/history") return response({ records: notificationRecords, activeCount: notificationRecords.filter((item) => !item.resolvedAt).length, appBadgeCount: 1, appBadgeRevision: 1, suppressedActive: { "auto-permissions": 0, subagent: 0 } });
+    if (path === "/api/notifications/history") return response({ records: notificationRecords, activeCount: notificationRecords.filter((item) => !item.resolvedAt).length, appBadgeCount: 1, appBadgeRevision: 1, suppressedActive: { "auto-permissions": 0, subagent: 0, "preference-off": 0 } });
     const notificationRoute = routeMatch(path, /^\/api\/notifications\/([^/]+)$/u);
     if (notificationRoute && method === "PATCH") {
       const record = notificationRecords.find((item) => item.id === decodeURIComponent(notificationRoute[1]));

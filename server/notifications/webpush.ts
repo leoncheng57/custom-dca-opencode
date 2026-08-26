@@ -125,7 +125,8 @@ export async function sendWebPush(
   const badgeRevision = Number.isSafeInteger(message.badgeRevision) && Number(message.badgeRevision) >= 0
     ? Number(message.badgeRevision)
     : undefined;
-  const payload = JSON.stringify({ title: message.title, body: message.body, click, badgeCount, badgeRevision });
+  const tag = typeof message.tag === "string" && message.tag.length <= 128 ? message.tag : undefined;
+  const payload = JSON.stringify({ title: message.title, body: message.body, click, badgeCount, badgeRevision, tag });
   let sent = 0;
   let failed = 0;
   const expired: string[] = [];

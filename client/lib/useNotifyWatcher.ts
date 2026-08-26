@@ -11,18 +11,28 @@ import {
 import { playNotificationSound, speakNotification, unlockNotificationAudio } from "./notificationMediaBrowser.js";
 import { ACTIVE_SET_EVENTS } from "./useNotificationCenter.js";
 
-function classify(type: string, properties: Record<string, unknown>): NotifyEvent | null {
-  if (type === "session.idle") return "idle";
-  if (type === "permission.asked") return "permission";
-  if (type === "question.asked") return "question";
-  if (type === "notification.parked") return "parked";
-  if (type === "session.error") {
-    const error = properties.error;
-    return error && typeof error === "object" && (error as Record<string, unknown>).name === "MessageAbortedError"
-      ? "abort"
-      : "error";
-  }
-  return null;
+const NOTIFY_EVENT_KINDS = new Set<string>(["idle", "error", "abort", "permission", "question", "parked"]);
+
+/**
+ * What this browser should ring a bell for, taken from the server's own
+ * `notification.recorded` verdict rather than re-derived from raw upstream
+ * events.
+ *
+ * The previous version classified `session.idle`, `permission.asked` and
+ * friends directly off the event stream. That gave it no knowledge of session
+ * lineage, so every delegated child's turn produced a desktop popup, a sound
+ * and speech in every open tab — while the server recorded the same event as
+ * `suppressed: "subagent"` and hid it from the inbox and the badge. The user
+ * was pinged for things their notification list swore had never happened.
+ *
+ * A record the server suppressed was, by definition, one nobody was meant to
+ * be told about: auto-approved permissions, sub-agent chatter, and event kinds
+ * switched off in every channel. Returning null for those is the whole fix.
+ */
+function recordedKind(properties: Record<string, unknown>): NotifyEvent | null {
+  if (properties.suppressed) return null;
+  const kind = properties.kind;
+  return typeof kind === "string" && NOTIFY_EVENT_KINDS.has(kind) ? (kind as NotifyEvent) : null;
 }
 
 export function notifyBrowser(
@@ -31,6 +41,9 @@ export function notifyBrowser(
   title = `OpenCode: ${event}`,
   click?: string,
   devicePreferences = loadDeviceNotificationPreferences().preferences,
+  /** Record id. Used as the OS notification tag so several open tabs showing
+   *  the same record collapse into one popup instead of stacking. */
+  tag?: string,
 ): void {
   if (!preferences.browser.events[event]) return;
   playNotificationSound(devicePreferences, event);
@@ -40,7 +53,12 @@ export function notifyBrowser(
     "Notification" in window &&
     Notification.permission === "granted"
   ) {
-    const notification = new Notification(title, { body: "Open the IDE to review the session." });
+    const notification = new Notification(title ?? `OpenCode: ${event}`, {
+      body: "Open the IDE to review the session.",
+      // Without a tag the OS stacks one popup per open tab, so a single
+      // notification looked like three on a desktop with three tabs.
+      ...(tag ? { tag, renotify: false } : {}),
+    } as NotificationOptions);
     if (click) notification.onclick = () => window.location.assign(click);
   }
 }
@@ -99,10 +117,16 @@ export function useNotifyWatcher(onActiveSetChanged?: () => void): void {
         activeSetTimer = setTimeout(() => notifyActiveSet.current?.(), ACTIVE_SET_DEBOUNCE_MS);
       }
       if (!preferences) return;
-      const kind = classify(event.type, event.properties ?? {});
-      if (!kind) return;
+      // Only the server's post-append verdict rings a bell. Raw upstream
+      // events are still forwarded for the transcript and the sub-agent
+      // ledger — this hook simply stops forming its own opinion about them.
+      if (event.type !== "notification.recorded") return;
       const properties = event.properties ?? {};
-      const key = `${event.type}:${String(properties.id ?? properties.requestID ?? properties.sessionID ?? message.lastEventId)}`;
+      const kind = recordedKind(properties);
+      if (!kind) return;
+      // The record id is an exact identity, so this is now a guard against a
+      // duplicate SSE frame rather than the heuristic it replaced.
+      const key = String(properties.id ?? message.lastEventId);
       const now = Date.now();
       if (now - (seen.get(key) ?? 0) < 5_000) return;
       seen.set(key, now);
@@ -111,7 +135,11 @@ export function useNotifyWatcher(onActiveSetChanged?: () => void): void {
           if (now - timestamp > 60_000) seen.delete(seenKey);
         }
       }
-      notifyBrowser(preferences, kind, undefined, event.click, devicePreferences);
+      const title = typeof properties.sessionTitle === "string" && properties.sessionTitle
+        ? properties.sessionTitle
+        : undefined;
+      const click = typeof properties.click === "string" ? properties.click : event.click;
+      notifyBrowser(preferences, kind, title, click, devicePreferences, key);
     };
     return () => {
       if (activeSetTimer) clearTimeout(activeSetTimer);

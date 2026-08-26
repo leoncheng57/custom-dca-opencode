@@ -11,7 +11,7 @@ import {
   type NotificationViewPreferences,
 } from "./notificationView.js";
 
-const NO_SUPPRESSED_ACTIVE: SuppressedActiveCounts = { "auto-permissions": 0, subagent: 0 };
+const NO_SUPPRESSED_ACTIVE: SuppressedActiveCounts = { "auto-permissions": 0, subagent: 0, "preference-off": 0 };
 
 interface NotificationCenter {
   activeCount: number;
@@ -20,6 +20,18 @@ interface NotificationCenter {
   suppressedActive: SuppressedActiveCounts;
   view: NotificationViewPreferences;
   setView: (patch: Partial<NotificationViewPreferences>) => void;
+  /**
+   * Whether one session group is open, combining the persisted default with
+   * this visit's toggles. Held here rather than in either surface so the
+   * popover and the history page agree while both are mounted.
+   */
+  isGroupExpanded: (key: string) => boolean;
+  toggleGroup: (key: string) => void;
+  /**
+   * Sets the persisted default and drops every per-group override, so
+   * "Expand all" cannot leave a group folded behind its own toggle.
+   */
+  setAllGroupsCollapsed: (collapsed: boolean) => void;
   loading: boolean;
   error: string;
   refresh: () => void;
@@ -40,7 +52,14 @@ export const ACTIVE_SET_EVENTS = new Set([
   "notification.recorded",
 ]);
 
-const HISTORY_LIMIT = 100;
+/**
+ * Rows fetched per refresh, capped server-side by MAX_PAGE.
+ *
+ * Grouping counts the rows it renders, so a narrow window makes every group
+ * header understate a busy session. Retention still caps resolved records at
+ * 500, so this asks for the whole retained log rather than a page of it.
+ */
+const HISTORY_LIMIT = 1000;
 
 export function NotificationCenterProvider({ children }: { children: ReactNode }) {
   const location = useLocation();
@@ -53,11 +72,38 @@ export function NotificationCenterProvider({ children }: { children: ReactNode }
   const [error, setError] = useState("");
   // Guards against a slow early response overwriting a newer one.
   const generation = useRef(0);
-  const { hideAutoApproved, hideSubagent } = view;
+  const { hideAutoApproved, hideSubagent, hidePreferenceOff } = view;
 
   const setView = useCallback((patch: Partial<NotificationViewPreferences>) => {
     setViewState((current) => saveNotificationView({ ...current, ...patch }));
   }, []);
+
+  // Session ids that deviate from the persisted default. Deliberately in
+  // memory: ids are unbounded and outlive their sessions, so persisting them
+  // would grow without limit and accumulate ids of deleted work.
+  const [groupOverrides, setGroupOverrides] = useState<ReadonlySet<string>>(() => new Set());
+  const { groupsCollapsed } = view;
+
+  const isGroupExpanded = useCallback(
+    (key: string) => (groupOverrides.has(key) ? groupsCollapsed : !groupsCollapsed),
+    [groupOverrides, groupsCollapsed],
+  );
+
+  const toggleGroup = useCallback((key: string) => {
+    setGroupOverrides((current) => {
+      const next = new Set(current);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
+  }, []);
+
+  const setAllGroupsCollapsed = useCallback(
+    (collapsed: boolean) => {
+      setGroupOverrides(new Set());
+      setView({ groupsCollapsed: collapsed });
+    },
+    [setView],
+  );
 
   // The filters are applied server-side so the badge and the rows cannot
   // disagree; changing one therefore has to refetch rather than filter locally.
@@ -69,6 +115,7 @@ export function NotificationCenterProvider({ children }: { children: ReactNode }
         ...(directory ? { directory } : {}),
         hideAutoApproved,
         hideSubagent,
+        hidePreferenceOff,
       })
       .then((result) => {
         if (request !== generation.current) return;
@@ -85,7 +132,7 @@ export function NotificationCenterProvider({ children }: { children: ReactNode }
       .finally(() => {
         if (request === generation.current) setLoading(false);
       });
-  }, [directory, hideAutoApproved, hideSubagent]);
+  }, [directory, hideAutoApproved, hideSubagent, hidePreferenceOff]);
 
   // Live updates arrive via useNotifyWatcher, which already holds the one
   // app-level EventSource; opening a second stream here would double every
@@ -139,12 +186,28 @@ export function NotificationCenterProvider({ children }: { children: ReactNode }
       suppressedActive,
       view,
       setView,
+      isGroupExpanded,
+      toggleGroup,
+      setAllGroupsCollapsed,
       loading,
       error,
       refresh: () => void refresh(),
       setResolved,
     }),
-    [activeCount, records, suppressedActive, view, setView, loading, error, refresh, setResolved],
+    [
+      activeCount,
+      records,
+      suppressedActive,
+      view,
+      setView,
+      isGroupExpanded,
+      toggleGroup,
+      setAllGroupsCollapsed,
+      loading,
+      error,
+      refresh,
+      setResolved,
+    ],
   );
 
   return <NotificationCenterContext.Provider value={value}>{children}</NotificationCenterContext.Provider>;
@@ -162,6 +225,9 @@ export function useNotificationCenter(): NotificationCenter {
       suppressedActive: NO_SUPPRESSED_ACTIVE,
       view: DEFAULT_NOTIFICATION_VIEW,
       setView: () => {},
+      isGroupExpanded: () => !DEFAULT_NOTIFICATION_VIEW.groupsCollapsed,
+      toggleGroup: () => {},
+      setAllGroupsCollapsed: () => {},
       loading: false,
       error: "",
       refresh: () => {},
