@@ -721,3 +721,771 @@ Two inconsistencies are worth recording. `opencode.directory.v1` is exported as 
 and `client/pages/Tools.tsx:8` rather than imported, so a rename would need three edits. And the
 key names mix dot-versioned (`opencode.directory.v1`) with hyphen-versioned
 (`opencode-notification-media-v1`) conventions, with `theme` unversioned entirely.
+
+## 10. Alternatives Considered
+
+| Alternative | Mobile browser | Settings UI | Credentials server-side | Processes to supervise | Verdict |
+|---|---|---|---|---|---|
+| Do nothing — OpenCode terminal UI in cmux | No | N/A | Yes | 0 | Rejected |
+| Plugins plus a cmux composition | No | No | Yes | 0 | Rejected |
+| Adopt OpenChamber | Partial | Yes | Yes | Unknown | Rejected |
+| Containerize with Docker | Yes | Yes | Yes | 3+ | Rejected |
+| Build on `@opencode-ai/sdk` | Yes | Yes | Yes | 1 | Rejected |
+| Build on the `/api/**` v2 surface | Yes | Yes | Yes | 1 | Rejected, revisitable |
+| Per-directory `GET /event` subscriptions | Yes | Yes | Yes | 1 | Rejected |
+| Blocking `POST /session/{id}/message` | Yes | Yes | Yes | 1 | Rejected |
+| Enforce Plan with the legacy `tools` field | Yes | Yes | Yes | 1 | Rejected |
+| Server-sent events only, no polling | Yes | Yes | Yes | 1 | Rejected |
+| WebSocket instead of server-sent events | Yes | Yes | Yes | 1 | Rejected |
+| **Custom SPA over a BFF on the classic API** | **Yes** | **Yes** | **Yes** | **1** | **Chosen** |
+
+**Do nothing — keep using the OpenCode terminal UI in cmux.**
+
+**Pros.** Zero code, zero maintenance, zero new attack surface, and the terminal UI is
+maintained upstream by people who know the server better than we do.
+
+**Cons.** It requires a terminal emulator and a keyboard. From a phone there is no cmux pane to
+attach to, no way to answer a permission prompt, and no way to read a transcript that scrolls
+faster than a thumb.
+
+**Rejected because.** It fails Goal 1 outright — "reachable and operable from a phone browser
+over a tailnet, with no terminal available" — and therefore fails the mobile-first commitment
+recorded as `AGENTS.md` decision 7. That requirement is also the reason the preview reverse
+proxy survived descoping while preview lifecycle management did not: from a phone there is no
+cmux pane to fall back on, so the proxy is the only way to see a running dev server.
+
+**What would change our mind.** A first-class mobile client from upstream, or a phone-shaped
+terminal experience good enough to answer a permission ask one-handed.
+
+**A plugins-plus-cmux composition.**
+
+**Pros.** No server to write and no second process. OpenCode's plugin surface can already
+observe events and inject behaviour, and cmux can already render sidebars beside a session.
+
+**Cons.** cmux sidebars cannot render input controls. A sidebar can display state but cannot
+host a text field, a toggle, or a submit button, which makes a settings page impossible and a
+composer impossible.
+
+**Rejected because.** It cannot satisfy the In Scope settings and composer surfaces at all, and
+it inherits the same terminal dependency that fails Goal 1.
+
+**What would change our mind.** Interactive controls in cmux sidebar extensions.
+
+**Adopting OpenChamber.**
+
+**Pros.** An existing project aimed at roughly this problem, so the work would be adoption and
+contribution rather than construction.
+
+**Cons.** It does not match the state ownership and directory-scoping model this host needs, and
+adopting it would mean inheriting its trust model rather than authoring the one recorded in
+section 11.
+
+**Rejected because.** It was evaluated against the tenets and goals above and declined; the
+evaluation is recorded under `docs/research/`, and `AGENTS.md` decision 1 names it as the
+considered-and-declined option alongside the plugins composition.
+
+**What would change our mind.** Convergence of its data model with the directory-scoped,
+credential-server-side model described in section 9, at which point the maintenance argument
+would dominate.
+
+**Docker.**
+
+**Cons.** Three processes to supervise instead of one, a fixed-port constraint, and an image to
+rebuild on every dependency change.
+
+**Rejected because.** The container existed in the predecessor to host `agent-canvas` as the
+agent runtime and Postgres for manager runs. Manager runs are out of scope, so Postgres goes
+with them, and `opencode serve` is a single Bun binary that needs no runtime of its own. What
+remains is one process to supervise, which is Tenet 6. Removing the container also removed the
+fixed-port constraint that limited the predecessor to exactly one running worktree at a time.
+
+State plainly what the container was buying: a real isolation boundary. A compromised or
+mistaken agent could delete files inside the image and not outside it. That boundary is now
+replaced by permission policy in `opencode.json` plus the honest observation recorded in
+`AGENTS.md` decision 3 — OpenCode terminal sessions already ran host-side on this machine, some
+with `--auto`. The change makes an existing posture deliberate rather than introducing a new
+risk, but it is a downgrade in isolation and should be read as one.
+
+**What would change our mind.** A second user on the host, or an agent configuration permitted
+to run unreviewed code from the network.
+
+**Using `@opencode-ai/sdk`.**
+
+**Pros.** A maintained client, generated types, and no hand-written fetch layer.
+
+**Cons.** The bundled v1 query types are narrower than the live server. `server/opencode/client.ts:29-34`
+records the concrete case: `session.list` accepts only `directory` in the SDK while the live
+server also takes `limit`, `roots`, `search`, `start` and `scope`. The event names are stale.
+Depending on it means casting around it constantly, which defeats the purpose of having types at
+all.
+
+**Rejected because.** It fails Technical Requirement of treating the live `GET /doc` as the
+contract, and it fails Tenet 3 by encoding an event union that is already smaller than the one
+the server emits.
+
+**What would change our mind.** An SDK generated from the live `GET /doc` at the pinned server
+version, with an open event union.
+
+**The `/api/**` v2 event-sourced surface.** — **two-way door**
+
+**Pros.** Event-sourced, newer, and offers replayable per-session streams via
+`/api/session/{id}/event?after=`, which is exactly the replay cursor the classic surface lacks.
+
+**Cons.** It is contractually 401-gated and still moving, so building on it means authoring an
+authentication path and absorbing breakage on every server bump.
+
+**Rejected because.** Everything this application needs exists on the classic surface, so
+adopting v2 would add a credential exchange and a moving contract for no capability currently in
+scope. This is `AGENTS.md` decision 6.
+
+**What would change our mind.** `/api/session/{id}/event?after=` becoming stable and usable. A
+replay cursor would close the single largest correctness gap in section 9's event path and would
+let the poll interval lengthen rather than remain the durable path. This is deliberately a
+two-way door: the fetch seam localizes the base path, so migrating one route family at a time is
+possible.
+
+**Per-directory `GET /event` subscriptions instead of one `/global/event`.**
+
+**Pros.** Each subscription carries only the traffic for one project, so no demultiplexing is
+needed and a single project's noise cannot affect another.
+
+**Cons.** N open projects means N upstream streams, each with its own reconnect state, backoff
+ladder and failure mode. With 32 projects discovered on this host, that is up to 32 concurrent
+upstream subscriptions to keep healthy for a single browser tab.
+
+**Rejected because.** It fails Goal 5 — one upstream event subscription serving an arbitrary
+number of browser tabs — and multiplies the reconnect surface that Tenet 1 exists to bound.
+
+**What would change our mind.** An upstream global stream that dropped the `directory` field,
+which would make demultiplexing impossible.
+
+**The blocking `POST /session/{id}/message`.**
+
+**Pros.** One call, and the response carries the completed turn, so no polling is needed to know
+the result.
+
+**Cons.** `server/opencode/sessions.ts:6-8` records the reasoning: it holds the response open for
+the entire agent turn, and it dies when a client disconnects. A phone that sleeps mid-turn
+cancels the request.
+
+**Rejected because.** It fails Goal 4 directly — submit prompts without holding an HTTP request
+open for the agent turn — and would make mobile use unreliable by construction.
+
+**What would change our mind.** Nothing; `prompt_async` already covers the use case and returns
+204.
+
+**Enforcing Plan with the legacy `tools` field.**
+
+**Pros.** A single field on the prompt call, with no session mutation and no policy computation.
+
+**Cons.** Issue #15 established that non-empty `tools` overrides are converted into persistent
+session permission rules. Omitting `tools` on the next Build prompt therefore does not restore
+write access, because the denies from the previous Plan prompt survive on the session.
+
+**Rejected because.** It fails the mode-switch requirement: Plan then Build then Plan must leave
+the session in the mode named by the most recent prompt. `AGENTS.md` decision 9 records the
+replacement — append-only session permission rules activated before each prompt, with exact
+suffix comparison for idempotence.
+
+**What would change our mind.** Upstream making `tools` per-request and non-persistent.
+
+**Server-sent events only, with no polling.**
+
+**Pros.** Lower request volume, lower latency, and no redundant fetches of state the stream
+already delivered.
+
+**Cons.** The classic stream has no replay cursor. A frame dropped during a reconnect gap is
+lost permanently, and nothing in the protocol reveals that it happened, so the client's view
+diverges silently and stays diverged.
+
+**Rejected because.** It fails Tenet 1 — a durable poll beats a faithful stream — and Goal 5's
+requirement to recover correctly after a disconnection despite the absence of a replay cursor.
+
+**What would change our mind.** A replay cursor. See the v2 entry above.
+
+**WebSocket instead of server-sent events.**
+
+**Pros.** Bidirectional, framed, and widely supported.
+
+**Cons.** It adds a protocol upgrade, a heartbeat scheme and a reconnect implementation the
+application would own, in exchange for a client-to-server channel that has no use here.
+
+**Rejected because.** Unidirectional server push is the entire requirement; every
+browser-to-server action is already an ordinary request. Server-sent events reconnect natively,
+so the browser supplies for free the behaviour a WebSocket would require us to write.
+
+**What would change our mind.** A requirement for low-latency client-to-server streaming, such
+as collaborative editing.
+
+Two door annotations close this section. The classic-API choice is a **two-way door**: the fetch
+seam is the only place the base path appears, and migration can proceed one route family at a
+time. The frozen `TranscriptEvent` contract is a **one-way door** in practice: every row
+component in the transcript depends on it, so changing its shape is a renderer-wide rewrite
+rather than an adapter change. That asymmetry is the point of the seam — `client/lib/events.ts`
+absorbs upstream churn precisely so the contract downstream of it does not have to move.
+
+## 11. Security and Threat Model
+
+### What are we working on
+
+A single Node process that holds every credential in the system and exposes an unauthenticated
+`/api` surface on `0.0.0.0`, in front of an agent server with host-level authority. The assets
+worth protecting are the credentials, the host filesystem, and the ability to make an agent act.
+
+Every credential is server-side only, and each has exactly one use site.
+
+| Credential | Sole use |
+|---|---|
+| `OPENCODE_SERVER_PASSWORD` | Upstream authentication in the fetch seam (`server/opencode/client.ts:57-61`, `:74-81`) |
+| `NTFY_TOKEN` | ntfy delivery |
+| `GITHUB_TOKEN` | Forge and planning calls |
+| `GITLAB_TOKEN` | Forge calls |
+| `VAPID_PRIVATE_KEY` | Web Push signing |
+
+The absence of leakage is structural rather than incidental. `/api/notifications` reports a
+`tokenConfigured` boolean and the **public** VAPID key, never the token or the private key.
+`/api/health` returns `opencode.baseUrl` and no credential. `publicSettings` is an explicit
+five-field allowlist at `server/opencode/config.ts:24-47`, whose comment states that provider and
+Model Context Protocol secrets are never copied. `publicModelCatalogue` constructs a new object
+rather than spreading upstream provider objects (`:155`), so a future upstream field cannot ride
+along into a browser response.
+
+### What can go wrong
+
+STRIDE, applied to the trust boundary between the tailnet and the BFF.
+
+| Category | Threat | Status |
+|---|---|---|
+| Spoofing | Any tailnet device impersonates the operator | **Unmitigated.** No authentication exists |
+| Tampering | An attacker prompts a session or merges a pull request | **Unmitigated.** Same cause |
+| Repudiation | An action cannot be attributed to a principal | **Unmitigated.** There is no principal |
+| Information disclosure | Credentials reach the browser | Mitigated by the allowlists above |
+| Information disclosure | Arbitrary host files are read | Mitigated by canonical-path containment within configured roots |
+| Information disclosure | Server-side request forgery via the preview proxy | Mitigated by the hard-pinned loopback target |
+| Denial of service | A stalled peer or hung upstream exhausts the process | **Unmitigated.** See section 16 |
+| Elevation of privilege | A browser authors raw permission rules | Mitigated; the browser sends a mode id and the server resolves policy |
+
+### What are we going to do about it
+
+The preview proxy is the most hardened route in the application, because it is the only one that
+issues a request to an address influenced by the caller. `server/routes/preview.ts` applies, in
+order: GET and HEAD only, else 405 (`:52-55`); a port allowlist, else 403 (`:56-60`); a target
+hard-pinned to `http://127.0.0.1:${port}` so the host is never caller-derived (`:62`); request
+headers narrowed to `accept`, `accept-language` and `range` (`:4`, `:66-69`); an allowlist on
+response headers (`:5-12`, `:85-88`); `redirect: "manual"` (`:77`); a 20-second timeout (`:72`);
+a 25 MiB cap enforced against both the declared `content-length` and the streamed body (`:3`,
+`:32-47`, `:80-84`); `Content-Security-Policy: sandbox allow-forms allow-modals allow-popups
+allow-scripts` (`:89`); `X-Content-Type-Options: nosniff` (`:90`); and a 502 on any cross-origin
+redirect (`:91-99`).
+
+Two configuration facts complete that picture. `server/index.ts:90-91` force-removes the BFF's
+own port and the OpenCode port from the allowlist, so the proxy can never be pointed at either
+of the two services that matter. And an unset `PREVIEW_ALLOWED_PORTS` yields an empty set, so
+every preview request returns 403 — the route is closed by default and opened only by explicit
+configuration.
+
+### The dominant finding
+
+**There is no authentication on `/api` at all.** No Cross-Origin Resource Sharing middleware, no
+`helmet`, and no authentication middleware exists anywhere under `server/`. Anything that can
+reach the BFF port — and it binds `0.0.0.0` so a phone on the tailnet can reach it — has full
+authority to prompt any session, read any file beneath the two configured roots, and merge a pull
+request.
+
+The trust boundary is the network, and only the network.
+
+Framed against `AGENTS.md` decision 3, this is deliberate rather than newly introduced: OpenCode
+terminal sessions already ran host-side on this machine before this application existed, so the
+authority being exposed is authority that was already present on the host. What the design adds
+is a network path to it.
+
+The conditions under which that stops being acceptable are specific, and worth naming so they can
+be checked rather than assumed:
+
+- The host stops being single-user.
+- The tailnet includes a device whose owner does not control it.
+
+Either condition makes the network boundary insufficient, and neither is detectable from inside
+the application.
+
+A second residual exposure is smaller but real. The preview sandbox policy includes
+`allow-scripts`, and the proxy is same-origin with the application. The
+`Content-Security-Policy` header is therefore a mitigation and not an origin boundary: script
+executing in a previewed page runs on the application's origin.
+
+### Did we do a good job
+
+Partly, and the split is legible. The containment and credential boundaries are encoded in tests:
+path containment, the `publicSettings` allowlist, the preview method, port, header, size and
+redirect rules, and the mutation set for a prompt all have assertions. Those boundaries would
+fail loudly if regressed.
+
+What is unverified is everything in the denial-of-service row. There is no test that a hung
+upstream is survivable, because it is not. There is no test for server-sent-event backpressure,
+because there is no backpressure handling to test. And there is no test for authentication,
+because there is no authentication.
+
+## 12. Scaling, Performance and Cost
+
+This is a single-user, single-host system. The cost is one Node process plus whatever OpenCode
+already costs, with no database and no cloud spend.
+
+The steady state is quantifiable. Each open conversation polls every 3,000 ms
+(`client/lib/useSessionStream.ts:36`) and is visibility-gated (`:193`), so a hidden tab costs
+nothing at all. The Hub polls sessions at 10,000 ms and recents at 60,000 ms
+(`client/pages/Hub.tsx:37`, `:40`). The sub-agent panel polls at 10,000 ms, and auto-permissions
+at 3,000 ms. One visible conversation with the Hub behind it is therefore roughly 20 upstream
+metadata requests per minute at rest.
+
+One prompt costs seven upstream requests, eight when the policy PATCH is needed, and nine or ten
+on a cold 15-second model catalogue cache. The implication is worth stating: prompt latency is
+dominated by upstream round-trips, not by BFF work. Optimizing the BFF's own code path would
+change nothing measurable; reducing the number of upstream calls would.
+
+| Interval or timeout | Value | Site |
+|---|---|---|
+| Browser server-sent-event keep-alive | 15,000 ms | BFF fan-out |
+| Upstream server-sent-event backoff | 1,000 to 30,000 ms | Event bus |
+| **OpenCode request timeout** | **None** | `server/opencode/client.ts:132-137` |
+| Session-metadata lookup | 2,000 ms | Notification service |
+| Preview proxy | 20,000 ms | `server/routes/preview.ts:72` |
+| `git check-ignore` | 5,000 ms | Workspace |
+| `git log` | 10,000 ms | Workspace |
+| Worktree ready | 60,000 ms | Worktrees |
+| ntfy delivery | 10,000 ms | Notifications |
+| Web Push delivery | 10,000 ms, 60 s time to live | Notifications |
+| Forge requests | 15,000 ms | Forge |
+| Planning requests | 10,000 ms | Planning |
+| Model catalogue cache | 15,000 ms | Config |
+| Capabilities cache | 30,000 ms | Sessions |
+| Planning caches | 60,000 and 300,000 ms | Planning |
+| Request body limit | 20 MB | `server/index.ts` |
+
+Three scaling limits actually bind, and none of them are request throughput.
+
+Browser server-sent-event connections are unbounded and unmetered, with no backpressure
+handling. Nothing caps the number of subscribers, nothing evicts a slow one, and nothing watches
+the socket write buffer. This is the limit that would be reached first, and it would be reached
+through stalled peers rather than through volume.
+
+Project discovery stops at 500 results or 5,000 directories visited, whichever comes first. A
+project outside those bounds is invisible to discovery, though it remains reachable if pinned.
+
+The transcript is paginated, but the newest page is refetched whole on every poll. A long final
+page therefore costs the same on every three-second tick as it did on the first.
+
+On sustainability: the dominant energy cost of this system is model inference, which happens in a
+separate process this application does not control. The only meaningful lever this application
+holds is the visibility gating on its polls, which takes a hidden tab to zero requests rather
+than to a reduced rate.
+
+## 13. Testing and Verification
+
+Vitest covers pure behaviour in a Node environment. Playwright builds the production single-page
+application and the BFF and runs them against deterministic OpenCode, forge and preview mocks, so
+end-to-end tests require no live agent, no model and no credentials. The baseline at `39d6f48`
+is 632 tests across 53 files, plus 20 Playwright spec files.
+
+Continuous integration runs, in order:
+
+1. `npm run typecheck`
+2. `npm test`
+3. `npm run build`
+4. `npm run test:e2e`
+5. `npm run test:preview`
+
+Three guards encode invariants that prose alone would not hold.
+
+`tests/session-mode-policy.test.ts:47-50` asserts that the mutation set for a prompt is exactly
+`{PATCH, prompt_async}`. That single assertion is what keeps the blocking `/message` route out of
+the prompt path: any reintroduction of it changes the mutation set and fails.
+
+`tests/e2e/smoke.api.spec.ts:592` asserts that a policy-activation failure surfaces to the caller
+without `prompt_async` being called at all, which is the fail-closed half of the prompt path's
+critical section.
+
+`tests/e2e-shared-state-ownership.test.ts` enforces that a reset only clears what its caller
+named. Playwright runs spec *files* in parallel against one BFF and one mock, so any state that
+is not per-request is shared across files. This guard exists because that class of bug passes in
+isolation and fails somewhere else on each full run, which makes it diagnosable from the rule
+rather than from a repro.
+
+What is not covered, stated plainly: there is no load test; there is no test for server-sent-event
+backpressure; there is no test that a hung upstream is survivable, because it is not; and there
+is no multi-process test, since the prompt mutex is process-local by construction and a second
+process would defeat it rather than exercise it.
+
+The recovery behaviour the poll exists to guarantee looks like this.
+
+```mermaid
+stateDiagram-v2
+    direction TB
+    [*] --> Connected
+    Connected --> Error: "stream drops"
+    Error --> Wait2: "attempt 1"
+    Wait2 --> Reconnect
+    Reconnect --> Connected: "success"
+    Reconnect --> Wait4: "attempt 2"
+    Wait4 --> Reconnect
+    Reconnect --> Wait8: "attempt 3"
+    Wait8 --> Reconnect
+    Reconnect --> Wait16: "attempt 4"
+    Wait16 --> Reconnect
+    Reconnect --> Wait30: "attempt 5 and later"
+    Wait30 --> Reconnect
+    Connected --> Synthetic: "on open"
+    Synthetic --> Invalidate: "pages marked stale"
+    Invalidate --> Refetch
+    Refetch --> Connected
+    state Poll {
+        [*] --> Tick
+        Tick --> Fetch: "every 3000 ms"
+        Fetch --> Tick: "state reconciled"
+    }
+    note right of Poll
+        The durable path. Runs in every
+        state above, including Error and
+        the whole backoff ladder.
+    end note
+```
+
+## 14. Metrics, Monitoring and Alarms
+
+There is no metrics emission today. The only operational signals are `GET /api/health`, the
+`[bus]` error log, and launchd's `.state/logs/bff.launchd.out.log` and `.err.log`. `pino` is
+installed and imported by zero files, so structured logging is a dependency away rather than a
+build away.
+
+The metrics that should exist are these.
+
+| Metric | What an increase means | Alarm threshold |
+|---|---|---|
+| Upstream request latency, p95 by endpoint | OpenCode is degrading, or a metadata call has become expensive | p95 above 2,000 ms for 5 minutes |
+| Upstream error rate by endpoint | A version bump changed a contract, or the server is unhealthy | Above 2 percent over 5 minutes |
+| Upstream-hang count | A request has outlived any plausible metadata call. Not measurable until a timeout exists | Any occurrence |
+| Browser server-sent-event connection count | Tabs are accumulating without closing, or a client is reconnecting in a loop | Above 50, or any sustained rise with no user present |
+| Socket write-buffer depth, max across subscribers | A peer has stalled and the process is buffering for it | Above 1 MiB for any single subscriber |
+| Server-sent-event reconnect rate | The upstream stream or the network is flapping | Above 6 per minute |
+| Policy-activation failure rate | Mode enforcement is failing, so prompts are being refused fail-closed | Any occurrence |
+| Prompt 502 rate | Upstream rejected or was unreachable at submit time | Above 1 percent over 15 minutes |
+| Prompt 409 rate | Mutex contention, so two prompts are racing for one session | Above 5 per hour |
+| Client poll error rate | The durable path is failing, which is the one failure with no fallback | Above 1 percent over 5 minutes |
+| Health-check failure streak | The BFF or its upstream is down | 3 consecutive failures |
+| Node event-loop lag, p99 | The single process is saturated, most likely by fan-out or a large transcript page | Above 200 ms for 1 minute |
+
+## 15. Operational Support
+
+### New Issues
+
+*"My prompt vanished."* There is no optimistic row. Between the 202 from `prompt_async` and the
+next three-second poll, the composer has cleared and the transcript has not yet grown. The prompt
+is accepted; the display is one tick behind. Confirm by waiting one poll interval.
+
+*"It says the session was interrupted."* `/session/status` is process-local, so absence from it
+is not the same as idle. A session whose last message is an assistant turn with no
+`time.completed` and which the connected process does not report as busy is flagged as
+interrupted. If OpenCode restarted, or the turn is owned by a different process, the flag is
+correct about what it can see and wrong about the world. The Resume action prefills the composer
+rather than re-sending, which is the deliberate response to exactly this ambiguity.
+
+*"The preview is blank."* Almost always an unset `PREVIEW_ALLOWED_PORTS`. An unset value yields
+an empty allowlist and a 403 on every request. Check the environment before checking the dev
+server.
+
+### Notify Partners
+
+There is no partner team. This is a single-operator system, and the notification list is a list
+of couplings rather than of people.
+
+- The owners of `OPENCODE_URL` and `OPENCODE_SERVER_PASSWORD`: changing either breaks every
+  upstream call at once.
+- The owners of `PROJECTS_DIR` and `OPENCODE_WORKTREE_ROOT`: these define the containment roots,
+  so a change alters which files are readable at all.
+- The owner of `PREVIEW_ALLOWED_PORTS`: an empty value closes the proxy entirely.
+- The owner of `PUBLIC_APP_URL`: notification deep links resolve against it.
+- The launchd service: a deploy is a `bootout` and `bootstrap` of it.
+- The separately managed `opencode serve`: this application never starts, stops or supervises it.
+  It currently runs the patched binary recorded in `AGENTS.md` decision 19, which must be
+  re-pinned to the stock binary once the upstream fix ships in a release.
+
+### Tooling
+
+`npm run service:status` and `npm run service:logs` cover the service. `GET /api/health` covers
+liveness and reports the configured upstream base URL. `.state/logs/` holds the launchd streams.
+
+The gap is worth naming precisely: there is no request log, no tracing, and no command-line
+interface. A 3am investigation is therefore reading launchd logs and re-running the request by
+hand with `curl`.
+
+### Cleanup
+
+Known debris, each with a site:
+
+- `pino` and `pino-pretty` at `package.json:53-54` are imported by zero files.
+- `UI_EVENT_TYPES` at `server/opencode/events.ts:157-176` is exported and never imported.
+- `server/opencode/client.ts:22-23` claims a pinned `@opencode-ai/sdk` dependency that `:29-34`
+  contradicts.
+- `server/routes/sessions.ts:332` comments "fire-and-forget" on a call that `:334` awaits.
+- `opencode.directory.v1` is duplicated as a literal in `client/pages/Hub.tsx:36` and
+  `client/pages/Tools.tsx:8` instead of imported from `client/lib/palette.ts:3`.
+- The documentation errors enumerated in section 20.
+
+## 16. Risks and Mitigations
+
+| Risk | Impact | Likelihood | Mitigation |
+|---|---|---|---|
+| No timeout on any OpenCode request | A hung upstream hangs a request forever | Medium | **None today.** Add a default `AbortSignal.timeout` in the seam |
+| No server-sent-event backpressure handling | A stalled peer accumulates unbounded buffer in the process | Medium | None today. Cap the queue and evict |
+| `useNotifyWatcher` has no error handling | Connection-pool exhaustion, reproducing a past outage | Medium | Adopt the session stream's backoff and visibility gating |
+| No authentication on `/api` | Full agent and filesystem authority to anything on the network | Low on a single-user tailnet | Network boundary only |
+| Process-local prompt mutex | Two BFF processes race on policy activation | Low | Run one process; the mutex names its own limit |
+| A prompt is accepted while a turn runs | Ordering depends entirely on upstream queueing | High | None; upstream queues |
+| No replay cursor | Events during a reconnect gap are lost | High | The three-second poll |
+
+**No timeout on any OpenCode request** (`server/opencode/client.ts:132-137`) is the single most
+consequential gap in the design. Every other risk here degrades a feature; this one can hold a
+request open indefinitely and, with enough of them, exhaust the process. The mitigation today is
+none. The fix is small and local: a default `AbortSignal.timeout` in the fetch seam, with a
+longer value for the one or two calls that legitimately take time. Section 18 records the open
+question of what that default should be.
+
+**No server-sent-event backpressure handling** (`server/routes/sessions.ts:749`, `:755`). Writes
+to a subscriber are unconditional. There is no `drain` listener, no queue cap and no eviction, so
+a peer that stops reading — a phone that slept, a proxy that stalled — causes Node to buffer on
+its behalf until memory pressure becomes the limit. This is the mechanism by which the unbounded
+connection count in section 12 actually bites.
+
+**`useNotifyWatcher` has no `onerror`, no backoff and no visibility gating**
+(`client/lib/useNotifyWatcher.ts:85`). This reproduces the exact failure mode that
+`client/lib/useSessionStream.ts:12-15` records as a past connection-pool-exhausting outage: a
+stream that reconnects without backoff can saturate the browser's per-origin connection pool and
+starve every other request on the page. It additionally holds a connection open from hidden tabs,
+which is the one cost the session stream deliberately avoids. The fix is to adopt the pattern
+already written and commented two files away.
+
+**No authentication on `/api`.** Covered in section 11. The network is the only boundary.
+
+**The prompt mutex is process-local.** Two BFF processes would race on policy activation, which
+means one prompt could execute under the other's mode. Tenet 5 is the response: the mutex admits
+its scope rather than implying a guarantee it cannot keep.
+
+**A prompt is accepted while a turn is running.** Nothing checks `stream.running` before
+submitting, so ordering within a session is entirely OpenCode's queueing behaviour. This is
+acceptable because the queue exists upstream, but it is not a property this application enforces
+or verifies.
+
+**No replay cursor.** Events emitted during a reconnect gap are lost, and the protocol does not
+reveal that they were. Correctness therefore depends on the poll, which is exactly why Tenet 1 is
+worded as it is.
+
+On rollback: a deploy is `npm run build` followed by a launchd `bootout` and `bootstrap`.
+Rollback is checking out the previous commit and repeating those steps. Repeated roll-forward and
+roll-back is safe because the BFF holds no schema and runs no migrations — the only durable state
+is append-only JSON under `.state/`, and every loader tolerates a missing or malformed file by
+falling back to an empty value.
+
+## 17. How It Shipped
+
+There was no feature flag and no staged rollout. One supervised BFF means a deploy is a process
+restart, and a flag would have gated a surface with exactly one user.
+
+The consequences of that were accepted rather than discovered. The in-memory auto-permissions
+toggle and every parked-permission timer are lost on restart, which is why the toggle is
+documented as defaulting off after every restart rather than as persisted. In-flight agent turns
+survive, because OpenCode is a separate process that the BFF never restarts and never supervises
+— the deploy touches the interface, not the work. Browsers recover without intervention: the
+three-second poll is the durable path and carries them through the gap, and the synthetic
+`connected` frame on the new connection forces a page invalidation and refetch, so a tab that was
+open across the restart converges rather than displaying stale state.
+
+There was no rollback rehearsal.
+
+## 18. Open Questions
+
+1. **What should the default upstream timeout be?** An agent turn is long-running, but every call
+   this application makes is a metadata call — list sessions, read messages, patch policy, submit
+   a prompt. Those should all complete in well under a second against a healthy server. A default
+   in the low seconds with a documented exception list is probably right, but the exception list
+   has not been enumerated.
+2. **Should the server-sent-event fan-out evict slow clients or cap the buffer?** Eviction is
+   simpler and self-healing, since the client reconnects and the synthetic frame triggers a
+   refetch. A cap preserves the connection but requires deciding what to drop, and dropping
+   frames on a stream with no replay cursor is worse than dropping the connection.
+3. **Should `useNotifyWatcher` adopt the session stream's backoff, or should the two streams be
+   merged into one?** Merging removes a connection and a failure mode, but couples the
+   notification watcher's lifecycle to the conversation view's.
+4. **Should the application ever bind to something other than `0.0.0.0`, or gain a shared-secret
+   header?** Tailscale is currently the whole boundary. A shared secret would be a small change
+   and would survive a tailnet that grows a device the owner does not control.
+5. **Should the classic surface be revisited if `/api/session/{id}/event?after=` becomes
+   usable?** A replay cursor would change the fundamental trade-off recorded in Tenet 1.
+
+## 19. Future Work
+
+A replay-cursor migration is the highest-value item, because it is the only change that would
+weaken Tenet 1's necessity: with replay, the poll interval could lengthen from three seconds to
+a backstop rather than remaining the primary correctness mechanism.
+
+Structured logging is available through the already-installed `pino`, which would convert the
+`[bus]` error log and the launchd streams into something queryable.
+
+A request timeout would make an upstream-hang metric meaningful. Today that row in section 14's
+table cannot be populated, because there is no event to count.
+
+Finally, the `/docs` design-snapshot section that this document is written for, which is the
+surface that makes documents like this one discoverable from inside the application.
+
+## 20. Decisions Made
+
+This is the running deviation log, seeded with the nine documentation-versus-code divergences
+found while writing this snapshot.
+
+| Divergence | Which artifact is authoritative |
+|---|---|
+| `docs/architecture.md:105-106` and `AGENTS.md` decisions 8 and 9 all say `opencode.jsonc`; the file is `opencode.json` and no `.jsonc` exists | Code |
+| `docs/architecture.md:126` points at `server/notifications.ts`, which does not exist; it is `server/notifications/{service,history,preferences,ntfy,webpush}.ts` | Code |
+| `docs/architecture.md:128` points at `server/preview.ts`; it is `server/routes/preview.ts` | Code |
+| `deploy/README.md:13`'s diagram shows OpenCode on `:4097`; every other reference is `:4096` | Code |
+| `pino` and `pino-pretty` at `package.json:53-54` are imported by zero files, contradicting `AGENTS.md`'s rule that no runtime dependency is added without a recorded reason | `AGENTS.md`; remove the dependencies or record the reason |
+| `UI_EVENT_TYPES` at `server/opencode/events.ts:157-176` is exported and never imported; the real reaction lists are `client/lib/messagePages.ts:23-28`, `client/lib/useNotifyWatcher.ts:14-26` and `client/lib/useNotificationCenter.tsx:38-40` | The three client lists |
+| `server/routes/sessions.ts:332` comments "fire-and-forget" on a call that `:334` awaits | Code |
+| `server/opencode/client.ts:22-23` claims a pinned `@opencode-ai/sdk` dependency that `:29-34` contradicts and `package.json` does not carry | `:29-34` and `package.json` |
+| `AGENTS.md` decision 12's "capped at 500 directories" conflates 500 results with 5,000 directories visited | `.env.example:19`, which states both correctly |
+
+This snapshot reports these rather than fixing them, because a snapshot records what was true on
+its date.
+
+## 21. Appendices
+
+**STOP READING HERE.**
+
+### Appendix A. Router registration order
+
+The 15 routers mounted at `server/index.ts:76-91`, in registration order.
+
+| Line | Router |
+|---|---|
+| 76 | sessions |
+| 77 | settings |
+| 78 | mcp |
+| 79 | workspace |
+| 80 | worktrees |
+| 81 | notifications |
+| 82 | forge |
+| 83 | planning |
+| 84 | reminders |
+| 85 | workflows |
+| 86 | appConfig |
+| 87 | projects |
+| 88 | modelPins |
+| 89 | recents |
+| 90-91 | preview, including the force-removal of the BFF and OpenCode ports from the allowlist |
+
+### Appendix B. Upstream endpoints
+
+The 30 distinct OpenCode paths this application calls, grouped by area.
+
+| Area | Path | Methods used |
+|---|---|---|
+| Global | `/global/event` | GET only |
+| Global | `/doc` | GET only |
+| Global | `/project` | GET only |
+| Global | `/path` | GET only |
+| Global | `/config` | GET only |
+| Global | `/agent` | GET only |
+| Global | `/mcp` | GET only |
+| Global | `/event` | GET only; not subscribed in the multi-project path |
+| Session | `/session` | GET, POST |
+| Session | `/session/status` | GET only |
+| Session | `/session/{id}` | GET, PATCH, DELETE |
+| Session | `/session/{id}/message` | GET only here |
+| Session | `/session/{id}/message/{messageID}` | GET only |
+| Session | `/session/{id}/prompt_async` | POST |
+| Session | `/session/{id}/abort` | POST |
+| Session | `/session/{id}/children` | GET only |
+| Session | `/session/{id}/todo` | GET only |
+| Session | `/session/{id}/share` | POST, DELETE |
+| Session | `/session/{id}/summarize` | POST |
+| Session | `/session/{id}/revert` | POST |
+| Session | `/session/{id}/unrevert` | POST |
+| Session | `/session/{id}/command` | POST |
+| Experimental | `/experimental/capabilities` | GET only |
+| Permission and question | `/session/{id}/permissions/{permissionID}` | POST |
+| Permission and question | `/session/{id}/question/{questionID}` | POST |
+| Catalog | `/config/providers` | GET only |
+| Catalog | `/command` | GET only |
+| File and version control | `/file` | GET only |
+| File and version control | `/file/content` | GET only |
+| File and version control | `/vcs/status` | GET only |
+
+Three notes. `/session/{id}` PATCH is the only PATCH this application issues anywhere, and its
+sole use is mode-policy activation. `/session/{id}/message` is used GET-only here; the blocking
+POST form is deliberately never called, per section 10. And the `/api/**` v2 surface is never
+touched.
+
+### Appendix C. Intervals and timeouts
+
+The full client and server table, with sites.
+
+| Scope | Interval or timeout | Value | Site |
+|---|---|---|---|
+| Client | Conversation poll | 3,000 ms | `client/lib/useSessionStream.ts:36` |
+| Client | Poll visibility gate | — | `client/lib/useSessionStream.ts:193` |
+| Client | Hub session poll | 10,000 ms | `client/pages/Hub.tsx:37` |
+| Client | Hub recents poll | 60,000 ms | `client/pages/Hub.tsx:40` |
+| Client | Sub-agent panel poll | 10,000 ms | Sub-agent panel |
+| Client | Auto-permissions poll | 3,000 ms | Auto-permissions view |
+| Server | Browser server-sent-event keep-alive | 15,000 ms | BFF fan-out |
+| Server | Upstream server-sent-event backoff | 1,000 to 30,000 ms | Event bus |
+| Server | **OpenCode request timeout** | **None** | `server/opencode/client.ts:132-137` |
+| Server | Session-metadata lookup | 2,000 ms | Notification service |
+| Server | Preview proxy | 20,000 ms | `server/routes/preview.ts:72` |
+| Server | `git check-ignore` | 5,000 ms | Workspace |
+| Server | `git log` | 10,000 ms | Workspace |
+| Server | Worktree ready | 60,000 ms | Worktrees |
+| Server | ntfy delivery | 10,000 ms | Notifications |
+| Server | Web Push delivery | 10,000 ms, 60 s time to live | Notifications |
+| Server | Forge requests | 15,000 ms | Forge |
+| Server | Planning requests | 10,000 ms | Planning |
+| Server | Model catalogue cache | 15,000 ms | Config |
+| Server | Capabilities cache | 30,000 ms | Sessions |
+| Server | Planning caches | 60,000 and 300,000 ms | Planning |
+| Server | Request body limit | 20 MB | `server/index.ts` |
+
+### Appendix D. `localStorage` keys
+
+| Key | Declaring file | Purpose |
+|---|---|---|
+| `opencode.directory.v1` | `client/lib/palette.ts:3` | Selected project directory; also duplicated as a literal in `client/pages/Hub.tsx:36` and `client/pages/Tools.tsx:8` |
+| `opencode.recentSessions.v1` | Recents client | Recent session list, capped at 50; also the candidate set for cross-project recents |
+| `opencode.wrapOutput.v1` | Transcript | Output wrapping preference |
+| `opencode.planning.view` | Planning page | Planning view selection |
+| `opencode.planning.density` | Planning page | Row density, five treatments, densest is the first-visit default |
+| `opencode-notification-media-v1` | Notification centre | Device-local sound and speech settings, deliberately not server-backed |
+| `opencode-notification-view-v1` | Notification centre | Inbox filters, including the default-on suppressed-record filters |
+| `theme` | Theme provider | Light or dark selection; unversioned |
+
+### Appendix E. `server/paths.ts` exports
+
+| Line | Export | Behaviour |
+|---|---|---|
+| 12 | `PROJECTS_DIR` | Configured primary containment root |
+| 20 | `WORKTREE_ROOT` | Configured worktree containment root |
+| 31 | `isWithinRoot` | Compares canonical paths, never caller strings |
+| 44 | `resolveWithinRoots` | Resolves a candidate against both roots and rejects anything outside |
+| 58 | `requireReadableWorkspacePath` | The single authority the read routes and reference validation both use |
+| 71 | `canonicalize` | Realpath resolution, so a symlink cannot be swapped between check and use |
+| 83 | `stateDir` | `.state/` location for append-only persistence |
+| 92 | `ensureStateDir` | Creates `.state/` with directory mode 0700 |
+
+## 22. References
+
+- [`docs/architecture.md`](../architecture.md)
+- [`docs/subagents.md`](../subagents.md)
+- [`docs/notifications.md`](../notifications.md)
+- [`AGENTS.md`](../../AGENTS.md)
+- [`CONTRIBUTING.md`](../../CONTRIBUTING.md)
+- [`deploy/README.md`](../../deploy/README.md)
+- [`docs/opencode-1.18.21-api-audit.md`](../opencode-1.18.21-api-audit.md)
+- [`docs/research/README.md`](../research/README.md)
+- [`2026-08-26-notification-persistence-and-delivery.md`](./2026-08-26-notification-persistence-and-delivery.md)
