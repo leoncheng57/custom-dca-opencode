@@ -64,6 +64,7 @@ export function ConversationPage() {
   const [sending, setSending] = useState(false);
   const [composerError, setComposerError] = useState<string | null>(null);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [workspaceTab, setWorkspaceTab] = useState<"files" | "changes">("files");
   const [workspaceTarget, setWorkspaceTarget] = useState<WorkspaceTarget | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [requestedInspectorTab, setRequestedInspectorTab] = useState<InspectorTab | undefined>();
@@ -316,6 +317,14 @@ export function ConversationPage() {
   // drawer is an overlay and the transcript stays mounted underneath it.
   const openWorkspaceTarget = useCallback((target: WorkspaceTarget) => {
     setWorkspaceTarget(target);
+    setWorkspaceTab("files");
+    setWorkspaceOpen(true);
+  }, []);
+  // The change modal offers this when historical detail is unavailable, so it
+  // must land on the working-tree diff rather than the file browser.
+  const openWorkspaceChanges = useCallback(() => {
+    setWorkspaceTarget(null);
+    setWorkspaceTab("changes");
     setWorkspaceOpen(true);
   }, []);
   const clearWorkspaceTarget = useCallback(() => setWorkspaceTarget(null), []);
@@ -598,7 +607,7 @@ export function ConversationPage() {
             size="md"
             variant="ghost"
             className="min-h-11 min-w-12 px-0"
-            onClick={() => setWorkspaceOpen(true)}
+            onClick={() => { setWorkspaceTab("files"); setWorkspaceOpen(true); }}
             aria-label="Open workspace"
             title="Open workspace"
             data-testid="opencode-mobile-workspace-open"
@@ -811,6 +820,7 @@ export function ConversationPage() {
                   onExport={exportMessage}
                   directory={directory}
                   sessionId={id}
+                  onOpenWorkspaceChanges={openWorkspaceChanges}
                 />
               </WorkspaceReferenceProvider>
             )}
@@ -991,6 +1001,7 @@ export function ConversationPage() {
           onClose={() => setWorkspaceOpen(false)}
           target={workspaceTarget}
           onTargetConsumed={clearWorkspaceTarget}
+          initialTab={workspaceTab}
         />
       )}
       {autoSafetyOpen && (

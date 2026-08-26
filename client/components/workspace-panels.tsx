@@ -14,14 +14,17 @@ export function WorkspacePanels({
   onClose,
   target,
   onTargetConsumed,
+  initialTab = "files",
 }: {
   directory: string;
   onClose: () => void;
   /** Set when the drawer was opened by following a transcript reference. */
   target?: WorkspaceTarget | null;
   onTargetConsumed?: () => void;
+  /** Tab the opener asked for; a file reference still wins (see below). */
+  initialTab?: Tab;
 }) {
-  const [tab, setTab] = useState<Tab>("files");
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [changes, setChanges] = useState<VcsFileDiff[]>([]);
   const [selectedChange, setSelectedChange] = useState(0);
   const [mode, setMode] = useState<"git" | "branch">("git");
