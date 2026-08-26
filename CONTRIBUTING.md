@@ -142,6 +142,15 @@ container into the ignored `docker-e2e-artifacts/<run-id>/`, and removes exactly
 container and image tag it created. The fixed paths and ports stay unchanged inside the
 container, so no spec needed migrating.
 
+If Docker is not running, the lane stops with exit `69` rather than quietly running on the
+host: `0` means the tests passed, `1` means they failed, and `69` means the lane never ran.
+Keeping those separate lets a script or agent tell a red suite from an absent one.
+
+Running end-to-end tests locally without Docker is still supported as a deliberate
+override — use the host lane below. It is safe when no other end-to-end run is active, which
+includes a sibling worktree on a different `PORT`, since that still writes the same `/tmp`
+fixtures. The launcher cannot check for that, which is why it asks you rather than guessing.
+
 Keep using the host lane for debugging — it is faster and supports `--headed` and the
 Playwright inspector:
 

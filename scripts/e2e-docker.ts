@@ -55,6 +55,18 @@ export const ARTIFACT_LIMITS = {
   maxTotalBytes: 512 * 1024 * 1024,
 } as const;
 
+/**
+ * The lane could not run at all — distinct from "the tests failed".
+ *
+ * Playwright exits 1 when tests fail, and reusing 1 here would make those two
+ * outcomes indistinguishable to any caller that does not parse stderr. An agent
+ * seeing an undifferentiated 1 can plausibly conclude the suite is broken and
+ * start debugging tests that never executed. 69 is sysexits' EX_UNAVAILABLE,
+ * which is exactly this situation: the service this command depends on is not
+ * there.
+ */
+export const EXIT_DOCKER_UNAVAILABLE = 69;
+
 /** Launcher-only flags. Anything else is forwarded to Playwright untouched. */
 const VALUED_FLAGS = new Set(["--artifact-root", "--image"]);
 const BOOLEAN_FLAGS = new Set(["--keep-image", "--keep-container", "--no-cache"]);
@@ -345,6 +357,90 @@ export function exportArtifacts(
   return report;
 }
 
+export type DockerAvailability =
+  | { available: true; serverVersion: string }
+  | { available: false; reason: "missing-binary" | "daemon-unreachable"; detail: string };
+
+/**
+ * Decide whether a `docker version` probe means the lane can run.
+ *
+ * Pure so the three outcomes can be tested without a daemon. Two distinct
+ * failures are worth telling apart in the message the operator reads: Docker
+ * not being installed needs a different response from Docker being installed
+ * but stopped, and printing "is the daemon running?" to someone who has no
+ * `docker` binary wastes their time.
+ *
+ * Anything non-zero that is not ENOENT is treated as `daemon-unreachable`. That
+ * is the honest generalisation: the CLI ran and could not give us a server
+ * version, and the raw stderr is carried in `detail` rather than being
+ * classified further into guesses.
+ */
+export function classifyDockerProbe(result: {
+  error?: { code?: string } | undefined;
+  status: number | null;
+  stdout?: string;
+  stderr?: string;
+}): DockerAvailability {
+  if (result.error?.code === "ENOENT") {
+    return { available: false, reason: "missing-binary", detail: "no `docker` executable on PATH" };
+  }
+  if (result.error) {
+    return { available: false, reason: "daemon-unreachable", detail: `could not run docker: ${String(result.error.code ?? "unknown error")}` };
+  }
+  if (result.status !== 0) {
+    const stderr = (result.stderr ?? "").trim().split("\n")[0] ?? "";
+    return {
+      available: false,
+      reason: "daemon-unreachable",
+      detail: stderr || `docker version exited ${String(result.status)}`,
+    };
+  }
+  const serverVersion = (result.stdout ?? "").trim();
+  if (!serverVersion) {
+    return { available: false, reason: "daemon-unreachable", detail: "docker reported no server version" };
+  }
+  return { available: true, serverVersion };
+}
+
+/** Ask the daemon for its version; `--format` keeps the output to one line. */
+function probeDocker(): DockerAvailability {
+  const result = spawnSync("docker", ["version", "--format", "{{.Server.Version}}"], { encoding: "utf8" });
+  return classifyDockerProbe({
+    error: result.error as ({ code?: string } | undefined),
+    status: result.status,
+    stdout: result.stdout,
+    stderr: result.stderr,
+  });
+}
+
+/**
+ * What to print when the lane cannot start.
+ *
+ * The override is named here, at the moment it is needed, rather than only in
+ * the README: somebody whose daemon is down should not have to go find the
+ * documentation to learn that `npm run test:e2e:host` exists.
+ *
+ * There is deliberately no automatic fallback. The launcher cannot verify the
+ * one condition that would make the host lane safe. Free ports are not proof:
+ * a sibling worktree running on a different PORT leaves 3410 unbound while
+ * still writing the same /tmp fixtures, which is precisely the failure this
+ * lane exists to prevent. So the choice is handed to the operator, who knows
+ * things the launcher cannot observe.
+ */
+export function unavailableMessage(availability: Extract<DockerAvailability, { available: false }>): string[] {
+  return [
+    `Docker is not available: ${availability.detail}`,
+    availability.reason === "missing-binary"
+      ? "Install Docker, or run the host lane below."
+      : "Start Docker and re-run, or run the host lane below.",
+    "Override: `npm run test:e2e:host` runs the same suite on the host.",
+    "  It writes the shared /tmp fixtures and binds 3410/4599/4600.",
+    "  Safe only if no other e2e run is active — including a sibling worktree",
+    "  on a different PORT, which still shares those fixtures.",
+    "No automatic fallback: the launcher cannot verify that condition.",
+  ];
+}
+
 /** `uid=0` in the container metadata would silently undo a stated invariant. */
 export function readRuntimeUID(metadata: string): number | undefined {
   const match = /^user=\S+\s+uid=(\d+)\b/mu.exec(metadata);
@@ -396,6 +492,30 @@ function main(): void {
   let created = false;
   let interrupted: string | undefined;
   let failure: string | undefined;
+  let failureKind: "docker-unavailable" | "launcher" | undefined;
+
+  // Checked before the build, and before the `--image` path too: reusing a
+  // prebuilt tag still needs a daemon to create and start a container.
+  const availability = probeDocker();
+  if (!availability.available) {
+    for (const line of unavailableMessage(availability)) console.error(`[e2e-docker] ${line}`);
+    writeSummary(destination, {
+      runID,
+      sourceSHA,
+      imageTag: tag,
+      container,
+      playwrightArgs,
+      lane: "container",
+      exitCode: EXIT_DOCKER_UNAVAILABLE,
+      failure: availability.detail,
+      failureKind: "docker-unavailable",
+      dockerReason: availability.reason,
+      timings: { totalMs: Date.now() - started },
+    });
+    console.log(`[e2e-docker] exit ${String(EXIT_DOCKER_UNAVAILABLE)}`);
+    process.exit(EXIT_DOCKER_UNAVAILABLE);
+  }
+  console.log(`[e2e-docker] docker server ${availability.serverVersion}`);
 
   try {
     // BuildKit gives the lockfile and browser layers a real cache across runs.
@@ -431,13 +551,21 @@ function main(): void {
     // A build or create failure is a launcher failure, not a test result. Report
     // it as exit 1 with the message rather than letting an unhandled throw print
     // a stack the reader has to interpret.
+    //
+    // Deliberately NOT EXIT_DOCKER_UNAVAILABLE: the daemon answered the probe
+    // above, so a failure here is a real defect in the image, the Dockerfile or
+    // the source — exactly the thing that must not be waved away as an
+    // environment problem.
     failure = error instanceof Error ? error.message : String(error);
+    failureKind = "launcher";
     exitCode = 1;
     console.error(`[e2e-docker] ${failure}`);
   } finally {
+    let report: ArtifactReport | undefined;
+    let uid: number | undefined;
+
     if (created) {
       const exportStarted = Date.now();
-      let report: ArtifactReport | undefined;
       try {
         mkdirSync(staging, { recursive: true });
         // `/artifacts/.` copies the CONTENTS, so the staging tree mirrors the
@@ -451,33 +579,9 @@ function main(): void {
         rmSync(staging, { recursive: true, force: true });
       }
       timings.exportMs = Date.now() - exportStarted;
-      timings.totalMs = Date.now() - started;
 
       const metadata = readMetadata(destination);
-      const uid = metadata === undefined ? undefined : readRuntimeUID(metadata);
-      writeFileSync(
-        path.join(destination, "summary.json"),
-        `${JSON.stringify(
-          {
-            runID,
-            sourceSHA,
-            imageTag: tag,
-            container,
-            playwrightArgs,
-            exitCode,
-            interrupted,
-            failure,
-            timings,
-            runtimeUID: uid,
-            nonRoot: uid !== undefined && uid !== 0,
-            artifacts: report?.files ?? [],
-            artifactBytes: report?.totalBytes ?? 0,
-            rejected: report?.rejected ?? [],
-          },
-          null,
-          2,
-        )}\n`,
-      );
+      uid = metadata === undefined ? undefined : readRuntimeUID(metadata);
 
       for (const entry of report?.rejected ?? []) {
         console.error(`[e2e-docker] rejected artifact ${entry.path}: ${entry.reason}`);
@@ -488,8 +592,33 @@ function main(): void {
       console.log(
         `[e2e-docker] exported ${String(report?.files.length ?? 0)} files (${String(report?.totalBytes ?? 0)} bytes)`,
       );
-      console.log(`[e2e-docker] timings ${JSON.stringify(timings)}`);
+    }
 
+    // Written whether or not a container was created. A run that died during
+    // build still leaves a machine-readable record of why, which is the only
+    // thing a caller has to go on once the console output is gone.
+    timings.totalMs = Date.now() - started;
+    writeSummary(destination, {
+      runID,
+      sourceSHA,
+      imageTag: tag,
+      container,
+      playwrightArgs,
+      lane: "container",
+      exitCode,
+      interrupted,
+      failure,
+      failureKind,
+      timings,
+      runtimeUID: uid,
+      nonRoot: uid !== undefined && uid !== 0,
+      artifacts: report?.files ?? [],
+      artifactBytes: report?.totalBytes ?? 0,
+      rejected: report?.rejected ?? [],
+    });
+    console.log(`[e2e-docker] timings ${JSON.stringify(timings)}`);
+
+    if (created) {
       // Exact resources only: one generated container name, and the image tag
       // only when this run is the thing that created it.
       if (!options.keepContainer) attempt(["rm", "-f", container]);
@@ -499,6 +628,17 @@ function main(): void {
 
   console.log(`[e2e-docker] exit ${String(exitCode)}`);
   process.exit(exitCode);
+}
+
+/** One writer for summary.json so every exit path produces the same shape. */
+function writeSummary(destination: string, summary: Record<string, unknown>): void {
+  try {
+    mkdirSync(destination, { recursive: true });
+    writeFileSync(path.join(destination, "summary.json"), `${JSON.stringify(summary, null, 2)}\n`);
+  } catch (error) {
+    // Never let bookkeeping mask the run's real outcome.
+    console.error(`[e2e-docker] could not write summary.json: ${String(error)}`);
+  }
 }
 
 function readMetadata(destination: string): string | undefined {

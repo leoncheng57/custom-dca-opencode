@@ -5,9 +5,11 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   ARTIFACT_LIMITS,
+  EXIT_DOCKER_UNAVAILABLE,
   RESOURCE_PREFIX,
   assertImageRef,
   assertRunID,
+  classifyDockerProbe,
   containerName,
   createRunID,
   dockerCreateArgs,
@@ -16,6 +18,7 @@ import {
   parseArgs,
   readRuntimeUID,
   resolveArtifactRoot,
+  unavailableMessage,
 } from "../scripts/e2e-docker.js";
 
 // Unit coverage for the host side of the isolated E2E lane (issue #204).
@@ -490,6 +493,96 @@ describe("artifact export", () => {
 
     expect(report.files).toEqual([]);
     expect(readdirSync(path.join(root, "run"))).toEqual([]);
+  });
+});
+
+describe("docker availability preflight", () => {
+  it("accepts a daemon that reports a server version", () => {
+    expect(classifyDockerProbe({ status: 0, stdout: "27.4.0\n" })).toEqual({
+      available: true,
+      serverVersion: "27.4.0",
+    });
+  });
+
+  it("distinguishes a missing binary from a stopped daemon", () => {
+    // These need different advice. Telling someone with no `docker` on PATH to
+    // "start the daemon" sends them looking for something that is not there.
+    expect(classifyDockerProbe({ error: { code: "ENOENT" }, status: null })).toMatchObject({
+      available: false,
+      reason: "missing-binary",
+    });
+    expect(
+      classifyDockerProbe({
+        status: 1,
+        stderr: "Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?\n",
+      }),
+    ).toMatchObject({ available: false, reason: "daemon-unreachable" });
+  });
+
+  it("carries the daemon's own first stderr line as the detail", () => {
+    const availability = classifyDockerProbe({
+      status: 1,
+      stderr: "Cannot connect to the Docker daemon.\nmore noise\n",
+    });
+    expect(availability).toMatchObject({ detail: "Cannot connect to the Docker daemon." });
+  });
+
+  it("treats a zero exit with no version as unavailable", () => {
+    // A CLI that succeeds but reports nothing has not proven a daemon exists,
+    // and proceeding would fail later with a far less obvious message.
+    expect(classifyDockerProbe({ status: 0, stdout: "  \n" })).toMatchObject({
+      available: false,
+      reason: "daemon-unreachable",
+    });
+  });
+
+  it("treats a non-ENOENT spawn error as unreachable rather than throwing", () => {
+    expect(classifyDockerProbe({ error: { code: "EACCES" }, status: null })).toMatchObject({
+      available: false,
+      reason: "daemon-unreachable",
+    });
+  });
+
+  it("uses an exit code that cannot be confused with a test failure", () => {
+    // Playwright exits 1 when tests fail. If the lane reused 1, a caller could
+    // not tell "the suite is red" from "the suite never ran".
+    expect(EXIT_DOCKER_UNAVAILABLE).toBe(69);
+    expect(EXIT_DOCKER_UNAVAILABLE).not.toBe(0);
+    expect(EXIT_DOCKER_UNAVAILABLE).not.toBe(1);
+  });
+
+  it("names the host override in the failure message", () => {
+    // The operator should not have to find the README while their run is
+    // broken, so the escape hatch is printed at the point of failure.
+    const lines = unavailableMessage({
+      available: false,
+      reason: "daemon-unreachable",
+      detail: "Cannot connect to the Docker daemon.",
+    }).join("\n");
+    expect(lines).toContain("npm run test:e2e:host");
+    expect(lines).toContain("3410/4599/4600");
+  });
+
+  it("states that the fallback is not automatic and says why", () => {
+    // Free ports do not prove exclusivity: a sibling worktree on another PORT
+    // still writes the same /tmp fixtures. The message has to say so, because
+    // that is the non-obvious reason the launcher refuses to decide.
+    const lines = unavailableMessage({
+      available: false,
+      reason: "missing-binary",
+      detail: "no `docker` executable on PATH",
+    }).join("\n");
+    expect(lines).toContain("No automatic fallback");
+    expect(lines).toMatch(/different PORT/u);
+  });
+
+  it("tells someone without the binary to install it", () => {
+    const lines = unavailableMessage({
+      available: false,
+      reason: "missing-binary",
+      detail: "no `docker` executable on PATH",
+    }).join("\n");
+    expect(lines).toContain("Install Docker");
   });
 });
 

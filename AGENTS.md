@@ -405,7 +405,16 @@ several decisions below.
     the launcher and the npm script, so `test:e2e:docker` is a convenience command whose
     security depends on the checkout; untrusted review needs a trusted launcher and image
     definition from outside the tested tree. In CI the ephemeral read-only-token runner is
-    that boundary. No per-PR image is published to GHCR: BuildKit `type=gha` cache scoped
+    that boundary.
+    A preflight probes the daemon before building and, when Docker is absent, exits
+    **69** (`EX_UNAVAILABLE`) rather than 1, so "the lane never ran" is machine-
+    distinguishable from Playwright's "tests failed"; `summary.json` is written on that
+    path too, carrying `failureKind`. It never falls back to the host lane automatically:
+    free ports do not prove exclusivity, because a sibling worktree on a different `PORT`
+    still writes the same `/tmp` fixtures, so the launcher names `npm run test:e2e:host`
+    as an operator override instead of choosing it. A build failure after a successful
+    probe stays exit 1 — that is a real defect and must not be excused as an environment
+    problem. No per-PR image is published to GHCR: BuildKit `type=gha` cache scoped
     by platform + schema (not commit SHA) keeps the `npm ci` and browser layers warm
     without a registry, a write token or fork restrictions.
 

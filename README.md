@@ -163,6 +163,22 @@ docker create --network none --cap-drop ALL --init  (no mounts, no published por
         `-- docker cp after exit -> docker-e2e-artifacts/<run-id>/  (validated)
 ```
 
+If Docker is not running, the lane **fails rather than silently using the host**, and says
+so with a dedicated exit code:
+
+| Exit | Meaning |
+|---:|---|
+| `0` | tests passed |
+| `1` | tests failed |
+| `69` | the lane could not run (Docker missing or daemon down) |
+
+`69` is `EX_UNAVAILABLE`, kept distinct from `1` so a script or agent can tell "the suite is
+red" from "the suite never ran". A local run without Docker is still available as a
+deliberate override — `npm run test:e2e:host` runs the same suite — but it writes the shared
+`/tmp` fixtures and binds `3410`/`4599`/`4600`, so it is safe only when no other end-to-end
+run is active. That includes a sibling worktree on a different `PORT`, which still shares
+those fixtures; because the launcher cannot verify that, it never falls back on its own.
+
 The container carries no Docker socket, no host home or credentials, no writable source or
 artifact mount, and no default route; it runs as uid 1000 with all capabilities dropped.
 Artifacts are copied out of the *stopped* container and validated on the host — symlinks
