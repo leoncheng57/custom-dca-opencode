@@ -965,7 +965,10 @@ test.describe("notification history", () => {
     await request.patch(`/api/notifications/${asked.id}`, { data: { resolved: true } });
   });
 
-  test("delivers only root-session asks and records descendants as filterable noise", async ({ request }) => {
+  test("delivers asks from any lineage and records other child activity as filterable noise", async ({ request }) => {
+    // A child stopped on an unanswered ask is stalled work nobody else can
+    // unblock, so permission is the one child event that takes the delivery
+    // path. Everything else a child emits stays a recorded-only audit trail.
     const childID = `perm_child_${Date.now()}`;
     const nestedID = `perm_nested_${Date.now()}`;
     const rootID = `perm_root_${Date.now()}`;
@@ -985,25 +988,35 @@ test.describe("notification history", () => {
       .toMatchObject({ kind: "permission", directory: SUBAGENT_DIR, sessionID: "ses_mock_parent" });
     await new Promise((resolve) => setTimeout(resolve, 50));
 
-    // Descendants are recorded so a delegated child's asks stay auditable,
-    // but marked suppressed: nothing was delivered for them.
+    // Every lineage's ask is delivered: a blocked child needs a human exactly
+    // as much as a blocked root.
     const records = (await history(request)).records;
-    expect(record(records, childID)).toMatchObject({ delivery: { suppressed: "subagent", ntfy: "off", desktop: "off" } });
-    expect(record(records, nestedID)).toMatchObject({ delivery: { suppressed: "subagent" } });
+    expect(record(records, childID)).toMatchObject({ delivery: { desktop: "allowed" } });
+    expect(record(records, nestedID)).toMatchObject({ delivery: { desktop: "allowed" } });
     expect(record(records, rootID)).toMatchObject({ delivery: { desktop: "allowed" } });
+    expect(record(records, childID)!.delivery).not.toHaveProperty("suppressed");
 
-    // With the default filter applied they leave both the list and the count,
-    // which is the state the UI actually renders.
+    // A child that merely finishes hands back to its parent: recorded so the
+    // audit stays answerable, suppressed so nobody is pinged, and filterable.
+    await fetch(`${MOCK_URL}/test/mobile/idle?sessionID=ses_mock_child_done&directory=${encodeURIComponent(SUBAGENT_DIR)}`, { method: "POST" });
+    const childIdle = (list: Array<Record<string, unknown>>) => list.find((item) =>
+      item.kind === "idle" && item.sessionID === "ses_mock_child_done" && item.directory === SUBAGENT_DIR);
+    await expect.poll(async () => childIdle((await history(request)).records))
+      .toMatchObject({ delivery: { suppressed: "subagent", ntfy: "off", desktop: "off" } });
+
+    // With the default filter applied the idle leaves both the list and the
+    // count, while the delivered asks stay — the state the UI actually renders.
     const filtered = await history(request, "&hideSubagent=1");
-    expect(record(filtered.records, childID)).toBeUndefined();
-    expect(record(filtered.records, nestedID)).toBeUndefined();
+    expect(childIdle(filtered.records)).toBeUndefined();
+    expect(record(filtered.records, childID)).toBeTruthy();
     expect(record(filtered.records, rootID)).toBeTruthy();
-    expect(filtered.suppressedActive.subagent).toBeGreaterThanOrEqual(2);
+    expect(filtered.suppressedActive.subagent).toBeGreaterThanOrEqual(1);
     expect(await activeCount(request, `&directory=${encodeURIComponent(SUBAGENT_DIR)}&hideSubagent=1`))
       .toBeLessThan(await activeCount(request, `&directory=${encodeURIComponent(SUBAGENT_DIR)}`));
 
-    for (const id of [childID, nestedID, rootID]) {
-      await request.patch(`/api/notifications/${record(records, id)!.id}`, { data: { resolved: true } });
+    const latest = (await history(request)).records;
+    for (const item of [record(latest, childID), record(latest, nestedID), record(latest, rootID), childIdle(latest)]) {
+      await request.patch(`/api/notifications/${item!.id}`, { data: { resolved: true } });
     }
     await fetch(`${MOCK_URL}/test/permissions/reset?directory=${encodeURIComponent(SUBAGENT_DIR)}`, { method: "POST" });
   });
