@@ -17,7 +17,7 @@ import { createHash } from "node:crypto";
 import { withReminderTag, type ReminderPreset } from "../reminders/reminders.js";
 import { withWorkflowTag, type WorkflowPreset } from "../workflows/workflows.js";
 import { isSensitiveWorkspacePath } from "../paths.js";
-import { recordInstruction } from "./instruction-audit.js";
+import { recordInstruction, redactInstructionText } from "./instruction-audit.js";
 import { request, requestWithResponse, type OpencodeConfig } from "./client.js";
 import type { VcsFileDiff } from "./workspace.js";
 
@@ -991,8 +991,22 @@ export class ManagedChildConfigurationError extends Error {
   }
 }
 
-function managedChildTitle(text: string): string {
-  const firstLine = text.split(/\r?\n/u, 1)[0]?.replace(/\s+/gu, " ").trim() || "Managed Child";
+/**
+ * The child's persisted session title, derived from its assignment.
+ *
+ * Redacts BEFORE the first line is taken and before the 80-character cap:
+ * truncating first can cut a token into a shape no pattern still matches, and
+ * a title is the single widest leak surface derived from an assignment — it
+ * flows into session summaries, sub-agent rows, Hub titles, breadcrumbs and
+ * persisted notification history, so filtering at render time would have to be
+ * correct in every one of those places. The prompt actually submitted to
+ * OpenCode is never redacted: the child must receive the exact text its human
+ * wrote. This mitigates credential SHAPES in derived metadata; it is not a
+ * licence to carry secrets in an assignment.
+ */
+export function managedChildTitle(text: string): string {
+  const redacted = redactInstructionText(text);
+  const firstLine = redacted.split(/\r?\n/u, 1)[0]?.replace(/\s+/gu, " ").trim() || "Managed Child";
   return firstLine.length > 80 ? `${firstLine.slice(0, 79)}…` : firstLine;
 }
 
