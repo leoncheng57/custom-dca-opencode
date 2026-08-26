@@ -82,6 +82,25 @@ but they create no native task part and inject no completion hand-back into the 
 therefore comes from the existing child transcript/status ledger. `origin`, requested agent and
 requested model are provenance only; they do not prove effective capability.
 
+```mermaid
+flowchart TD
+    Human[Human selects Managed Child] --> Form[Workflow or panel form]
+    Form --> Preview[Preview exact prompt and trusted injector]
+    Preview --> Consent{Can selected agent modify?}
+    Consent -->|Yes| Confirm[Explicit modify confirmation]
+    Consent -->|No| Validate
+    Confirm --> Validate[Validate agent catalogue and model]
+    Validate -->|Rejected| NoLaunch[No session is created]
+    Validate -->|Accepted| Create[Create parent-linked child with fixed rules]
+    Create --> Verify[Re-read and verify persisted config]
+    Verify -->|Mismatch| Cleanup[Delete partial child]
+    Verify -->|Exact| Prompt[Submit child prompt asynchronously]
+    Prompt --> Ledger[Derived child ledger]
+```
+
+*Figure 2. Managed-child creation is a human-authorized, fail-closed lane. It does not create a
+native task card or automatic hand-back.*
+
 ### Retained agents and the capability matrix
 
 The launchable roster is fixed to four retained agents. The catalogue
@@ -173,7 +192,7 @@ flowchart TD
     Notice --> ParentContinues
 ```
 
-*Figure 2. Supported foreground/background lifecycle. Background launch completion and child
+*Figure 3. Supported foreground/background lifecycle. Background launch completion and child
 completion are different events.*
 
 The derived sub-agent ledger combines four imperfect sources:
@@ -235,7 +254,7 @@ flowchart TD
     Child --> Risk
 ```
 
-*Figure 3. Plan/Build activation is fail-closed and suffix-idempotent. Child policy behavior is
+*Figure 4. Plan/Build activation is fail-closed and suffix-idempotent. Child policy behavior is
 kept outside the verified contract.*
 
 The activation rules are:
@@ -275,19 +294,57 @@ children.
 ## Model selection for delegated work
 
 Managed Children accept an explicit, validated model at launch, and the ledger shows the
-requested model as provenance. Native task children are different (issue #90): the task tool
-has **no per-delegation model parameter**. Upstream resolves the child model as the subagent's
-configured model when its agent definition pins one, otherwise the parent's current model at
-delegation time. The two levers that exist today:
+requested model as provenance. The reference deployment's **forked** OpenCode 1.18.23 binary
+also adds an optional `model` parameter to native `task` calls (issue #90):
 
-1. Pin a model on the agent definition (`opencode.json` `agent.<name>.model`) so every
-   delegation to that agent uses it.
-2. Switch the parent's model before delegating; children of agents without a pinned model
-   inherit it.
+```text
+explicit task model > subagent configured model > invoking parent model
+```
 
-The delegated-work panel shows the model each native child actually ran with, read from the
-task part's launch metadata. That display is provenance, not a control — per-delegation
-selection needs an upstream task-tool parameter that does not exist yet.
+Omitting `model` preserves the prior configured-model/parent-model behavior. The fork parses and
+validates an explicit `provider/model` before it creates the child, so an unavailable model fails
+without leaving an orphaned child. The resolved model is applied before the foreground/background
+split and is preserved in task metadata, so the delegated-work panel reports the model that child
+actually ran with. A `task_id` resume can select a model for that invocation only; it does not
+change a session-wide default.
+
+This is a **fork-only control**, not an upstream OpenCode capability. It has no separate model
+override permission or budget: any agent that can invoke `task` can select any model configured
+on the host. That is an intentional local cost-authority decision, not evidence that a requested
+agent/mode has a different permission ceiling.
+
+Upstream tracking is explicit:
+
+- anomalyco/opencode#6651 is the open feature request for dynamic task-child model selection.
+- anomalyco/opencode#34947 is the active upstream implementation. Unlike this fork, it adds a
+  `model_override` permission that defaults to deny, so an agent cannot silently route work to an
+  expensive model. It is open and unmerged as of 2026-08-26.
+- Earlier raw-model implementations (anomalyco/opencode#26535 and #29447) were closed as
+  superseded by #34947. Do not open a competing upstream PR from this fork.
+
+The deployed fork exposes the raw parameter because the operator chose immediate model control
+over a deny-by-default cost gate. Revisit that choice when adopting an upstream implementation;
+do not claim that the fork's model parameter has landed in a stock release.
+
+```mermaid
+flowchart TD
+    Task[Native task call] --> Requested{Explicit model supplied?}
+    Requested -->|Yes| Parse[Parse provider/model]
+    Parse --> Validate{Configured model exists?}
+    Validate -->|No| Fail[Fail before child creation]
+    Validate -->|Yes| Explicit[Use explicit model]
+    Requested -->|No| Agent{Subagent has pinned model?}
+    Agent -->|Yes| Pinned[Use agent model]
+    Agent -->|No| Parent[Use invoking parent model]
+    Explicit --> Dispatch[Foreground or background child dispatch]
+    Pinned --> Dispatch
+    Parent --> Dispatch
+    Dispatch --> Provenance[Emit normalized task metadata.model]
+    Provenance --> Ledger[Render resolved model as provenance]
+```
+
+*Figure 5. The deployed fork's native-task model resolution. This is fork-only: no
+`model_override` permission or budget gate limits an agent's explicit selection.*
 
 ## Events, polling, and completion
 
@@ -382,15 +439,30 @@ terminal Bash denies even after Build made the parent's own tools available agai
 `deriveSubagentSessionPermission` copies every parent-session deny while discarding the later
 allows that superseded them. A fork-only patch copies only denies that are still the parent's
 effective action for their exact permission and pattern; deployments running a build with that
-patch verified live (the reference deployment's binary `opencode-1.18.22-dca` is built from the
-`fix/subagent-effective-deny-inheritance` branch; that name is the binary's filename, not a
-branch) no longer need the fresh-parent workaround. On a build without it, failed preflight means
-stop; do not weaken policy or silently replace the native child with an independent root session.
+patch verified live (the reference deployment runs
+`opencode-1.18.23-dca-taskmodel`, built from the
+`fix/subagent-effective-deny-inheritance` branch; the binary filename is not a branch) no longer
+need the fresh-parent workaround. On a build without it, failed preflight means stop; do not
+weaken policy or silently replace the native child with an independent root session.
 
 This patch is **not upstream**. anomalyco/opencode#45064 was closed unmerged on 2026-08-26 and
 `upstream/dev` still ships the stale-deny filter, so every stock OpenCode build — including any
 future release — reproduces the bug until that changes. Treat the local pin as permanent
 maintenance, not a temporary bridge, and re-apply the patch on every rebuild.
+
+```mermaid
+flowchart LR
+    ParentRules[Append-only parent rules] --> Effective[Last-match-wins effective permissions]
+    Effective --> ForkPatch[Fork: copy only effective denies]
+    Effective --> Stock[Stock: copy every historical deny]
+    ForkPatch --> ChildOK[Build child can use later-restored Bash]
+    Stock --> ChildBlocked[Stale deny blocks the child]
+    Upstream45064[anomalyco #45064] --> Closed[Closed unmerged]
+    Upstream34947[anomalyco #34947] --> Open[Open upstream model-override work]
+```
+
+*Figure 6. Upstream status is split: the deny-inheritance correction remains fork-only because
+#45064 closed unmerged; #34947 is an open, separate upstream task-model implementation.*
 
 Before launching parallel mutating workers:
 

@@ -342,11 +342,11 @@ several decisions below.
     The reference deployment's `ai.opencode.serve` LaunchAgent runs a binary built from
     `fix/subagent-effective-deny-inheritance` in the local opencode checkout (source version
     1.18.23; `dev` is an ancestor ~4,145 commits behind at 1.4.7 and is not a rebuild source).
-    `~/.opencode/bin/opencode-1.18.22-dca` is that binary's filename and self-reported version,
-    **not** a branch — rebuild from the branch, never from that string. Verified live: a parent
-    with appended `[bash deny, bash allow]` spawned a task child with no inherited bash deny that
-    ran bash successfully. Session-level Plan enforcement is still required regardless — the
-    resolved Plan agent is not read-only after project merges.
+    `~/.opencode/bin/opencode-1.18.23-dca-taskmodel` is the currently pinned binary; the old
+    `opencode-1.18.22-dca` filename is the rollback artifact, never a branch or rebuild source.
+    Verified live: a parent with appended `[bash deny, bash allow]` spawned a task child with no
+    inherited bash deny that ran bash successfully. Session-level Plan enforcement is still
+    required regardless — the resolved Plan agent is not read-only after project merges.
     That branch now carries a **second** fork-only patch: an optional `model` parameter on the
     `task` tool (leoncheng57/opencode#4), giving explicit model > subagent model > parent model.
     Upstream's active implementation of the same feature, anomalyco/opencode#34947, additionally
