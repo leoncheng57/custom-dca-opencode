@@ -57,11 +57,34 @@ interface Check {
   detail: string;
 }
 
-const checks: Check[] = [];
+let checks: Check[] = [];
 
 function record(name: string, passed: boolean, detail: string): void {
   checks.push({ name, passed, detail });
   console.log(`${passed ? "PASS" : "FAIL"}  ${name}\n      ${detail}`);
+}
+
+/**
+ * How many pairs to run. One green pair shows the mechanism works; repetition is
+ * what turns that into evidence, because a state-isolation bug is usually a race
+ * and a race that loses once in twenty runs still corrupts a fixture.
+ */
+export function parseRepeat(argv: readonly string[]): number {
+  const index = argv.indexOf("--repeat");
+  if (index === -1) return 1;
+  const value = Number(argv[index + 1]);
+  if (!Number.isInteger(value) || value < 1 || value > 50) {
+    throw new Error(`--repeat must be an integer between 1 and 50, received ${JSON.stringify(argv[index + 1])}`);
+  }
+  return value;
+}
+
+/** Percentile over a small sample, nearest-rank so it always names a real run. */
+export function percentile(values: readonly number[], fraction: number): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const rank = Math.max(1, Math.ceil(fraction * sorted.length));
+  return sorted[rank - 1]!;
 }
 
 function docker(args: readonly string[]): { status: number; stdout: string; stderr: string } {
@@ -146,7 +169,8 @@ function waitForFixtures(containers: readonly string[], deadline: number): Recor
   return ready;
 }
 
-function main(): void {
+function runProof(): { proofID: string; checks: Check[]; failures: number; timings: Record<string, number> } {
+  checks = [];
   const repoRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
   const proofID = createRunID();
   const tag = imageTag(proofID);
@@ -401,7 +425,59 @@ function main(): void {
     console.log(`[proof] resource prefix ${RESOURCE_PREFIX}`);
   }
 
-  process.exit(failures === 0 ? 0 : 1);
+  return { proofID, checks: [...checks], failures, timings };
+}
+
+function main(): void {
+  const repeat = parseRepeat(process.argv.slice(2));
+  const repoRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
+  const artifactRoot = resolveArtifactRoot(undefined, repoRoot);
+  const iterations: { proofID: string; failures: number; checks: number; makespanMs: number }[] = [];
+
+  for (let index = 0; index < repeat; index += 1) {
+    console.log(`\n================ pair ${String(index + 1)}/${String(repeat)} ================`);
+    const result = runProof();
+    iterations.push({
+      proofID: result.proofID,
+      failures: result.failures,
+      checks: result.checks.length,
+      makespanMs: result.timings.makespanMs ?? 0,
+    });
+  }
+
+  const makespans = iterations.map((iteration) => iteration.makespanMs).filter((value) => value > 0);
+  const failedPairs = iterations.filter((iteration) => iteration.failures > 0);
+  // A pair that leaves a container or tag behind has failed at cleanup even if
+  // every isolation check passed, so the sweep is part of the verdict.
+  const strayContainers = docker(["ps", "-a", "--filter", `name=${RESOURCE_PREFIX}`, "--format", "{{.Names}}"]).stdout.trim();
+  const strayImages = docker(["images", RESOURCE_PREFIX, "--format", "{{.Repository}}:{{.Tag}}"]).stdout.trim();
+
+  const aggregate = {
+    pairs: repeat,
+    failedPairs: failedPairs.length,
+    makespanMs: {
+      min: makespans.length ? Math.min(...makespans) : 0,
+      p50: percentile(makespans, 0.5),
+      p95: percentile(makespans, 0.95),
+      max: makespans.length ? Math.max(...makespans) : 0,
+    },
+    strayContainers: strayContainers ? strayContainers.split("\n") : [],
+    strayImages: strayImages ? strayImages.split("\n") : [],
+    iterations,
+  };
+  writeFileSync(path.join(artifactRoot, `proof-stress-${createRunID()}.json`), `${JSON.stringify(aggregate, null, 2)}\n`);
+
+  console.log(`\n================ stress summary ================`);
+  console.log(`[proof] ${String(repeat - failedPairs.length)}/${String(repeat)} pairs fully passed`);
+  console.log(`[proof] makespan ms ${JSON.stringify(aggregate.makespanMs)}`);
+  console.log(`[proof] stray containers ${JSON.stringify(aggregate.strayContainers)}`);
+  console.log(`[proof] stray images ${JSON.stringify(aggregate.strayImages)}`);
+  for (const iteration of failedPairs) {
+    console.error(`[proof] pair ${iteration.proofID} had ${String(iteration.failures)} failed checks`);
+  }
+
+  const clean = failedPairs.length === 0 && aggregate.strayContainers.length === 0 && aggregate.strayImages.length === 0;
+  process.exit(clean ? 0 : 1);
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) main();
