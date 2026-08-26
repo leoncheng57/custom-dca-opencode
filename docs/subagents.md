@@ -380,13 +380,17 @@ On a **stock** OpenCode build, use a fresh Build-only parent for mutating childr
 workflow validation, children launched from a parent that had previously activated Plan retained
 terminal Bash denies even after Build made the parent's own tools available again: stock
 `deriveSubagentSessionPermission` copies every parent-session deny while discarding the later
-allows that superseded them. An upstream fix (anomalyco/opencode#45064) copies only denies that
-are still the parent's effective action for their exact permission and pattern; deployments
-running a build with that fix verified live (the reference deployment's binary
-`opencode-1.18.22-dca` is built from the `fix/subagent-effective-deny-inheritance` branch; that
-name is the binary's filename, not a branch) no longer need the fresh-parent workaround. On a
-build without it, failed preflight means stop; do not weaken policy or silently replace the
-native child with an independent root session.
+allows that superseded them. A fork-only patch copies only denies that are still the parent's
+effective action for their exact permission and pattern; deployments running a build with that
+patch verified live (the reference deployment's binary `opencode-1.18.22-dca` is built from the
+`fix/subagent-effective-deny-inheritance` branch; that name is the binary's filename, not a
+branch) no longer need the fresh-parent workaround. On a build without it, failed preflight means
+stop; do not weaken policy or silently replace the native child with an independent root session.
+
+This patch is **not upstream**. anomalyco/opencode#45064 was closed unmerged on 2026-08-26 and
+`upstream/dev` still ships the stale-deny filter, so every stock OpenCode build — including any
+future release — reproduces the bug until that changes. Treat the local pin as permanent
+maintenance, not a temporary bridge, and re-apply the patch on every rebuild.
 
 Before launching parallel mutating workers:
 
