@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Recovery hatch. GitHub occasionally drops `synchronize` events, which leaves
+  # a pushed commit with no checks at all — indistinguishable at a glance from a
+  # commit whose checks passed. Being able to re-run CI against a ref by hand is
+  # the difference between diagnosing that and merging on stale evidence.
+  workflow_dispatch:
 
 # One run per ref; cancel superseded runs on a busy PR.
 concurrency:
