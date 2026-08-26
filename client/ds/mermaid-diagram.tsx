@@ -51,17 +51,27 @@ function sanitizedSvg(markup: string): SVGSVGElement {
   for (const element of documentElement.querySelectorAll("*")) {
     for (const attribute of [...element.attributes]) {
       if (/^on/iu.test(attribute.name) || /href$/iu.test(attribute.name)) element.removeAttribute(attribute.name);
-      if (attribute.name === "style" && /(?:@import|url\s*\(|expression\s*\()/iu.test(attribute.value)) {
+      if (attribute.name === "style" && hasUnsafeCss(attribute.value)) {
         element.removeAttribute(attribute.name);
       }
     }
-    if (element.localName === "style" && /(?:@import|url\s*\(|expression\s*\()/iu.test(element.textContent ?? "")) {
+    if (element.localName === "style" && hasUnsafeCss(element.textContent ?? "")) {
       element.remove();
     }
   }
   documentElement.setAttribute("role", "img");
   documentElement.setAttribute("aria-label", "Mermaid diagram");
   return documentElement as unknown as SVGSVGElement;
+}
+
+function hasUnsafeCss(value: string): boolean {
+  if (/@import|expression\s*\(/iu.test(value)) return true;
+  for (const match of value.matchAll(/url\(\s*(['"]?)(.*?)\1\s*\)/giu)) {
+    // Mermaid uses fragment URLs for SVG markers. Anything else could load a
+    // network, data, or other external resource and is removed.
+    if (!match[2].trim().startsWith("#")) return true;
+  }
+  return false;
 }
 
 export function MermaidDiagram({ source }: { source: string }) {

@@ -19,7 +19,43 @@ test.describe("documentation Mermaid diagrams", () => {
 
     await page.emulateMedia({ colorScheme: "dark" });
     const dark = await page.getByTestId("opencode-mermaid-diagram").first().evaluate((element) => getComputedStyle(element).backgroundColor);
+    const diagramColors = await page.getByTestId("opencode-mermaid-diagram").first().evaluate((element) => {
+      const svg = element.querySelector("svg")!;
+      const node = svg.querySelector(".node path, .node polygon, .node rect")!;
+      const label = svg.querySelector(".node .label")!;
+      const edge = svg.querySelector(".flowchart-link")!;
+      const contrast = (foreground: string, background: string) => {
+        const rgb = (color: string) => color.match(/\d+/gu)!.slice(0, 3).map(Number).map((channel) => {
+          const normalized = channel / 255;
+          return normalized <= 0.04045 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
+        });
+        const luminance = (color: string) => {
+          const [red, green, blue] = rgb(color);
+          return red * 0.2126 + green * 0.7152 + blue * 0.0722;
+        };
+        const [first, second] = [luminance(foreground), luminance(background)].sort((a, b) => b - a);
+        return (first + 0.05) / (second + 0.05);
+      };
+      const nodeFill = getComputedStyle(node).fill;
+      const labelFill = getComputedStyle(label).fill;
+      const edgeStroke = getComputedStyle(edge).stroke;
+      return {
+        nodeFill,
+        nodeStroke: getComputedStyle(node).stroke,
+        labelFill,
+        edgeStroke,
+        labelContrast: contrast(labelFill, nodeFill),
+        edgeContrast: contrast(edgeStroke, getComputedStyle(element).backgroundColor),
+      };
+    });
     expect(dark).not.toBe(light);
+    // A removed Mermaid <style> sheet regresses to black SVG defaults in dark
+    // mode. Verify the real node, label, and edge colors after a theme rerender.
+    for (const color of [diagramColors.nodeFill, diagramColors.nodeStroke, diagramColors.labelFill, diagramColors.edgeStroke]) {
+      expect(color).not.toBe("rgb(0, 0, 0)");
+    }
+    expect(diagramColors.labelContrast).toBeGreaterThanOrEqual(4.5);
+    expect(diagramColors.edgeContrast).toBeGreaterThanOrEqual(3);
 
     await page.setViewportSize({ width: 390, height: 740 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
