@@ -19,6 +19,11 @@ async function promptPayloadContaining(fragment: string): Promise<Record<string,
   });
 }
 
+async function expectPromptPayloadContaining(fragment: string): Promise<Record<string, unknown>> {
+  await expect.poll(() => promptPayloadContaining(fragment)).toBeDefined();
+  return (await promptPayloadContaining(fragment))!;
+}
+
 function promptText(payload: Record<string, unknown>): string {
   const parts = payload.parts as Array<{ type?: string; text?: string }>;
   return parts.find((part) => part.type === "text")?.text ?? "";
@@ -120,8 +125,7 @@ test.describe("workflow picker UI", () => {
     await expect(attached).toContainText("Never regenerate the complete screenshot set.");
     await expect(user.getByTestId("opencode-user-message-body")).not.toContainText("<workflow");
 
-    const payload = await promptPayloadContaining(marker);
-    expect(payload).toBeDefined();
+    const payload = await expectPromptPayloadContaining(marker);
     expect(payload!.sessionID).toBe(MAIN);
     const text = promptText(payload!);
     expect(text).toContain("Review a UI change with Playwright.");
@@ -156,8 +160,7 @@ test.describe("workflow picker UI", () => {
     await expect(done).toContainText("Accepted means queued, not completed");
     await expect(dialog.getByTestId("composer-workflow-open-session")).toHaveAttribute("href", new RegExp(`/sessions/${TARGET}\\?`));
 
-    const payload = await promptPayloadContaining(marker);
-    expect(payload).toBeDefined();
+    const payload = await expectPromptPayloadContaining(marker);
     expect(payload!.sessionID).toBe(TARGET);
     const text = promptText(payload!);
     expect(text).toContain('<workflow name="session-update">');
@@ -191,8 +194,7 @@ test.describe("workflow picker UI", () => {
     await expect(done).toBeVisible();
     await expect(done).toContainText("no automatic hand-back will occur");
 
-    const payload = await promptPayloadContaining(marker);
-    expect(payload).toBeDefined();
+    const payload = await expectPromptPayloadContaining(marker);
     expect(promptText(payload!)).toContain('<workflow name="managed-child">');
 
     const sessionPayloads = await (await fetch(`${MOCK_URL}/test/session-payloads`)).json() as Array<Record<string, unknown>>;
@@ -208,8 +210,7 @@ test.describe("workflow picker UI", () => {
     await page.goto(mainSession);
     await page.getByTestId("opencode-composer").fill(marker);
     await page.getByTestId("opencode-send").click();
-    const payload = await promptPayloadContaining(marker);
-    expect(payload).toBeDefined();
+    const payload = await expectPromptPayloadContaining(marker);
     expect(promptText(payload!)).not.toContain("<workflow");
   });
 

@@ -28,13 +28,14 @@
 //     is readable. `untrusted` opts out entirely: forge comments must not gain
 //     workspace affordances.
 
-import { Fragment, createContext, memo, useContext } from "react";
+import { Children, Fragment, createContext, isValidElement, memo, useContext } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { describeLineRange } from "../lib/fileReferences.js";
 import { useWorkspaceReference } from "../lib/workspaceReferences.js";
 import { FileReference } from "./file-reference.js";
+import { MermaidDiagram } from "./mermaid-diagram.js";
 import { cn } from "./utils.js";
 
 /** Allowed link protocols when rendering markdown. Relative targets pass. */
@@ -112,12 +113,18 @@ const FencedBlockContext = createContext(false);
 interface MarkdownOptions {
   untrusted: boolean;
   internalLinksInSameTab: boolean;
+  renderMermaid: boolean;
 }
 
 const MarkdownOptionsContext = createContext<MarkdownOptions>({
   untrusted: false,
   internalLinksInSameTab: false,
+  renderMermaid: false,
 });
+
+export function isMermaidClassName(className: string | undefined): boolean {
+  return className?.split(/\s+/u).includes("language-mermaid") ?? false;
+}
 
 function InlineCode({ text, className }: { text: string; className?: string }) {
   const { untrusted } = useContext(MarkdownOptionsContext);
@@ -155,11 +162,14 @@ function MarkdownLink({ href, children }: { href: string; children: React.ReactN
 }
 
 const COMPONENTS: Components = {
-  pre: ({ children }) => (
-    <FencedBlockContext.Provider value={true}>
-      <pre>{children}</pre>
-    </FencedBlockContext.Provider>
-  ),
+  pre: function PreNode({ children }) {
+    const { renderMermaid } = useContext(MarkdownOptionsContext);
+    const code = Children.toArray(children).find(isValidElement);
+    const props = code?.props as { className?: string; children?: React.ReactNode } | undefined;
+    const source = typeof props?.children === "string" ? props.children : "";
+    if (renderMermaid && isMermaidClassName(props?.className) && source) return <MermaidDiagram source={source} />;
+    return <FencedBlockContext.Provider value={true}><pre>{children}</pre></FencedBlockContext.Provider>;
+  },
   code: function CodeNode({ className, children }) {
     const fenced = useContext(FencedBlockContext);
     const text = typeof children === "string" ? children : "";
@@ -218,6 +228,8 @@ interface MarkdownProps {
   untrusted?: boolean;
   /** Keep root-relative and hash links in this tab. */
   internalLinksInSameTab?: boolean;
+  /** Render strict Mermaid SVG only for repository-owned documentation. */
+  renderMermaid?: boolean;
 }
 
 export const Markdown = memo(function Markdown({
@@ -225,10 +237,11 @@ export const Markdown = memo(function Markdown({
   className,
   untrusted = false,
   internalLinksInSameTab = false,
+  renderMermaid = false,
 }: MarkdownProps) {
   if (!source || !source.trim()) return null;
   return (
-    <MarkdownOptionsContext.Provider value={{ untrusted, internalLinksInSameTab }}>
+    <MarkdownOptionsContext.Provider value={{ untrusted, internalLinksInSameTab, renderMermaid: renderMermaid && !untrusted }}>
       <div className={cn("prose-markdown", className)}>
         <ReactMarkdown
           remarkPlugins={PLUGINS}

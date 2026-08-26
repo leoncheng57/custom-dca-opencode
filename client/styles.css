@@ -90,3 +90,30 @@ body {
 .docs-markdown :where(table) {
   width: 100%;
 }
+
+/* Mermaid is a fixed-size SVG graph. Containing horizontal overflow here keeps
+ * a narrow diagram readable without widening the phone viewport. */
+.mermaid-diagram {
+  margin: 1rem 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--border-radius-8);
+  background: var(--color-background-surface-neutral-muted);
+}
+
+.mermaid-diagram > div {
+  min-width: max-content;
+  padding: 1rem;
+}
+
+.mermaid-diagram svg {
+  display: block;
+  max-width: none;
+}
+
+.mermaid-diagram figcaption {
+  padding: 0.75rem 0.75rem 0;
+  color: var(--color-text-danger);
+}

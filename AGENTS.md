@@ -373,6 +373,9 @@ several decisions below.
   only. **Never raw hex.**
 - Every interactive element carries a `data-testid`.
 - No new runtime dependencies without a reason recorded here.
+- `mermaid` is the lazy-loaded diagram parser and layout engine for repository-owned
+  in-app docs only. It runs with Mermaid strict security, then its generated SVG is
+  stripped of links, executable DOM, embedded resources and unsafe CSS before mounting.
 - `qrcode-generator@2.0.4` is the sole QR runtime dependency: it creates the
   phone-transfer matrix entirely in the browser, avoiding URL disclosure to an
   external image service. The app reads its matrix API and renders a React SVG
