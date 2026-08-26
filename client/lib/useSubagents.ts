@@ -11,8 +11,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { api, type SessionSummary, type SubagentReport } from "./api.js";
-import type { AgentMode } from "./agentMode.js";
+import { api, type ManagedChildAgent, type SessionSummary, type SubagentReport } from "./api.js";
 import type { ModelSelection } from "./models.js";
 
 /** Slow on purpose: sub-agent state changes on human timescales. */
@@ -32,7 +31,7 @@ export interface SubagentsState {
   refresh: () => void;
   abortChild: (childID: string) => void;
   promote: () => void;
-  launchChild: (input: { prompt: string; mode: AgentMode; model?: ModelSelection; idempotencyKey: string }) => Promise<SessionSummary>;
+  launchChild: (input: { prompt: string; agent: ManagedChildAgent; model?: ModelSelection; authorization?: "modify"; idempotencyKey: string }) => Promise<SessionSummary>;
   clearLaunchError: () => void;
 }
 
@@ -117,7 +116,7 @@ export function useSubagents(directory: string, sessionID: string, active: boole
     setActionError(null);
     void api.abortSubagent(directory, sessionID, childID)
       .then(() => load(false))
-      .catch((cause: unknown) => setActionError(`Could not stop the sub-agent: ${message(cause)}`))
+      .catch((cause: unknown) => setActionError(`Could not stop the child session: ${message(cause)}`))
       .finally(() => setBusyChild(null));
   }, [directory, load, sessionID]);
 
@@ -130,7 +129,7 @@ export function useSubagents(directory: string, sessionID: string, active: boole
       .finally(() => setPromoting(false));
   }, [directory, load, sessionID]);
 
-  const launchChild = useCallback(async (input: { prompt: string; mode: AgentMode; model?: ModelSelection; idempotencyKey: string }) => {
+  const launchChild = useCallback(async (input: { prompt: string; agent: ManagedChildAgent; model?: ModelSelection; authorization?: "modify"; idempotencyKey: string }) => {
     const launchScope = scopeRef.current;
     setLaunching(true);
     setLaunchError(null);
@@ -141,7 +140,7 @@ export function useSubagents(directory: string, sessionID: string, active: boole
       if (scopeRef.current === launchScope) load(false);
       return session;
     } catch (cause) {
-      if (scopeRef.current === launchScope) setLaunchError(`Could not launch the sub-agent: ${message(cause)}`);
+      if (scopeRef.current === launchScope) setLaunchError(`Could not launch the Managed Child: ${message(cause)}`);
       throw cause;
     } finally {
       if (scopeRef.current === launchScope) setLaunching(false);

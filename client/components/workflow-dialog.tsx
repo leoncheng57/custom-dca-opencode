@@ -149,7 +149,11 @@ export function WorkflowDialog({
       if (action === "launch") {
         const result = await api.createManagedChild(directory, sessionID, {
           prompt: generatedPrompt,
-          mode: childMode,
+          // This dialog offers the Plan/Build pair only; both are valid
+          // Managed Child agents. Build can modify, so it carries the explicit
+          // authorization the confirmation checkbox above already gates.
+          agent: childMode,
+          ...(childMode === "build" ? { authorization: "modify" as const } : {}),
           model: childModel,
           idempotencyKey,
           workflow: workflow.id,

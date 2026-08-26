@@ -27,7 +27,7 @@
 
 import { request, type OpencodeConfig } from "./client.js";
 import { getCapabilities, type Capabilities } from "./capabilities.js";
-import { listMessages, runningSessions, toSummary, type SessionSummary } from "./sessions.js";
+import { listMessages, runningSessions, toSummary, type ManagedChildAgent, type SessionSummary } from "./sessions.js";
 import type { ModelSelection } from "./config.js";
 
 /** Newest parent messages scanned for delegation intent. */
@@ -62,6 +62,7 @@ export interface SubagentTask {
   origin?: "native-task" | "managed-human";
   /** Human-requested policy provenance; not proof of effective capability. */
   requestedMode?: "plan" | "build";
+  requestedAgent?: ManagedChildAgent;
   requestedModel?: ModelSelection;
   policySource?: "creation-permission";
   effectivePolicyObserved?: boolean;
@@ -382,7 +383,8 @@ export function deriveSubagentTasks(input: DeriveSubagentsInput): SubagentTask[]
       ...(child?.managed
         ? {
             origin: "managed-human" as const,
-            requestedMode: child.managed.requestedMode,
+            requestedAgent: child.managed.requestedAgent,
+            ...(child.managed.requestedMode ? { requestedMode: child.managed.requestedMode } : {}),
             ...(child.managed.requestedModel ? { requestedModel: child.managed.requestedModel } : {}),
             policySource: child.managed.policySource,
             effectivePolicyObserved: child.managed.effectivePolicyObserved,

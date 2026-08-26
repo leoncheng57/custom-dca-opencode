@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createSession,
   getSessionTurnDiff,
+  listManagedChildAgents,
   listMessages,
   messagePageCursor,
   SESSION_TURN_DIFF_LIMITS,
@@ -41,6 +42,24 @@ describe("session summary share state", () => {
 });
 
 describe("managed child session creation", () => {
+  it("advertises only visible agents with valid, complete policies", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      const path = new URL(typeof input === "string" || input instanceof URL ? input : input.url).pathname;
+      if (path === "/experimental/tool/ids") return Response.json(["read", "edit"]);
+      if (path === "/agent") return Response.json([
+        { name: "plan", description: `  ${"safe ".repeat(80)}  `, permission: [{ permission: "*", pattern: "*", action: "allow" }] },
+        { name: "build", permission: [{ permission: "read", pattern: "*", action: "allow" }] },
+        { name: "explore", hidden: true, permission: [{ permission: "*", pattern: "*", action: "deny" }] },
+        { name: "general", permission: "invalid" },
+      ]);
+      return new Response("not found", { status: 404 });
+    }));
+
+    const agents = await listManagedChildAgents({ baseUrl: "http://opencode.test" }, "/tmp/project");
+    expect(agents).toEqual([{ id: "plan", description: expect.any(String), access: "read-only" }]);
+    expect(agents[0].description?.length).toBe(240);
+  });
+
   it("forwards the parent, model, metadata and creation-time policy without leaking raw metadata", async () => {
     let payload: Record<string, unknown> | undefined;
     vi.stubGlobal("fetch", vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
@@ -85,6 +104,7 @@ describe("managed child session creation", () => {
     });
     expect(summary.managed).toMatchObject({
       origin: "managed-human",
+      requestedAgent: "build",
       requestedMode: "build",
       requestedModel: { providerID: "anthropic", modelID: "claude-opus-5" },
       background: true,
