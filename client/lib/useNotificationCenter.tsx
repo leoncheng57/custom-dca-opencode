@@ -36,6 +36,8 @@ interface NotificationCenter {
   error: string;
   refresh: () => void;
   setResolved: (id: string, resolved: boolean) => Promise<void>;
+  /** Resolve only rows the calling surface rendered; each stays reversible. */
+  resolveMany: (ids: string[]) => Promise<void>;
 }
 
 const NotificationCenterContext = createContext<NotificationCenter | null>(null);
@@ -179,6 +181,24 @@ export function NotificationCenterProvider({ children }: { children: ReactNode }
     [directory, records, refresh],
   );
 
+  const resolveMany = useCallback(
+    async (ids: string[]) => {
+      if (ids.length === 0) return;
+      try {
+        const result = await api.resolveNotifications(ids, directory);
+        // The POST already carries the authoritative badge snapshot. Apply it
+        // immediately so a later history refresh failure cannot leave the
+        // installed-app badge stale after a successful mutation.
+        void syncAppBadge(result.appBadgeCount, navigator, result.appBadgeRevision);
+      } finally {
+        // Confirm the server's bounded selection rather than assuming every id
+        // still existed or stayed active between confirmation and the POST.
+        await refresh();
+      }
+    },
+    [directory, refresh],
+  );
+
   const value = useMemo(
     () => ({
       activeCount,
@@ -193,6 +213,7 @@ export function NotificationCenterProvider({ children }: { children: ReactNode }
       error,
       refresh: () => void refresh(),
       setResolved,
+      resolveMany,
     }),
     [
       activeCount,
@@ -207,6 +228,7 @@ export function NotificationCenterProvider({ children }: { children: ReactNode }
       error,
       refresh,
       setResolved,
+      resolveMany,
     ],
   );
 
@@ -232,6 +254,7 @@ export function useNotificationCenter(): NotificationCenter {
       error: "",
       refresh: () => {},
       setResolved: async () => {},
+      resolveMany: async () => {},
     }
   );
 }

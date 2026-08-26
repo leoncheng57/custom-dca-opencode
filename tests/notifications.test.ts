@@ -954,6 +954,24 @@ describe("notification history", () => {
     expect(await history.activeCount()).toBe(5);
     expect(await history.list()).toHaveLength(5);
   });
+
+  it("resolves a bounded selection together while leaving every row reversible", async () => {
+    const history = historyStore();
+    const delivery = { ntfy: "off", desktop: "allowed" } as const;
+    const first = await history.append({ kind: "idle", title: "first", body: "", delivery });
+    const second = await history.append({ kind: "idle", title: "second", body: "", delivery });
+    const untouched = await history.append({ kind: "idle", title: "outside the shown window", body: "", delivery });
+
+    const changed = await history.resolveMany([first.id, second.id, "missing", first.id]);
+
+    expect(changed.map((record) => record.id).sort()).toEqual([first.id, second.id].sort());
+    expect(await history.activeCount()).toBe(1);
+    expect((await history.find(untouched.id))?.resolvedAt).toBeUndefined();
+
+    // Resolve all is not a destructive clear: a row can still be reopened.
+    await history.setResolved(first.id, false);
+    expect((await history.find(first.id))?.resolvedAt).toBeUndefined();
+  });
 });
 
 describe("notification resolution", () => {

@@ -66,7 +66,7 @@ const notificationService = new NotificationService(
   notificationStore,
   notificationHistory,
   publicAppUrl,
-  (directory) => autoPermissions.isEnabled(directory),
+  (directory) => autoPermissions.isEnabledCanonical(directory),
   undefined,
   pushSubscriptions,
 );

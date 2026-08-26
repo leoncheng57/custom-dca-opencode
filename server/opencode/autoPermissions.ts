@@ -47,6 +47,15 @@ export class AutoPermissionService {
     return Boolean(directory && this.states.get(directory)?.enabled);
   }
 
+  async isEnabledCanonical(directory: string | undefined): Promise<boolean> {
+    if (!directory) return false;
+    try {
+      return this.isEnabled(await requireWorkspaceDirectory(directory));
+    } catch {
+      return false;
+    }
+  }
+
   status(directory: string): AutoPermissionStatus {
     const state = this.states.get(directory);
     return {

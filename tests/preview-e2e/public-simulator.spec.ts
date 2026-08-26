@@ -53,5 +53,13 @@ test("serves an interactive, credential-free PR simulator", async ({ page }) => 
     .click();
   await expect(page).toHaveURL(/#\/sessions\/ses_preview_done/u);
   await expect(page.getByTestId("opencode-notification-popover")).toHaveCount(0);
+
+  // Bulk resolution is scoped to the rows shown and works in the public
+  // simulator too, so the PR preview demonstrates the real interaction rather
+  // than stopping at a dead fixture route.
+  await page.getByTestId("opencode-nav-notifications").click();
+  page.on("dialog", (dialog) => dialog.accept());
+  await page.getByTestId("opencode-notification-resolve-shown").click();
+  await expect(page.getByTestId("opencode-notification-popover-active-count")).toHaveText("0");
   expect(pageErrors).toEqual([]);
 });

@@ -221,6 +221,12 @@ export function createPublicSimulator(): typeof fetch {
     if (path === "/api/permissions") return response({ permissions: { "*": "ask", read: "allow", edit: { "*": "allow", "**/.env": "deny" }, bash: { "git *": "allow", "rm -rf *": "deny" } } });
     if (path === "/api/lsp") return response({ servers: { typescript: { status: "connected", root: SIMULATOR_DIRECTORY }, eslint: { status: "disabled" } } });
     if (path === "/api/notifications/history") return response({ records: notificationRecords, activeCount: notificationRecords.filter((item) => !item.resolvedAt).length, appBadgeCount: 1, appBadgeRevision: 1, suppressedActive: { "auto-permissions": 0, subagent: 0, "preference-off": 0 } });
+    if (path === "/api/notifications/resolve" && method === "POST") {
+      const ids = new Set(Array.isArray(body.ids) ? body.ids : []);
+      const records = notificationRecords.filter((item) => ids.has(item.id) && !item.resolvedAt);
+      for (const record of records) { record.resolvedAt = Date.now(); record.resolvedBy = "checked"; }
+      return response({ records, activeCount: notificationRecords.filter((item) => !item.resolvedAt).length, appBadgeCount: 0, appBadgeRevision: 2 });
+    }
     const notificationRoute = routeMatch(path, /^\/api\/notifications\/([^/]+)$/u);
     if (notificationRoute && method === "PATCH") {
       const record = notificationRecords.find((item) => item.id === decodeURIComponent(notificationRoute[1]));

@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, symlink, writeFile } from "node:fs/promises";
 import { EventEmitter } from "node:events";
 import os from "node:os";
 import path from "node:path";
@@ -10,6 +10,7 @@ import { NotificationService } from "../server/notifications/service.js";
 import { normalizePreferences, type PreferenceStore } from "../server/notifications/preferences.js";
 import { HistoryStore } from "../server/notifications/history.js";
 import type { EventBus } from "../server/opencode/events.js";
+import { AutoPermissionService } from "../server/opencode/autoPermissions.js";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -141,6 +142,84 @@ describe("Web Push delivery", () => {
     await vi.waitFor(async () => expect((await history.list()).find((record) => record.sessionID === "ses_push")?.delivery)
       .toMatchObject({ ntfy: "off", webPush: "sent" }));
     service.stop();
+  });
+
+  it("does not deliver auto-approved permissions received through a directory alias", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "dca-web-push-auto-permission-"));
+    const directory = path.join(root, "project");
+    const alias = path.join(root, "alias");
+    await mkdir(directory);
+    await symlink(directory, alias);
+    vi.stubEnv("PROJECTS_DIR", root);
+    const vapid = webpush.generateVAPIDKeys();
+    vi.stubEnv("VAPID_PUBLIC_KEY", vapid.publicKey);
+    vi.stubEnv("VAPID_PRIVATE_KEY", vapid.privateKey);
+    vi.stubEnv("VAPID_SUBJECT", "mailto:owner@example.com");
+    const push = vi.spyOn(webpush, "sendNotification").mockResolvedValue({ statusCode: 201, body: "", headers: {} });
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/permission" && init?.method === "GET") return Response.json([]);
+      if (url.pathname === "/permission/perm_alias/reply") return Response.json(true);
+      return new Response("unexpected delivery", { status: 500 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const subscriptions = new PushSubscriptionStore(path.join(root, "subscriptions.json"));
+    await subscriptions.add({ endpoint: "https://fcm.googleapis.com/device", keys: { p256dh: "key", auth: "auth" } });
+    const preferences = {
+      read: async () => normalizePreferences({
+        ntfy: { enabled: true, server: "https://ntfy.sh", topic: "team" },
+        browser: { desktop: true },
+        webPush: { enabled: true },
+      }),
+    } as PreferenceStore;
+    const bus = new EventEmitter() as EventBus;
+    const autoPermissions = new AutoPermissionService({ baseUrl: "http://opencode.test" }, bus);
+    autoPermissions.start();
+    await autoPermissions.setEnabled(await realpath(directory), true);
+    fetchMock.mockClear();
+    const history = new HistoryStore(path.join(root, "history.json"));
+    const service = new NotificationService(
+      { baseUrl: "http://opencode.test" },
+      bus,
+      preferences,
+      history,
+      null,
+      (eventDirectory) => autoPermissions.isEnabledCanonical(eventDirectory),
+      async (_eventDirectory, sessionID) => ({ id: sessionID }),
+      subscriptions,
+    );
+    service.start();
+    const recorded: Array<Record<string, unknown>> = [];
+    bus.on("event", (event: { type: string; properties: Record<string, unknown> }) => {
+      if (event.type === "notification.recorded") recorded.push(event.properties);
+    });
+
+    bus.emit("event", {
+      type: "permission.asked",
+      directory: alias,
+      properties: {
+        id: "perm_alias",
+        sessionID: "ses_alias",
+        permission: "bash",
+        patterns: ["npm test"],
+        metadata: {},
+        always: [],
+      },
+    });
+
+    await vi.waitFor(async () => expect(await history.list()).toHaveLength(1));
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    expect(String(fetchMock.mock.calls[0][0])).toContain("/permission/perm_alias/reply");
+    expect(push).not.toHaveBeenCalled();
+    expect((await history.list())[0].delivery).toEqual({
+      ntfy: "off",
+      desktop: "off",
+      webPush: "off",
+      suppressed: "auto-permissions",
+    });
+    expect(recorded).toMatchObject([{ kind: "permission", suppressed: "auto-permissions" }]);
+    service.stop();
+    autoPermissions.stop();
   });
 });
 

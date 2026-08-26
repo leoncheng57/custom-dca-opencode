@@ -205,7 +205,7 @@ export class NotificationService {
     private readonly store: PreferenceStore,
     private readonly history: HistoryStore,
     private readonly publicAppUrl: string | null = null,
-    private readonly autoPermissionsEnabled: (directory: string | undefined) => boolean = () => false,
+    private readonly autoPermissionsEnabled: (directory: string | undefined) => boolean | Promise<boolean> = () => false,
     lookupSessionMetadata?: SessionMetadataLookup,
     private readonly pushSubscriptions = new PushSubscriptionStore(),
     lookupSessionExcerpt?: SessionExcerptLookup,
@@ -353,7 +353,7 @@ export class NotificationService {
     // asked?" is exactly the question it should answer — but they are not a
     // decision the user owes anyone, so they are suppressed and, by default,
     // filtered out of the inbox and the badge.
-    if (event.type === "permission.asked" && this.autoPermissionsEnabled(event.directory)) {
+    if (event.type === "permission.asked" && await this.autoPermissionsEnabled(event.directory)) {
       const record = await this.history.append({
         ...common,
         delivery: { ntfy: "off", desktop: "off", webPush: "off", suppressed: "auto-permissions" },
@@ -620,10 +620,10 @@ export class NotificationService {
       key,
       setTimeout(() => {
         this.timers.delete(key);
-        if (this.autoPermissionsEnabled(directory)) return;
-        void this.sessionKind(directory, pending.sessionID)
-          .then((kind) => kind === "child" ? [] : listPermissions(this.config, directory))
-          .then(async (requests) => {
+        void Promise.resolve(this.autoPermissionsEnabled(directory))
+          .then(async (enabled) => {
+            if (enabled || await this.sessionKind(directory, pending.sessionID) === "child") return;
+            const requests = await listPermissions(this.config, directory);
             if (!requests.some((item) => item.id === pending.id)) return;
             const preferences = await this.store.read();
             const parkedEvent: OpencodeEvent = {

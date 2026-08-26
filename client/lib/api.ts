@@ -715,6 +715,13 @@ export const api = {
       body: JSON.stringify({ resolved }),
     }).then((r) => json<{ record: NotificationRecord; activeCount: number; appBadgeCount: number; appBadgeRevision: number }>(r)),
 
+  resolveNotifications: (ids: string[], directory?: string) =>
+    fetch(`/api/notifications/resolve${directory ? `?${new URLSearchParams({ directory })}` : ""}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids }),
+    }).then((r) => json<{ records: NotificationRecord[]; activeCount: number; appBadgeCount: number; appBadgeRevision: number }>(r)),
+
   autoPermissions: (directory: string) =>
     fetch(scoped("/auto-approve", directory)).then((r) => json<AutoPermissionStatus>(r)),
   setAutoPermissions: (directory: string, enabled: boolean) =>

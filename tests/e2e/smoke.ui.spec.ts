@@ -1339,9 +1339,9 @@ test.describe("settings and tools UI", () => {
   });
 
   test("keeps browser and ntfy event toggles independent", async ({ page }) => {
-    // Delivery preferences now live on the Settings page; /settings/notifications
-    // is history only.
-    await page.goto("/settings");
+    // Delivery preferences live beside history, so the inbox and the controls
+    // deciding what reaches it stay in one place.
+    await page.goto("/settings/notifications");
     const browser = page.getByTestId("opencode-notify-browser-idle");
     const ntfy = page.getByTestId("opencode-notify-ntfy-idle");
     const ntfyBefore = await ntfy.isChecked();
@@ -1350,7 +1350,7 @@ test.describe("settings and tools UI", () => {
   });
 
   test("explains the delivery matrix in plain language instead of wire values", async ({ page }) => {
-    await page.goto("/settings");
+    await page.goto("/settings/notifications");
     const events = page.getByTestId("opencode-notification-events");
     await expect(events).toBeVisible();
 
@@ -1381,7 +1381,7 @@ test.describe("settings and tools UI", () => {
   });
 
   test("restores the recommended profile in one click", async ({ page }) => {
-    await page.goto("/settings");
+    await page.goto("/settings/notifications");
     const abort = page.getByTestId("opencode-notify-browser-abort");
     const permission = page.getByTestId("opencode-notify-browser-permission");
     await abort.setChecked(true);

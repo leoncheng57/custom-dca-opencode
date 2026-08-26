@@ -214,7 +214,7 @@ export function NotificationRecordRow({
           {/* The popover row has one line to spend and the session title is
               the field that says which work is waiting, so delivery and
               resolution detail stays on the full history page — the chip and
-              the checkbox already carry their headline. Parking is the
+              the Resolve button already carry their headline. Parking is the
               exception: it is the only escalation this row can report. */}
           {compact
             ? record.parkedAt
@@ -231,7 +231,7 @@ export function NotificationRecordRow({
           resolved row unresolves it. */}
       <Button
         size="sm"
-        variant={active ? "secondary" : "ghost"}
+        variant={active ? "primary" : "ghost"}
         aria-pressed={!active}
         className={cn(
           "min-h-11 shrink-0 gap-1.5 font-medium",
