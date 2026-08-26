@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 2,
+  "prNumber": 202,
+  "sourceSha": "b860a718c5acff05cec8555e0b7b1bd60d301cac",
+  "capturedAt": "2026-08-26T07:04:42.830Z",
+  "screenshots": [
+    {
+      "requestedRoute": "/settings/notifications?directory=/tmp/mock-project",
+      "fullPage": true,
+      "captures": {
+        "desktop": {
+          "filename": "01-settings-notifications-directory-tmp-mock-project-1d8c4655--desktop--full.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 800
+          },
+          "bytes": 31287,
+          "sha256": "d71ad5f25d58f828bba4055d04939e247af289c4a8fd371290e30ab66c97d1ec"
+        },
+        "mobile": {
+          "filename": "01-settings-notifications-directory-tmp-mock-project-831e19be--mobile--full.png",
+          "dimensions": {
+            "width": 390,
+            "height": 740
+          },
+          "bytes": 27058,
+          "sha256": "d7d4a19f558e5a2adff5e88b3d0db25c99fec0a54697caee409044ce223248f9"
+        }
+      }
+    }
+  ]
+}
