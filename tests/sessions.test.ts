@@ -5,6 +5,7 @@ import {
   getSessionTurnDiff,
   listManagedChildAgents,
   listMessages,
+  managedChildTitle,
   messagePageCursor,
   SESSION_TURN_DIFF_LIMITS,
   toSummary,
@@ -38,6 +39,52 @@ describe("session summary share state", () => {
   ])("omits an unsafe upstream share URL: %s", (url) => {
     const summary = toSummary({ share: { url } } as Parameters<typeof toSummary>[0], false);
     expect(summary.shareUrl).toBeUndefined();
+  });
+});
+
+describe("managed child session title", () => {
+  // The title is persisted upstream and then copied into session summaries,
+  // sub-agent rows, Hub titles, breadcrumbs and notification history, so a
+  // credential shape in an assignment must never survive into it. Filtering at
+  // render time would have to be right in all of those places at once.
+  it.each([
+    ["push with ghp_abcdefghijklmnopqrstuvwx now", "ghp_abcdefghijklmnopqrstuvwx", "[redacted-token]"],
+    ["call sk-abcdefghijklmnop1234 twice", "sk-abcdefghijklmnop1234", "[redacted-token]"],
+    ["send Bearer abc.def-ghi_jkl upstream", "abc.def-ghi_jkl", "[redacted]"],
+    ["set api_key=supersecretvalue first", "supersecretvalue", "[redacted]"],
+    ["clone https://user:hunter2@example.com/repo.git", "hunter2", "[redacted]"],
+  ])("redacts credential shapes in %s", (assignment, secret, marker) => {
+    const title = managedChildTitle(assignment);
+    expect(title).not.toContain(secret);
+    expect(title).toContain(marker);
+  });
+
+  it("leaves ordinary development text untouched", () => {
+    expect(managedChildTitle("Fix the flaky test in tests/e2e/smoke.api.spec.ts at 2edc379"))
+      .toBe("Fix the flaky test in tests/e2e/smoke.api.spec.ts at 2edc379");
+  });
+
+  it("still takes only the first line and collapses whitespace", () => {
+    expect(managedChildTitle("  First\tline  here \nSecond line with ghp_abcdefghijklmnopqrstuvwx"))
+      .toBe("First line here");
+  });
+
+  it("falls back when the first line is empty", () => {
+    expect(managedChildTitle("\n\nlater content")).toBe("Managed Child");
+  });
+
+  // Redaction runs BEFORE the cap: capping first can slice a token into a
+  // shape no pattern matches any more, leaving the prefix in the title.
+  it("redacts a token that the 80-character cap would otherwise cut", () => {
+    const assignment = `${"a".repeat(70)} ghp_abcdefghijklmnopqrstuvwx tail`;
+    const title = managedChildTitle(assignment);
+    expect(title).toHaveLength(80);
+    expect(title.endsWith("…")).toBe(true);
+    expect(title).not.toContain("ghp_");
+  });
+
+  it("caps a long redacted first line at 80 characters", () => {
+    expect(managedChildTitle("z".repeat(200))).toBe(`${"z".repeat(79)}…`);
   });
 });
 

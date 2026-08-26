@@ -57,7 +57,7 @@ export function readDshConfig(env: NodeJS.ProcessEnv = process.env): DshConfig {
   const errors: string[] = [];
   const root = canonicalProspective(path.resolve(env.DSH_STATE_DIR || ".state/dsh"));
   const sdkVersion = env.DSH_SDK_VERSION || "";
-  const testUnsafe = env.NODE_ENV === "test" && env.DSH_TEST_UNSAFE_BRIDGE === "true";
+  const testUnsafe = env.DSH_TEST_UNSAFE_BRIDGE === "true";
   const sandbox = testUnsafe ? "test-unsafe" : "seatbelt";
   if (enabled && !/^\d+\.\d+\.\d+(?:[A-Za-z0-9.-]+)?$/.test(sdkVersion)) {
     errors.push("DSH_SDK_VERSION must pin one exact SDK version");

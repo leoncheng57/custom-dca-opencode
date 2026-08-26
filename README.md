@@ -24,6 +24,24 @@ a web frontend for an agent server you already run.
 It is deliberately **not** a replacement for the `opencode` CLI. Both are clients of
 the same server and can be attached at the same time, watching the same sessions.
 
+## Playbooks
+
+The Runner's native **Playbooks** section at `/playbooks` catalogs portable OpenCode
+skills, custom commands, and worked simulations. Their installable Markdown source
+lives in [`agent-skills/`](agent-skills/), migrated from the former standalone
+`leoncheng57/agent-skills` repository so the Runner and the procedures it is built to
+use have one source of truth.
+
+Install a skill directly from this repository with the skills CLI:
+
+```bash
+npx skills add https://github.com/leoncheng57/custom-dca-opencode/tree/main/agent-skills \
+  --skill parallel-research-handoff -g
+```
+
+The former standalone catalog app is retired. Playbooks uses the Runner's own router,
+design system, safe Markdown renderer, test suite, and production build.
+
 ## Status
 
 The planned migration waves are implemented. The deterministic verification suite runs

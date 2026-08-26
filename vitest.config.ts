@@ -4,7 +4,7 @@ import { defineConfig } from "vitest/config";
 // tests live in tests/ at the repo root and exercise server code too.
 export default defineConfig({
   test: {
-    include: ["tests/**/*.test.ts"],
+    include: ["tests/**/*.test.ts", "agent-skills/src/lib/**/*.test.ts"],
     environment: "node",
   },
 });

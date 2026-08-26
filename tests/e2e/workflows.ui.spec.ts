@@ -177,6 +177,15 @@ test.describe("workflow picker UI", () => {
     const dialog = page.getByTestId("composer-workflow-dialog");
 
     await dialog.getByTestId("composer-workflow-field-objective").fill(marker);
+    // Defect 1: the catalogue, not a hardcoded Plan/Build pair, decides which
+    // agents exist. All four must be offered after a fresh navigation.
+    for (const agent of ["plan", "build", "explore", "general"]) {
+      await expect(dialog.getByTestId(`composer-workflow-mode-${agent}`)).toBeVisible();
+    }
+    await expect(dialog.getByTestId("composer-workflow-mode-plan")).toContainText("read-only");
+    await expect(dialog.getByTestId("composer-workflow-mode-explore")).toContainText("read-only");
+    await expect(dialog.getByTestId("composer-workflow-mode-build")).toContainText("can-modify");
+    await expect(dialog.getByTestId("composer-workflow-mode-general")).toContainText("can-modify");
     await expect(dialog.getByTestId("composer-workflow-mode-plan")).toHaveAttribute("aria-pressed", "true");
     const notes = dialog.getByTestId("composer-workflow-managed-notes");
     await expect(notes).toContainText("independent transcript");
@@ -187,6 +196,8 @@ test.describe("workflow picker UI", () => {
 
     await expect(dialog.getByTestId("composer-workflow-prompt-preview")).toHaveText(marker);
     await expect(dialog.getByTestId("composer-workflow-injector")).toContainText("managed child session");
+    // The preview reads the catalogue too, instead of restating "Plan"/"Build".
+    await expect(dialog.getByTestId("composer-workflow-agent-summary")).toContainText("Plan · read-only");
     expect(await promptPayloadContaining(marker)).toBeUndefined();
 
     await dialog.getByTestId("composer-workflow-launch").click();
@@ -203,6 +214,138 @@ test.describe("workflow picker UI", () => {
     expect(created!.parentID).toBe(MAIN);
     expect(created!.agent).toBe("plan");
     await dialog.getByTestId("composer-workflow-done-close").click();
+  });
+
+  test("managed child: Explore launches read-only with no authorization step", async ({ page }) => {
+    const marker = `WF-EXPLORE-${Date.now()}`;
+    await page.goto(mainSession);
+    await page.getByTestId("composer-workflow-select").click();
+    await page.locator('[data-testid="composer-workflow-option"][data-workflow-id="managed-child"]').click();
+    const dialog = page.getByTestId("composer-workflow-dialog");
+    await dialog.getByTestId("composer-workflow-field-objective").fill(marker);
+    await dialog.getByTestId("composer-workflow-mode-explore").click();
+    await dialog.getByTestId("composer-workflow-preview").click();
+
+    // Read-only access needs no independent authorization, so Launch is live.
+    await expect(dialog.getByTestId("composer-workflow-build-confirmation")).toHaveCount(0);
+    await expect(dialog.getByTestId("composer-workflow-launch")).toBeEnabled();
+    await dialog.getByTestId("composer-workflow-launch").click();
+    await expect(dialog.getByTestId("composer-workflow-done")).toBeVisible();
+
+    const sessionPayloads = await (await fetch(`${MOCK_URL}/test/session-payloads`)).json() as Array<Record<string, unknown>>;
+    const created = sessionPayloads.find((item) => item.title === marker);
+    expect(created).toBeDefined();
+    expect(created!.agent).toBe("explore");
+    expect(created!.parentID).toBe(MAIN);
+    const payload = await expectPromptPayloadContaining(marker);
+    expect(payload!.agent).toBe("explore");
+    await dialog.getByTestId("composer-workflow-done-close").click();
+  });
+
+  test("managed child: General needs authorization and consent resets per agent", async ({ page }) => {
+    const marker = `WF-GENERAL-${Date.now()}`;
+    await page.goto(mainSession);
+    await page.getByTestId("composer-workflow-select").click();
+    await page.locator('[data-testid="composer-workflow-option"][data-workflow-id="managed-child"]').click();
+    const dialog = page.getByTestId("composer-workflow-dialog");
+    await dialog.getByTestId("composer-workflow-field-objective").fill(marker);
+
+    // Consent given for Build must not carry over to General: the checkbox
+    // authorizes one agent's access, not "can-modify" in general.
+    await dialog.getByTestId("composer-workflow-mode-build").click();
+    await dialog.getByTestId("composer-workflow-preview").click();
+    await dialog.getByTestId("composer-workflow-build-confirm").check();
+    await expect(dialog.getByTestId("composer-workflow-launch")).toBeEnabled();
+    await dialog.getByTestId("composer-workflow-back").click();
+    await dialog.getByTestId("composer-workflow-mode-general").click();
+    await dialog.getByTestId("composer-workflow-preview").click();
+    await expect(dialog.getByTestId("composer-workflow-build-confirmation")).toBeVisible();
+    await expect(dialog.getByTestId("composer-workflow-build-confirm")).not.toBeChecked();
+    await expect(dialog.getByTestId("composer-workflow-launch")).toBeDisabled();
+    await expect(dialog.getByTestId("composer-workflow-agent-summary")).toContainText("General · can-modify");
+
+    await dialog.getByTestId("composer-workflow-build-confirm").check();
+    await dialog.getByTestId("composer-workflow-launch").click();
+    await expect(dialog.getByTestId("composer-workflow-done")).toBeVisible();
+    const sessionPayloads = await (await fetch(`${MOCK_URL}/test/session-payloads`)).json() as Array<Record<string, unknown>>;
+    const created = sessionPayloads.find((item) => item.title === marker);
+    expect(created!.agent).toBe("general");
+    // General can modify, so the launch must have carried modify authorization
+    // through to the creation-time ruleset.
+    expect(created!.permission).toEqual(expect.arrayContaining([
+      expect.objectContaining({ permission: "edit", pattern: "*", action: "allow" }),
+    ]));
+    await dialog.getByTestId("composer-workflow-done-close").click();
+  });
+
+  test("managed child: the model picker is the topmost layer and its choice reaches the child", async ({ page }) => {
+    const marker = `WF-MODEL-${Date.now()}`;
+    await page.goto(mainSession);
+    await page.getByTestId("composer-workflow-select").click();
+    await page.locator('[data-testid="composer-workflow-option"][data-workflow-id="managed-child"]').click();
+    const dialog = page.getByTestId("composer-workflow-dialog");
+    await dialog.getByTestId("composer-workflow-field-objective").fill(marker);
+
+    // Defect 2: without portalLayer="nested" this panel renders at z-[90],
+    // behind the z-[95] dialog, and is unclickable.
+    await dialog.getByTestId("composer-workflow-model").click();
+    const picker = page.getByTestId("composer-workflow-model-panel");
+    await expect(picker).toBeVisible();
+    const parentDialog = dialog.locator('[role="dialog"]');
+    await expect(parentDialog).toHaveAttribute("aria-hidden", "true");
+    expect(await parentDialog.evaluate((element) => element.inert)).toBe(true);
+    await expect(picker.getByTestId("composer-workflow-model-search")).toBeFocused();
+    expect(await picker.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      const top = document.elementFromPoint(rect.left + rect.width / 2, rect.top + Math.min(rect.height / 2, 120));
+      return top === element || element.contains(top);
+    })).toBe(true);
+
+    await picker.getByTestId("composer-workflow-model-search").fill("GPT-5.6 Sol");
+    await picker.locator('[data-testid="composer-workflow-model-option"][data-model-key="openai/gpt-5.6-sol"]').click();
+    await expect(parentDialog).not.toHaveAttribute("aria-hidden", "true");
+    expect(await parentDialog.evaluate((element) => element.inert)).toBe(false);
+    await expect(dialog.getByTestId("composer-workflow-model")).toHaveAttribute("value", "openai/gpt-5.6-sol");
+
+    await dialog.getByTestId("composer-workflow-preview").click();
+    await dialog.getByTestId("composer-workflow-launch").click();
+    await expect(dialog.getByTestId("composer-workflow-done")).toBeVisible();
+
+    const sessionPayloads = await (await fetch(`${MOCK_URL}/test/session-payloads`)).json() as Array<Record<string, unknown>>;
+    const created = sessionPayloads.find((item) => item.title === marker);
+    expect(created!.model).toMatchObject({ providerID: "openai", id: "gpt-5.6-sol" });
+    const payload = await expectPromptPayloadContaining(marker);
+    expect(payload!.model).toMatchObject({ providerID: "openai", modelID: "gpt-5.6-sol" });
+
+    // And the provenance row in the parent's sub-agent panel reports it.
+    await dialog.getByTestId("composer-workflow-done-close").click();
+    await page.goto(`${mainSession}&panel=subagents`);
+    const row = page.getByTestId("opencode-subagent-row").filter({ hasText: marker }).first();
+    await expect(row).toHaveAttribute("data-origin", "managed-human");
+    await expect(row.getByTestId("opencode-subagent-origin")).toHaveText("Managed Child");
+    await expect(row.getByTestId("opencode-subagent-requested-model")).toContainText("openai/gpt-5.6-sol");
+  });
+
+  test("managed child: a catalogue failure keeps launch disabled and says so", async ({ page }) => {
+    const marker = `WF-NOCAT-${Date.now()}`;
+    await page.route("**/api/managed-child-agents?*", (route) => route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "Agent catalogue is temporarily unavailable" }),
+    }));
+    await page.goto(mainSession);
+    await page.getByTestId("composer-workflow-select").click();
+    await page.locator('[data-testid="composer-workflow-option"][data-workflow-id="managed-child"]').click();
+    const dialog = page.getByTestId("composer-workflow-dialog");
+    await dialog.getByTestId("composer-workflow-field-objective").fill(marker);
+
+    // No verified agent means nothing safe to launch, and the reason is visible
+    // rather than a silently dead button.
+    await expect(dialog.getByTestId("composer-workflow-agent-error")).toContainText("Agent catalogue unavailable");
+    await expect(dialog.getByTestId("composer-workflow-mode-plan")).toHaveCount(0);
+    await expect(dialog.getByTestId("composer-workflow-preview")).toBeDisabled();
+    const sessionPayloads = await (await fetch(`${MOCK_URL}/test/session-payloads`)).json() as Array<Record<string, unknown>>;
+    expect(sessionPayloads.find((item) => item.title === marker)).toBeUndefined();
   });
 
   test("keeps the picker attachment out of an ordinary send", async ({ page }) => {

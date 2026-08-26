@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { BookOpen, FlaskConical, ListTodo, MoreHorizontal, Settings, Smartphone, Wrench } from "lucide-react";
+import { BookOpen, FlaskConical, LibraryBig, ListTodo, MoreHorizontal, Settings, Smartphone, Wrench } from "lucide-react";
 import { NavLink } from "react-router-dom";
 
 import { Button } from "../ds/button.js";
@@ -132,6 +132,17 @@ export function NavOverflowMenu({
                 </NavLink>
               </li>
             )}
+            <li>
+              <NavLink
+                className={({ isActive }) => cn(ITEM_CLASS, isActive && "bg-[var(--color-background-surface-neutral-muted)] font-semibold")}
+                data-testid="opencode-nav-playbooks"
+                onClick={() => close(false)}
+                to="/playbooks"
+              >
+                <LibraryBig aria-hidden="true" size={15} />
+                Playbooks
+              </NavLink>
+            </li>
             <li>
               <NavLink
                 className={({ isActive }) => cn(ITEM_CLASS, isActive && "bg-[var(--color-background-surface-neutral-muted)] font-semibold")}

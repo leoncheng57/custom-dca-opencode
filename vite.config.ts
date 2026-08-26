@@ -50,6 +50,7 @@ export default defineConfig(() => {
           resolve(process.cwd(), "docs"),
           resolve(process.cwd(), "deploy/README.md"),
           resolve(process.cwd(), "reminders/README.md"),
+          resolve(process.cwd(), "agent-skills"),
           resolve(process.cwd(), "README.md"),
           resolve(process.cwd(), "CONTRIBUTING.md"),
           resolve(process.cwd(), "AGENTS.md"),
