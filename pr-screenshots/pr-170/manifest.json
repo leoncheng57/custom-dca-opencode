@@ -1,8 +1,8 @@
 {
   "schemaVersion": 2,
   "prNumber": 170,
-  "sourceSha": "c9cfb45539cd914dc4c939680d9eb545f0266c31",
-  "capturedAt": "2026-08-25T19:31:53.158Z",
+  "sourceSha": "7a30bc4969ba40ca62006ef8bfad35a47060b130",
+  "capturedAt": "2026-08-26T01:09:48.856Z",
   "screenshots": [
     {
       "requestedRoute": "/docs?directory=/tmp/mock-project",
