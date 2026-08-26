@@ -1,0 +1,69 @@
+# Sanitized source snapshot for Dockerfile.e2e (issue #204).
+#
+# This file is an ALLOWLIST, not a blocklist. `*` excludes the entire build
+# context and each `!` line adds back one directory or file the E2E image
+# genuinely needs. A blocklist would silently ship every new secret-shaped file
+# somebody drops in the worktree; an allowlist fails the build instead, which is
+# the direction we want to be wrong in.
+#
+# What must never reach the image: `.git` (history, remotes, credential
+# helpers), `.env*` (real tokens), `.state/` (this machine's notification
+# history and pins), host `node_modules` (wrong platform for a Linux container),
+# and every generated report/screenshot directory.
+*
+
+# --- build + test inputs -----------------------------------------------------
+!package.json
+!package-lock.json
+!tsconfig.json
+!tsconfig.server.json
+!tsconfig.tools.json
+!vite.config.ts
+!vitest.config.ts
+!playwright.config.ts
+!playwright.docker.config.ts
+!playwright.preview.config.ts
+!opencode.json
+!client
+!server
+!tests
+!scripts
+
+# --- Markdown compiled into the SPA by client/lib/docs.ts --------------------
+# These are `?raw` imports, so a missing one is a Vite build failure, not a
+# runtime 404. docs/, deploy/README.md and reminders/README.md are all reachable
+# from the in-app docs catalogue.
+!README.md
+!CONTRIBUTING.md
+!AGENTS.md
+!LICENSE
+!docs
+!deploy
+!reminders
+
+# --- re-exclusions ------------------------------------------------------------
+# Last match wins, so these run after the allowlist above and strip anything
+# sensitive or machine-local that lives *inside* a re-included directory.
+**/node_modules
+**/.git
+**/.gitignore
+**/.env
+**/.env.*
+**/.state
+**/.projects
+**/dist
+**/test-results
+**/playwright-report
+**/screenshot-output
+**/screenshots-out
+**/pr-preview-output
+**/docker-e2e-artifacts
+**/*.log
+**/.DS_Store
+**/mcp-servers.json
+**/.agent-status.json
+**/*.pem
+**/*.key
+**/*.p12
+**/id_rsa*
+**/id_ed25519*

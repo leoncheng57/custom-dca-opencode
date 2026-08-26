@@ -32,52 +32,60 @@ const stateFiles =
     ? prepareE2EStateFiles({ lane: PORT, runID: process.pid })
     : e2eStateFiles(process.pid);
 
+// The three services are exported by name so playwright.docker.config.ts can
+// reuse this exact wiring — above all the BFF's env block — instead of keeping a
+// second copy that drifts. Playwright only ever reads the default export, so
+// these named exports are inert for a normal run.
+export const mockOpenCodeServer = {
+  command: `npx tsx tests/e2e/mock-opencode.ts ${MOCK_PORT}`,
+  port: MOCK_PORT,
+  reuseExistingServer: !process.env.CI,
+  timeout: 30_000,
+};
+
+export const mockPreviewServer = {
+  command: `npx tsx tests/e2e/mock-preview.ts ${PREVIEW_PORT}`,
+  port: PREVIEW_PORT,
+  reuseExistingServer: !process.env.CI,
+  timeout: 30_000,
+};
+
+export const appServer = {
+  // Test the built bundle, not the dev server — the predecessor had bugs
+  // that only appeared after a production build.
+  command: "npm run build && node dist/server/index.js",
+  port: PORT,
+  reuseExistingServer: !process.env.CI,
+  timeout: 120_000,
+  env: {
+    PORT: String(PORT),
+    OPENCODE_URL: `http://127.0.0.1:${MOCK_PORT}`,
+    PROJECTS_DIR: "/tmp",
+    PROJECT_PINS_FILE: stateFiles.PROJECT_PINS_FILE,
+    MODEL_PINS_FILE: stateFiles.MODEL_PINS_FILE,
+    OPENCODE_WORKTREE_ROOT: "/tmp/custom-dca-opencode-e2e-worktrees",
+    NOTIFICATION_PREFS_FILE: stateFiles.NOTIFICATION_PREFS_FILE,
+    NOTIFICATION_HISTORY_FILE: stateFiles.NOTIFICATION_HISTORY_FILE,
+    INSTRUCTION_AUDIT_FILE: stateFiles.INSTRUCTION_AUDIT_FILE,
+    PREVIEW_ALLOWED_PORTS: String(PREVIEW_PORT),
+    PUBLIC_APP_URL: "https://ide.e2e.example.test:8443",
+    GITHUB_API_URL: `http://127.0.0.1:${PREVIEW_PORT}`,
+    GITHUB_TOKEN: "e2e-planning-token",
+  },
+};
+
+export const baseUse = {
+  baseURL: `http://127.0.0.1:${PORT}`,
+  trace: "retain-on-failure",
+  screenshot: "only-on-failure",
+} as const;
+
 export default defineConfig({
   testDir: "tests/e2e",
   timeout: 30_000,
   expect: { timeout: 10_000 },
   retries: process.env.CI ? 1 : 0,
   reporter: [["html", { open: "never" }], ["list"]],
-  use: {
-    baseURL: `http://127.0.0.1:${PORT}`,
-    trace: "retain-on-failure",
-    screenshot: "only-on-failure",
-  },
-  webServer: [
-    {
-      command: `npx tsx tests/e2e/mock-opencode.ts ${MOCK_PORT}`,
-      port: MOCK_PORT,
-      reuseExistingServer: !process.env.CI,
-      timeout: 30_000,
-    },
-    {
-      command: `npx tsx tests/e2e/mock-preview.ts ${PREVIEW_PORT}`,
-      port: PREVIEW_PORT,
-      reuseExistingServer: !process.env.CI,
-      timeout: 30_000,
-    },
-    {
-      // Test the built bundle, not the dev server — the predecessor had bugs
-      // that only appeared after a production build.
-      command: "npm run build && node dist/server/index.js",
-      port: PORT,
-      reuseExistingServer: !process.env.CI,
-      timeout: 120_000,
-      env: {
-        PORT: String(PORT),
-        OPENCODE_URL: `http://127.0.0.1:${MOCK_PORT}`,
-        PROJECTS_DIR: "/tmp",
-        PROJECT_PINS_FILE: stateFiles.PROJECT_PINS_FILE,
-        MODEL_PINS_FILE: stateFiles.MODEL_PINS_FILE,
-        OPENCODE_WORKTREE_ROOT: "/tmp/custom-dca-opencode-e2e-worktrees",
-        NOTIFICATION_PREFS_FILE: stateFiles.NOTIFICATION_PREFS_FILE,
-        NOTIFICATION_HISTORY_FILE: stateFiles.NOTIFICATION_HISTORY_FILE,
-        INSTRUCTION_AUDIT_FILE: stateFiles.INSTRUCTION_AUDIT_FILE,
-        PREVIEW_ALLOWED_PORTS: String(PREVIEW_PORT),
-        PUBLIC_APP_URL: "https://ide.e2e.example.test:8443",
-        GITHUB_API_URL: `http://127.0.0.1:${PREVIEW_PORT}`,
-        GITHUB_TOKEN: "e2e-planning-token",
-      },
-    },
-  ],
+  use: { ...baseUse },
+  webServer: [mockOpenCodeServer, mockPreviewServer, appServer],
 });
