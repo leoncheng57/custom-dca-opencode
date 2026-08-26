@@ -275,14 +275,14 @@ describe("deriveSubagentTasks", () => {
     expect(task).toMatchObject({ sessionID: CHILD, present: false, title: "Sub-agent session" });
   });
 
-  it("includes a managed child that was never announced by a task part", () => {
+  it("includes a Managed Child that was never announced by a task part", () => {
     const tasks = deriveSubagentTasks(deriveInput({
       children: [child({
         id: OTHER,
-        title: "Managed child",
+        title: "Managed Child",
         managed: {
           origin: "managed-human",
-          requestedMode: "build",
+          requestedAgent: "general",
           requestedModel: { providerID: "anthropic", modelID: "claude-opus-5" },
           background: true,
           policySource: "creation-permission",
@@ -295,7 +295,7 @@ describe("deriveSubagentTasks", () => {
       present: true,
       background: true,
       origin: "managed-human",
-      requestedMode: "build",
+      requestedAgent: "general",
       requestedModel: { providerID: "anthropic", modelID: "claude-opus-5" },
       policySource: "creation-permission",
       effectivePolicyObserved: true,

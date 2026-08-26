@@ -7,6 +7,10 @@ import type { RawMessage } from "./events.js";
 import type { AgentMode } from "./agentMode.js";
 import type { ModelCatalogue, ModelSelection } from "./models.js";
 
+export type ManagedChildAgent = "plan" | "build" | "explore" | "general";
+export type ManagedChildAccess = "read-only" | "can-modify";
+export interface ManagedChildAgentSummary { id: ManagedChildAgent; description?: string; access: ManagedChildAccess }
+
 export interface SessionSummary {
   id: string;
   title: string;
@@ -19,12 +23,15 @@ export interface SessionSummary {
   model?: ModelSelection;
   managed?: {
     origin: "managed-human";
-    requestedMode: AgentMode;
+    requestedAgent: ManagedChildAgent;
+    requestedMode?: AgentMode;
     requestedModel?: ModelSelection;
     background: true;
     policySource: "creation-permission";
     effectivePolicyObserved: boolean;
+    authorization: "read-only" | "modify";
   };
+  managedConfigurationPresent?: true;
   cost: number;
   tokens: {
     input: number;
@@ -64,6 +71,7 @@ export interface SubagentTask {
   agent?: string;
   origin?: "native-task" | "managed-human";
   requestedMode?: AgentMode;
+  requestedAgent?: ManagedChildAgent;
   requestedModel?: ModelSelection;
   policySource?: "creation-permission";
   effectivePolicyObserved?: boolean;
@@ -446,6 +454,11 @@ export const api = {
   models: (directory: string) =>
     fetch(scoped("/models", directory)).then((r) => json<ModelCatalogue>(r)),
 
+  managedChildAgents: (directory: string) =>
+    fetch(scoped("/managed-child-agents", directory)).then((r) =>
+      json<{ agents: ManagedChildAgentSummary[] }>(r),
+    ),
+
   session: (directory: string, id: string) =>
     fetch(scoped(`/sessions/${encodeURIComponent(id)}`, directory)).then((r) =>
       json<{ session: SessionSummary }>(r),
@@ -532,8 +545,9 @@ export const api = {
 
   createManagedChild: (directory: string, id: string, input: {
     prompt: string;
-    mode: AgentMode;
+    agent: ManagedChildAgent;
     model?: ModelSelection;
+    authorization?: "modify";
     idempotencyKey: string;
     workflow?: string;
   }) =>

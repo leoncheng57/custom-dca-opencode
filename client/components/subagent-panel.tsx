@@ -71,10 +71,10 @@ function TaskRow({
       )}
 
       <div className="mt-1.5 flex flex-wrap gap-x-2 gap-y-1 text-[10px] text-[var(--color-text-muted)]">
-        {task.origin === "managed-human" && <Badge variant="info" className="text-[9px]" data-testid="opencode-subagent-origin">Human launch</Badge>}
+        {task.origin === "managed-human" && <Badge variant="info" className="text-[9px]" data-testid="opencode-subagent-origin">Managed Child</Badge>}
         {task.origin === "native-task" && <Badge variant="neutral" className="text-[9px]" data-testid="opencode-subagent-origin">Native task</Badge>}
-        {task.agent && <span data-testid="opencode-subagent-agent">agent: {task.agent}</span>}
-        {task.requestedMode && <span data-testid="opencode-subagent-requested-mode">requested: {task.requestedMode}</span>}
+        {task.agent && task.origin !== "managed-human" && <span data-testid="opencode-subagent-agent">agent: {task.agent}</span>}
+        {task.requestedAgent && <span data-testid="opencode-managed-child-requested-agent">agent: {task.requestedAgent}</span>}
         {task.requestedModel && <span data-testid="opencode-subagent-requested-model">{task.requestedModel.providerID}/{task.requestedModel.modelID}{task.requestedModel.variant ? ` · ${task.requestedModel.variant}` : ""}</span>}
         {task.origin === "managed-human" && <span data-testid="opencode-subagent-policy-status">policy: {task.effectivePolicyObserved ? "verified at launch" : "unknown"}</span>}
         {task.background && <span data-testid="opencode-subagent-background">background</span>}
@@ -158,10 +158,10 @@ export function SubagentPanel({
     <section className="space-y-3" data-testid="opencode-subagents">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]">
-          Delegated sub-agents
+          Child sessions
         </h2>
         <div className="flex flex-wrap gap-2">
-          {report?.capabilities.managedChildren && <Button size="sm" className="pointer-coarse:min-h-11" onClick={onOpenLaunch} data-testid="opencode-managed-child-open">Launch child</Button>}
+          {report?.capabilities.managedChildren && <Button size="sm" className="pointer-coarse:min-h-11" onClick={onOpenLaunch} data-testid="opencode-managed-child-open">Launch Managed Child</Button>}
           <Button size="sm" variant="secondary" disabled={loading} onClick={onRefresh} data-testid="opencode-subagents-refresh">
             {loading ? "Refreshing..." : "Refresh"}
           </Button>
@@ -206,7 +206,7 @@ export function SubagentPanel({
 
       {report && tasks.length === 0 && !error && (
         <p className="text-sm text-[var(--color-text-muted)]" data-testid="opencode-subagents-empty">
-          This session has not delegated any work.
+          This session has no child sessions.
         </p>
       )}
 

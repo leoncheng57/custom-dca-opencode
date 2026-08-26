@@ -149,16 +149,23 @@ export function ConversationPage() {
 
   useEffect(() => {
     if (!stream.loaded) return;
-    const marker = `${session?.agent ?? ""}:${latestModeMessageID(stream.messages as RawMessage[]) ?? ""}`;
+    const managedAgent = session?.managed?.requestedAgent;
+    const marker = `${session?.agent ?? ""}:${managedAgent ?? ""}:${latestModeMessageID(stream.messages as RawMessage[]) ?? ""}`;
     if (marker === derivedModeMessage.current) return;
     derivedModeMessage.current = marker;
+    if (managedAgent) {
+      modeSelectionDirty.current = false;
+      setAgentIdentityKnown(true);
+      setMode(managedAgent === "plan" || managedAgent === "explore" ? "plan" : "build");
+      return;
+    }
     const persistedMode = modeFromSession(session?.agent, stream.messages as RawMessage[]);
     setAgentIdentityKnown(persistedMode !== undefined);
     if (!persistedMode) return;
     if (modeSelectionDirty.current && persistedMode !== mode) return;
     modeSelectionDirty.current = false;
     setMode(persistedMode);
-  }, [mode, session?.agent, stream.loaded, stream.messages]);
+  }, [mode, session?.agent, session?.managed?.requestedAgent, stream.loaded, stream.messages]);
 
   const selectMode = (nextMode: AgentMode) => {
     modeSelectionDirty.current = true;
@@ -809,7 +816,13 @@ export function ConversationPage() {
             </button>
           ) : <>
           <div className="mb-2 flex min-w-0 flex-wrap items-center gap-2" onPointerDownCapture={() => collapseGuard.current.markControlInteraction()}>
-            <AgentModeToggle mode={agentIdentityKnown ? mode : undefined} onChange={selectMode} disabled={!agentIdentityKnown} testId="opencode-composer-mode" />
+            {session?.managed ? (
+              <div className="flex min-h-10 items-center rounded-md border border-[var(--color-border-default)] bg-[var(--color-background-surface-neutral-muted)] px-3 text-sm" data-testid="opencode-managed-child-agent-fixed">
+                Managed Child · <span className="ml-1 font-semibold">{session.managed.requestedAgent[0].toUpperCase() + session.managed.requestedAgent.slice(1)}</span>
+              </div>
+            ) : (
+              <AgentModeToggle mode={agentIdentityKnown ? mode : undefined} onChange={selectMode} disabled={!agentIdentityKnown} testId="opencode-composer-mode" />
+            )}
             <ModelPicker
               catalogue={modelCatalogue}
               value={selectedModel}

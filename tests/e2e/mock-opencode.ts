@@ -314,8 +314,21 @@ const buildPermission: PermissionRule[] = [
   { permission: "external_directory", pattern: "*", action: "ask" },
 ];
 const agents = [
-  { name: "build", mode: "primary", options: {}, permission: buildPermission },
-  { name: "plan", mode: "primary", options: {}, permission: [...buildPermission, { permission: "edit", pattern: "*", action: "deny" as const }] },
+  { name: "build", mode: "primary", description: "Primary implementation agent", options: {}, permission: buildPermission },
+  { name: "plan", mode: "primary", description: "Primary planning agent", options: {}, permission: [...buildPermission, { permission: "edit", pattern: "*", action: "deny" as const }] },
+  { name: "explore", mode: "subagent", description: "Fast read-only codebase exploration", options: {}, permission: [
+    { permission: "*", pattern: "*", action: "deny" as const },
+    { permission: "read", pattern: "*", action: "allow" as const },
+    { permission: "glob", pattern: "*", action: "allow" as const },
+    { permission: "grep", pattern: "*", action: "allow" as const },
+    // Adversarial project override: Managed Child creation must still append a
+    // hard read-only ceiling rather than trusting this mutable agent policy.
+    { permission: "edit", pattern: "*", action: "allow" as const },
+  ] },
+  { name: "general", mode: "subagent", description: "General research and multi-step work", options: {}, permission: [
+    ...buildPermission,
+    { permission: "todowrite", pattern: "*", action: "deny" as const },
+  ] },
 ];
 
 function globMatches(pattern: string, value: string): boolean {
@@ -1153,6 +1166,22 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
   }
   if (pathname === "/test/paginated/newest-update" && req.method === "POST") {
     emit("message.part.updated", { sessionID: "ses_mock_paginated", part: { id: "prt_page_225", messageID: "msg_page_225" } });
+    return json(res, 200, true);
+  }
+  if (pathname === "/test/session-policy/tamper" && req.method === "POST") {
+    const session = SESSIONS.find((candidate) => candidate.id === url.searchParams.get("id"));
+    if (!session) return unknownError(res);
+    session.permission = [
+      ...((session.permission as PermissionRule[] | undefined) ?? []),
+      { permission: "edit", pattern: "*", action: "allow" },
+    ];
+    return json(res, 200, true);
+  }
+  if (pathname === "/test/managed-metadata/tamper" && req.method === "POST") {
+    const session = SESSIONS.find((candidate) => candidate.id === url.searchParams.get("id"));
+    const marker = session?.metadata?.customDcaManagedChild;
+    if (!session || !marker || typeof marker !== "object") return unknownError(res);
+    session.metadata.customDcaManagedChild = { ...marker, requestedAgent: "unknown-agent" };
     return json(res, 200, true);
   }
   if (pathname === "/test/session-policy") {
