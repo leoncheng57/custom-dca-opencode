@@ -11,7 +11,7 @@ import {
   type NotificationViewPreferences,
 } from "./notificationView.js";
 
-const NO_SUPPRESSED_ACTIVE: SuppressedActiveCounts = { "auto-permissions": 0, subagent: 0 };
+const NO_SUPPRESSED_ACTIVE: SuppressedActiveCounts = { "auto-permissions": 0, subagent: 0, "preference-off": 0 };
 
 interface NotificationCenter {
   activeCount: number;
@@ -72,7 +72,7 @@ export function NotificationCenterProvider({ children }: { children: ReactNode }
   const [error, setError] = useState("");
   // Guards against a slow early response overwriting a newer one.
   const generation = useRef(0);
-  const { hideAutoApproved, hideSubagent } = view;
+  const { hideAutoApproved, hideSubagent, hidePreferenceOff } = view;
 
   const setView = useCallback((patch: Partial<NotificationViewPreferences>) => {
     setViewState((current) => saveNotificationView({ ...current, ...patch }));
@@ -115,6 +115,7 @@ export function NotificationCenterProvider({ children }: { children: ReactNode }
         ...(directory ? { directory } : {}),
         hideAutoApproved,
         hideSubagent,
+        hidePreferenceOff,
       })
       .then((result) => {
         if (request !== generation.current) return;
@@ -131,7 +132,7 @@ export function NotificationCenterProvider({ children }: { children: ReactNode }
       .finally(() => {
         if (request === generation.current) setLoading(false);
       });
-  }, [directory, hideAutoApproved, hideSubagent]);
+  }, [directory, hideAutoApproved, hideSubagent, hidePreferenceOff]);
 
   // Live updates arrive via useNotifyWatcher, which already holds the one
   // app-level EventSource; opening a second stream here would double every

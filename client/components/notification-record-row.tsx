@@ -1,6 +1,8 @@
+import { Check, Circle } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { Badge, type BadgeVariant } from "../ds/badge.js";
+import { Button } from "../ds/button.js";
 import { cn } from "../ds/utils.js";
 import type { NotificationRecord, NotifyEvent } from "../lib/api.js";
 import { formatClockTime, formatRelative } from "../lib/derive.js";
@@ -23,6 +25,7 @@ export function projectName(directory?: string): string {
 export const SUPPRESSION_LABEL = {
   "auto-permissions": "auto-approved",
   subagent: "sub-agent",
+  "preference-off": "switched off",
 } as const;
 
 /**
@@ -40,6 +43,7 @@ export function truncateSessionTitle(title: string, max: number): string {
 export function deliverySummary(record: NotificationRecord): string {
   if (record.delivery.suppressed === "auto-permissions") return "suppressed by auto permissions";
   if (record.delivery.suppressed === "subagent") return "suppressed as sub-agent activity";
+  if (record.delivery.suppressed === "preference-off") return "this event kind is switched off everywhere";
   const parts = [
     record.delivery.ntfy === "sent"
       ? "ntfy sent"
@@ -71,6 +75,7 @@ export function resolutionSummary(record: NotificationRecord): string {
 export function notificationAction(record: NotificationRecord): string {
   if (record.delivery.suppressed === "auto-permissions") return "Auto-approved before you were notified";
   if (record.delivery.suppressed === "subagent") return "Sub-agent activity was recorded but not sent";
+  if (record.delivery.suppressed === "preference-off") return "Recorded, but this kind is switched off in every channel";
   if (record.displayBody) return record.displayBody;
   if (record.kind === "permission") return "Needs your approval";
   if (record.kind === "question") return "Needs your answer";
@@ -116,6 +121,12 @@ export function NotificationRecordRow({
     : undefined;
   const action = notificationAction(record);
   const heading = grouped ? action : (sessionLabel ?? record.title);
+  // What the agent actually said. Without it, three "Finished its turn"
+  // notifications from one session are indistinguishable — which is exactly
+  // what grouping them under one header made obvious.
+  const detail = record.detail && !record.delivery.suppressed
+    ? truncateSessionTitle(record.detail, compact ? 68 : 140)
+    : undefined;
   // Grouped or not, the row's first line is what the reader aims at to reach
   // the work. Grouping moved the session title into the header; it must not
   // also have taken the row's ability to navigate.
@@ -178,6 +189,18 @@ export function NotificationRecordRow({
         {!grouped && (
           <p className="truncate text-xs text-[var(--color-text-muted)]" data-testid="opencode-notification-action">{action}</p>
         )}
+        {/* Rendered in both modes: a grouped row promotes `action` to its
+            heading, so without this it would have no room left to say which
+            of its siblings it is. */}
+        {detail && (
+          <p
+            className="truncate text-xs italic text-[var(--color-text-muted)]"
+            title={record.detail}
+            data-testid="opencode-notification-detail"
+          >
+            {detail}
+          </p>
+        )}
         <p className="mt-0.5 truncate text-[11px] text-[var(--color-text-muted)]">
           {compact && (
             <>
@@ -200,15 +223,28 @@ export function NotificationRecordRow({
             : ` · ${deliverySummary(record)}${resolution ? ` · ${resolution}` : ""}`}
         </p>
       </div>
-      <label className="flex min-h-11 shrink-0 items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
-        <input
-          type="checkbox"
-          checked={!active}
-          onChange={(event) => onResolvedChange(record.id, event.target.checked)}
-          data-testid="opencode-notification-resolved"
-        />
-        <span className={compact ? "sr-only" : undefined}>Resolved</span>
-      </label>
+      {/* A button rather than a checkbox: this is the one action the row
+          exists to offer, and a 13px checkbox was a poor target for it —
+          especially on a phone, where the whole popover is thumb-driven.
+          `aria-pressed` carries the state a checkbox used to carry, and the
+          action stays reversible per AGENTS.md decision 10: pressing a
+          resolved row unresolves it. */}
+      <Button
+        size="sm"
+        variant={active ? "secondary" : "ghost"}
+        aria-pressed={!active}
+        className={cn(
+          "min-h-11 shrink-0 gap-1.5 font-medium",
+          compact ? "px-2 text-[11px]" : "px-3 text-xs",
+          !active && "text-[var(--color-text-muted)]",
+        )}
+        onClick={() => onResolvedChange(record.id, active)}
+        title={active ? "Mark this resolved" : "Mark this unresolved again"}
+        data-testid="opencode-notification-resolved"
+      >
+        {active ? <Circle aria-hidden="true" size={13} /> : <Check aria-hidden="true" size={13} />}
+        {active ? "Resolve" : "Resolved"}
+      </Button>
     </li>
   );
 }

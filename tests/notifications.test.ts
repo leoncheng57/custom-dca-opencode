@@ -13,7 +13,7 @@ import {
   outboundMessage,
 } from "../server/notifications/service.js";
 import type { EventBus } from "../server/opencode/events.js";
-import { HistoryStore } from "../server/notifications/history.js";
+import { APP_BADGE_FILTERS, HistoryStore } from "../server/notifications/history.js";
 import {
   normalizePreferences,
   mergePreferenceWrite,
@@ -232,6 +232,8 @@ describe("root session notification filtering", () => {
 
   function startService(
     lookup: (directory: string, sessionID: string, signal: AbortSignal) => Promise<SessionMetadata | null>,
+    excerpt: (directory: string, sessionID: string, signal: AbortSignal) => Promise<string | undefined> =
+      async () => undefined,
   ) {
     const bus = new EventEmitter() as EventBus;
     const history = historyStore();
@@ -243,6 +245,8 @@ describe("root session notification filtering", () => {
       null,
       undefined,
       lookup,
+      undefined,
+      excerpt,
     );
     service.start();
     return { bus, history, service };
@@ -301,7 +305,7 @@ describe("root session notification filtering", () => {
 
     expect(await history.activeCount("/tmp/project")).toBe(2);
     expect(await history.activeCount("/tmp/project", { hideSubagent: true })).toBe(1);
-    expect(await history.suppressedActiveCounts("/tmp/project")).toEqual({ "auto-permissions": 0, subagent: 1 });
+    expect(await history.suppressedActiveCounts("/tmp/project")).toEqual({ "auto-permissions": 0, subagent: 1, "preference-off": 0 });
     service.stop();
   });
 
@@ -514,6 +518,228 @@ describe("auto permission notification suppression", () => {
   });
 });
 
+describe("over-notification", () => {
+  const idleEvent = (directory: string, sessionID: string) => ({
+    type: "session.idle",
+    properties: { sessionID },
+    directory,
+  });
+
+  function service(preferences: PreferenceStore, lookup = vi.fn(async () => null)) {
+    const bus = new EventEmitter() as EventBus;
+    const history = historyStore();
+    const notifications = new NotificationService(
+      { baseUrl: "http://opencode.test" },
+      bus,
+      preferences,
+      history,
+      null,
+      undefined,
+      lookup as never,
+      undefined,
+      async () => undefined,
+    );
+    notifications.start();
+    return { bus, history, notifications, lookup };
+  }
+
+  it("keeps an event kind switched off in every channel out of the badge", async () => {
+    // Disabling a kind used to silence the ping while still adding a permanent
+    // unresolved record — so the red number kept climbing for notifications the
+    // user had explicitly asked not to receive.
+    const store = {
+      read: async () => {
+        const base = normalizePreferences({ ntfy: { enabled: true, server: "https://ntfy.sh", topic: "team" } });
+        return {
+          ...base,
+          ntfy: { ...base.ntfy, events: { ...base.ntfy.events, idle: false } },
+          browser: { ...base.browser, events: { ...base.browser.events, idle: false } },
+          webPush: { ...base.webPush, events: { ...base.webPush.events, idle: false } },
+        };
+      },
+    } as PreferenceStore;
+    const { bus, history, notifications } = service(store);
+
+    bus.emit("event", idleEvent("/tmp/quiet", "ses_quiet"));
+    await vi.waitFor(async () => expect(await history.list()).toHaveLength(1));
+
+    const [record] = await history.list();
+    // Recorded, so "why was I never told?" is still answerable...
+    expect(record.delivery.suppressed).toBe("preference-off");
+    expect(record.resolvedAt).toBeUndefined();
+    // ...but it never reaches the badge the user is meant to act on.
+    expect(await history.activeCount(undefined, APP_BADGE_FILTERS)).toBe(0);
+    expect(await history.list(APP_BADGE_FILTERS)).toEqual([]);
+    expect((await history.suppressedActiveCounts())["preference-off"]).toBe(1);
+    notifications.stop();
+  });
+
+  it("still badges a kind that is merely unconfigured rather than switched off", async () => {
+    // "I never set up ntfy" is not the same statement as "do not tell me about
+    // this", and only the second may suppress.
+    const { bus, history, notifications } = service(ntfyPreferences());
+
+    bus.emit("event", idleEvent("/tmp/loud", "ses_loud"));
+    await vi.waitFor(async () => expect(await history.list()).toHaveLength(1));
+
+    expect((await history.list())[0].delivery.suppressed).toBeUndefined();
+    expect(await history.activeCount(undefined, APP_BADGE_FILTERS)).toBe(1);
+    notifications.stop();
+  });
+
+  it("checks lineage once per event instead of once per upstream echo", async () => {
+    // The dedupe used to run after the session lookup, so echoes each burned
+    // one of only four concurrency slots — starving the sub-agent gate during
+    // exactly the bursts it exists for.
+    const lookup = vi.fn(async () => null);
+    const { bus, history, notifications } = service(ntfyPreferences(), lookup);
+
+    bus.emit("event", idleEvent("/tmp/echo", "ses_echo"));
+    bus.emit("event", idleEvent("/tmp/echo", "ses_echo"));
+    bus.emit("event", idleEvent("/tmp/echo", "ses_echo"));
+    await vi.waitFor(async () => expect(await history.list()).toHaveLength(1));
+
+    expect(lookup).toHaveBeenCalledTimes(1);
+    notifications.stop();
+  });
+
+  it("tells the browser what was recorded, including that it was suppressed", async () => {
+    // The browser used to classify raw upstream events itself, with no view of
+    // session lineage, so a delegated child rang a bell the inbox denied.
+    const lookup = vi.fn(async () => ({ id: "ses_child", parentID: "ses_parent", title: "Child work" }));
+    const { bus, history, notifications } = service(ntfyPreferences(), lookup as never);
+    const recorded: Array<Record<string, unknown>> = [];
+    bus.on("event", (event: { type: string; properties: Record<string, unknown> }) => {
+      if (event.type === "notification.recorded") recorded.push(event.properties);
+    });
+
+    bus.emit("event", idleEvent("/tmp/child", "ses_child"));
+    await vi.waitFor(() => expect(recorded).toHaveLength(1));
+
+    expect(recorded[0].kind).toBe("idle");
+    expect(recorded[0].suppressed).toBe("subagent");
+    expect((await history.list())[0].delivery.suppressed).toBe("subagent");
+    notifications.stop();
+  });
+
+  it("cancels a parked escalation whichever key upstream used for the request id", async () => {
+    // The cancel path read only properties.requestID while the record path
+    // accepted requestID ?? id, so an `id`-shaped reply left the escalation
+    // armed for a permission the user had already answered.
+    const { bus, history, notifications } = service(ntfyPreferences());
+    const asked = {
+      type: "permission.asked",
+      properties: { id: "perm_key", sessionID: "ses_key", permission: "bash", patterns: ["npm test"] },
+      directory: "/tmp/key",
+    };
+
+    bus.emit("event", asked);
+    await vi.waitFor(async () => expect(await history.list()).toHaveLength(1));
+    bus.emit("event", { type: "permission.replied", properties: { id: "perm_key" }, directory: "/tmp/key" });
+
+    // The timer is gone, so no second record can appear for this permission.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(await history.list()).toHaveLength(1);
+    notifications.stop();
+  });
+});
+
+describe("agent output excerpts", () => {
+  const idleEvent = { type: "session.idle", properties: { sessionID: "ses_work" }, directory: "/tmp/work" };
+
+  function service(excerpt: (d: string, s: string, sig: AbortSignal) => Promise<string | undefined>) {
+    const bus = new EventEmitter() as EventBus;
+    const history = historyStore();
+    const notifications = new NotificationService(
+      { baseUrl: "http://opencode.test" },
+      bus,
+      ntfyPreferences(),
+      history,
+      null,
+      undefined,
+      rootSession,
+      undefined,
+      excerpt,
+    );
+    notifications.start();
+    return { bus, history, notifications };
+  }
+
+  it("records what the agent said so two idle rows from one session differ", async () => {
+    // Three "Finished its turn and is waiting for you" rows under one session
+    // header say nothing about which is which. This is that line.
+    const { bus, history, notifications } = service(async () => "Rebuilt the bundle and fixed two type errors.");
+
+    bus.emit("event", idleEvent);
+    await vi.waitFor(async () => expect(await history.list()).toHaveLength(1));
+
+    expect((await history.list())[0].detail).toBe("Rebuilt the bundle and fixed two type errors.");
+    notifications.stop();
+  });
+
+  it("keeps the excerpt out of the outbound body", async () => {
+    // The lock screen and a third-party relay stay content-free; only the
+    // authenticated in-app row carries agent prose.
+    const sent: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: { body?: string }) => {
+      if (init?.body) sent.push(init.body);
+      return new Response("ok", { status: 200 });
+    }));
+    const secret = "Wrote the deploy key to /tmp/private/id_rsa";
+    const { bus, history, notifications } = service(async () => secret);
+
+    bus.emit("event", idleEvent);
+    await vi.waitFor(async () => expect(await history.list()).toHaveLength(1));
+
+    expect((await history.list())[0].detail).toBe(secret);
+    for (const body of sent) expect(body).not.toContain("id_rsa");
+    notifications.stop();
+  });
+
+  it("omits the excerpt rather than delaying or failing the notification", async () => {
+    // Fail open: a missing excerpt costs the row some specificity, a stalled
+    // lookup would cost the user the ping entirely.
+    const { bus, history, notifications } = service(async () => {
+      throw new Error("upstream down");
+    });
+
+    bus.emit("event", idleEvent);
+    await vi.waitFor(async () => expect(await history.list()).toHaveLength(1));
+
+    const [record] = await history.list();
+    expect(record.detail).toBeUndefined();
+    expect(record.displayBody).toBe("Finished its turn and is waiting for you");
+    notifications.stop();
+  });
+
+  it("bounds a runaway excerpt before it reaches the durable log", async () => {
+    const { bus, history, notifications } = service(async () => "x".repeat(5_000));
+
+    bus.emit("event", idleEvent);
+    await vi.waitFor(async () => expect(await history.list()).toHaveLength(1));
+
+    const detail = (await history.list())[0].detail ?? "";
+    expect(detail.length).toBeLessThanOrEqual(240);
+    expect(detail.endsWith("\u2026")).toBe(true);
+    notifications.stop();
+  });
+
+  it("does not spend an upstream read on a permission, which already names its tool", async () => {
+    const excerpt = vi.fn(async () => "unused");
+    const { bus, history, notifications } = service(excerpt);
+
+    bus.emit("event", {
+      type: "permission.asked",
+      properties: { id: "perm_x", sessionID: "ses_work", permission: "bash", patterns: ["npm test"] },
+      directory: "/tmp/work",
+    });
+    await vi.waitFor(async () => expect(await history.list()).toHaveLength(1));
+
+    expect(excerpt).not.toHaveBeenCalled();
+    notifications.stop();
+  });
+});
+
 describe("notification noise filters", () => {
   const delivered = { ntfy: "sent", desktop: "allowed" } as const;
 
@@ -553,13 +779,13 @@ describe("notification noise filters", () => {
   it("reports what each filter hides so a checkbox can state its own cost", async () => {
     const history = await mixedHistory();
 
-    expect(await history.suppressedActiveCounts("/tmp/a")).toEqual({ "auto-permissions": 1, subagent: 1 });
-    expect(await history.suppressedActiveCounts("/tmp/b")).toEqual({ "auto-permissions": 0, subagent: 0 });
+    expect(await history.suppressedActiveCounts("/tmp/a")).toEqual({ "auto-permissions": 1, subagent: 1, "preference-off": 0 });
+    expect(await history.suppressedActiveCounts("/tmp/b")).toEqual({ "auto-permissions": 0, subagent: 0, "preference-off": 0 });
 
     // Resolving a suppressed record stops it counting against its filter.
     const auto = (await history.list()).find((record) => record.title === "auto")!;
     await history.setResolved(auto.id, true);
-    expect(await history.suppressedActiveCounts("/tmp/a")).toEqual({ "auto-permissions": 0, subagent: 1 });
+    expect(await history.suppressedActiveCounts("/tmp/a")).toEqual({ "auto-permissions": 0, subagent: 1, "preference-off": 0 });
   });
 
   it("counts delivered unresolved records globally for the installed-app badge", async () => {

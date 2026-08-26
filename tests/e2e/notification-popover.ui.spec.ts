@@ -28,6 +28,7 @@ interface StubRecord {
   title: string;
   body: string;
   displayBody?: string;
+  detail?: string;
   resolvedAt?: number;
   resolvedBy?: string;
   delivery: { ntfy: "off"; desktop: "off"; suppressed?: "auto-permissions" | "subagent" };
@@ -47,6 +48,7 @@ function seedRecords(): StubRecord[] {
       title: `OpenCode needs permission ${index}`,
       body: `bash: npm run seeded-${index}`,
       displayBody: `Needs approval to run bash ${index}`,
+      detail: `Excerpt for active ${index}`,
       delivery: { ntfy: "off", desktop: "off" },
     });
   }
@@ -129,6 +131,7 @@ async function stubHistory(page: Page, records = seedRecords(), outsideWindowAct
     subagent: state.records.filter(
       (record) => record.resolvedAt === undefined && record.delivery.suppressed === "subagent",
     ).length,
+    "preference-off": 0,
   });
   await page.route("**/api/notifications/history*", async (route) => {
     const query = new URL(route.request().url()).searchParams;
@@ -195,6 +198,7 @@ async function seedNotificationView(page: Page, patch: Record<string, unknown>) 
         version: 1,
         hideAutoApproved: true,
         hideSubagent: true,
+        hidePreferenceOff: true,
         resolvedExpanded: false,
         groupBySession: true,
         groupsCollapsed: true,
@@ -411,7 +415,7 @@ for (const viewport of VIEWPORTS) {
       const resolvedList = page.getByTestId("opencode-notification-popover-resolved");
       const resolvedRow = resolvedList.getByTestId("opencode-notification-record").first();
       await expect(resolvedRow.getByTestId("opencode-notification-session")).toHaveAttribute("title", SESSION_TITLE);
-      await expect(resolvedRow.getByTestId("opencode-notification-resolved")).toBeChecked();
+      await expect(resolvedRow.getByTestId("opencode-notification-resolved")).toHaveAttribute("aria-pressed", "true");
       await resolvedRow.getByTestId("opencode-notification-resolved").click();
       await expect(page.getByTestId("opencode-nav-notifications-badge")).toHaveText(String(ACTIVE_COUNT));
       await expect(page.getByTestId("opencode-notification-popover-active-count")).toHaveText(String(ACTIVE_COUNT));
@@ -761,6 +765,67 @@ for (const viewport of VIEWPORTS) {
       );
       // Expand/Collapse all is meaningless without groups and goes away.
       await expect(page.getByTestId("opencode-notification-groups-expand-all")).toHaveCount(0);
+    });
+
+    test("links the Active and Resolved views directly", async ({ page }) => {
+      const historyPath = `/settings/notifications?directory=${encodeURIComponent(DIR)}`;
+
+      // Landing straight on the link shows that view, without a click.
+      await page.goto(`${historyPath}&state=active`);
+      await expect(page.getByTestId("opencode-history-filter-active")).toHaveAttribute("aria-pressed", "true");
+      await page.getByTestId("opencode-notification-group").first()
+        .getByTestId("opencode-notification-group-toggle").click();
+      await expect(page.getByTestId("opencode-notification-record")).toHaveCount(ACTIVE_COUNT);
+
+      await page.goto(`${historyPath}&state=resolved`);
+      await expect(page.getByTestId("opencode-history-filter-resolved")).toHaveAttribute("aria-pressed", "true");
+
+      // A stale or hand-edited link degrades to the whole history rather than
+      // erroring or showing nothing.
+      await page.goto(`${historyPath}&state=pending`);
+      await expect(page.getByTestId("opencode-history-filter-all")).toHaveAttribute("aria-pressed", "true");
+
+      // Clicking a pill writes the link, so the view can be shared afterwards.
+      await page.getByTestId("opencode-history-filter-active").click();
+      await expect(page).toHaveURL(/[?&]state=active/u);
+      await expect(page).toHaveURL(new RegExp(`directory=${encodeURIComponent(encodeURIComponent(DIR))}|directory=`, "u"));
+      // "All" is the absence of the parameter, so the canonical link stays bare.
+      await page.getByTestId("opencode-history-filter-all").click();
+      await expect(page).not.toHaveURL(/[?&]state=/u);
+    });
+
+    test("offers resolution as a real button, still reversible", async ({ page }) => {
+      await page.goto(hub);
+      await bell(page).click();
+      await groups(page).first().getByTestId("opencode-notification-group-toggle").click();
+
+      const control = popover(page).getByTestId("opencode-notification-record").first()
+        .getByTestId("opencode-notification-resolved");
+      // A checkbox is a poor target for the row's only action, especially on a
+      // thumb-driven popover.
+      await expect(control).toHaveRole("button");
+      await expect(control).toHaveAttribute("aria-pressed", "false");
+      await expect(control).toHaveText("Resolve");
+      const box = await control.boundingBox();
+      expect(box?.height ?? 0).toBeGreaterThanOrEqual(40);
+
+      await control.click();
+      await expect(page.getByTestId("opencode-notification-popover-active-count")).toHaveText(String(ACTIVE_COUNT - 1));
+    });
+
+    test("says what the agent did, so same-session rows are told apart", async ({ page }) => {
+      // Grouping made the duplication obvious: eight rows under one header all
+      // reading "Needs approval to run bash". The excerpt is what distinguishes
+      // them once the session title is no longer on every row.
+      await page.goto(hub);
+      await bell(page).click();
+      await groups(page).first().getByTestId("opencode-notification-group-toggle").click();
+
+      const details = popover(page).getByTestId("opencode-notification-detail");
+      await expect(details.first()).toHaveText("Excerpt for active 0");
+      await expect(details.nth(1)).toHaveText("Excerpt for active 1");
+      const texts = await details.allTextContents();
+      expect(new Set(texts).size).toBe(texts.length);
     });
 
     test("groups the full history page the same way", async ({ page }) => {

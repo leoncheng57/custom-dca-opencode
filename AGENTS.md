@@ -397,6 +397,53 @@ several decisions below.
     cross-origin, and `undefined` whenever `PUBLIC_APP_URL` is unset, so reusing it
     made an outbound-delivery setting decide whether the in-app UI could navigate at
     all — and made every notification inert in the fixture-backed PR simulator.
+    The Active/Resolved split lives in the **URL** (`?state=active`), not component
+    state: "what still needs me" is the view worth bookmarking. `all` is the absence of
+    the parameter so the canonical link stays bare, an unrecognized value degrades to
+    `all` rather than erroring, and the pills `replace` rather than push so Back keeps
+    meaning "the page I came from". Resolution is a **button with `aria-pressed`**, not
+    a checkbox: it is the row's only action and a 13px target was wrong for it,
+    especially in a thumb-driven popover. It stays reversible.
+24. **The server decides who gets pinged; the browser is not allowed a second opinion.**
+    `useNotifyWatcher` used to re-derive notification kind from raw upstream events, so
+    it had no view of session lineage: every delegated child's turn produced a desktop
+    popup, a sound and speech in every open tab while the server filed the same event
+    as `suppressed: "subagent"` and hid it from the inbox and the badge. Being pinged
+    for things the notification list denies ever happened is the loudest half of the
+    over-notification report (#180). The browser now reacts **only** to
+    `notification.recorded`, which carries the server's post-append verdict, and skips
+    anything `suppressed`. Raw events are still forwarded untouched for the transcript
+    and the sub-agent ledger. Consequences: the record id becomes an exact dedupe
+    identity instead of a heuristic, and it doubles as the OS notification `tag` in both
+    `new Notification` and the service worker, so N open tabs — and a foreground PWA
+    that also receives the push — collapse to one popup instead of stacking.
+25. **A kind switched off in every channel is suppressed, not silently badged.**
+    Preferences used to gate delivery only, so turning a kind off silenced the ping but
+    still wrote a permanent unresolved record — and `abort` ships disabled, so every
+    Stop press added an item nobody opted into. Those records now carry
+    `suppressed: "preference-off"`, the third category in `SUPPRESSION_REASONS`, with
+    the full decision 10a treatment: recorded so "why was I never told?" stays
+    answerable, never delivered, prune-capped, filtered out of both `list()` and
+    `activeCount()` by a default-on checkbox that states its own cost. A channel merely
+    being *unconfigured* does not count — "I never set up ntfy" is not the instruction
+    "do not tell me about this", and only the second may suppress. Relatedly, the parked
+    escalation now only arms when a parked alert could actually reach someone, and the
+    5-second echo dedupe runs *before* the lineage lookup rather than after, so upstream
+    echoes stop burning the 4-slot concurrency budget that the sub-agent gate depends
+    on — it used to fail open during exactly the bursts it exists for.
+26. **Notification records carry a bounded excerpt of what the agent actually said.**
+    "Finished its turn and is waiting for you" is identical every time, so three of them
+    from one session said nothing about which was which — the complaint in #186, made
+    obvious by grouping them under one header. `detail` is fetched only for a delivered
+    `idle` (a permission already names its tool, a question carries its preview, an error
+    its reason) and costs one upstream read that borrows the session lookup's exact
+    discipline: hard timeout, shared concurrency budget, fail open to `undefined`. A
+    missing excerpt costs the row specificity; a stalled one would cost the user the
+    ping. It is **in-app only** — never copied into the outbound ntfy/Web Push body,
+    which stays deliberately lock-screen-safe — and bounded on both write and read,
+    because `normalizeRecord` is the only barrier against a hand-edited file and this is
+    model-authored text on a durable record. Retention rose to 5,000 per capped
+    category; unresolved *delivered* records remain exempt from every cap.
 
 ## Client conventions (inherited from the OpenHands runner, still enforced)
 

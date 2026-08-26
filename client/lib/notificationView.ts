@@ -1,7 +1,15 @@
 // client/lib/notificationView.ts
 //
-// Device-local view preferences for the notification centre: which categories
-// of noise are folded away, and whether the resolved list is expanded.
+// How the notification centre is being looked at. Two kinds of state live here
+// and they are deliberately stored in different places:
+//
+//   * Device-local preferences (below) — which categories of noise are folded
+//     away, whether the resolved list is expanded, how groups are collapsed.
+//     Persisted per browser, never in the URL: they describe this device's
+//     habits, not a particular view worth sharing.
+//   * The Active/Resolved list state (`parseNotificationHistoryState`) — which
+//     lives in the URL instead, because "the unresolved ones" is exactly the
+//     view a user wants to bookmark, share, or return to.
 //
 // These are deliberately *not* server preferences. They say nothing about what
 // gets delivered — the server still records every notification either way —
@@ -16,7 +24,25 @@
 // reorders rows the server already sent and hides nothing, so no count can
 // disagree with it.
 
+import type { NotificationHistoryState } from "./api.js";
+
 export const NOTIFICATION_VIEW_STORAGE_KEY = "opencode-notification-view-v1";
+
+/** Query parameter carrying the Active/Resolved split, so it can be linked. */
+export const NOTIFICATION_STATE_PARAM = "state";
+
+/**
+ * Read the list state out of a URL.
+ *
+ * "all" is the default and is represented by the parameter being absent rather
+ * than by `state=all`, so the canonical link to the whole history stays the
+ * bare route. Anything unrecognized degrades to "all": a stale or hand-edited
+ * link should show the reader everything, never an error.
+ */
+export function parseNotificationHistoryState(value: string | null | undefined): NotificationHistoryState {
+  const candidate = value?.trim().toLowerCase();
+  return candidate === "active" || candidate === "resolved" ? candidate : "all";
+}
 
 export interface NotificationViewPreferences {
   version: 1;
@@ -27,6 +53,12 @@ export interface NotificationViewPreferences {
   hideAutoApproved: boolean;
   /** Hide notifications from delegated child sessions. */
   hideSubagent: boolean;
+  /**
+   * Hide records whose event kind is switched off in every delivery channel.
+   * Recorded so "why was I never told?" stays answerable, but never delivered,
+   * so they are noise in an inbox by default.
+   */
+  hidePreferenceOff: boolean;
   /** Whether the popover's resolved list is expanded. */
   resolvedExpanded: boolean;
   /** Collect rows under one collapsible header per session. */
@@ -58,6 +90,7 @@ export const DEFAULT_NOTIFICATION_VIEW: NotificationViewPreferences = {
   version: 1,
   hideAutoApproved: true,
   hideSubagent: true,
+  hidePreferenceOff: true,
   resolvedExpanded: false,
   groupBySession: true,
   groupsCollapsed: true,
@@ -78,6 +111,7 @@ export function normalizeNotificationView(value: unknown): NotificationViewPrefe
     version: 1,
     hideAutoApproved: boolean(source.hideAutoApproved, DEFAULT_NOTIFICATION_VIEW.hideAutoApproved),
     hideSubagent: boolean(source.hideSubagent, DEFAULT_NOTIFICATION_VIEW.hideSubagent),
+    hidePreferenceOff: boolean(source.hidePreferenceOff, DEFAULT_NOTIFICATION_VIEW.hidePreferenceOff),
     resolvedExpanded: boolean(source.resolvedExpanded, DEFAULT_NOTIFICATION_VIEW.resolvedExpanded),
     groupBySession: boolean(source.groupBySession, DEFAULT_NOTIFICATION_VIEW.groupBySession),
     groupsCollapsed: boolean(source.groupsCollapsed, DEFAULT_NOTIFICATION_VIEW.groupsCollapsed),

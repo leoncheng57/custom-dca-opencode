@@ -132,6 +132,7 @@ export function notificationRoutes(
         const filters = {
           hideAutoApproved: queryFlag(req.query.hideAutoApproved),
           hideSubagent: queryFlag(req.query.hideSubagent),
+          hidePreferenceOff: queryFlag(req.query.hidePreferenceOff),
         };
         const [records, activeCount, appBadge, suppressedActive] = await Promise.all([
           history.list({

@@ -52,6 +52,14 @@ export function NotificationFilters({
       testId: "opencode-notification-filter-subagent",
       title: "Notifications raised by delegated child sessions rather than a session you started.",
     },
+    {
+      key: "hidePreferenceOff" as const,
+      label: "Hide switched-off kinds",
+      hidden: suppressedActive["preference-off"],
+      testId: "opencode-notification-filter-preference-off",
+      title:
+        "Events whose kind is turned off in every delivery channel. They are still recorded so you can see what happened, but nothing was ever sent.",
+    },
   ];
 
   return (

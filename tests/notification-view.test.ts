@@ -4,6 +4,7 @@ import {
   DEFAULT_NOTIFICATION_VIEW,
   loadNotificationView,
   normalizeNotificationView,
+  parseNotificationHistoryState,
   saveNotificationView,
 } from "../client/lib/notificationView.js";
 import {
@@ -49,6 +50,7 @@ describe("notification view preferences", () => {
         version: 1,
         hideAutoApproved: false,
         hideSubagent: true,
+        hidePreferenceOff: false,
         resolvedExpanded: true,
         groupBySession: false,
         groupsCollapsed: false,
@@ -59,6 +61,7 @@ describe("notification view preferences", () => {
       version: 1,
       hideAutoApproved: false,
       hideSubagent: true,
+      hidePreferenceOff: false,
       resolvedExpanded: true,
       groupBySession: false,
       groupsCollapsed: false,
@@ -76,6 +79,7 @@ describe("notification view preferences", () => {
       version: 1,
       hideAutoApproved: false,
       hideSubagent: false,
+      hidePreferenceOff: true,
       resolvedExpanded: true,
       groupBySession: true,
       groupsCollapsed: true,
@@ -99,6 +103,28 @@ describe("notification view preferences", () => {
     };
     expect(loadNotificationView(blocked)).toEqual(DEFAULT_NOTIFICATION_VIEW);
     expect(() => saveNotificationView(DEFAULT_NOTIFICATION_VIEW, blocked)).not.toThrow();
+  });
+});
+
+describe("notification history state links", () => {
+  it("reads the two shareable states out of the URL", () => {
+    expect(parseNotificationHistoryState("active")).toBe("active");
+    expect(parseNotificationHistoryState("resolved")).toBe("resolved");
+  });
+
+  it("tolerates casing and stray whitespace from a hand-edited link", () => {
+    expect(parseNotificationHistoryState("  Active ")).toBe("active");
+    expect(parseNotificationHistoryState("RESOLVED")).toBe("resolved");
+  });
+
+  it("shows everything rather than erroring on an absent or unknown state", () => {
+    // A stale bookmark should degrade to the whole history, never to a broken
+    // page or an empty list.
+    expect(parseNotificationHistoryState(null)).toBe("all");
+    expect(parseNotificationHistoryState(undefined)).toBe("all");
+    expect(parseNotificationHistoryState("")).toBe("all");
+    expect(parseNotificationHistoryState("all")).toBe("all");
+    expect(parseNotificationHistoryState("pending")).toBe("all");
   });
 });
 
