@@ -17,6 +17,7 @@
     "dev:server": "tsx watch server/index.ts",
     "dev:ui": "vite",
     "build:ui": "vite build",
+    "build:preview": "VITE_PUBLIC_SIMULATOR=true vite build --base=${PREVIEW_BASE_PATH:-/}",
     "build:server": "tsc -p tsconfig.server.json",
     "build": "npm run build:ui && npm run build:server",
     "start": "node dist/server/index.js",
@@ -27,6 +28,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.tools.json --noEmit",
     "test": "vitest run",
     "test:e2e": "playwright test",
+    "test:preview": "playwright test --config playwright.preview.config.ts",
+    "preview:package": "tsx scripts/pr-preview.ts package",
     "screenshots": "tsx scripts/run-pr-screenshots.ts",
     "screenshots:local": "npm run screenshots -- --request-file tests/fixtures/pr-screenshots.json --output-dir screenshot-output --pr-number 0 --sha local"
   },

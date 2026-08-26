@@ -309,6 +309,16 @@ several decisions below.
     native derivation copies a historical parent deny but discards its later Build allow. The
     resolved Plan agent alone is not read-only after project policy merges, so session-level Plan
     enforcement remains required.
+    #75's asymmetry is fixed upstream in anomalyco/opencode#45064 (drop a copied deny when a
+    later rule supersedes it for the exact permission+pattern), and the reference deployment's
+    `ai.opencode.serve` LaunchAgent runs a patched binary
+    (`~/.opencode/bin/opencode-1.18.22-dca`, branch `v1.18.22-dca` in the local opencode
+    checkout = v1.18.22 + that commit; stock plist preserved as
+    `.state/launchd/ai.opencode.serve.plist.bak-stock-binary`). Verified live: a parent with
+    appended `[bash deny, bash allow]` spawned a task child with no inherited bash deny that ran
+    bash successfully. When the upstream fix ships in a release, bump the pin, point the plist
+    back at the stock binary, and re-run the probes. Session-level Plan enforcement is still
+    required regardless — the resolved Plan agent is not read-only after project merges.
 20. **A file reference is data the server verified, never a URL the client trusted.**
     The client contract is `WorkspaceTarget { path, startLine?, endLine? }`, not a route:
     following a reference must not change the browser location, because the drawer is a
@@ -344,6 +354,20 @@ several decisions below.
     dialog states that prompt_async 204/202 means accepted, not completed. The
     managed-child form reuses decision #19's route with the same Build authorization
     checkbox and creates no task card and no automatic hand-back.
+22. **PR previews are static simulators, never public agent servers.** GitHub Pages cannot
+    host the Express BFF or `opencode serve`, and putting either on a public endpoint would
+    require credentials and expose host-level agent authority. `VITE_PUBLIC_SIMULATOR=true`
+    therefore builds the real client with a browser-local `/api` fixture adapter, hash
+    routing, a visible simulator banner, and no service worker or PWA manifest. Mutations
+    are tab-local and reset on reload. Same-repository PRs build on every commit, publish
+    only `gh-pages:pr-previews/pr-<number>/`, create a transient GitHub Deployment, and
+    maintain one `<!-- pr-preview -->` comment; forks build an artifact but never publish
+    JavaScript on the repository's Pages origin. The artifact manifest is bound to PR,
+    full SHA, base path, file sizes, and SHA-256 digests and is revalidated before the
+    shared non-force Pages write. Preview, screenshot, and public-site writers all use the
+    `pr-screenshot-publication` concurrency group. Close cleanup removes only that PR's
+    preview and screenshot directories, deletes their marker-owned comments, and marks the
+    preview deployments inactive.
 
 ## Client conventions (inherited from the OpenHands runner, still enforced)
 

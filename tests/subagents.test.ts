@@ -28,6 +28,7 @@ function taskMessage(
     start?: number;
     end?: number;
     created?: number;
+    model?: Record<string, unknown>;
   } = {},
 ): RawTranscriptMessage {
   return {
@@ -44,6 +45,7 @@ function taskMessage(
           metadata: {
             sessionId: over.sessionId ?? CHILD,
             ...(over.background ? { background: true } : {}),
+            ...(over.model ? { model: over.model } : {}),
           },
           time: { start: over.start ?? 1_000, end: over.end ?? 2_000 },
         },
@@ -143,6 +145,19 @@ describe("collectTaskLaunches", () => {
     expect(collectTaskLaunches([taskMessage({ input: { prompt: "Do   the\nthing" } })])[0].description)
       .toBe("Do the thing");
   });
+
+  it("captures the resolved child model as provenance and keeps it across resume parts", () => {
+    const launches = collectTaskLaunches([
+      taskMessage({ status: "running", model: { providerID: "anthropic", modelID: "claude-opus-5" } }),
+      taskMessage({ status: "completed", start: 5_000, end: 6_000 }),
+    ]);
+    expect(launches[0].model).toEqual({ providerID: "anthropic", modelID: "claude-opus-5" });
+  });
+
+  it("ignores malformed model metadata rather than guessing", () => {
+    expect(collectTaskLaunches([taskMessage({ model: { providerID: "anthropic" } })])[0].model).toBeUndefined();
+    expect(collectTaskLaunches([taskMessage({ model: { providerID: " ", modelID: "x" } })])[0].model).toBeUndefined();
+  });
 });
 
 describe("collectSyntheticOutcomes", () => {
@@ -196,6 +211,18 @@ describe("childTerminalState", () => {
 });
 
 describe("deriveSubagentTasks", () => {
+  it("carries the resolved model onto native task rows as provenance", () => {
+    const [task] = deriveSubagentTasks(deriveInput({
+      launches: [launch({ model: { providerID: "anthropic", modelID: "claude-opus-5" } })],
+      children: [child()],
+      childTerminals: new Map([[CHILD, { state: "completed" as const }]]),
+    }));
+    expect(task).toMatchObject({
+      origin: "native-task",
+      model: { providerID: "anthropic", modelID: "claude-opus-5" },
+    });
+  });
+
   it("prefers observed liveness over every inference below it", () => {
     const [task] = deriveSubagentTasks(deriveInput({
       launches: [launch({ status: "completed" })],

@@ -1,6 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, HashRouter, Route, Routes } from "react-router-dom";
 import { ThemeProvider } from "next-themes";
 
 import { HubPage } from "./pages/Hub.js";
@@ -15,29 +15,40 @@ import { AppShell } from "./components/app-shell.js";
 import { ThemeEffects } from "./components/theme-effects.js";
 import { NotificationCenterProvider } from "./lib/useNotificationCenter.js";
 import { ServiceWorkerUpdate } from "./components/service-worker-update.js";
+import { PUBLIC_SIMULATOR } from "./lib/runtime.js";
 import "./styles.css";
 
-createRoot(document.getElementById("root")!).render(
-  <StrictMode>
-    <ThemeProvider attribute="class" defaultTheme="system" enableSystem enableColorScheme>
-      <ThemeEffects />
-      <ServiceWorkerUpdate />
-      <BrowserRouter>
-        <NotificationCenterProvider>
-          <Routes>
-            <Route element={<AppShell />}>
-              <Route path="/" element={<HubPage />} />
-              <Route path="/sessions/:id" element={<ConversationPage />} />
-              <Route path="/settings" element={<SettingsPage />} />
-              <Route path="/settings/notifications" element={<NotificationsPage />} />
-              <Route path="/tools" element={<ToolsPage />} />
-              <Route path="/docs" element={<DocsPage />} />
-              <Route path="/docs/:slug" element={<DocPage />} />
-              <Route path="/planning" element={<PlanningPage />} />
-            </Route>
-          </Routes>
-        </NotificationCenterProvider>
-      </BrowserRouter>
-    </ThemeProvider>
-  </StrictMode>,
-);
+async function start(): Promise<void> {
+  if (PUBLIC_SIMULATOR) {
+    const { installPublicSimulator } = await import("./simulator/publicSimulator.js");
+    installPublicSimulator();
+  }
+
+  const Router = PUBLIC_SIMULATOR ? HashRouter : BrowserRouter;
+  createRoot(document.getElementById("root")!).render(
+    <StrictMode>
+      <ThemeProvider attribute="class" defaultTheme="system" enableSystem enableColorScheme>
+        <ThemeEffects />
+        {!PUBLIC_SIMULATOR && <ServiceWorkerUpdate />}
+        <Router>
+          <NotificationCenterProvider>
+            <Routes>
+              <Route element={<AppShell />}>
+                <Route path="/" element={<HubPage />} />
+                <Route path="/sessions/:id" element={<ConversationPage />} />
+                <Route path="/settings" element={<SettingsPage />} />
+                <Route path="/settings/notifications" element={<NotificationsPage />} />
+                <Route path="/tools" element={<ToolsPage />} />
+                <Route path="/docs" element={<DocsPage />} />
+                <Route path="/docs/:slug" element={<DocPage />} />
+                <Route path="/planning" element={<PlanningPage />} />
+              </Route>
+            </Routes>
+          </NotificationCenterProvider>
+        </Router>
+      </ThemeProvider>
+    </StrictMode>,
+  );
+}
+
+void start();

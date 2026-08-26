@@ -28,12 +28,28 @@ export const DOCS: DocDefinition[] = [
     load: () => import("../../docs/architecture.md?raw").then((module) => module.default),
   },
   {
+    slug: "subagents",
+    title: "Sub-agents and child sessions",
+    description: "Delegation lanes, the retained-agent capability matrix, derived child state, and safe parallelism.",
+    category: "architecture",
+    sourcePath: "docs/subagents.md",
+    load: () => import("../../docs/subagents.md?raw").then((module) => module.default),
+  },
+  {
     slug: "contributing",
     title: "Contributing",
     description: "Local setup, repository conventions, verification, pull requests, and security-sensitive changes.",
     category: "start",
     sourcePath: "CONTRIBUTING.md",
     load: () => import("../../CONTRIBUTING.md?raw").then((module) => module.default),
+  },
+  {
+    slug: "pr-previews",
+    title: "Pull request previews",
+    description: "Per-commit simulator deployment, BFF stubs, artifact trust boundaries, diagrams, and cleanup.",
+    category: "start",
+    sourcePath: "docs/pr-previews.md",
+    load: () => import("../../docs/pr-previews.md?raw").then((module) => module.default),
   },
   {
     slug: "project-readme",

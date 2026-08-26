@@ -1,0 +1,242 @@
+name: PR preview
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: pr-preview-build-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+    env:
+      PREVIEW_BASE_PATH: /custom-dca-opencode/pr-previews/pr-${{ github.event.pull_request.number }}/
+    steps:
+      - name: Check out pull request
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Test public simulator
+        run: npm run test:preview
+
+      - name: Build PR-specific simulator
+        run: npm run build:preview
+
+      - name: Package bounded preview artifact
+        run: >-
+          npm run preview:package --
+          --build dist/client
+          --bundle pr-preview-output
+          --pr-number "${{ github.event.pull_request.number }}"
+          --sha "${{ github.event.pull_request.head.sha }}"
+          --base-path "$PREVIEW_BASE_PATH"
+
+      - name: Upload preview artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-preview-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+          path: pr-preview-output/
+          if-no-files-found: error
+          retention-days: 30
+
+  deploy:
+    needs: build
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+      deployments: write
+      pull-requests: write
+    # Every Pages writer uses this lock and a non-force push. Per-PR builds may
+    # cancel each other above; shared-branch publications must never race.
+    concurrency:
+      group: pr-screenshot-publication
+      cancel-in-progress: false
+    env:
+      PREVIEW_URL: https://leoncheng.dev/custom-dca-opencode/pr-previews/pr-${{ github.event.pull_request.number }}/
+    steps:
+      - name: Check out trusted base for the Pages writer
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Download exact preview artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: pr-preview-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+          path: bundle
+
+      - name: Revalidate artifact identity and inventory
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          node <<'NODE'
+          const crypto = require('node:crypto');
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const manifest = JSON.parse(fs.readFileSync('bundle/manifest.json', 'utf8'));
+          const expectedBase = `/custom-dca-opencode/pr-previews/pr-${process.env.PR_NUMBER}/`;
+          if (manifest.version !== 1 || String(manifest.prNumber) !== process.env.PR_NUMBER || manifest.sha !== process.env.HEAD_SHA || manifest.basePath !== expectedBase) {
+            throw new Error('artifact identity does not match this PR commit');
+          }
+          if (!Array.isArray(manifest.files) || manifest.files.length < 1 || manifest.files.length > 500) throw new Error('invalid file inventory');
+          const expected = new Map(manifest.files.map((file) => [file.path, file]));
+          if (expected.size !== manifest.files.length || !expected.has('index.html')) throw new Error('invalid or duplicate file inventory');
+          let count = 0;
+          let total = 0;
+          const visit = (directory) => {
+            for (const name of fs.readdirSync(directory)) {
+              const absolute = path.join(directory, name);
+              const stat = fs.lstatSync(absolute);
+              if (stat.isSymbolicLink()) throw new Error('symbolic links are forbidden');
+              if (stat.isDirectory()) { visit(absolute); continue; }
+              if (!stat.isFile()) throw new Error('non-file artifact entry');
+              const relative = path.relative('bundle/site', absolute).split(path.sep).join('/');
+              if (path.posix.normalize(relative) !== relative || relative.startsWith('../') || relative.includes('\\') || relative.startsWith('.git/')) throw new Error(`unsafe path: ${relative}`);
+              const declared = expected.get(relative);
+              const digest = crypto.createHash('sha256').update(fs.readFileSync(absolute)).digest('hex');
+              if (!declared || declared.bytes !== stat.size || declared.sha256 !== digest) throw new Error(`inventory mismatch: ${relative}`);
+              if (stat.size > 8 * 1024 * 1024) throw new Error(`oversized file: ${relative}`);
+              count += 1;
+              total += stat.size;
+            }
+          };
+          visit('bundle/site');
+          if (count !== expected.size || total > 50 * 1024 * 1024) throw new Error('artifact bounds do not match');
+          NODE
+
+      - name: Register transient GitHub deployment
+        id: deployment
+        uses: actions/github-script@v7
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PREVIEW_URL: ${{ env.PREVIEW_URL }}
+        with:
+          script: |
+            const deployment = await github.rest.repos.createDeployment({
+              ...context.repo,
+              ref: process.env.HEAD_SHA,
+              environment: `pr-preview-${process.env.PR_NUMBER}`,
+              description: `Public simulator for PR #${process.env.PR_NUMBER}`,
+              auto_merge: false,
+              required_contexts: [],
+              transient_environment: true,
+              production_environment: false,
+            });
+            await github.rest.repos.createDeploymentStatus({
+              ...context.repo,
+              deployment_id: deployment.data.id,
+              state: 'in_progress',
+              environment_url: process.env.PREVIEW_URL,
+              description: 'Publishing the PR simulator',
+            });
+            core.setOutput('id', deployment.data.id);
+
+      - name: Publish only this PR directory
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          folder: bundle/site
+          branch: gh-pages
+          target-folder: pr-previews/pr-${{ github.event.pull_request.number }}
+          clean: true
+          force: false
+          attempt-limit: 10
+
+      - name: Wait for GitHub Pages
+        run: curl --fail --location --retry 18 --retry-delay 5 --retry-all-errors "$PREVIEW_URL?sha=${{ github.event.pull_request.head.sha }}" >/dev/null
+
+      - name: Mark deployment successful
+        uses: actions/github-script@v7
+        env:
+          DEPLOYMENT_ID: ${{ steps.deployment.outputs.id }}
+          PREVIEW_URL: ${{ env.PREVIEW_URL }}
+        with:
+          script: |
+            await github.rest.repos.createDeploymentStatus({
+              ...context.repo,
+              deployment_id: Number(process.env.DEPLOYMENT_ID),
+              state: 'success',
+              environment_url: process.env.PREVIEW_URL,
+              description: 'PR simulator is ready',
+            });
+
+      - name: Update sticky preview comment
+        uses: actions/github-script@v7
+        env:
+          PREVIEW_URL: ${{ env.PREVIEW_URL }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        with:
+          script: |
+            const marker = '<!-- pr-preview -->';
+            const shortSha = process.env.HEAD_SHA.slice(0, 7);
+            const body = [
+              marker,
+              '## Interactive PR preview',
+              '',
+              `[Open the public simulator](${process.env.PREVIEW_URL})`,
+              '',
+              `Deployed from \`${shortSha}\`. This preview refreshes on every commit and is removed when the pull request closes.`,
+              '',
+              '_The simulator contains deterministic fixture data only. It has no OpenCode process, AI provider key, GitHub token, repository secret, or access to a contributor filesystem._',
+            ].join('\n');
+            const comments = await github.paginate(github.rest.issues.listComments, { ...context.repo, issue_number: context.issue.number, per_page: 100 });
+            const existing = comments.find((comment) => comment.body?.includes(marker));
+            if (existing) await github.rest.issues.updateComment({ ...context.repo, comment_id: existing.id, body });
+            else await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body });
+
+      - name: Mark deployment failed
+        if: failure() && steps.deployment.outputs.id
+        uses: actions/github-script@v7
+        env:
+          DEPLOYMENT_ID: ${{ steps.deployment.outputs.id }}
+          PREVIEW_URL: ${{ env.PREVIEW_URL }}
+        with:
+          script: |
+            await github.rest.repos.createDeploymentStatus({
+              ...context.repo,
+              deployment_id: Number(process.env.DEPLOYMENT_ID),
+              state: 'failure',
+              environment_url: process.env.PREVIEW_URL,
+              description: 'PR simulator publication failed',
+            });
+            const marker = '<!-- pr-preview -->';
+            const body = [marker, '## Interactive PR preview', '', `Preview publication failed. [Open the workflow run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}).`].join('\n');
+            const comments = await github.paginate(github.rest.issues.listComments, { ...context.repo, issue_number: context.issue.number, per_page: 100 });
+            const existing = comments.find((comment) => comment.body?.includes(marker));
+            if (existing) await github.rest.issues.updateComment({ ...context.repo, comment_id: existing.id, body });
+            else await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body });
+
+  report-build-failure:
+    needs: build
+    if: always() && needs.build.result == 'failure' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Update sticky preview comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const marker = '<!-- pr-preview -->';
+            const body = [marker, '## Interactive PR preview', '', `Preview build failed. [Open the workflow run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}).`].join('\n');
+            const comments = await github.paginate(github.rest.issues.listComments, { ...context.repo, issue_number: context.issue.number, per_page: 100 });
+            const existing = comments.find((comment) => comment.body?.includes(marker));
+            if (existing) await github.rest.issues.updateComment({ ...context.repo, comment_id: existing.id, body });
+            else await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body });

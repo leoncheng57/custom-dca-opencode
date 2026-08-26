@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 
 import { api, type NotificationPreferences, type NotifyEvent } from "./api.js";
+import { PUBLIC_SIMULATOR } from "./runtime.js";
 import {
   initializeDeviceNotificationPreferences,
   loadDeviceNotificationPreferences,
@@ -61,6 +62,7 @@ export function useNotifyWatcher(onActiveSetChanged?: () => void): void {
   notifyActiveSet.current = onActiveSetChanged;
 
   useEffect(() => {
+    if (PUBLIC_SIMULATOR) return;
     let preferences: NotificationPreferences | null = null;
     let devicePreferences: DeviceNotificationPreferences = loadDeviceNotificationPreferences().preferences;
     const seen = new Map<string, number>();
