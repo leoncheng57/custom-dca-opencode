@@ -12,7 +12,6 @@ import { useNotificationCenter } from "../lib/useNotificationCenter.js";
 import { NotificationFilters } from "./notification-filters.js";
 import { NotificationGroup } from "./notification-group.js";
 import { NotificationRecordRow } from "./notification-record-row.js";
-import { ResolveShownNotifications } from "./notification-resolve-shown.js";
 
 /** Highest number the decorative pill prints literally; above this it reads "99+". */
 const BADGE_CAP = 99;
@@ -40,6 +39,8 @@ function RecordSection({
   isGroupExpanded,
   toggleGroup,
   onNavigate,
+  onResolveMany,
+  onError,
 }: {
   title: string;
   records: NotificationRecord[];
@@ -57,6 +58,8 @@ function RecordSection({
   isGroupExpanded?: (key: string) => boolean;
   toggleGroup?: (key: string) => void;
   onNavigate?: () => void;
+  onResolveMany?: (ids: string[]) => Promise<void>;
+  onError?: (error: Error) => void;
 }) {
   const headingId = `${testId}-heading`;
   const bodyId = `${testId}-body`;
@@ -118,6 +121,8 @@ function RecordSection({
                       expanded={isGroupExpanded?.(group.key) ?? true}
                       onToggle={() => toggleGroup?.(group.key)}
                       onResolvedChange={onResolvedChange}
+                      onResolveMany={onResolveMany}
+                      onError={onError}
                       compact
                       onNavigate={onNavigate}
                     />
@@ -286,14 +291,6 @@ export function NotificationPopover({ scopedPath }: { scopedPath: (path: string)
               onAllGroupsCollapsedChange={setAllGroupsCollapsed}
               className="shrink-0 px-1 pb-1"
             />
-            <div className="flex justify-end px-1">
-              <ResolveShownNotifications
-                records={active}
-                onResolve={resolveMany}
-                onError={(error) => setMutationError(error.message)}
-                compact
-              />
-            </div>
             <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
               <RecordSection
                 title="Active"
@@ -313,6 +310,8 @@ export function NotificationPopover({ scopedPath }: { scopedPath: (path: string)
                 isGroupExpanded={isGroupExpanded}
                 toggleGroup={toggleGroup}
                 onNavigate={() => close(false)}
+                onResolveMany={resolveMany}
+                onError={(error) => setMutationError(error.message)}
                 footer={
                   hiddenActive > 0 ? (
                     <p
