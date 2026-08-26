@@ -326,19 +326,28 @@ several decisions below.
     native derivation copies a historical parent deny but discards its later Build allow. The
     resolved Plan agent alone is not read-only after project policy merges, so session-level Plan
     enforcement remains required.
-    #75's asymmetry is fixed upstream in anomalyco/opencode#45064 (drop a copied deny when a
-    later rule supersedes it for the exact permission+pattern), and the reference deployment's
-    `ai.opencode.serve` LaunchAgent runs a patched binary built from
-    `fix/subagent-effective-deny-inheritance` in the local opencode checkout (tip `f35ae140ed`,
-    source version 1.18.23; `dev` is an ancestor ~4,129 commits behind at 1.4.7 and is not a
-    rebuild source). `~/.opencode/bin/opencode-1.18.22-dca` is that binary's filename and
-    self-reported version, **not** a branch — rebuild from the branch, never from that string.
-    Stock plist preserved as
-    `.state/launchd/ai.opencode.serve.plist.bak-stock-binary`. Verified live: a parent with
-    appended `[bash deny, bash allow]` spawned a task child with no inherited bash deny that ran
-    bash successfully. When the upstream fix ships in a release, bump the pin, point the plist
-    back at the stock binary, and re-run the probes. Session-level Plan enforcement is still
-    required regardless — the resolved Plan agent is not read-only after project merges.
+    #75's asymmetry is **not** fixed upstream. anomalyco/opencode#45064 (drop a copied deny when
+    a later rule supersedes it for the exact permission+pattern) was **closed unmerged** on
+    2026-08-26, and `upstream/dev` still ships the stale-deny filter in
+    `packages/opencode/src/agent/subagent-permissions.ts`. The patch exists only in this fork, so
+    the pin is **indefinite, not a wait for an upstream release**: there is nothing pending to
+    bump to, and every rebuild must re-apply it. Returning the plist to
+    `.state/launchd/ai.opencode.serve.plist.bak-stock-binary` reintroduces the bug.
+    The reference deployment's `ai.opencode.serve` LaunchAgent runs a binary built from
+    `fix/subagent-effective-deny-inheritance` in the local opencode checkout (source version
+    1.18.23; `dev` is an ancestor ~4,145 commits behind at 1.4.7 and is not a rebuild source).
+    `~/.opencode/bin/opencode-1.18.22-dca` is that binary's filename and self-reported version,
+    **not** a branch — rebuild from the branch, never from that string. Verified live: a parent
+    with appended `[bash deny, bash allow]` spawned a task child with no inherited bash deny that
+    ran bash successfully. Session-level Plan enforcement is still required regardless — the
+    resolved Plan agent is not read-only after project merges.
+    That branch now carries a **second** fork-only patch: an optional `model` parameter on the
+    `task` tool (leoncheng57/opencode#4), giving explicit model > subagent model > parent model.
+    Upstream's active implementation of the same feature, anomalyco/opencode#34947, additionally
+    gates it behind a `model_override` permission defaulting to **deny**, so an agent cannot
+    silently move work to an expensive model; earlier ungated attempts (#26535, #29447) were
+    closed as superseded. This fork has no such gate, so adopting that binary accepts unbounded
+    agent-chosen model cost. Do not propose the fork's version upstream as a competing PR.
 20. **A file reference is data the server verified, never a URL the client trusted.**
     The client contract is `WorkspaceTarget { path, startLine?, endLine? }`, not a route:
     following a reference must not change the browser location, because the drawer is a
