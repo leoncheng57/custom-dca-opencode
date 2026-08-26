@@ -13,6 +13,10 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
+    # This job only reads the repository. Stating it explicitly means a later
+    # step cannot quietly inherit a wider default.
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -50,6 +54,84 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 7
+
+  # Optional isolated lane (issue #204). It proves the container image builds and
+  # the suite passes inside it on amd64 — the host-native `check` job above stays
+  # the primary signal, so a Docker-only problem is diagnosable on its own and
+  # never blocks reading an ordinary test failure.
+  e2e-docker:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # The launcher runs under tsx; this is also what keeps `node_modules` out
+      # of the build context, since `.dockerignore` excludes it.
+      - run: npm ci
+
+      # Built here rather than by the launcher so the layer cache is owned by the
+      # workflow. The scope is keyed by platform and a schema version, NOT by
+      # commit SHA, so the expensive `npm ci` and Chromium layers survive every
+      # commit and only a lockfile change invalidates them.
+      #
+      # Deliberately no registry push: a per-PR image in GHCR would add registry
+      # growth, a write token and fork restrictions without avoiding this build.
+      - name: Build isolated E2E image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.e2e
+          tags: custom-dca-opencode-e2e:ci
+          load: true
+          push: false
+          cache-from: type=gha,scope=e2e-linux-amd64-v1
+          cache-to: type=gha,mode=max,scope=e2e-linux-amd64-v1
+
+      # `--image` makes the launcher borrow the tag above instead of building and
+      # deleting its own, so cleanup never removes a resource the workflow owns.
+      - name: Isolated E2E
+        run: >-
+          npm run test:e2e:docker --
+          --image custom-dca-opencode-e2e:ci
+          --artifact-root "$RUNNER_TEMP/e2e-artifacts"
+
+      # Always, not only on failure: the bundle carries summary.json and
+      # container.txt, which are the evidence for the non-root and no-network
+      # claims even when the suite passed. The launcher bounds the tree.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: docker-e2e-artifacts
+          path: ${{ runner.temp }}/e2e-artifacts
+          retention-days: 7
+
+  # A Linux container cannot prove macOS filesystem behaviour, and this repo's
+  # E2E fixtures depend on /tmp -> /private/tmp canonicalization. This is the
+  # only place those assertions actually execute; see tests/host-contract.test.ts.
+  host-contract-macos:
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Host-native contract lane
+        run: npm run test:contract:host
 
   # This repo is public and talks to a server that runs shell commands on the
   # host. A leaked token is a direct path to code execution, so scan every PR.
