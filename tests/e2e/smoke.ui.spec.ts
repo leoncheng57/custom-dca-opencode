@@ -1457,6 +1457,15 @@ test.describe("engineering docs UI", () => {
     await expect(page.getByTestId("opencode-doc-source")).toContainText("docs/architecture.md");
   });
 
+  test("opens the pull request preview diagrams and BFF stub contract", async ({ page }) => {
+    await page.goto(`/docs?directory=${encodeURIComponent(DIR)}`);
+    await page.getByTestId("opencode-doc-card-pr-previews").click();
+    await expect(page).toHaveURL(new RegExp(`/docs/pr-previews\\?directory=${encodeURIComponent(DIR)}`));
+    await expect(page.getByTestId("opencode-doc")).toContainText("Per-commit deployment flow");
+    await expect(page.getByTestId("opencode-doc")).toContainText("Stubbed endpoint families");
+    await expect(page.getByTestId("opencode-doc-source")).toContainText("docs/pr-previews.md");
+  });
+
   test("renders an unknown document state", async ({ page }) => {
     await page.goto("/docs/not-in-the-catalogue");
     await expect(page.getByTestId("opencode-doc")).toContainText("not in the in-app catalogue");

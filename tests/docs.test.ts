@@ -8,6 +8,7 @@ describe("documentation catalogue", () => {
     expect(new Set(DOCS.map((doc) => doc.slug)).size).toBe(DOCS.length);
     expect(new Set(DOCS.map((doc) => doc.sourcePath)).size).toBe(DOCS.length);
     expect(getDoc("architecture")?.sourcePath).toBe("docs/architecture.md");
+    expect(getDoc("pr-previews")?.sourcePath).toBe("docs/pr-previews.md");
     expect(getDoc("missing")).toBeUndefined();
   });
 
@@ -15,6 +16,7 @@ describe("documentation catalogue", () => {
     const source = [
       "[Contributing](../CONTRIBUTING.md)",
       "[Audit](opencode-1.18.21-api-audit.md#result)",
+      "[Previews](pr-previews.md#artifact-trust-boundary)",
       "[Implementation](internal/detail.md)",
       "[External](https://example.com/docs)",
     ].join("\n");
@@ -22,9 +24,21 @@ describe("documentation catalogue", () => {
     expect(rewriteDocLinks(source, "docs/architecture.md")).toBe([
       "[Contributing](/docs/contributing)",
       "[Audit](/docs/opencode-api-audit#result)",
+      "[Previews](/docs/pr-previews#artifact-trust-boundary)",
       "[Implementation](https://github.com/leoncheng57/custom-dca-opencode/blob/main/docs/internal/detail.md)",
       "[External](https://example.com/docs)",
     ].join("\n"));
+  });
+
+  it("publishes the complete PR preview diagram and stub guide", async () => {
+    const source = await getDoc("pr-previews")!.load();
+    expect(source.match(/```mermaid/gu)).toHaveLength(6);
+    expect(source).toContain("## Per-commit deployment flow");
+    expect(source).toContain("## Shared publication concurrency");
+    expect(source).toContain("## Changed files and responsibilities");
+    expect(source).toContain("## BFF simulator request flow");
+    expect(source).toContain("### Stubbed endpoint families");
+    expect(source).toContain("## Close cleanup flow");
   });
 });
 
