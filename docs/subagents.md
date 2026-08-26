@@ -70,7 +70,8 @@ There are two intentionally different delegation lanes:
 - **Native task:** an agent invokes OpenCode's `task` tool. OpenCode owns task permissions,
   foreground/background behavior, depth accounting, resume and result hand-back. Parent session
   denies remain a child security ceiling.
-- **Managed child:** a human uses **Launch child** in the sub-agent panel. The BFF creates a child
+- **Managed child:** a human uses **Launch child** in the sub-agent panel, or the composer's
+  **Launch a Managed Child** workflow. The BFF creates a child
   with an explicit `parentID`, a retained agent (Plan, Build, Explore, or General), model, metadata
   and creation-time policy, verifies that OpenCode persisted those fields exactly, then prompts the
   child directly. It is independent of the parent's mode history and is never exposed as an
@@ -110,6 +111,31 @@ Restrictions that hold for every managed launch:
 - Explore's read-only ceiling exists because project-level policy merges can weaken a resolved
   agent (see the live probes below); requested agent is provenance, the session ruleset is the
   boundary.
+- Both launch surfaces read this catalogue rather than hardcoding a roster. Neither may spell out
+  its own agent list or its own access class: only the catalogue knows which agents survived the
+  filter and which of them can modify files, and a surface that guesses will offer an agent the
+  server rejects or ask for consent the server never required. A catalogue that cannot be read
+  disables launch and says why, because there is no verified agent to launch.
+
+### Redaction boundary: derived metadata versus the submitted prompt
+
+The child's persisted **session title** is derived from the first line of its assignment, and it
+travels: session summaries, sub-agent rows, Hub titles, breadcrumbs and persisted notification
+history all copy it. So recognized credential shapes (well-known token prefixes, `Authorization`
+values, secret-named `key=value` assignments, URL userinfo) are stripped from the title *before*
+the first line is taken and before the 80-character cap. Redacting after truncation would be
+worse than useless: a cut token no longer matches any pattern, so the visible prefix survives.
+The same redaction already covers the instruction audit log.
+
+The **prompt submitted to OpenCode is never redacted**, and neither is the child's transcript. The
+child must receive the exact text its human wrote, so rewriting it would silently break real work.
+
+That asymmetry is the honest statement of what this is: mitigation for credential *shapes* leaking
+into derived metadata that is copied into many surfaces at once. It is **not** a safe channel for
+secrets. An assignment and a transcript preserve the submitted prompt verbatim, so anything placed
+there is retained; pass credentials through the environment or a secret store instead. Filtering at
+render time was rejected for the title because it would have to be correct independently in every
+surface that already stores a copy.
 
 For each browser-originated prompt, the BFF performs this sequence:
 
@@ -299,6 +325,14 @@ Implemented behavior:
   includes an **Open sub-agent** link and is not collapsed into an action group.
 - The Hub nests child summaries beneath parents, labels child sessions, and shows direct child
   counts. Visual indentation is capped so deep trees remain readable.
+- Managed children are visually distinguished from native tasks, because the two lanes carry
+  different authority: a human authorized one directly, an agent initiated the other. A managed
+  sub-agent row gets an info-toned surface and a **Managed Child** badge beside its title plus a
+  stable `data-origin="managed-human"`; the Hub pill and the child transcript badge read
+  `Managed Child` instead of the neutral `sub`. A native row keeps its **Native task** badge.
+  Both labels are driven by the server-derived `origin`, so a child with neither validated managed
+  metadata nor a task launch stays unlabelled rather than being relabelled on a guess — the same
+  reason `unknown` is a first-class state.
 - A child conversation shows a parent breadcrumb. Follow-up prompts in that transcript remain in
   the child and do not reach the parent.
 - The Details view has a dedicated delegated-work panel with derived state, evidence, agent,
