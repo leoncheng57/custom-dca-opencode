@@ -59,6 +59,19 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2
+
+      # gitleaks-action derives its PR range from the commits API. That range
+      # becomes `<imported-root>^..<tip>` for a history-preserving subtree and
+      # fails because a root commit has no parent. Scan the explicit base range
+      # instead so imported history remains covered.
+      - name: Scan commits for secrets
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          docker run --rm \
+            -v "$PWD:/repo" \
+            -e GIT_CONFIG_COUNT=1 \
+            -e GIT_CONFIG_KEY_0=safe.directory \
+            -e GIT_CONFIG_VALUE_0=/repo \
+            ghcr.io/gitleaks/gitleaks:v8.24.3 \
+            git --redact --log-opts="$BASE_SHA..HEAD" /repo

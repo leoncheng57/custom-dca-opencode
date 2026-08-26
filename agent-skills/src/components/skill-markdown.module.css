@@ -1,0 +1,198 @@
+.body {
+  max-width: 74ch;
+  font-size: 1rem;
+  line-height: 1.72;
+  color: var(--text-primary);
+}
+
+.body > :first-child {
+  margin-top: 0;
+}
+
+.body p,
+.body ul,
+.body ol {
+  margin: 0 0 1.15rem;
+}
+
+.body ul,
+.body ol {
+  padding-left: 1.35rem;
+}
+
+.body li {
+  margin-bottom: 0.4rem;
+}
+
+.body h1,
+.body h2,
+.body h3,
+.body h4 {
+  margin: 2.1rem 0 0.8rem;
+  line-height: 1.25;
+  letter-spacing: -0.015em;
+  scroll-margin-top: 2rem;
+}
+
+.body h1 {
+  font-size: 1.6rem;
+}
+
+.body h2 {
+  font-size: 1.3rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--line);
+}
+
+/* Echoes the guides' "# heading" monospace marker. */
+.body h2::before {
+  content: '# ';
+  font-family: var(--mono);
+  font-size: 0.85em;
+  color: var(--link-color);
+}
+
+.body h3 {
+  font-size: 1.08rem;
+}
+
+.body h4 {
+  font-size: 0.96rem;
+}
+
+.body hr {
+  margin: 2rem 0;
+  border: none;
+  border-top: 1px solid var(--line);
+}
+
+.body blockquote {
+  margin: 0 0 1.15rem;
+  padding: 0.6rem 1rem;
+  border-left: 3px solid var(--link-color);
+  background: var(--accent-soft);
+}
+
+.body blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+.body details {
+  margin: 0 0 1.15rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-raised);
+}
+
+.body details > summary {
+  cursor: pointer;
+  padding: 0.7rem 1rem;
+  font-weight: 700;
+  list-style: none;
+}
+
+.body details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.body details > summary::before {
+  content: '\25b8';
+  display: inline-block;
+  margin-right: 0.55rem;
+  color: var(--link-color);
+}
+
+.body details[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.body details > :not(summary) {
+  margin-left: 1rem;
+  margin-right: 1rem;
+}
+
+.body details > :last-child {
+  padding-bottom: 0.9rem;
+}
+
+/* Code blocks reuse the terminal treatment: a title bar with traffic lights,
+   drawn with pseudo-elements so the markdown stays plain. */
+.body pre {
+  position: relative;
+  margin: 0 0 1.3rem;
+  padding: 2.4rem 1.1rem 1rem;
+  overflow-x: auto;
+  border: 1px solid var(--hr-color);
+  border-radius: 8px;
+  background: var(--term-bg);
+}
+
+.body pre::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1.7rem;
+  border-radius: 7px 7px 0 0;
+  background: var(--term-chrome);
+  border-bottom: 1px solid var(--term-line);
+}
+
+.body pre::after {
+  content: '';
+  position: absolute;
+  top: 0.57rem;
+  left: 0.9rem;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: #ff5f57;
+  box-shadow: 0.95rem 0 0 #febc2e, 1.9rem 0 0 #28c840;
+}
+
+.body pre code {
+  padding: 0;
+  background: none;
+  color: var(--term-ink);
+  font-size: 0.83rem;
+  line-height: 1.65;
+}
+
+.body code {
+  font-family: var(--mono);
+  font-size: 0.87em;
+}
+
+.body :not(pre) > code {
+  padding: 0.12em 0.36em;
+  border-radius: 5px;
+  background: var(--accent-soft);
+  color: var(--text-primary);
+}
+
+.body table {
+  display: block;
+  width: 100%;
+  margin: 0 0 1.35rem;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.body th,
+.body td {
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.body thead th {
+  background: var(--surface);
+}
+
+.body img {
+  max-width: 100%;
+  height: auto;
+}
