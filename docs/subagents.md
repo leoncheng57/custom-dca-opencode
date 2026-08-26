@@ -71,14 +71,45 @@ There are two intentionally different delegation lanes:
   foreground/background behavior, depth accounting, resume and result hand-back. Parent session
   denies remain a child security ceiling.
 - **Managed child:** a human uses **Launch child** in the sub-agent panel. The BFF creates a child
-  with an explicit `parentID`, Plan/Build agent, model, metadata and creation-time policy, verifies
-  that OpenCode persisted those fields exactly, then prompts the child directly. It is independent
-  of the parent's mode history and is never exposed as an agent-callable tool.
+  with an explicit `parentID`, a retained agent (Plan, Build, Explore, or General), model, metadata
+  and creation-time policy, verifies that OpenCode persisted those fields exactly, then prompts the
+  child directly. It is independent of the parent's mode history and is never exposed as an
+  agent-callable tool.
 
 Managed children appear in `/session/{parent}/children` and have their own transcript and status,
 but they create no native task part and inject no completion hand-back into the parent. Their state
-therefore comes from the existing child transcript/status ledger. `origin`, requested mode and
+therefore comes from the existing child transcript/status ledger. `origin`, requested agent and
 requested model are provenance only; they do not prove effective capability.
+
+### Retained agents and the capability matrix
+
+The launchable roster is fixed to four retained agents. The catalogue
+(`GET /api/managed-child-agents`) filters that fixed list against the live upstream agent list:
+hidden or invalid agents are dropped, a can-modify agent must cover every discovered tool, and an
+empty or all-read-only tool catalogue fails the request closed rather than guessing.
+
+| Agent | Access class | Session ceiling at launch | Extra authorization |
+|---|---|---|---|
+| `plan` | Read-only | Hard deny appended for every discovered mutating tool | None |
+| `build` | Can modify | Resolved Build agent's wildcard and tool-specific rules projected onto every discovered tool | `authorization: "modify"` plus a UI confirmation |
+| `explore` | Read-only | The same hard mutating-tool deny ceiling as Plan; its resolved agent policy is **not** trusted | None |
+| `general` | Can modify | Resolved General agent policy projected; must cover every discovered tool | `authorization: "modify"` plus a UI confirmation |
+
+Restrictions that hold for every managed launch:
+
+- Read-only agents **reject** the `authorization` field; can-modify agents **require** it. The UI
+  confirmation checkbox resets whenever the selected agent changes, so consent never carries over.
+- The browser never authors raw permission rules. It names an agent id; all rule projection happens
+  server-side against the resolved upstream agent policy.
+- Metadata (`customDcaManagedChild`, version 2) records `requestedAgent`, `authorization`, and a
+  `policyFingerprint` over the creation-time ruleset. The legacy `requestedMode` field is accepted
+  as a Plan/Build alias on input only.
+- Every follow-up prompt re-verifies session id, directory, agent, and policy fingerprint before
+  submission. A mismatch — or managed metadata that fails validation — is a conflict, never a
+  silent fallback to root prompting.
+- Explore's read-only ceiling exists because project-level policy merges can weaken a resolved
+  agent (see the live probes below); requested agent is provenance, the session ruleset is the
+  boundary.
 
 For each browser-originated prompt, the BFF performs this sequence:
 
