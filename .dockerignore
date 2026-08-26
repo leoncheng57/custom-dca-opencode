@@ -41,6 +41,12 @@
 !deploy
 !reminders
 
+# Playbooks content compiled into the SPA by client/pages/Playbooks.tsx. This is
+# the allowlist earning its keep: when agent-skills/ arrived on main, the image
+# build failed loudly at `npm run build` instead of shipping a container whose
+# /playbooks route was quietly broken.
+!agent-skills
+
 # --- re-exclusions ------------------------------------------------------------
 # Last match wins, so these run after the allowlist above and strip anything
 # sensitive or machine-local that lives *inside* a re-included directory.
