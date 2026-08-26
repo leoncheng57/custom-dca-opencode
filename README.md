@@ -1,5 +1,10 @@
 # custom-dca-opencode
 
+**Status: early alpha.** The phases in the Status table below are implemented and verified,
+but interfaces and behaviour can still change without notice, and there is no stability,
+support, or production-readiness guarantee. Known gaps and planned work are tracked in the
+[issue list](https://github.com/leoncheng57/custom-dca-opencode/issues).
+
 A custom local coding-agent IDE built on the [OpenCode](https://opencode.ai) server API.
 
 React/Vite SPA + Express BFF talking to a long-lived `opencode serve` over HTTP and SSE.
