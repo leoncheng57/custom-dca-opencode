@@ -275,19 +275,37 @@ children.
 ## Model selection for delegated work
 
 Managed Children accept an explicit, validated model at launch, and the ledger shows the
-requested model as provenance. Native task children are different (issue #90): the task tool
-has **no per-delegation model parameter**. Upstream resolves the child model as the subagent's
-configured model when its agent definition pins one, otherwise the parent's current model at
-delegation time. The two levers that exist today:
+requested model as provenance. The reference deployment's **forked** OpenCode 1.18.23 binary
+also adds an optional `model` parameter to native `task` calls (issue #90):
 
-1. Pin a model on the agent definition (`opencode.json` `agent.<name>.model`) so every
-   delegation to that agent uses it.
-2. Switch the parent's model before delegating; children of agents without a pinned model
-   inherit it.
+```text
+explicit task model > subagent configured model > invoking parent model
+```
 
-The delegated-work panel shows the model each native child actually ran with, read from the
-task part's launch metadata. That display is provenance, not a control — per-delegation
-selection needs an upstream task-tool parameter that does not exist yet.
+Omitting `model` preserves the prior configured-model/parent-model behavior. The fork parses and
+validates an explicit `provider/model` before it creates the child, so an unavailable model fails
+without leaving an orphaned child. The resolved model is applied before the foreground/background
+split and is preserved in task metadata, so the delegated-work panel reports the model that child
+actually ran with. A `task_id` resume can select a model for that invocation only; it does not
+change a session-wide default.
+
+This is a **fork-only control**, not an upstream OpenCode capability. It has no separate model
+override permission or budget: any agent that can invoke `task` can select any model configured
+on the host. That is an intentional local cost-authority decision, not evidence that a requested
+agent/mode has a different permission ceiling.
+
+Upstream tracking is explicit:
+
+- anomalyco/opencode#6651 is the open feature request for dynamic task-child model selection.
+- anomalyco/opencode#34947 is the active upstream implementation. Unlike this fork, it adds a
+  `model_override` permission that defaults to deny, so an agent cannot silently route work to an
+  expensive model. It is open and unmerged as of 2026-08-26.
+- Earlier raw-model implementations (anomalyco/opencode#26535 and #29447) were closed as
+  superseded by #34947. Do not open a competing upstream PR from this fork.
+
+The deployed fork exposes the raw parameter because the operator chose immediate model control
+over a deny-by-default cost gate. Revisit that choice when adopting an upstream implementation;
+do not claim that the fork's model parameter has landed in a stock release.
 
 ## Events, polling, and completion
 
@@ -382,10 +400,11 @@ terminal Bash denies even after Build made the parent's own tools available agai
 `deriveSubagentSessionPermission` copies every parent-session deny while discarding the later
 allows that superseded them. A fork-only patch copies only denies that are still the parent's
 effective action for their exact permission and pattern; deployments running a build with that
-patch verified live (the reference deployment's binary `opencode-1.18.22-dca` is built from the
-`fix/subagent-effective-deny-inheritance` branch; that name is the binary's filename, not a
-branch) no longer need the fresh-parent workaround. On a build without it, failed preflight means
-stop; do not weaken policy or silently replace the native child with an independent root session.
+patch verified live (the reference deployment runs
+`opencode-1.18.23-dca-taskmodel`, built from the
+`fix/subagent-effective-deny-inheritance` branch; the binary filename is not a branch) no longer
+need the fresh-parent workaround. On a build without it, failed preflight means stop; do not
+weaken policy or silently replace the native child with an independent root session.
 
 This patch is **not upstream**. anomalyco/opencode#45064 was closed unmerged on 2026-08-26 and
 `upstream/dev` still ships the stale-deny filter, so every stock OpenCode build — including any
