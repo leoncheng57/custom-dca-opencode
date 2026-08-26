@@ -48,6 +48,12 @@ export function dshRoutes(config: DshConfig, pool = new DshBridgePool(config), s
   }
   function preset(id: unknown): DshPreset | undefined { return config.presets.find((item) => item.id === id); }
   function workspace(id: unknown): DshWorkspace | undefined { return config.workspaces.find((item) => item.id === id); }
+  async function verifyWorkspaceIdentity(selectedWorkspace: DshWorkspace): Promise<boolean> {
+    const canonical = await realpath(selectedWorkspace.directory);
+    const metadata = await stat(canonical);
+    return canonical === selectedWorkspace.directory &&
+      metadata.dev === selectedWorkspace.device && metadata.ino === selectedWorkspace.inode;
+  }
 
   router.get("/dsh/config", (_req, res) => {
     if (!requireEnabled(res)) return;
@@ -74,9 +80,7 @@ export function dshRoutes(config: DshConfig, pool = new DshBridgePool(config), s
     const selectedWorkspace = workspace(req.body?.workspaceId);
     if (!selectedPreset || !selectedWorkspace) return error(res, 400, "presetId and workspaceId must be allowlisted");
     try {
-      const canonical = await realpath(selectedWorkspace.directory);
-      const metadata = await stat(canonical);
-      if (canonical !== selectedWorkspace.directory || metadata.dev !== selectedWorkspace.device || metadata.ino !== selectedWorkspace.inode) {
+      if (!await verifyWorkspaceIdentity(selectedWorkspace)) {
         return error(res, 409, "allowlisted DSH workspace identity changed");
       }
       const session = store.create({ presetId: selectedPreset.id, presetFingerprint: selectedPreset.fingerprint, workspaceId: selectedWorkspace.id, title: req.body?.title });
@@ -103,6 +107,17 @@ export function dshRoutes(config: DshConfig, pool = new DshBridgePool(config), s
     const selectedPreset = preset(session.presetId);
     const selectedWorkspace = workspace(session.workspaceId);
     if (!selectedPreset || !selectedWorkspace) return error(res, 409, "DSH session configuration is no longer allowlisted");
+    try {
+      if (!await verifyWorkspaceIdentity(selectedWorkspace)) {
+        pool.closeWorkspace(selectedPreset.id, selectedWorkspace.id);
+        store.applyBridge({ type: "failed", sessionId: session.id, error: "allowlisted DSH workspace identity changed" });
+        return error(res, 409, "allowlisted DSH workspace identity changed");
+      }
+    } catch {
+      pool.closeWorkspace(selectedPreset.id, selectedWorkspace.id);
+      store.applyBridge({ type: "failed", sessionId: session.id, error: "allowlisted DSH workspace is unavailable" });
+      return error(res, 409, "allowlisted DSH workspace is unavailable");
+    }
     store.startRun(session, text);
     try {
       await pool.get(selectedPreset, selectedWorkspace).request("prompt", { sessionId: session.id, text });

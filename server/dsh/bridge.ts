@@ -226,4 +226,10 @@ export class DshBridgePool extends EventEmitter {
     for (const bridge of this.bridges.values()) bridge.close();
     this.bridges.clear();
   }
+
+  closeWorkspace(presetId: string, workspaceId: string): void {
+    const key = `${presetId}\0${workspaceId}`;
+    this.bridges.get(key)?.close();
+    this.bridges.delete(key);
+  }
 }
