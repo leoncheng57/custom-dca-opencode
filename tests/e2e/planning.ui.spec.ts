@@ -34,6 +34,60 @@ test.describe("project planning", () => {
     await expect(externalLink).toHaveAttribute("rel", "noopener noreferrer");
   });
 
+  test("collapses epics, persists keyboard expansion, and keeps closed child progress", async ({ page }) => {
+    await page.goto("/planning");
+
+    const toggle = page.getByTestId("opencode-planning-epic-101-toggle");
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(page.getByTestId("opencode-planning-child-row")).toHaveCount(0);
+    await expect(page.getByText("Polish compact planning controls")).toHaveCount(0);
+    await expect(page.getByTestId("opencode-planning-epic-101-progress")).toHaveAttribute("aria-valuenow", "1");
+    await expect(page.getByTestId("opencode-planning-epic-101-progress")).toHaveAttribute("aria-valuemax", "2");
+    await expect(page.getByTestId("opencode-planning-section-high")).toContainText("1 epic");
+
+    await toggle.focus();
+    await toggle.press("Enter");
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await expect(page.getByTestId("opencode-planning-child-row")).toHaveCount(2);
+    await expect(page.getByTestId("opencode-planning-child-row").filter({ hasText: "Document the mobile planning layout" })).toContainText("Closed");
+
+    await page.reload();
+    await expect(page.getByTestId("opencode-planning-epic-101-toggle")).toHaveAttribute("aria-expanded", "true");
+    await expect(page.getByText("Polish compact planning controls")).toBeVisible();
+
+    await page.getByTestId("opencode-planning-item-106").click();
+    await expect(page.getByTestId("opencode-planning-item-dialog")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Polish compact planning controls" })).toBeVisible();
+    await page.getByTestId("opencode-planning-item-close").click();
+
+    await page.getByTestId("opencode-planning-epics-toggle-all").click();
+    await expect(page.getByTestId("opencode-planning-epic-101-toggle")).toHaveAttribute("aria-expanded", "false");
+    await expect(page.getByTestId("opencode-planning-child-row")).toHaveCount(0);
+  });
+
+  test("falls a child back to a parent breadcrumb when filters remove its epic", async ({ page }) => {
+    await page.goto("/planning");
+    await page.getByTestId("opencode-planning-state-closed").click();
+    await page.getByTestId("opencode-planning-section-low-toggle").click();
+
+    const child = page.getByTestId("opencode-planning-row").filter({ hasText: "Document the mobile planning layout" });
+    await expect(child).toBeVisible();
+    await expect(child.getByTestId("opencode-planning-item-107-parent")).toHaveText("Child of #101");
+  });
+
+  test("warns without blanking the feed when epic discovery is truncated", async ({ page }) => {
+    await page.route("**/api/planning/items", async (route) => {
+      const response = await route.fetch();
+      const snapshot = await response.json();
+      await route.fulfill({ response, json: { ...snapshot, epicsTruncated: true } });
+    });
+    await page.goto("/planning");
+
+    await expect(page.getByTestId("opencode-planning-epics-truncated")).toContainText("Some epic relationships were not loaded");
+    await expect(page.getByTestId("opencode-planning-list")).toBeVisible();
+    await expect(page.getByText("Improve the mobile planning view")).toBeVisible();
+  });
+
   test("opens deep-linked issue and pull request details with safe Markdown comments", async ({ page }) => {
     await page.goto("/planning");
     const issueTrigger = page.getByTestId("opencode-planning-item-101");
@@ -73,12 +127,12 @@ test.describe("project planning", () => {
     await expect(page.getByTestId("opencode-planning-item-save-success")).toHaveText("Labels updated.");
     await expect(page.getByTestId("opencode-planning-item-dialog")).toBeVisible();
     await page.getByTestId("opencode-planning-item-close").click();
-    await expect(page.getByTestId("opencode-planning-list")).toBeFocused();
+    await expect(page.getByTestId("opencode-planning-item-101")).toBeFocused();
 
-    await page.getByTestId("opencode-planning-section-medium-toggle").click();
     const updatedRow = page.getByTestId("opencode-planning-row").filter({ hasText: "Improve the mobile planning view" });
     await expect(updatedRow).toBeVisible();
     await expect(updatedRow.getByText("priority:medium")).toBeVisible();
+    await expect(page.getByTestId("opencode-planning-section-high")).toContainText("Improve the mobile planning view");
   });
 
   test("keeps a failed label edit selected and retryable", async ({ page }) => {
@@ -141,6 +195,13 @@ test.describe("project planning", () => {
     expect(metrics.body).toBeLessThanOrEqual(metrics.viewport);
     await expect(page.getByText("Created Aug 12, 2026")).toBeVisible();
     await expect(page.getByText("Last activity Aug 21, 2026")).toBeVisible();
+    await page.getByTestId("opencode-planning-epic-101-toggle").click();
+    await expect(page.getByTestId("opencode-planning-child-row")).toHaveCount(2);
+    const expandedMetrics = await page.evaluate(() => ({
+      body: document.body.scrollWidth,
+      viewport: document.documentElement.clientWidth,
+    }));
+    expect(expandedMetrics.body).toBeLessThanOrEqual(expandedMetrics.viewport);
   });
 
   test("changes density and persists it across reloads", async ({ page }) => {
@@ -148,9 +209,11 @@ test.describe("project planning", () => {
     const list = page.getByTestId("opencode-planning-list");
     await expect(list).toHaveAttribute("data-density", "densest");
 
-    await page.getByTestId("opencode-planning-density-comfortable").click();
-    await expect(list).toHaveAttribute("data-density", "comfortable");
-    await expect(page.getByTestId("opencode-planning-density-comfortable")).toHaveAttribute("aria-pressed", "true");
+    for (const density of ["comfortable", "compact", "dense", "denser", "densest", "comfortable"]) {
+      await page.getByTestId(`opencode-planning-density-${density}`).click();
+      await expect(list).toHaveAttribute("data-density", density);
+      await expect(page.getByTestId(`opencode-planning-density-${density}`)).toHaveAttribute("aria-pressed", "true");
+    }
 
     await page.reload();
     await expect(page.getByTestId("opencode-planning-list")).toHaveAttribute("data-density", "comfortable");
