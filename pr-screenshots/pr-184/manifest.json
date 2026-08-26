@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 2,
+  "prNumber": 184,
+  "sourceSha": "fd4e6e586d3f31617186c551cb727a116233b188",
+  "capturedAt": "2026-08-26T01:10:42.083Z",
+  "screenshots": [
+    {
+      "requestedRoute": "/?directory=/tmp/mock-project",
+      "fullPage": false,
+      "captures": {
+        "desktop": {
+          "filename": "01-home-directory-tmp-mock-project-cd94ccea--desktop.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 800
+          },
+          "bytes": 78313,
+          "sha256": "0ec8d6f40cdf16c0aa064c610b151e350d6045fff2843a8f447abb73f5329bb9"
+        },
+        "mobile": {
+          "filename": "01-home-directory-tmp-mock-project-abda7d68--mobile.png",
+          "dimensions": {
+            "width": 390,
+            "height": 740
+          },
+          "bytes": 56055,
+          "sha256": "70653e3d6324c32529e9c3f3655239d6e60957a8acdf0b61e2207e314119c567"
+        }
+      }
+    },
+    {
+      "requestedRoute": "/sessions/ses_mock_done?directory=/tmp/mock-project",
+      "fullPage": true,
+      "captures": {
+        "desktop": {
+          "filename": "02-sessions-ses_mock_done-directory-tmp-mock-project-383588eb--desktop--full.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 800
+          },
+          "bytes": 62286,
+          "sha256": "9c31e9fff7bce84cc85b19492a3f4207fd19f873c2ab06b5955ec75c9695e44f"
+        },
+        "mobile": {
+          "filename": "02-sessions-ses_mock_done-directory-tmp-mock-project-f1b9b001--mobile--full.png",
+          "dimensions": {
+            "width": 390,
+            "height": 740
+          },
+          "bytes": 45656,
+          "sha256": "a1c7f8aa748ed1222e4cb4553f22ffbd6472e94bb85630078c00779c7aa8fc9a"
+        }
+      }
+    },
+    {
+      "requestedRoute": "/planning",
+      "fullPage": false,
+      "captures": {
+        "desktop": {
+          "filename": "03-planning-4cb801f3--desktop.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 800
+          },
+          "bytes": 83924,
+          "sha256": "f9ebd19a91b7dd45af5951cf0aafa55718a9ea39c6aa7af72033fc682df477df"
+        },
+        "mobile": {
+          "filename": "03-planning-ac70fcb8--mobile.png",
+          "dimensions": {
+            "width": 390,
+            "height": 740
+          },
+          "bytes": 57166,
+          "sha256": "f818fa9ef157cb633d27e836fbb36fa9be7c59adb3ed61d61091989e470a70d9"
+        }
+      }
+    }
+  ]
+}
