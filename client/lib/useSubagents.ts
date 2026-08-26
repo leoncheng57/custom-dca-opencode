@@ -11,7 +11,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { api, type SubagentReport } from "./api.js";
+import { api, type ManagedChildAgent, type SessionSummary, type SubagentReport } from "./api.js";
+import type { ModelSelection } from "./models.js";
 
 /** Slow on purpose: sub-agent state changes on human timescales. */
 export const SUBAGENT_POLL_MS = 10_000;
@@ -23,11 +24,15 @@ export interface SubagentsState {
   /** Child session id currently being aborted, if any. */
   busyChild: string | null;
   promoting: boolean;
+  launching: boolean;
+  launchError: string | null;
   /** Failure from an abort or promote, cleared on the next attempt. */
   actionError: string | null;
   refresh: () => void;
   abortChild: (childID: string) => void;
   promote: () => void;
+  launchChild: (input: { prompt: string; agent: ManagedChildAgent; model?: ModelSelection; authorization?: "modify"; idempotencyKey: string }) => Promise<SessionSummary>;
+  clearLaunchError: () => void;
 }
 
 function message(error: unknown): string {
@@ -40,6 +45,8 @@ export function useSubagents(directory: string, sessionID: string, active: boole
   const [error, setError] = useState<string | null>(null);
   const [busyChild, setBusyChild] = useState<string | null>(null);
   const [promoting, setPromoting] = useState(false);
+  const [launching, setLaunching] = useState(false);
+  const [launchError, setLaunchError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const scope = `${directory}\u0000${sessionID}`;
@@ -83,6 +90,8 @@ export function useSubagents(directory: string, sessionID: string, active: boole
     setError(null);
     setActionError(null);
     setBusyChild(null);
+    setLaunching(false);
+    setLaunchError(null);
   }, [scope]);
 
   useEffect(() => {
@@ -107,7 +116,7 @@ export function useSubagents(directory: string, sessionID: string, active: boole
     setActionError(null);
     void api.abortSubagent(directory, sessionID, childID)
       .then(() => load(false))
-      .catch((cause: unknown) => setActionError(`Could not stop the sub-agent: ${message(cause)}`))
+      .catch((cause: unknown) => setActionError(`Could not stop the child session: ${message(cause)}`))
       .finally(() => setBusyChild(null));
   }, [directory, load, sessionID]);
 
@@ -120,15 +129,37 @@ export function useSubagents(directory: string, sessionID: string, active: boole
       .finally(() => setPromoting(false));
   }, [directory, load, sessionID]);
 
+  const launchChild = useCallback(async (input: { prompt: string; agent: ManagedChildAgent; model?: ModelSelection; authorization?: "modify"; idempotencyKey: string }) => {
+    const launchScope = scopeRef.current;
+    setLaunching(true);
+    setLaunchError(null);
+    try {
+      const { session } = await api.createManagedChild(directory, sessionID, {
+        ...input,
+      });
+      if (scopeRef.current === launchScope) load(false);
+      return session;
+    } catch (cause) {
+      if (scopeRef.current === launchScope) setLaunchError(`Could not launch the Managed Child: ${message(cause)}`);
+      throw cause;
+    } finally {
+      if (scopeRef.current === launchScope) setLaunching(false);
+    }
+  }, [directory, load, sessionID]);
+
   return {
     report,
     loading,
     error,
     busyChild,
     promoting,
+    launching,
+    launchError,
     actionError,
     refresh: () => load(true),
     abortChild,
     promote,
+    launchChild,
+    clearLaunchError: () => setLaunchError(null),
   };
 }

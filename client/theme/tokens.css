@@ -54,6 +54,8 @@
   /* ── Actions */
   --color-background-action-primary: #16a34a;
   --color-background-action-primary-hover: #15803d;
+  --color-background-action-info: #2563eb;
+  --color-background-action-info-hover: #1d4ed8;
   --color-background-action-ghost-hover: #f3f4f6;
   --color-text-action-ghost: #374151;
 
@@ -64,6 +66,17 @@
   --color-text-success: #15803d;
   --color-text-warning: #b45309;
   --color-text-danger: #b91c1c;
+
+  /* ── Source syntax
+   * Code syntax is its own semantic family: these colors distinguish language
+   * roles, not application statuses. Keep every foreground readable against
+   * the editor surface in both appearances. */
+  --color-syntax-comment: #5f6b7a;
+  --color-syntax-keyword: #6d28d9;
+  --color-syntax-name: #0369a1;
+  --color-syntax-string: #047857;
+  --color-syntax-number: #b45309;
+  --color-syntax-punctuation: #374151;
 
   /* ── Lines */
   --color-border-default: #e5e7eb;
@@ -114,6 +127,8 @@
 
   --color-background-action-primary: #22c55e;
   --color-background-action-primary-hover: #16a34a;
+  --color-background-action-info: #3b82f6;
+  --color-background-action-info-hover: #2563eb;
   --color-background-action-ghost-hover: #22252c;
   --color-text-action-ghost: #d1d5db;
 
@@ -123,6 +138,13 @@
   --color-text-success: #6ee7a8;
   --color-text-warning: #fcd34d;
   --color-text-danger: #fca5a5;
+
+  --color-syntax-comment: #aab4c3;
+  --color-syntax-keyword: #d8b4fe;
+  --color-syntax-name: #7dd3fc;
+  --color-syntax-string: #86efac;
+  --color-syntax-number: #fcd34d;
+  --color-syntax-punctuation: #d1d5db;
 
   --color-border-default: #2c3038;
   --color-border-focus: #22c55e;

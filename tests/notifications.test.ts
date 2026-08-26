@@ -16,6 +16,7 @@ import type { EventBus } from "../server/opencode/events.js";
 import { HistoryStore } from "../server/notifications/history.js";
 import {
   normalizePreferences,
+  mergePreferenceWrite,
   PreferenceStore,
 } from "../server/notifications/preferences.js";
 import { sendNtfy } from "../server/notifications/ntfy.js";
@@ -52,6 +53,8 @@ describe("notification preferences", () => {
     expect(value.browser.events.idle).toBe(false);
     expect(value.ntfy.events.idle).toBe(true);
     expect(value.ntfy.events.parked).toBe(false);
+    expect(value.webPush.enabled).toBe(false);
+    expect(value.webPush.events.idle).toBe(true);
     expect(value.parkedPermissionSeconds).toBe(5);
   });
 
@@ -62,6 +65,30 @@ describe("notification preferences", () => {
     expect(JSON.parse(await readFile(file, "utf8"))).toEqual(saved);
     await import("node:fs/promises").then(({ writeFile }) => writeFile(file, "not json"));
     expect((await store.read()).version).toBe(1);
+  });
+
+  it("preserves Web Push when an older v1 client saves without that field", () => {
+    const current = normalizePreferences({ webPush: { enabled: true, events: { idle: false } } });
+    const merged = normalizePreferences(mergePreferenceWrite(current, {
+      version: 1,
+      ntfy: { enabled: false, server: "https://ntfy.sh", topic: "" },
+      browser: current.browser,
+      parkedPermissionSeconds: 45,
+    }));
+    expect(merged.webPush).toEqual(current.webPush);
+    expect(merged.parkedPermissionSeconds).toBe(45);
+  });
+
+  it("serializes current and legacy preference saves without losing Web Push", async () => {
+    const file = path.join(os.tmpdir(), `dca-prefs-concurrent-${Date.now()}.json`);
+    const store = new PreferenceStore(file);
+    await store.write({ webPush: { enabled: false } });
+    await Promise.all([
+      store.update({ parkedPermissionSeconds: 45 }),
+      store.update({ parkedPermissionSeconds: 60, webPush: { enabled: true } }),
+      store.update({ parkedPermissionSeconds: 90 }),
+    ]);
+    expect(await store.read()).toMatchObject({ parkedPermissionSeconds: 90, webPush: { enabled: true } });
   });
 
   it("rejects unsafe ntfy destinations and topics", () => {
@@ -252,7 +279,7 @@ describe("root session notification filtering", () => {
     // never delivered: the parent owns its children's lifecycle.
     await vi.waitFor(async () => expect(await history.list()).toHaveLength(1));
     expect(lookup).toHaveBeenCalledOnce();
-    expect((await history.list())[0].delivery).toEqual({ ntfy: "off", desktop: "off", suppressed: "subagent" });
+    expect((await history.list())[0].delivery).toEqual({ ntfy: "off", desktop: "off", webPush: "off", suppressed: "subagent" });
     expect(fetchMock).not.toHaveBeenCalled();
     expect(observed).toHaveBeenCalledWith(idle("/tmp/project", "ses_descendant"));
     service.stop();
@@ -533,6 +560,20 @@ describe("notification noise filters", () => {
     const auto = (await history.list()).find((record) => record.title === "auto")!;
     await history.setResolved(auto.id, true);
     expect(await history.suppressedActiveCounts("/tmp/a")).toEqual({ "auto-permissions": 0, subagent: 1 });
+  });
+
+  it("counts delivered unresolved records globally for the installed-app badge", async () => {
+    const history = await mixedHistory();
+    const initial = await history.appBadgeSnapshot();
+    expect(await history.appBadgeCount()).toBe(2);
+    const root = (await history.list()).find((record) => record.title === "root idle")!;
+    await history.setResolved(root.id, true);
+    expect(await history.appBadgeCount()).toBe(1);
+    const resolved = await history.appBadgeSnapshot();
+    expect(resolved.revision).toBeGreaterThan(initial.revision);
+    await history.setResolved(root.id, false);
+    expect(await history.appBadgeCount()).toBe(2);
+    expect((await history.appBadgeSnapshot()).revision).toBeGreaterThan(resolved.revision);
   });
 
   it("defaults to the unfiltered log so an existing caller loses nothing", async () => {

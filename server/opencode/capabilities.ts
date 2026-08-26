@@ -20,11 +20,13 @@ import { request, type OpencodeConfig } from "./client.js";
 export interface Capabilities {
   /** `POST /experimental/session/{id}/background` is usable. */
   backgroundSubagents: boolean;
+  /** Direct child creation contract validated for OpenCode V1.18.22+. */
+  managedChildren: boolean;
 }
 
 export const CAPABILITIES_TTL_MS = 30_000;
 
-const NONE: Capabilities = { backgroundSubagents: false };
+const NONE: Capabilities = { backgroundSubagents: false, managedChildren: false };
 
 interface CacheEntry {
   at: number;
@@ -41,7 +43,17 @@ export function resetCapabilitiesCache(): void {
 export function parseCapabilities(value: unknown): Capabilities {
   if (!value || typeof value !== "object" || Array.isArray(value)) return NONE;
   const source = value as Record<string, unknown>;
-  return { backgroundSubagents: source.backgroundSubagents === true };
+  return { backgroundSubagents: source.backgroundSubagents === true, managedChildren: false };
+}
+
+export function supportsManagedChildren(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const version = (value as Record<string, unknown>).version;
+  if (typeof version !== "string") return false;
+  const match = /^(\d+)\.(\d+)\.(\d+)/u.exec(version);
+  if (!match) return false;
+  const [, major, minor, patch] = match.map(Number);
+  return major === 1 && (minor > 18 || (minor === 18 && patch >= 22));
 }
 
 /**
@@ -59,9 +71,13 @@ export async function getCapabilities(
   const cached = cache.get(directory);
   if (cached && now - cached.at < CAPABILITIES_TTL_MS) return cached.value;
 
-  const value = await request<unknown>(config, "/experimental/capabilities", { directory })
-    .then(parseCapabilities)
-    .catch(() => NONE);
+  const [experimental, health] = await Promise.all([
+    request<unknown>(config, "/experimental/capabilities", { directory })
+      .then(parseCapabilities)
+      .catch(() => NONE),
+    request<unknown>(config, "/global/health").catch(() => null),
+  ]);
+  const value = { ...experimental, managedChildren: supportsManagedChildren(health) };
   cache.set(directory, { at: now, value });
   return value;
 }

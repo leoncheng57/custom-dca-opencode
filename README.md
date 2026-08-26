@@ -1,5 +1,10 @@
 # custom-dca-opencode
 
+**Status: early alpha.** The phases in the Status table below are implemented and verified,
+but interfaces and behaviour can still change without notice, and there is no stability,
+support, or production-readiness guarantee. Known gaps and planned work are tracked in the
+[issue list](https://github.com/leoncheng57/custom-dca-opencode/issues).
+
 A custom local coding-agent IDE built on the [OpenCode](https://opencode.ai) server API.
 
 React/Vite SPA + Express BFF talking to a long-lived `opencode serve` over HTTP and SSE.
@@ -55,7 +60,7 @@ against the production SPA and real BFF with only OpenCode and preview targets m
 ## Requirements
 
 - Node 22+
-- A running `opencode serve` (or `opencode web`) — v1.18.21
+- A running `opencode serve` (or `opencode web`) — v1.18.22
 - Optional: Tailscale, for phone access
 
 ## Quick start
@@ -77,8 +82,10 @@ npm run service:status
 See [`deploy/README.md`](deploy/README.md) for logs, uninstall, Tailscale Serve,
 paths containing spaces, and the optional OpenCode unit. The BFF installer never
 starts a second OpenCode server; it uses `OPENCODE_URL` from `.env`.
-The OpenCode 1.18.21 compatibility check is recorded in
-[`docs/opencode-1.18.21-api-audit.md`](docs/opencode-1.18.21-api-audit.md).
+The baseline OpenCode 1.18.21 compatibility check is recorded in
+[`docs/opencode-1.18.21-api-audit.md`](docs/opencode-1.18.21-api-audit.md); managed child creation
+was subsequently validated live against 1.18.22 and is documented in
+[`docs/subagents.md`](docs/subagents.md).
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the development and pull request workflow.
 The running app exposes the architecture and canonical guides at `/docs`; the same contributor
 material also has a standalone themed [visual reading index](docs/contributing/index.html).
@@ -100,13 +107,23 @@ uses the current browser origin, which is only useful when that origin is phone-
 
 ### Notifications
 
-Browser sound profiles and optional generic status speech are stored per device. Browser
-and ntfy event delivery toggles remain server-backed and independent. Spoken notifications
+Browser sound profiles and optional generic status speech are stored per device. Browser,
+PWA push, and ntfy event delivery toggles remain server-backed and independent. Spoken notifications
 never include prompts, paths, filenames, commands, tool output, or notification bodies.
 
-Constructor-based browser Notifications on iPhone and iPad still require installed-PWA
-and service-worker support. This feature does not add a service worker; ntfy remains the
-reliable phone notification path.
+PWA push uses a notification-only service worker and does not intercept requests or cache
+the application, conversations, permissions, or API responses. Generate VAPID keys once
+with `npx web-push generate-vapid-keys`, set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and
+`VAPID_SUBJECT` in `.env`, restart the BFF, then enable **PWA push** in Settings. The private
+key and subscription authentication material stay on the BFF. iPhone and iPad require
+iOS/iPadOS 16.4 or newer, a secure HTTPS origin, and installation through **Add to Home
+Screen** before permission can be granted. Android and desktop browsers require a secure
+origin but generally do not require installation. `ntfy` remains available as an independent
+fallback and is never disabled by PWA push.
+
+Service-worker updates wait until the app displays **An app update is ready**. Choosing
+**Update** activates the new worker and reloads the page; **Later** leaves the current worker
+in control. There is deliberately no offline mode or runtime/API cache.
 
 A red counter appears on the nav link and the page header with the number of unresolved
 notifications in the current project. Every notification kind starts unresolved, including
@@ -116,7 +133,7 @@ reversible and its state is persisted on the server.
 
 The page also lists every notification the BFF classified, including ones that were never
 delivered, because "why was I never asked?" is the question that log exists to answer.
-`ntfy` reports `sent`, `off` or `failed`; `desktop` reports only whether server-backed
+`ntfy` and PWA push report `sent`, `off` or `failed`; `desktop` reports only whether server-backed
 desktop notifications were **allowed**, since the BFF cannot observe whether a tab rendered
 one. Sound and speech are device-local and therefore absent from the server log.
 Auto-approved permissions appear marked `suppressed by auto permissions` and remain in the
@@ -134,6 +151,43 @@ npm run typecheck
 npm test
 npm run build
 npm run test:e2e
+npm run test:preview
+```
+
+### Interactive PR previews
+
+Every same-repository pull request receives a public, interactive simulator at
+`https://leoncheng.dev/custom-dca-opencode/pr-previews/pr-<number>/`. The **PR preview**
+workflow runs on `opened`, `reopened`, and every `synchronize` event, so each pushed commit
+rebuilds the preview. It tests the production bundle in Chromium, publishes only that PR's
+directory on `gh-pages`, creates a transient GitHub Deployment, and updates one
+`<!-- pr-preview -->` comment with the current commit and URL. Closing the PR removes the
+directory and comment and marks its deployment environment inactive.
+
+The preview is the actual PR client bundle with an in-browser BFF simulator. It includes
+projects, sessions, transcripts, Plan/Build controls, models, tasks, sub-agents, workspace
+files and changes, tools, settings, notifications, docs, and planning fixtures. Mutating
+controls update tab-local memory so reviewers can exercise flows without an OpenCode
+process. Reloading restores the deterministic fixture. The simulator uses hash routing so
+all client routes remain reload-safe below the PR-specific Pages path.
+
+No `.env` file, OpenCode password, AI provider key, GitHub token, repository secret, host
+filesystem, or live conversation enters the bundle. The simulator does not register the
+production service worker or publish a PWA manifest. Forks still run the read-only build
+and retain the 30-day artifact, but are not published: executing a fork's JavaScript on the
+repository's Pages origin is not an acceptable convenience tradeoff.
+
+The artifact carries a full SHA/size inventory bound to the PR number, source commit, and
+base path. Publication revalidates that inventory, rejects links and unsafe paths, caps the
+file count and total bytes, and writes through the same non-force `gh-pages` concurrency
+lock as screenshots and the public website. GitHub Pages must remain configured to deploy
+the `gh-pages` branch from `/(root)`.
+
+Run the same simulator smoke test locally with:
+
+```bash
+npx playwright install chromium
+npm run test:preview
 ```
 
 ### PR screenshots
@@ -150,7 +204,9 @@ full:/sessions/ses_mock_done?directory=/tmp/mock-project
 CI accepts up to 10 routes and captures each one in dark mode at desktop (1280x800) and
 mobile (390x740) widths. The sticky PR comment shows `Route`, `Desktop`, and `Mobile`
 columns with public full-size links; a 30-day Actions artifact contains both PNGs per
-route. `full:` captures the full scroll height at both widths. Blank and `#` comment lines
+route. `full:` captures the full scroll height at both widths. A route may appear once on
+its own and once as `full:`; requesting the exact same route and mode twice is rejected
+when the block is parsed, before any browser starts. Blank and `#` comment lines
 are ignored. Routes cannot contain whitespace, hosts, schemes, controls, backslashes, or
 traversal. Removing the block removes that PR's published directory; closing the PR
 removes the directory and comment. Capture always uses the deterministic Playwright mocks,

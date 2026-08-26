@@ -2,21 +2,29 @@ import { useEffect, useState } from "react";
 
 import { Alert } from "../ds/alert.js";
 import { Button } from "../ds/button.js";
-import {
-  api,
-  type GitCommit,
-  type VcsFileDiff,
-  type WorkspaceFile,
-  type WorkspaceNode,
-} from "../lib/api.js";
+import { WorkspaceFiles } from "./workspace-files.js";
+import { api, type GitCommit, type VcsFileDiff } from "../lib/api.js";
+import type { WorkspaceTarget } from "../lib/fileReferences.js";
+import { PUBLIC_SIMULATOR } from "../lib/runtime.js";
 
 type Tab = "files" | "changes" | "preview";
 
-export function WorkspacePanels({ directory, onClose }: { directory: string; onClose: () => void }) {
-  const [tab, setTab] = useState<Tab>("files");
-  const [path, setPath] = useState("");
-  const [nodes, setNodes] = useState<WorkspaceNode[]>([]);
-  const [file, setFile] = useState<WorkspaceFile | null>(null);
+export function WorkspacePanels({
+  directory,
+  onClose,
+  target,
+  onTargetConsumed,
+  initialTab = "files",
+}: {
+  directory: string;
+  onClose: () => void;
+  /** Set when the drawer was opened by following a transcript reference. */
+  target?: WorkspaceTarget | null;
+  onTargetConsumed?: () => void;
+  /** Tab the opener asked for; a file reference still wins (see below). */
+  initialTab?: Tab;
+}) {
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [changes, setChanges] = useState<VcsFileDiff[]>([]);
   const [selectedChange, setSelectedChange] = useState(0);
   const [mode, setMode] = useState<"git" | "branch">("git");
@@ -25,14 +33,10 @@ export function WorkspacePanels({ directory, onClose }: { directory: string; onC
   const [previewKey, setPreviewKey] = useState(0);
   const [error, setError] = useState("");
 
+  // A reference always lands on Files, whichever tab was last used.
   useEffect(() => {
-    if (tab !== "files") return;
-    void api.workspaceTree(directory, path).then((tree) => {
-      setNodes([...tree.dirs, ...tree.files]);
-      setFile(null);
-      setError("");
-    }).catch((e: Error) => setError(e.message));
-  }, [directory, path, tab]);
+    if (target) setTab("files");
+  }, [target]);
 
   useEffect(() => {
     if (tab !== "changes") return;
@@ -44,35 +48,25 @@ export function WorkspacePanels({ directory, onClose }: { directory: string; onC
     }).catch((e: Error) => setError(e.message));
   }, [directory, mode, tab]);
 
-  const openNode = (node: WorkspaceNode) => {
-    if (node.type === "directory") setPath(node.path);
-    else void api.workspaceFile(directory, node.path).then(setFile).catch((e: Error) => setError(e.message));
-  };
-  const parent = path.split("/").slice(0, -1).join("/");
-
   return (
     <section className="fixed inset-x-0 bottom-0 top-11 z-50 flex flex-col border-l border-[var(--color-border-default)] bg-[var(--color-background-surface)] shadow-xl sm:left-auto sm:w-[42rem]" data-testid="opencode-workspace-panels">
       <header className="flex items-center gap-1 border-b border-[var(--color-border-default)] p-2">
         {(["files", "changes", "preview"] as const).map((name) => (
-          <button key={name} type="button" onClick={() => setTab(name)} className={`rounded px-3 py-1.5 text-xs capitalize ${tab === name ? "bg-[var(--color-background-surface-neutral-muted)] font-semibold" : "text-[var(--color-text-muted)]"}`} data-testid={`opencode-workspace-${name}`}>{name}</button>
+          <button key={name} type="button" onClick={() => setTab(name)} aria-current={tab === name ? "true" : undefined} className={`rounded px-3 py-1.5 text-xs capitalize ${tab === name ? "bg-[var(--color-background-surface-neutral-muted)] font-semibold" : "text-[var(--color-text-muted)]"}`} data-testid={`opencode-workspace-${name}`}>{name}</button>
         ))}
         <Button className="ml-auto" size="sm" variant="ghost" onClick={onClose} data-testid="opencode-workspace-close">Close</Button>
       </header>
       {error && <div className="p-3"><Alert variant="danger">{error}</Alert></div>}
 
-      {tab === "files" && (
-        <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
-          <div className="h-52 shrink-0 overflow-y-auto border-b border-[var(--color-border-default)] p-2 sm:h-auto sm:w-64 sm:border-b-0 sm:border-r">
-            <button type="button" disabled={!path} onClick={() => setPath(parent)} className="mb-1 w-full rounded p-2 text-left text-xs text-[var(--color-text-muted)] disabled:opacity-40" data-testid="opencode-files-up">../ {path || "workspace"}</button>
-            {nodes.filter((node) => !node.ignored).map((node) => (
-              <button key={node.path} type="button" onClick={() => openNode(node)} className="block w-full truncate rounded p-2 text-left text-sm hover:bg-[var(--hh-row-hover)]" data-testid="opencode-file-node">{node.type === "directory" ? "> " : ""}{node.name}</button>
-            ))}
-          </div>
-          <div className="min-h-0 flex-1 overflow-auto p-4" data-testid="opencode-file-viewer">
-            {!file ? <p className="text-sm text-[var(--color-text-muted)]">Select a file.</p> : file.type === "binary" ? <p className="text-sm">Binary file ({file.mimeType ?? "unknown type"})</p> : <><h2 className="mb-3 text-xs font-semibold">{file.path}</h2><pre className="whitespace-pre-wrap break-words text-xs">{file.content}</pre></>}
-          </div>
-        </div>
-      )}
+      {/* The Files tab stays mounted: unmounting it on every tab switch would
+          discard the expanded tree, the open tabs and the reader's scroll. */}
+      <div className={tab === "files" ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
+        <WorkspaceFiles
+          directory={directory}
+          target={target ?? null}
+          onTargetConsumed={onTargetConsumed ?? (() => undefined)}
+        />
+      </div>
 
       {tab === "changes" && (
         <div className="flex min-h-0 flex-1 flex-col">
@@ -96,8 +90,18 @@ export function WorkspacePanels({ directory, onClose }: { directory: string; onC
             <label className="flex items-center gap-2 text-sm">Port <input value={port} onChange={(event) => setPort(event.target.value.replace(/\D/g, ""))} className="w-24 rounded-md border border-[var(--color-border-default)] bg-transparent p-2" data-testid="opencode-preview-port" /></label>
             <Button variant="secondary" onClick={() => setPreviewKey((key) => key + 1)} data-testid="opencode-preview-reload">Load / Reload</Button>
           </div>
-          <iframe key={previewKey} src={`/api/preview/${port}/`} title="Application preview" sandbox="allow-forms allow-modals allow-popups allow-scripts" className="min-h-0 flex-1 rounded border border-[var(--color-border-default)] bg-white" data-testid="opencode-preview-frame" />
-          <p className="mt-2 text-xs text-[var(--color-text-muted)]">Read-only proxy only. Start the app separately and configure its base path for this URL.</p>
+          <iframe
+            key={previewKey}
+            src={PUBLIC_SIMULATOR ? undefined : `/api/preview/${port}/`}
+            srcDoc={PUBLIC_SIMULATOR ? "<!doctype html><html><body><main><h1>Simulated application preview</h1><p>This frame demonstrates the preview panel without contacting a local port.</p><button type='button'>Example action</button></main></body></html>" : undefined}
+            title="Application preview"
+            sandbox="allow-forms allow-modals allow-popups allow-scripts"
+            className="min-h-0 flex-1 rounded border border-[var(--color-border-default)] bg-white"
+            data-testid="opencode-preview-frame"
+          />
+          <p className="mt-2 text-xs text-[var(--color-text-muted)]">
+            {PUBLIC_SIMULATOR ? "Fixture frame only. Public previews cannot reach localhost." : "Read-only proxy only. Start the app separately and configure its base path for this URL."}
+          </p>
         </div>
       )}
     </section>

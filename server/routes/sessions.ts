@@ -15,19 +15,35 @@ import { PathError, requireWorkspaceDirectory } from "../paths.js";
 import {
   abortSession,
   createSession,
+  createManagedChild,
   deleteSession,
   getSession,
+  getSessionTurnDiff,
+  SESSION_TURN_DIFF_LIMITS,
   listMessages,
   listSessions,
   listTodos,
   prompt,
+  promptManagedChild,
   shareSession,
   unshareSession,
   ModePolicyActivationError,
+  ManagedChildIdempotencyError,
+  ManagedChildCapacityError,
+  ManagedChildCleanupError,
+  ManagedChildAgentPolicyError,
+  ManagedChildConfigurationError,
+  isManagedChildAgent,
+  managedChildAccess,
+  listManagedChildAgents,
+  listSessionAgents,
+  promptSessionAgent,
   SessionAgentIdentityError,
+  SessionAgentUnavailableError,
   type AgentMode,
 } from "../opencode/sessions.js";
 import { listSubagents, promoteSubagentToBackground } from "../opencode/subagents.js";
+import { recordInstruction } from "../opencode/instruction-audit.js";
 import { createWorktree } from "../opencode/worktrees.js";
 import {
   getModelCatalogue,
@@ -38,8 +54,10 @@ import {
 } from "../opencode/config.js";
 import { reminderCatalogue } from "../reminders/loader.js";
 import { isValidReminderId, type ReminderPreset } from "../reminders/reminders.js";
+import { isValidWorkflowId, workflowCatalogue, type WorkflowPreset } from "../workflows/workflows.js";
 import { eventClickUrl } from "../publicAppUrl.js";
 import { parseQuestionRequests, validateQuestionAnswers, type QuestionRequest } from "../opencode/questions.js";
+import { getCapabilities } from "../opencode/capabilities.js";
 
 /** Resolve and validate the project scope for a request. */
 async function directoryOf(req: Request): Promise<string> {
@@ -96,9 +114,38 @@ function promptReminder(value: unknown): ReminderPreset | undefined {
   return preset;
 }
 
+/**
+ * Resolve a workflow injector by id. The browser only ever names the workflow;
+ * the trusted injector text is resolved here so a tampered client cannot
+ * author hidden prompt content.
+ */
+function promptWorkflow(value: unknown): WorkflowPreset | undefined {
+  if (value === undefined) return undefined;
+  if (!isValidWorkflowId(value)) throw new HttpError(400, "workflow must be a valid workflow id");
+  const preset = workflowCatalogue().find((item) => item.id === value);
+  if (!preset) throw new HttpError(400, `unknown workflow "${value}"`);
+  return preset;
+}
+
 function promptMode(value: unknown): AgentMode {
   if (value === undefined) return "build";
   if (value !== "plan" && value !== "build") throw new HttpError(400, "mode must be 'plan' or 'build'");
+  return value;
+}
+
+/**
+ * Optional explicit agent identity for a prompt (issue #52, narrowed).
+ * Exclusive with `mode`: Plan/Build keep the policy-activating path, so a
+ * request must pick one contract or the other rather than blending them.
+ */
+function promptAgent(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || !/^[a-z0-9][a-z0-9_-]{0,63}$/iu.test(value)) {
+    throw new HttpError(400, "agent must be a short agent identifier");
+  }
+  if (value === "plan" || value === "build") {
+    throw new HttpError(400, "prompt Plan or Build through 'mode', which activates session policy");
+  }
   return value;
 }
 
@@ -151,8 +198,32 @@ function fail(res: Response, error: unknown, options: { notFoundOn5xx?: boolean 
     res.status(502).json({ error: error.message });
     return;
   }
+  if (error instanceof ManagedChildIdempotencyError) {
+    res.status(409).json({ error: error.message });
+    return;
+  }
+  if (error instanceof ManagedChildCapacityError) {
+    res.status(503).json({ error: error.message });
+    return;
+  }
+  if (error instanceof ManagedChildCleanupError) {
+    res.status(502).json({ error: error.message, childID: error.childID, cleanupFailed: true });
+    return;
+  }
+  if (error instanceof ManagedChildAgentPolicyError) {
+    res.status(502).json({ error: error.message, agent: error.agent });
+    return;
+  }
+  if (error instanceof ManagedChildConfigurationError) {
+    res.status(409).json({ error: error.message });
+    return;
+  }
   if (error instanceof SessionAgentIdentityError) {
     res.status(409).json({ error: error.message, code: error.code, agent: error.agent });
+    return;
+  }
+  if (error instanceof SessionAgentUnavailableError) {
+    res.status(409).json({ error: error.message, code: "SESSION_AGENT_UNAVAILABLE", agent: error.agent });
     return;
   }
   if (error instanceof ModelCatalogueError) {
@@ -208,6 +279,22 @@ export function sessionRoutes(
     asyncRoute(async (req, res) => {
       const directory = await directoryOf(req);
       res.json(await getModelCatalogue(config, directory));
+    }),
+  );
+
+  router.get(
+    "/session-agents",
+    asyncRoute(async (req, res) => {
+      const directory = await directoryOf(req);
+      res.json({ agents: await listSessionAgents(config, directory) });
+    }),
+  );
+
+  router.get(
+    "/managed-child-agents",
+    asyncRoute(async (req, res) => {
+      const directory = await directoryOf(req);
+      res.json({ agents: await listManagedChildAgents(config, directory) });
     }),
   );
 
@@ -327,6 +414,29 @@ export function sessionRoutes(
   );
 
   router.get(
+    "/sessions/:id/diff",
+    sessionRoute(async (req, res) => {
+      const directory = await directoryOf(req);
+      const sessionID = paramOf(req, "id");
+      const userMessageID = req.query.userMessageID;
+      if (typeof userMessageID !== "string" || !userMessageID.trim() || userMessageID.length > 512) {
+        throw new HttpError(400, "userMessageID must be a non-empty string of at most 512 characters");
+      }
+      await ownedSession(directory, sessionID);
+      const result = await getSessionTurnDiff(config, directory, sessionID, userMessageID);
+      if (result.status === "too_large") {
+        res.status(413).json({
+          error: "Turn diff exceeds safe response limits",
+          code: "TURN_DIFF_TOO_LARGE",
+          limits: SESSION_TURN_DIFF_LIMITS,
+        });
+        return;
+      }
+      res.json({ changes: result.changes });
+    }),
+  );
+
+  router.get(
     "/sessions/:id/todos",
     sessionRoute(async (req, res) => {
       const directory = await directoryOf(req);
@@ -352,17 +462,44 @@ export function sessionRoutes(
     "/sessions/:id/prompt",
     sessionRoute(async (req, res) => {
       const directory = await directoryOf(req);
-      const { text, model, attachments, reminder } = req.body ?? {};
+      const { text, model, attachments, reminder, workflow } = req.body ?? {};
       if (typeof text !== "string" || !text.trim()) {
         throw new HttpError(400, "'text' is required");
       }
-      await prompt(config, directory, paramOf(req, "id"), {
+      const sessionID = paramOf(req, "id");
+      const agent = promptAgent(req.body?.agent);
+      if (agent !== undefined && req.body?.mode !== undefined) {
+        throw new HttpError(400, "'agent' and 'mode' are exclusive");
+      }
+      const input = {
         text,
         mode: promptMode(req.body?.mode),
         model: await selectedModel(config, directory, model),
         attachments: promptAttachments(attachments),
         reminder: promptReminder(reminder),
-      });
+        workflow: promptWorkflow(workflow),
+      };
+      const session = await getSession(config, directory, sessionID);
+      if (session.managedConfigurationPresent) {
+        if (!session.managed) {
+          // Audit the refusal (issue #91): the human tried to instruct a
+          // Managed Child whose configuration no longer verifies, and that
+          // attempt should outlive this 409.
+          recordInstruction({
+            source: "managed-child-prompt",
+            directory,
+            targetSessionID: sessionID,
+            ...(session.parentID ? { parentSessionID: session.parentID } : {}),
+            text,
+            delivery: "rejected",
+            reason: "Managed Child configuration could not be verified; prompt was not sent",
+          });
+          throw new ManagedChildConfigurationError();
+        }
+        await promptManagedChild(config, directory, sessionID, input);
+      }
+      else if (agent !== undefined) await promptSessionAgent(config, directory, sessionID, { ...input, agent });
+      else await prompt(config, directory, sessionID, input);
       // 202: accepted, running server-side. Progress arrives over SSE.
       res.status(202).json({ accepted: true });
     }),
@@ -389,7 +526,7 @@ export function sessionRoutes(
   const ownedChild = async (directory: string, parentID: string, childID: string) => {
     const child = await getSession(config, directory, childID).catch(() => null);
     if (!child || child.directory !== directory || child.parentID !== parentID) {
-      throw new HttpError(404, "sub-agent session not found for this parent");
+      throw new HttpError(404, "child session not found for this parent");
     }
     return child;
   };
@@ -399,6 +536,56 @@ export function sessionRoutes(
     sessionRoute(async (req, res) => {
       const directory = await directoryOf(req);
       res.json(await listSubagents(config, directory, paramOf(req, "id")));
+    }),
+  );
+
+  router.post(
+    "/sessions/:id/managed-children",
+    asyncRoute(async (req, res) => {
+      const directory = await directoryOf(req);
+      const parentID = paramOf(req, "id");
+      await ownedSession(directory, parentID);
+      if (!(await getCapabilities(config, directory)).managedChildren) {
+        throw new HttpError(409, "managed children require OpenCode 1.18.22 or newer");
+      }
+      const body = req.body;
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
+        throw new HttpError(400, "body must contain prompt, agent and idempotencyKey");
+      }
+      const allowed = new Set(["prompt", "agent", "mode", "model", "authorization", "idempotencyKey", "workflow"]);
+      for (const key of Object.keys(body)) {
+        if (!allowed.has(key)) throw new HttpError(400, `unsupported managed child field '${key}'`);
+      }
+      const text = body.prompt;
+      if (typeof text !== "string" || !text.trim() || text.length > 100_000) {
+        throw new HttpError(400, "prompt must be a non-empty string of at most 100000 characters");
+      }
+      if (body.agent !== undefined && body.mode !== undefined && body.agent !== body.mode) {
+        throw new HttpError(400, "agent and legacy mode must not disagree");
+      }
+      const agent = body.agent ?? body.mode;
+      if (!isManagedChildAgent(agent)) {
+        throw new HttpError(400, "agent must be 'plan', 'build', 'explore' or 'general'");
+      }
+      if (managedChildAccess(agent) === "can-modify" && body.authorization !== "modify") {
+        throw new HttpError(400, `agent '${agent}' requires explicit modify authorization`);
+      }
+      if (managedChildAccess(agent) === "read-only" && body.authorization !== undefined) {
+        throw new HttpError(400, `read-only agent '${agent}' does not accept modify authorization`);
+      }
+      const idempotencyKey = body.idempotencyKey;
+      if (typeof idempotencyKey !== "string" || !/^[A-Za-z0-9._:-]{1,128}$/u.test(idempotencyKey)) {
+        throw new HttpError(400, "idempotencyKey must contain 1-128 safe characters");
+      }
+      const session = await createManagedChild(config, directory, {
+        parentID,
+        text: text.trim(),
+        agent,
+        model: await selectedModel(config, directory, body.model),
+        idempotencyKey,
+        workflow: promptWorkflow(body.workflow),
+      });
+      res.status(201).json({ session });
     }),
   );
 

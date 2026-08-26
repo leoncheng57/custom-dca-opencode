@@ -65,7 +65,7 @@ export function DocPage() {
         </header>
         {error && <Alert variant="danger">{error}</Alert>}
         {!error && source === null && <p className="text-sm text-[var(--color-text-muted)]">Loading document...</p>}
-        {source !== null && <Markdown source={source} internalLinksInSameTab className="docs-markdown" />}
+        {source !== null && <Markdown source={source} internalLinksInSameTab renderMermaid className="docs-markdown" />}
       </div>
     </main>
   );

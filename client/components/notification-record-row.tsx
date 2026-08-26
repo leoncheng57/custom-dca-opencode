@@ -40,10 +40,21 @@ export function deliverySummary(record: NotificationRecord): string {
   const parts = [
     record.delivery.ntfy === "sent"
       ? "ntfy sent"
+      : record.delivery.ntfy === "pending"
+        ? "ntfy pending"
       : record.delivery.ntfy === "failed"
         ? `ntfy failed: ${record.delivery.ntfyError ?? "unknown error"}`
         : "ntfy off",
     record.delivery.desktop === "allowed" ? "desktop allowed" : "desktop off",
+    record.delivery.webPush === "sent"
+      ? "PWA push sent"
+      : record.delivery.webPush === "pending"
+        ? "PWA push pending"
+      : record.delivery.webPush === "partial"
+        ? `PWA push partially sent: ${record.delivery.webPushError ?? "unknown error"}`
+      : record.delivery.webPush === "failed"
+        ? `PWA push failed: ${record.delivery.webPushError ?? "unknown error"}`
+        : "PWA push off",
   ];
   return parts.join(" · ");
 }

@@ -55,13 +55,61 @@ flowchart TD
     BFF -->|fan-out + polling nudges| Browser
 ```
 
-*Figure 1. Browser-to-child data flow. The BFF fans out one upstream event stream; OpenCode,
-not the BFF, normally creates task-tool children.*
+*Figure 1. Native task data flow. The BFF fans out one upstream event stream; OpenCode creates
+task-tool children.*
 
 `SessionSummary.parentID` models the direct parent relationship. Session listings also derive
-`childCount`, and the Hub builds a recursive hierarchy from those summaries. The public browser
-session-creation route creates root sessions; although the lower-level server helper accepts a
-`parentID`, normal browser delegation goes through OpenCode's task tool instead.
+`childCount`, and the Hub builds a recursive hierarchy from those summaries. Root session creation
+and native task delegation remain unchanged. The sub-agent panel also exposes a separate managed
+launch path described below.
+
+## Native tasks and managed children
+
+There are two intentionally different delegation lanes:
+
+- **Native task:** an agent invokes OpenCode's `task` tool. OpenCode owns task permissions,
+  foreground/background behavior, depth accounting, resume and result hand-back. Parent session
+  denies remain a child security ceiling.
+- **Managed child:** a human uses **Launch child** in the sub-agent panel. The BFF creates a child
+  with an explicit `parentID`, a retained agent (Plan, Build, Explore, or General), model, metadata
+  and creation-time policy, verifies that OpenCode persisted those fields exactly, then prompts the
+  child directly. It is independent of the parent's mode history and is never exposed as an
+  agent-callable tool.
+
+Managed children appear in `/session/{parent}/children` and have their own transcript and status,
+but they create no native task part and inject no completion hand-back into the parent. Their state
+therefore comes from the existing child transcript/status ledger. `origin`, requested agent and
+requested model are provenance only; they do not prove effective capability.
+
+### Retained agents and the capability matrix
+
+The launchable roster is fixed to four retained agents. The catalogue
+(`GET /api/managed-child-agents`) filters that fixed list against the live upstream agent list:
+hidden or invalid agents are dropped, a can-modify agent must cover every discovered tool, and an
+empty or all-read-only tool catalogue fails the request closed rather than guessing.
+
+| Agent | Access class | Session ceiling at launch | Extra authorization |
+|---|---|---|---|
+| `plan` | Read-only | Hard deny appended for every discovered mutating tool | None |
+| `build` | Can modify | Resolved Build agent's wildcard and tool-specific rules projected onto every discovered tool | `authorization: "modify"` plus a UI confirmation |
+| `explore` | Read-only | The same hard mutating-tool deny ceiling as Plan; its resolved agent policy is **not** trusted | None |
+| `general` | Can modify | Resolved General agent policy projected; must cover every discovered tool | `authorization: "modify"` plus a UI confirmation |
+
+Restrictions that hold for every managed launch:
+
+- Read-only agents **reject** the `authorization` field; can-modify agents **require** it. The UI
+  confirmation checkbox resets whenever the selected agent changes, so consent never carries over.
+- The browser never authors raw permission rules. It names an agent id; all rule projection happens
+  server-side against the resolved upstream agent policy.
+- Metadata (`customDcaManagedChild`, version 2) records `requestedAgent`, `authorization`, and a
+  `policyFingerprint` over the creation-time ruleset. The legacy `requestedMode` field is accepted
+  as a Plan/Build alias on input only.
+- Every follow-up prompt re-verifies session id, directory, agent, and policy fingerprint before
+  submission. A mismatch — or managed metadata that fails validation — is a conflict, never a
+  silent fallback to root prompting.
+- Explore's read-only ceiling exists because project-level policy merges can weaken a resolved
+  agent (see the live probes below); requested agent is provenance, the session ruleset is the
+  boundary.
 
 For each browser-originated prompt, the BFF performs this sequence:
 
@@ -181,16 +229,39 @@ The activation rules are:
 - **No legacy `tools`:** prompt bodies omit the legacy `tools` override because non-empty overrides
   persist as session permission rules and can leave later Build turns unexpectedly denied.
 
-There are two evidence limits to preserve when changing this code:
+Live OpenCode 1.18.22 probes established the permission boundary precisely:
 
-- The append-only and last-match-wins behavior is exercised by the repository's OpenCode mock and
-  reflected in policy ordering, but the bundled 1.18.21 live API audit did not record a behavioral
-  permission-patch probe. Re-verify against the live contract before changing the algorithm.
-- Child mode and permission inheritance are **not verified**. The BFF activates only the addressed
-  session and does not create task-tool children or capture their initial rules. Do not claim that
-  children inherit the parent's mode, dynamically follow later mode changes, or remain fixed at a
-  creation-time snapshot. Existing children retaining stale permissions after a parent mode change
-  is a risk to test, not established behavior.
+- Session PATCH appends rules and evaluation is last-match-wins.
+- A native task child copies parent session denies while discarding a later allow. A disposable
+  parent with `bash deny` followed by `bash allow` produced a child with only the deny plus the
+  normal child `task` deny. This is why Build -> Plan -> Build restores the parent but not new
+  task children (#75).
+- Direct child creation persists explicit `parentID`, agent, model, metadata and permission, and
+  the child appears under `/children`. A managed Build child under a Plan parent completed a Bash
+  command successfully while the parent transcript remained empty.
+- The resolved Plan agent is not independently read-only after project policy is merged, so the
+  BFF's session-level Plan denies remain load-bearing.
+
+Keep the live probe disposable and version-scoped when changing this boundary. Do not infer that a
+requested mode is effective policy, and do not synthesize native hand-back behavior for managed
+children.
+
+## Model selection for delegated work
+
+Managed Children accept an explicit, validated model at launch, and the ledger shows the
+requested model as provenance. Native task children are different (issue #90): the task tool
+has **no per-delegation model parameter**. Upstream resolves the child model as the subagent's
+configured model when its agent definition pins one, otherwise the parent's current model at
+delegation time. The two levers that exist today:
+
+1. Pin a model on the agent definition (`opencode.json` `agent.<name>.model`) so every
+   delegation to that agent uses it.
+2. Switch the parent's model before delegating; children of agents without a pinned model
+   inherit it.
+
+The delegated-work panel shows the model each native child actually ran with, read from the
+task part's launch metadata. That display is provenance, not a control — per-delegation
+selection needs an upstream task-tool parameter that does not exist yet.
 
 ## Events, polling, and completion
 
@@ -271,9 +342,14 @@ session into that directory. Relative edits, default shell CWD, LSP, VCS, snapsh
 and event envelopes remain scoped to the parent instance. A mutating child must therefore treat its
 assigned absolute worktree path as a hard boundary.
 
-Use a fresh Build-only parent for mutating children. During workflow validation, children launched
-from a parent that had previously activated Plan retained terminal Bash denies even after Build made
-the parent's own tools available again. Until child permission inheritance is fixed and verified,
+On a **stock** OpenCode build, use a fresh Build-only parent for mutating children. During
+workflow validation, children launched from a parent that had previously activated Plan retained
+terminal Bash denies even after Build made the parent's own tools available again: stock
+`deriveSubagentSessionPermission` copies every parent-session deny while discarding the later
+allows that superseded them. An upstream fix (anomalyco/opencode#45064) copies only denies that
+are still the parent's effective action for their exact permission and pattern; deployments
+running a build with that fix verified live (the reference deployment runs `v1.18.22-dca`,
+v1.18.22 plus that commit) no longer need the fresh-parent workaround. On a build without it,
 failed preflight means stop; do not weaken policy or silently replace the native child with an
 independent root session.
 

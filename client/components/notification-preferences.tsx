@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Alert } from "../ds/alert.js";
 import { Button } from "../ds/button.js";
@@ -24,6 +24,7 @@ import {
   RECOMMENDED_NOTIFY_EVENTS,
 } from "../lib/notificationEvents.js";
 import { notifyBrowser } from "../lib/useNotifyWatcher.js";
+import { currentPushSubscription, subscribeWebPush, unsubscribeWebPush, webPushSupported } from "../lib/webPush.js";
 
 const EVENTS: NotifyEvent[] = NOTIFY_EVENT_CATALOGUE.map((descriptor) => descriptor.event);
 
@@ -37,8 +38,13 @@ export function NotificationPreferencesSection() {
   const [preferences, setPreferences] = useState<NotificationPreferences | null>(null);
   const [devicePreferences, setDevicePreferences] = useState<DeviceNotificationPreferences>(() => loadDeviceNotificationPreferences().preferences);
   const [tokenConfigured, setTokenConfigured] = useState(false);
+  const [webPush, setWebPush] = useState<{ configured: boolean; publicKey: string | null }>({ configured: false, publicKey: null });
+  const [pushSubscribed, setPushSubscribed] = useState(false);
+  const [pushEndpoint, setPushEndpoint] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const saving = useRef(false);
+  const [savePending, setSavePending] = useState(false);
   const capabilities = notificationCapabilities();
 
   useEffect(() => {
@@ -46,12 +52,43 @@ export function NotificationPreferencesSection() {
       setPreferences(result.preferences);
       setDevicePreferences(initializeDeviceNotificationPreferences(result.preferences.browser).preferences);
       setTokenConfigured(result.tokenConfigured);
+      setWebPush(result.webPush);
+      void currentPushSubscription().then((subscription) => {
+        setPushSubscribed(Boolean(subscription));
+        setPushEndpoint(subscription?.endpoint ?? null);
+      }).catch(() => {
+        setPushSubscribed(false);
+        setPushEndpoint(null);
+      });
     }).catch((e: Error) => setError(e.message));
   }, []);
 
   const save = async () => {
-    if (!preferences) return;
+    if (!preferences || saving.current) return;
+    saving.current = true;
+    setSavePending(true);
+    setError("");
+    setMessage("");
+    let previousSubscription: PushSubscription | null = null;
+    let createdSubscription = false;
+    let subscriptionChanged = false;
     try {
+      if (preferences.webPush.enabled || pushSubscribed) {
+        previousSubscription = await currentPushSubscription();
+      }
+      if (preferences.webPush.enabled) {
+        if (!webPush.publicKey) throw new Error("Web Push is not configured on the server");
+        const subscription = await subscribeWebPush(webPush.publicKey);
+        createdSubscription = previousSubscription === null;
+        subscriptionChanged = createdSubscription;
+        setPushSubscribed(true);
+        setPushEndpoint(subscription.endpoint);
+      } else {
+        await unsubscribeWebPush();
+        subscriptionChanged = previousSubscription !== null;
+        setPushSubscribed(false);
+        setPushEndpoint(null);
+      }
       const result = await api.saveNotifications(preferences);
       setPreferences(result.preferences);
       const savedDevicePreferences = saveDeviceNotificationPreferences(devicePreferences);
@@ -60,7 +97,27 @@ export function NotificationPreferencesSection() {
       window.dispatchEvent(new CustomEvent(NOTIFICATION_MEDIA_CHANGE_EVENT, { detail: savedDevicePreferences }));
       setMessage("Saved");
     } catch (e) {
+      // Keep the per-device subscription aligned with the last persisted
+      // server preference when the second half of a save fails.
+      try {
+        if (preferences.webPush.enabled && createdSubscription) {
+          await unsubscribeWebPush();
+        } else if (!preferences.webPush.enabled && previousSubscription && webPush.publicKey) {
+          await subscribeWebPush(webPush.publicKey);
+        }
+        if (subscriptionChanged) {
+          const restored = await currentPushSubscription();
+          setPushSubscribed(Boolean(restored));
+          setPushEndpoint(restored?.endpoint ?? null);
+        }
+      } catch {
+        // The original error remains the actionable failure; retrying Save
+        // reconciles an incomplete rollback because every operation is idempotent.
+      }
       setError((e as Error).message);
+    } finally {
+      saving.current = false;
+      setSavePending(false);
     }
   };
 
@@ -78,7 +135,7 @@ export function NotificationPreferencesSection() {
       <header>
         <h2 className="text-lg font-bold">Notifications</h2>
         <p className="text-sm text-[var(--color-text-muted)]">
-          Pick which events reach you, separately for this browser and for ntfy on your phone.
+          Pick which events reach you through this browser, PWA push, and ntfy.
         </p>
       </header>
       {error && <Alert variant="danger">{error}</Alert>}
@@ -90,11 +147,30 @@ export function NotificationPreferencesSection() {
             <label className="block text-sm"><span className="mb-1 block">Server (configured by NTFY_SERVER)</span><input value={preferences.ntfy.server} readOnly className="w-full rounded-md border border-[var(--color-border-default)] bg-[var(--color-background-surface-neutral-muted)] p-2 text-[var(--color-text-muted)]" data-testid="opencode-ntfy-server" /></label>
             <label className="block text-sm"><span className="mb-1 block">Topic</span><input value={preferences.ntfy.topic} onChange={(e) => setPreferences({ ...preferences, ntfy: { ...preferences.ntfy, topic: e.target.value } })} className="w-full rounded-md border border-[var(--color-border-default)] bg-transparent p-2" data-testid="opencode-ntfy-topic" /></label>
             <p className="text-xs text-[var(--color-text-muted)]">Token: {tokenConfigured ? "configured in the environment" : "not configured"}</p>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={preferences.webPush.enabled}
+                disabled={!webPush.configured || !webPushSupported()}
+                onChange={(e) => setPreferences({ ...preferences, webPush: { ...preferences.webPush, enabled: e.target.checked } })}
+                data-testid="opencode-web-push-enabled"
+              />
+              PWA push enabled
+            </label>
+            <p className="text-xs text-[var(--color-text-muted)]" data-testid="opencode-web-push-status">
+              {!webPush.configured
+                ? "Web Push is not configured on the server."
+                : !webPushSupported()
+                  ? "PWA push requires a secure origin and browser push support."
+                  : pushSubscribed
+                    ? "This device is subscribed."
+                    : "This device will subscribe when you enable PWA push and save."}
+            </p>
             <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={preferences.browser.desktop} onChange={(e) => setPreferences({ ...preferences, browser: { ...preferences.browser, desktop: e.target.checked } })} data-testid="opencode-browser-desktop" />Desktop notifications</label>
             <p className="text-xs text-[var(--color-text-muted)]" data-testid="opencode-notification-capability">
               Desktop notifications: {capabilities.desktop ? capabilities.desktopPermission : "unavailable in this browser"}.
             </p>
-            <p className="text-xs text-[var(--color-text-muted)]">On iPhone and iPad, browser notifications require installed-PWA and service-worker support. ntfy is the reliable phone notification path.</p>
+            <p className="text-xs text-[var(--color-text-muted)]">On iPhone and iPad, install this app on the Home Screen before enabling PWA push. ntfy remains an independent fallback.</p>
             <label className="block text-sm"><span className="mb-1 block">Parked permission after seconds</span><input type="number" min="5" max="3600" value={preferences.parkedPermissionSeconds} onChange={(e) => setPreferences({ ...preferences, parkedPermissionSeconds: Number(e.target.value) })} className="w-full rounded-md border border-[var(--color-border-default)] bg-transparent p-2" data-testid="opencode-parked-seconds" /></label>
           </section>
 
@@ -169,6 +245,7 @@ export function NotificationPreferencesSection() {
                   ...preferences,
                   browser: { ...preferences.browser, events: { ...RECOMMENDED_NOTIFY_EVENTS } },
                   ntfy: { ...preferences.ntfy, events: { ...RECOMMENDED_NOTIFY_EVENTS } },
+                  webPush: { ...preferences.webPush, events: { ...RECOMMENDED_NOTIFY_EVENTS } },
                 })}
                 data-testid="opencode-notify-reset-recommended"
               >
@@ -196,6 +273,11 @@ export function NotificationPreferencesSection() {
                 ntfy is switched off above, so nothing in the ntfy column will fire yet.
               </p>
             )}
+            {!preferences.webPush.enabled && (
+              <p className="text-xs text-[var(--color-text-muted)]" data-testid="opencode-notify-web-push-inactive">
+                PWA push is switched off above, so nothing in the PWA push column will fire yet.
+              </p>
+            )}
 
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -204,12 +286,13 @@ export function NotificationPreferencesSection() {
                     <th className="p-2 text-left font-semibold">Event</th>
                     <th className="w-20 p-2 font-semibold">Browser</th>
                     <th className="w-20 p-2 font-semibold">ntfy</th>
+                    <th className="w-20 p-2 font-semibold">PWA push</th>
                   </tr>
                 </thead>
                 {NOTIFY_EVENT_GROUPS.map((group) => (
                   <tbody key={group.id} data-testid={`opencode-notify-group-${group.id}`}>
                     <tr className="border-b border-[var(--color-border-default)] bg-[var(--color-background-surface-neutral-muted)]">
-                      <th className="p-2 text-left text-xs font-semibold" colSpan={3} scope="colgroup">
+                      <th className="p-2 text-left text-xs font-semibold" colSpan={4} scope="colgroup">
                         {group.title}
                         <span className="ml-2 font-normal text-[var(--color-text-muted)]">{group.summary}</span>
                       </th>
@@ -220,13 +303,13 @@ export function NotificationPreferencesSection() {
                           <span className="block font-medium">{label}</span>
                           <span className="block text-xs text-[var(--color-text-muted)]">{description}</span>
                         </td>
-                        {(["browser", "ntfy"] as const).map((channel) => (
+                        {(["browser", "ntfy", "webPush"] as const).map((channel) => (
                           <td key={channel} className="p-2 text-center align-middle">
                             <input
                               type="checkbox"
                               // The visible label is the row's first cell, which a
                               // checkbox in another cell cannot claim implicitly.
-                              aria-label={`${label} via ${channel === "ntfy" ? "ntfy" : "browser"}`}
+                              aria-label={`${label} via ${channel === "ntfy" ? "ntfy" : channel === "webPush" ? "PWA push" : "browser"}`}
                               checked={preferences[channel].events[event]}
                               onChange={(e) => setPreferences({ ...preferences, [channel]: { ...preferences[channel], events: { ...preferences[channel].events, [event]: e.target.checked } } })}
                               data-testid={`opencode-notify-${channel}-${event}`}
@@ -241,9 +324,10 @@ export function NotificationPreferencesSection() {
             </div>
           </section>
           <div className="flex flex-wrap items-center gap-2">
-            <Button onClick={() => void save()} data-testid="opencode-notifications-save">Save</Button>
+            <Button disabled={savePending} onClick={() => void save()} data-testid="opencode-notifications-save">{savePending ? "Saving..." : "Save"}</Button>
             <Button variant="secondary" onClick={() => void testBrowser()} data-testid="opencode-notifications-test-browser">Test browser</Button>
             <Button variant="secondary" disabled={!preferences.ntfy.enabled || !preferences.ntfy.topic} onClick={() => void api.testNtfy().then(() => setMessage("ntfy test sent")).catch((e: Error) => setError(e.message))} data-testid="opencode-notifications-test-ntfy">Test ntfy</Button>
+            <Button variant="secondary" disabled={!preferences.webPush.enabled || !pushEndpoint} onClick={() => pushEndpoint && void api.testWebPush(pushEndpoint).then(() => setMessage("PWA push test sent")).catch((e: Error) => setError(e.message))} data-testid="opencode-notifications-test-web-push">Test PWA push</Button>
             {message && <span className="text-sm text-[var(--color-text-muted)]">{message}</span>}
           </div>
         </>

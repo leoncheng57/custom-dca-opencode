@@ -85,7 +85,9 @@ describe("notification row formatting", () => {
       .toBe("suppressed by auto permissions");
     expect(deliverySummary({ ...base, delivery: { ntfy: "off", desktop: "off", suppressed: "subagent" } }))
       .toBe("suppressed as sub-agent activity");
-    expect(deliverySummary(base)).toBe("ntfy off · desktop off");
+    expect(deliverySummary(base)).toBe("ntfy off · desktop off · PWA push off");
+    expect(deliverySummary({ ...base, delivery: { ...base.delivery, webPush: "partial", webPushError: "1 sent; 1 failed" } }))
+      .toContain("PWA push partially sent: 1 sent; 1 failed");
     expect(SUPPRESSION_LABEL.subagent).toBe("sub-agent");
   });
 

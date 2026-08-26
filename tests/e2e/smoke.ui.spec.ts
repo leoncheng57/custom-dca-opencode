@@ -47,6 +47,17 @@ async function selectModel(page: Page, testId: string, key: string): Promise<voi
 }
 
 test.describe("hub", () => {
+  test("uses route and session names in browser tabs", async ({ page }) => {
+    await page.goto(hub);
+    await expect(page).toHaveTitle("Sessions | DCA");
+
+    await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
+    await expect(page).toHaveTitle("Add a health endpoint | DCA");
+
+    await page.goto("/planning");
+    await expect(page).toHaveTitle("Planning | DCA");
+  });
+
   test("lists sessions for the directory", async ({ page }) => {
     await page.goto(hub);
     await expect(page.getByTestId("opencode-session-list")).toBeVisible();
@@ -64,7 +75,7 @@ test.describe("hub", () => {
 
   test("reports the upstream agent version", async ({ page }) => {
     await page.goto(hub);
-    await expect(page.getByTestId("opencode-upstream-badge")).toContainText("1.18.21");
+    await expect(page.getByTestId("opencode-upstream-badge")).toContainText("1.18.22");
   });
 
   test("shows compact directory-wide auto permissions controls", async ({ page }) => {
@@ -72,13 +83,11 @@ test.describe("hub", () => {
     await page.goto(hub);
     const control = page.getByTestId("opencode-hub-auto-permissions");
     const toggle = control.getByTestId("opencode-hub-auto-permissions-toggle");
-    await expect(control).toContainText("Auto permissions: OFF");
     await expect(toggle).toHaveAttribute("role", "switch");
     await expect(toggle).toHaveAttribute("aria-checked", "false");
     await expect(toggle).toHaveAccessibleName("Turn auto permissions on");
     expect((await control.boundingBox())?.height).toBeLessThanOrEqual(40);
     await toggle.click();
-    await expect(control).toContainText("Auto permissions: ON");
     await expect(toggle).toHaveAttribute("aria-checked", "true");
     await expect(toggle).toHaveAccessibleName("Turn auto permissions off");
     expect((await control.boundingBox())?.height).toBeLessThanOrEqual(40);
@@ -87,7 +96,6 @@ test.describe("hub", () => {
     await expect(control.getByTestId("opencode-hub-auto-permissions-warning")).toContainText("arbitrary shell commands");
     await expect(control).toContainText("every session using this project directory");
     await toggle.click();
-    await expect(control).toContainText("Auto permissions: OFF");
     await expect(control.getByTestId("opencode-hub-auto-permissions-warning")).toHaveCount(0);
   });
 
@@ -755,10 +763,11 @@ test.describe("composer", () => {
     // and asserting it stays visible is an assertion about that file's timing.
     await fetch(`${MOCK_URL}/test/questions/reset?scope=ui`, { method: "POST" });
     await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
-    const control = page.getByTestId("opencode-conversation-auto-permissions");
-    await expect(control).toContainText("Auto permissions: OFF");
-    await control.getByTestId("opencode-conversation-auto-permissions-toggle").click();
-    await expect(control).toContainText("Auto permissions: ON");
+    const control = page.getByTestId("opencode-mobile-auto-permissions");
+    const toggle = control.getByTestId("opencode-mobile-auto-permissions-toggle");
+    await expect(toggle).toHaveAttribute("aria-checked", "false");
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-checked", "true");
 
     const id = `perm_auto_${Date.now()}`;
     await fetch(`${MOCK_URL}/test/permission?directory=${encodeURIComponent(DIR)}`, {
@@ -777,12 +786,12 @@ test.describe("composer", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: failedID, sessionID: "ses_mock_done", permission: "external_directory", patterns: ["/tmp/*"] }),
     });
-    await expect(control.getByTestId("opencode-conversation-auto-permissions-error"))
+    await expect(control.getByTestId("opencode-mobile-auto-permissions-error"))
       .toContainText("Could not auto-approve external_directory");
     await expect(page.getByTestId("opencode-permission-request").filter({ hasText: "/tmp/*" })).toBeVisible();
 
-    await control.getByTestId("opencode-conversation-auto-permissions-toggle").click();
-    await expect(control).toContainText("Auto permissions: OFF");
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-checked", "false");
     await fetch(`${MOCK_URL}/test/permissions/reset?directory=${encodeURIComponent(DIR)}`, { method: "POST" });
   });
 
@@ -1054,9 +1063,9 @@ test.describe("mobile", () => {
     const transcript = page.getByTestId("opencode-transcript");
     await expect(transcript).toBeVisible();
     await expect(page.getByTestId("opencode-composer-mode")).toBeVisible();
-    const autoPermissions = page.getByTestId("opencode-conversation-auto-permissions");
-    await expect(autoPermissions).toContainText("Auto permissions: OFF");
-    expect((await autoPermissions.boundingBox())?.height).toBeLessThanOrEqual(72);
+    const autoPermissions = page.getByTestId("opencode-mobile-auto-permissions-toggle");
+    await expect(autoPermissions).toHaveAttribute("aria-checked", "false");
+    expect((await autoPermissions.boundingBox())?.height).toBeGreaterThanOrEqual(44);
     const containment = await page.evaluate(() => ({
       horizontalOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       bodyOverscroll: getComputedStyle(document.body).overscrollBehaviorY,
@@ -1205,7 +1214,6 @@ test.describe("mobile", () => {
 
   test("stacks the Changes rail above the diff at phone width", async ({ page }) => {
     await page.goto(`/sessions/ses_mock_mobile?directory=${encodeURIComponent(DIR)}`);
-    await page.getByTestId("opencode-mobile-session-menu").locator("summary").click();
     await page.getByTestId("opencode-mobile-workspace-open").click();
     await page.getByTestId("opencode-workspace-changes").click();
     const rail = page.getByTestId("opencode-changes-rail");
@@ -1216,20 +1224,26 @@ test.describe("mobile", () => {
     expect(railBox?.width).toBeCloseTo(diffBox?.width ?? 0, 0);
   });
 
-  test("opens session todo, run log, reviews, and catalog in a dismissible mobile sheet", async ({ page }) => {
+  test("splits mobile reviews and catalog from the run log sheet", async ({ page }) => {
     await fetch(`${MOCK_URL}/test/catalog-requests`, { method: "POST" });
     await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
-    await page.getByTestId("opencode-mobile-session-menu").locator("summary").click();
-    await page.getByTestId("opencode-mobile-inspector-menu-open").click();
+    await page.getByTestId("opencode-mobile-runlog-open").click();
     const sheet = page.getByTestId("opencode-mobile-inspector");
     await expect(sheet).toBeVisible();
-    await expect(sheet.getByTestId("opencode-todo-list")).toContainText("Add the route");
-    await sheet.getByTestId("opencode-inspector-runlog").click();
     await expect(sheet.getByTestId("opencode-command-list")).toBeVisible();
-    await sheet.getByTestId("opencode-inspector-reviews").click();
+    await expect(sheet.getByTestId("opencode-inspector-reviews")).toHaveCount(0);
+    await expect(sheet.getByTestId("opencode-inspector-catalog")).toHaveCount(0);
+    await sheet.getByTestId("opencode-inspector-todo").click();
+    await expect(sheet.getByTestId("opencode-todo-list")).toBeVisible();
+    await sheet.getByTestId("opencode-mobile-inspector-close").click();
+
+    await page.getByTestId("opencode-mobile-reviews-open").click();
     await expect(sheet.getByTestId("opencode-merge-request-list")).toBeVisible();
     expect(await (await fetch(`${MOCK_URL}/test/catalog-requests`)).json()).toEqual({ count: 0 });
-    await sheet.getByTestId("opencode-inspector-catalog").click();
+    await sheet.getByTestId("opencode-mobile-inspector-close").click();
+
+    await page.getByTestId("opencode-mobile-session-menu").locator(":scope > summary").click();
+    await page.getByTestId("opencode-mobile-catalog-open").click();
     await expect(sheet.getByTestId("opencode-catalog-mcp")).toContainText(/\d connected \/ 5 total/);
     await expect(sheet.getByTestId("opencode-catalog-mcp")).toContainText("needs client registration");
     await expect(sheet.getByTestId("opencode-catalog-skills")).toContainText("browser-check");
@@ -1240,8 +1254,7 @@ test.describe("mobile", () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
     await sheet.getByTestId("opencode-mobile-inspector-close").click();
     await expect(sheet).toHaveCount(0);
-    await page.getByTestId("opencode-mobile-session-menu").locator("summary").click();
-    await page.getByTestId("opencode-mobile-inspector-menu-open").click();
+    await page.getByTestId("opencode-mobile-runlog-open").click();
     await expect(sheet).toBeVisible();
     expect(await (await fetch(`${MOCK_URL}/test/catalog-requests`)).json()).toEqual({ count: 4 });
     await page.goBack();
@@ -1444,6 +1457,27 @@ test.describe("engineering docs UI", () => {
     await expect(page.getByTestId("opencode-doc-source")).toContainText("docs/architecture.md");
   });
 
+  test("opens the pull request preview diagrams and BFF stub contract", async ({ page }) => {
+    await page.goto(`/docs?directory=${encodeURIComponent(DIR)}`);
+    await page.getByTestId("opencode-doc-card-pr-previews").click();
+    await expect(page).toHaveURL(new RegExp(`/docs/pr-previews\\?directory=${encodeURIComponent(DIR)}`));
+    await expect(page.getByTestId("opencode-doc")).toContainText("Per-commit deployment flow");
+    await expect(page.getByTestId("opencode-doc")).toContainText("Stubbed endpoint families");
+    await expect(page.getByTestId("opencode-doc-source")).toContainText("docs/pr-previews.md");
+  });
+
+  test("opens the sub-agent guide and its retained-agent capability matrix", async ({ page }) => {
+    await page.goto(`/docs?directory=${encodeURIComponent(DIR)}`);
+    await page.getByTestId("opencode-doc-card-subagents").click();
+    await expect(page).toHaveURL(new RegExp(`/docs/subagents\\?directory=${encodeURIComponent(DIR)}`));
+    await expect(page.getByTestId("opencode-doc-source")).toContainText("docs/subagents.md");
+    const doc = page.getByTestId("opencode-doc");
+    await expect(doc).toContainText("Retained agents and the capability matrix");
+    for (const agent of ["plan", "build", "explore", "general"]) {
+      await expect(doc.locator("table").filter({ hasText: "Access class" }).locator("td code", { hasText: agent }).first()).toBeVisible();
+    }
+  });
+
   test("renders an unknown document state", async ({ page }) => {
     await page.goto("/docs/not-in-the-catalogue");
     await expect(page.getByTestId("opencode-doc")).toContainText("not in the in-app catalogue");
@@ -1462,13 +1496,15 @@ test.describe("workspace UI", () => {
   const conversation = `/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`;
 
   test("opens files, changes, commands and preview", async ({ page }) => {
+    await page.route("**/api/permission-requests?**", (route) => route.fulfill({ json: { requests: [] } }));
+    await page.route("**/api/sessions/ses_mock_done/questions?**", (route) => route.fulfill({ json: { requests: [] } }));
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto(conversation);
     await expect(page.getByTestId("opencode-session-inspector")).toBeVisible();
     await expect(page.getByTestId("opencode-mobile-inspector-open")).toBeHidden();
     await page.getByTestId("opencode-inspector-runlog").click();
-    await expect(page.getByTestId("opencode-command-row")).toHaveCount(3);
-    await page.getByTestId("opencode-inspector-reviews").click();
+    await expect(page.getByTestId("opencode-command-row")).toHaveCount(4);
+    await page.getByTestId("opencode-mobile-reviews-open").click();
     await expect(page.getByTestId("opencode-review-card")).toContainText("Mock pull request");
     await expect(page.getByTestId("opencode-review-card")).toContainText("checks passed");
     await page.getByTestId("opencode-review-details-toggle").click();
@@ -1477,9 +1513,10 @@ test.describe("workspace UI", () => {
     const failed = page.getByTestId("opencode-review-check").filter({ hasText: "test" });
     await expect(failed).toHaveAttribute("data-status", "failed");
     await expect(failed.getByRole("link")).toHaveAttribute("rel", "noreferrer");
-    await page.getByTestId("opencode-workspace-open").click();
-    await page.getByTestId("opencode-file-node").filter({ hasText: "README.md" }).click();
-    await expect(page.getByTestId("opencode-file-viewer")).toContainText("Mock project");
+    await page.getByTestId("opencode-desktop-inspector-close").click();
+    await page.getByTestId("opencode-mobile-workspace-open").click();
+    await page.getByTestId("opencode-tree-file").filter({ hasText: "README.md" }).click();
+    await expect(page.getByTestId("opencode-code-viewer")).toContainText("Mock project");
     await page.getByTestId("opencode-workspace-changes").click();
     await expect(page.getByTestId("opencode-diff-viewer")).toContainText("+new");
     await page.getByTestId("opencode-workspace-preview").click();
@@ -1490,7 +1527,7 @@ test.describe("workspace UI", () => {
     await fetch(`${FORGE_URL}/test/forge-reset`, { method: "POST" });
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto(conversation);
-    await page.getByTestId("opencode-inspector-reviews").click();
+    await page.getByTestId("opencode-mobile-reviews-open").click();
     await expect(page.getByTestId("opencode-review-card")).toContainText("Mock pull request");
     expect(await (await fetch(`${FORGE_URL}/test/forge-state`)).json()).toMatchObject({ detailRequests: 0 });
     await page.getByTestId("opencode-review-details-toggle").click();
@@ -1502,7 +1539,7 @@ test.describe("workspace UI", () => {
     await fetch(`${FORGE_URL}/test/forge-reset`, { method: "POST" });
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto(conversation);
-    await page.getByTestId("opencode-inspector-reviews").dispatchEvent("click");
+    await page.getByTestId("opencode-mobile-reviews-open").click();
     await expect(page.getByTestId("opencode-merge-review")).toBeVisible();
     page.once("dialog", (dialog) => dialog.accept());
     await page.getByTestId("opencode-merge-review").dispatchEvent("click");
@@ -1513,14 +1550,9 @@ test.describe("workspace UI", () => {
   test("review card remains width-safe in a mobile cockpit host", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto(conversation);
-    await page.getByTestId("opencode-inspector-reviews").dispatchEvent("click");
+    await page.getByTestId("opencode-mobile-reviews-open").click();
     await expect(page.getByTestId("opencode-review-card")).toBeVisible();
     await page.setViewportSize({ width: 390, height: 740 });
-    await page.getByTestId("opencode-session-inspector").evaluate((element) => {
-      element.style.display = "block";
-      element.style.width = "390px";
-      element.style.maxWidth = "100%";
-    });
     const cardWidth = await page.getByTestId("opencode-review-card").evaluate((element) => element.getBoundingClientRect().width);
     expect(cardWidth).toBeLessThanOrEqual(390);
     const overflow = await page.getByTestId("opencode-review-card").evaluate((element) => element.scrollWidth - element.clientWidth);
@@ -1530,7 +1562,6 @@ test.describe("workspace UI", () => {
   test("workspace drawer fits a phone", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 740 });
     await page.goto(conversation);
-    await page.getByTestId("opencode-mobile-session-menu").locator("summary").click();
     await page.getByTestId("opencode-mobile-workspace-open").click();
     await expect(page.getByTestId("opencode-workspace-panels")).toBeVisible();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);

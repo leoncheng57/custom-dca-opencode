@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Search } from "lucide-react";
+import { Moon, RefreshCw, Search, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 
@@ -15,23 +15,45 @@ import {
   type PaletteCommand,
 } from "../lib/palette.js";
 import { selectPhoneUrl } from "../lib/phoneTransfer.js";
+import { refreshApp } from "../lib/appRefresh.js";
+import { PUBLIC_SIMULATOR } from "../lib/runtime.js";
 import { useNotifyWatcher } from "../lib/useNotifyWatcher.js";
+import { getDoc } from "../lib/docs.js";
 import { NavOverflowMenu } from "./nav-overflow-menu.js";
 import { NotificationPopover } from "./notification-popover.js";
 import { PhoneTransferDialog } from "./phone-transfer-dialog.js";
+
+const APP_NAME = "DCA";
+
+function documentTitle(pathname: string): string {
+  if (pathname === "/") return `Sessions | ${APP_NAME}`;
+  if (pathname.startsWith("/sessions/")) return `Session | ${APP_NAME}`;
+  if (pathname === "/settings") return `Settings | ${APP_NAME}`;
+  if (pathname === "/settings/notifications") return `Notifications | ${APP_NAME}`;
+  if (pathname === "/tools") return `Tools | ${APP_NAME}`;
+  if (pathname === "/docs") return `Docs | ${APP_NAME}`;
+  if (pathname.startsWith("/docs/")) return `${getDoc(pathname.slice("/docs/".length))?.title ?? "Document"} | ${APP_NAME}`;
+  if (pathname === "/planning") return `Planning | ${APP_NAME}`;
+  return APP_NAME;
+}
 
 export function AppShell() {
   const { activeCount, refresh } = useNotificationCenter();
   useNotifyWatcher(refresh);
   const location = useLocation();
   const navigate = useNavigate();
-  const { setTheme } = useTheme();
+  const { resolvedTheme, setTheme } = useTheme();
   const [phoneUrl, setPhoneUrl] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState("");
   const [paletteSessions, setPaletteSessions] = useState<SessionSummary[]>([]);
   const [paletteStatus, setPaletteStatus] = useState<string | undefined>();
+  const [refreshing, setRefreshing] = useState(false);
   const paletteRequest = useRef(0);
+
+  useEffect(() => {
+    document.title = documentTitle(location.pathname);
+  }, [location.pathname]);
 
   const directory = resolvePaletteDirectory(location.search, localStorage.getItem(DIRECTORY_STORAGE_KEY));
   const scopedPath = (path: string) =>
@@ -45,6 +67,14 @@ export function AppShell() {
       // The browser origin is still useful when the optional config route is unavailable.
     }
     setPhoneUrl(selectPhoneUrl(configuredUrl, window.location.href));
+  };
+
+  const reloadApp = () => {
+    if (refreshing) return;
+    const beforeRefresh = new Event("opencode:before-app-refresh", { cancelable: true });
+    if (!window.dispatchEvent(beforeRefresh) && !window.confirm("Discard your unsent message and refresh?")) return;
+    setRefreshing(true);
+    void refreshApp();
   };
 
   const closePalette = () => {
@@ -112,6 +142,13 @@ export function AppShell() {
         keywords: ["phone", "qr", "transfer"],
         run: () => void openPhoneTransfer(),
       },
+      {
+        id: "refresh-app",
+        title: "Refresh app",
+        subtitle: "Reload the current page and check for an app update",
+        keywords: ["reload", "pwa", "update"],
+        run: reloadApp,
+      },
       ...(["system", "light", "dark"] as const).map((appearance) => ({
         id: `appearance-${appearance}`,
         title: `Use ${appearance[0].toUpperCase()}${appearance.slice(1)} appearance`,
@@ -153,9 +190,43 @@ export function AppShell() {
           >
             <Search aria-hidden="true" size={16} />
           </Button>
+          <Button
+            aria-label="Refresh app"
+            className="size-8 shrink-0 p-0 pointer-coarse:size-11"
+            disabled={refreshing}
+            size="sm"
+            title="Refresh app"
+            type="button"
+            variant="ghost"
+            onClick={reloadApp}
+            data-testid="opencode-nav-refresh"
+          >
+            <RefreshCw aria-hidden="true" size={16} className={refreshing ? "animate-spin" : undefined} />
+          </Button>
+          <Button
+            aria-label={`Use ${resolvedTheme === "dark" ? "light" : "dark"} appearance`}
+            className="size-8 shrink-0 p-0 pointer-coarse:size-11"
+            size="sm"
+            title={`Use ${resolvedTheme === "dark" ? "light" : "dark"} appearance`}
+            type="button"
+            variant="ghost"
+            onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+            data-testid="opencode-nav-theme-toggle"
+          >
+            {resolvedTheme === "dark" ? <Sun aria-hidden="true" size={16} /> : <Moon aria-hidden="true" size={16} />}
+          </Button>
           <NotificationPopover scopedPath={scopedPath} />
           <NavOverflowMenu scopedPath={scopedPath} onOpenPhoneTransfer={() => void openPhoneTransfer()} />
         </nav>
+        {PUBLIC_SIMULATOR && (
+          <div
+            className="shrink-0 border-b border-[var(--color-border-default)] bg-[var(--color-background-surface-info-muted)] px-3 py-1.5 text-center text-xs text-[var(--color-text-info)]"
+            data-testid="opencode-public-simulator-banner"
+            role="status"
+          >
+            PR simulator: fixture data only. Actions stay in this tab, use no credentials, and reset on reload.
+          </div>
+        )}
         <div className="min-h-0 flex-1">
           <Outlet />
         </div>

@@ -109,6 +109,7 @@ function seedRecords(): StubRecord[] {
  */
 async function stubHistory(page: Page, records = seedRecords(), outsideWindowActive = 0) {
   const state = { records };
+  let appBadgeRevision = Date.UTC(2026, 7, 22, 12, 0, 0);
   // Filtering is server-side precisely so the rows and the counter cannot
   // disagree, so the stub has to honour the flags on both.
   const visible = (record: StubRecord, hideAuto: boolean, hideSubagent: boolean) =>
@@ -137,6 +138,8 @@ async function stubHistory(page: Page, records = seedRecords(), outsideWindowAct
       json: {
         records: state.records.filter((record) => visible(record, hideAuto, hideSubagent)),
         activeCount: activeCount(hideAuto, hideSubagent),
+        appBadgeCount: activeCount(true, true),
+        appBadgeRevision,
         suppressedActive: suppressedActive(),
       },
     });
@@ -153,7 +156,8 @@ async function stubHistory(page: Page, records = seedRecords(), outsideWindowAct
       delete record.resolvedAt;
       delete record.resolvedBy;
     }
-    await route.fulfill({ json: { record, activeCount: activeCount(true, true) } });
+    appBadgeRevision += 1;
+    await route.fulfill({ json: { record, activeCount: activeCount(true, true), appBadgeCount: activeCount(true, true), appBadgeRevision } });
   });
 }
 
@@ -329,7 +333,25 @@ for (const viewport of VIEWPORTS) {
     });
 
     test("resolves a record in place and decrements the badge", async ({ page }) => {
+      await page.addInitScript(() => {
+        const calls: number[] = [];
+        Object.defineProperty(window, "__appBadgeCalls", { value: calls, configurable: true });
+        Object.defineProperty(navigator, "setAppBadge", {
+          configurable: true,
+          value: async (count: number) => { calls.push(count); },
+        });
+        Object.defineProperty(navigator, "clearAppBadge", {
+          configurable: true,
+          value: async () => { calls.push(0); },
+        });
+      });
       await page.goto(hub);
+      await expect.poll(() => page.evaluate(() => (window as unknown as { __appBadgeCalls: number[] }).__appBadgeCalls.at(-1)))
+        .toBe(ACTIVE_COUNT);
+      const beforeResume = await page.evaluate(() => (window as unknown as { __appBadgeCalls: number[] }).__appBadgeCalls.length);
+      await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pageshow")));
+      await expect.poll(() => page.evaluate(() => (window as unknown as { __appBadgeCalls: number[] }).__appBadgeCalls.length))
+        .toBeGreaterThan(beforeResume);
       await bell(page).click();
 
       const activeList = page.getByTestId("opencode-notification-popover-active");
@@ -346,6 +368,8 @@ for (const viewport of VIEWPORTS) {
       await expect(page.getByTestId("opencode-notification-popover-active-count")).toHaveText(String(ACTIVE_COUNT - 1));
       await expect(page.getByTestId("opencode-notification-popover-resolved-count")).toHaveText(String(RESOLVED_COUNT + 1));
       await expect(bell(page)).toHaveAttribute("aria-label", `Notifications, ${ACTIVE_COUNT - 1} unresolved`);
+      await expect.poll(() => page.evaluate(() => (window as unknown as { __appBadgeCalls: number[] }).__appBadgeCalls.at(-1)))
+        .toBe(ACTIVE_COUNT - 1);
 
       // Reversible: unchecking it in the Resolved list puts the count back.
       await expandResolved(page);
@@ -356,6 +380,8 @@ for (const viewport of VIEWPORTS) {
       await resolvedRow.getByTestId("opencode-notification-resolved").click();
       await expect(page.getByTestId("opencode-nav-notifications-badge")).toHaveText(String(ACTIVE_COUNT));
       await expect(page.getByTestId("opencode-notification-popover-active-count")).toHaveText(String(ACTIVE_COUNT));
+      await expect.poll(() => page.evaluate(() => (window as unknown as { __appBadgeCalls: number[] }).__appBadgeCalls.at(-1)))
+        .toBe(ACTIVE_COUNT);
     });
 
     test("folds away preapproved and sub-agent noise by default, and can unfold it", async ({ page }) => {

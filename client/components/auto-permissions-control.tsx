@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { ShieldAlert } from "lucide-react";
 
 import { Alert } from "../ds/alert.js";
@@ -13,18 +13,21 @@ const POLL_MS = 3_000;
  * the conversation action buttons instead of eating a row of its own. Both
  * variants keep the same danger treatment, the same Details disclosure and the
  * same error paragraph — compactness is only allowed to cost padding, never
- * discoverability.
+ * discoverability. `pill` is the action-bar switch; its adjacent info button
+ * owns the full safety explanation.
  */
-type AutoPermissionsVariant = "block" | "compact";
+type AutoPermissionsVariant = "block" | "compact" | "pill";
 
 export function AutoPermissionsControl({
   directory,
   testId,
   variant = "block",
+  trailing,
 }: {
   directory: string;
   testId: string;
   variant?: AutoPermissionsVariant;
+  trailing?: ReactNode;
 }) {
   const [status, setStatus] = useState<AutoPermissionStatus | null>(null);
   const [saving, setSaving] = useState(false);
@@ -70,6 +73,64 @@ export function AutoPermissionsControl({
 
   const enabled = status?.enabled ?? false;
   const compact = variant === "compact";
+  const pill = variant === "pill";
+  const actionLabel = saving ? "Updating auto permissions" : `Turn auto permissions ${enabled ? "off" : "on"}`;
+  const safetyDescription = status?.error ?? requestError ?? "Auto permissions safety information is available next to this switch.";
+  if (pill) {
+    return (
+      <div className="relative" data-testid={testId}>
+        <div
+          className={cn(
+            "inline-flex min-h-11 items-center rounded-xl border px-1 transition-colors",
+            enabled
+              ? "border-[var(--color-text-info)] bg-[var(--color-background-surface-info-muted)] text-[var(--color-text-info)]"
+              : "border-[var(--color-border-default)] text-[var(--color-text-muted)]",
+          )}
+          data-testid={`${testId}-group`}
+        >
+          <button
+            type="button"
+            role="switch"
+            aria-checked={enabled}
+            aria-label={actionLabel}
+            aria-describedby={`${testId}-description`}
+            aria-busy={saving}
+            disabled={!status || saving || !directory}
+            onClick={() => void toggle()}
+            title={actionLabel}
+            className="flex min-h-9 min-w-[4.5rem] items-center justify-center rounded-full disabled:opacity-50"
+            data-testid={`${testId}-toggle`}
+          >
+            <span aria-hidden="true" className="relative h-7 w-16 rounded-full border border-current">
+              <span className={cn(
+                "absolute left-1 top-1 h-[1.125rem] w-[1.125rem] rounded-full bg-current transition-transform",
+                enabled && "translate-x-9",
+              )} />
+              <span
+                className={cn(
+                  "absolute top-1/2 -translate-y-1/2 text-[10px] font-semibold",
+                  enabled ? "left-2" : "right-2",
+                )}
+                data-testid={`${testId}-state`}
+              >
+                {enabled ? "ON" : "OFF"}
+              </span>
+            </span>
+          </button>
+          {trailing && <div className="flex shrink-0">{trailing}</div>}
+        </div>
+        <span id={`${testId}-description`} className="sr-only">{safetyDescription}</span>
+        {(status?.error || requestError) && (
+          <p
+            className="absolute right-0 top-full z-20 mt-1 min-w-64 rounded-md border border-[var(--color-border-default)] bg-[var(--color-background-surface)] p-2 text-xs font-medium text-[var(--color-text-danger)] shadow-lg"
+            data-testid={`${testId}-error`}
+          >
+            Auto permissions error: {status?.error ?? requestError}
+          </p>
+        )}
+      </div>
+    );
+  }
   // Hit area is decided by pointer type, never by viewport width — the same
   // mechanism `COMPACT_ACTION` in Conversation.tsx uses for the action buttons
   // sitting beside this control in the same toolbar row. A touch tablet at
@@ -94,7 +155,7 @@ export function AutoPermissionsControl({
         <div className={cn("flex items-center gap-2", compact ? `min-w-0 ${touchTarget}` : "min-h-5")}>
           <ShieldAlert aria-hidden="true" className={cn("shrink-0", compact ? "h-3.5 w-3.5" : "h-4 w-4")} />
           <strong className={cn("min-w-0 truncate", compact ? "text-[11px] sm:text-xs" : "flex-1 text-xs sm:text-sm")}>
-            Auto permissions: {status ? (enabled ? "ON" : "OFF") : "loading"}
+            {compact ? "Auto" : `Auto permissions: ${status ? (enabled ? "ON" : "OFF") : "loading"}`}
           </strong>
           {enabled && <button
             type="button"

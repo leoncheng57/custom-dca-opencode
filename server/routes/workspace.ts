@@ -2,10 +2,12 @@ import { Router, type Response } from "express";
 
 import { OpencodeError, type OpencodeConfig } from "../opencode/client.js";
 import {
+  WORKSPACE_REFERENCE_LIMITS,
   listChanges,
   listCommits,
   listWorkspace,
   readWorkspaceFile,
+  validateWorkspaceReferences,
 } from "../opencode/workspace.js";
 import { PathError, requireReadableWorkspacePath, requireRelativePath, requireWorkspaceDirectory } from "../paths.js";
 
@@ -36,6 +38,22 @@ export function workspaceRoutes(config: OpencodeConfig): Router {
         return readWorkspaceFile(config, directory, safeRelative);
       })
       .then((file) => res.json(file))
+      .catch((error: unknown) => fail(res, error));
+  });
+  // Batched, because a streamed assistant turn can cite many paths and each
+  // check spawns `git check-ignore`. An oversized batch is rejected rather than
+  // truncated: silently dropping candidates would render real references inert.
+  router.post("/workspace/references", (req, res) => {
+    requireWorkspaceDirectory(req.query.directory)
+      .then((directory) => {
+        const paths = (req.body as { paths?: unknown } | undefined)?.paths;
+        if (!Array.isArray(paths)) throw new PathError(400, "'paths' must be an array");
+        if (paths.length > WORKSPACE_REFERENCE_LIMITS.batchSize) {
+          throw new PathError(400, `at most ${WORKSPACE_REFERENCE_LIMITS.batchSize} paths may be validated per request`);
+        }
+        return validateWorkspaceReferences(directory, paths);
+      })
+      .then((references) => res.json({ references }))
       .catch((error: unknown) => fail(res, error));
   });
   router.get("/workspace/changes", (req, res) => {

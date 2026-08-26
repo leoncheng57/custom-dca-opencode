@@ -6,6 +6,7 @@ import { getSessionMetadata, parseSessionMetadata, type SessionMetadata } from "
 import { sendNtfy, type NotificationMessage } from "./ntfy.js";
 import { HistoryStore, type NotificationDelivery } from "./history.js";
 import { PreferenceStore, type NotificationPreferences, type NotifyEvent } from "./preferences.js";
+import { PushSubscriptionStore, sendWebPush } from "./webpush.js";
 import { eventClickUrl } from "../publicAppUrl.js";
 
 export function classifyEvent(event: OpencodeEvent): NotifyEvent | null {
@@ -188,6 +189,7 @@ export class NotificationService {
     private readonly publicAppUrl: string | null = null,
     private readonly autoPermissionsEnabled: (directory: string | undefined) => boolean = () => false,
     lookupSessionMetadata?: SessionMetadataLookup,
+    private readonly pushSubscriptions = new PushSubscriptionStore(),
   ) {
     this.lookupSessionMetadata = lookupSessionMetadata
       ?? ((directory, sessionID, signal) => getSessionMetadata(this.config, directory, sessionID, signal));
@@ -265,7 +267,7 @@ export class NotificationService {
     if (subagent) {
       const record = await this.history.append({
         ...common,
-        delivery: { ntfy: "off", desktop: "off", suppressed: "subagent" },
+        delivery: { ntfy: "off", desktop: "off", webPush: "off", suppressed: "subagent" },
       });
       this.emitRecorded(record.id, event.directory, sessionID);
       return;
@@ -278,14 +280,23 @@ export class NotificationService {
     if (event.type === "permission.asked" && this.autoPermissionsEnabled(event.directory)) {
       const record = await this.history.append({
         ...common,
-        delivery: { ntfy: "off", desktop: "off", suppressed: "auto-permissions" },
+        delivery: { ntfy: "off", desktop: "off", webPush: "off", suppressed: "auto-permissions" },
       });
       this.emitRecorded(record.id, event.directory, sessionID);
       return;
     }
 
-    const delivery = await this.deliver(preferences, message);
-    const record = await this.history.append({ ...common, delivery });
+    const record = await this.history.append({
+      ...common,
+      delivery: this.pendingDelivery(preferences, message),
+    });
+    const badge = await this.history.appBadgeSnapshot();
+    const delivery = await this.deliver(preferences, {
+      ...message,
+      badgeCount: badge.count,
+      badgeRevision: badge.revision,
+    });
+    await this.history.setDelivery(record.id, delivery);
     this.emitRecorded(record.id, event.directory, sessionID);
 
     if (kind === "permission" && details && event.directory) {
@@ -410,6 +421,20 @@ export class NotificationService {
   }
 
   /** Send over every enabled channel and report what actually happened. */
+  private pendingDelivery(
+    preferences: NotificationPreferences,
+    message: NotificationMessage,
+  ): NotificationDelivery {
+    return {
+      ntfy: preferences.ntfy.enabled && Boolean(preferences.ntfy.topic) && preferences.ntfy.events[message.event]
+        ? "pending"
+        : "off",
+      desktop: preferences.browser.desktop && preferences.browser.events[message.event] ? "allowed" : "off",
+      webPush: preferences.webPush.enabled && preferences.webPush.events[message.event] ? "pending" : "off",
+    };
+  }
+
+  /** Send over every enabled channel and report what actually happened. */
   private async deliver(
     preferences: NotificationPreferences,
     message: NotificationMessage,
@@ -419,15 +444,45 @@ export class NotificationService {
       preferences.browser.desktop && preferences.browser.events[message.event] ? "allowed" : "off";
     const wantsNtfy =
       preferences.ntfy.enabled && Boolean(preferences.ntfy.topic) && preferences.ntfy.events[message.event];
-    if (!wantsNtfy) return { ntfy: "off", desktop };
-    try {
-      await sendNtfy(preferences, message);
-      return { ntfy: "sent", desktop };
-    } catch (error) {
-      const ntfyError = error instanceof Error ? error.message : String(error);
-      console.warn("[ntfy]", ntfyError);
-      return { ntfy: "failed", ntfyError, desktop };
+    const wantsWebPush = preferences.webPush.enabled && preferences.webPush.events[message.event];
+    let subscriptions: Awaited<ReturnType<PushSubscriptionStore["list"]>> = [];
+    let subscriptionError: string | undefined;
+    if (wantsWebPush) {
+      try {
+        subscriptions = await this.pushSubscriptions.list();
+      } catch (error) {
+        subscriptionError = error instanceof Error ? error.message : String(error);
+      }
     }
+    const [ntfy, webPush] = await Promise.all([
+      wantsNtfy
+        ? sendNtfy(preferences, message).then(() => ({ state: "sent" as const })).catch((error: unknown) => ({ state: "failed" as const, error: error instanceof Error ? error.message : String(error) }))
+        : Promise.resolve({ state: "off" as const }),
+      subscriptionError
+        ? Promise.resolve({ state: "failed" as const, error: subscriptionError })
+        : subscriptions.length
+        ? sendWebPush(subscriptions, message).then(async (result) => {
+          await Promise.allSettled(result.expired.map((endpoint) => {
+            const stale = subscriptions.find((item) => item.endpoint === endpoint);
+            return this.pushSubscriptions.remove(endpoint, stale?.keys);
+          }));
+          return result.failed && result.sent
+            ? { state: "partial" as const, error: `${result.sent} sent; ${result.failed} failed` }
+            : result.failed
+              ? { state: "failed" as const, error: `${result.failed} subscription(s) failed` }
+            : { state: "sent" as const };
+        }).catch((error: unknown) => ({ state: "failed" as const, error: error instanceof Error ? error.message : String(error) }))
+        : Promise.resolve({ state: "off" as const }),
+    ]);
+    if (ntfy.state === "failed") console.warn("[ntfy]", ntfy.error);
+    if (webPush.state === "failed" || webPush.state === "partial") console.warn("[web-push]", webPush.error);
+    return {
+      ntfy: ntfy.state,
+      ...(ntfy.state === "failed" ? { ntfyError: ntfy.error } : {}),
+      desktop,
+      webPush: webPush.state,
+      ...(webPush.state === "failed" || webPush.state === "partial" ? { webPushError: webPush.error } : {}),
+    };
   }
 
   private scheduleParked(directory: string, pending: PermissionRequest, seconds: number): void {
@@ -453,9 +508,6 @@ export class NotificationService {
               ...outboundMessage(parkedEvent, "parked", this.sessionTitle(directory, pending.sessionID), seconds),
               ...(eventClickUrl(this.publicAppUrl, parkedEvent) ? { click: eventClickUrl(this.publicAppUrl, parkedEvent) } : {}),
             };
-            const delivery = await this.deliver(preferences, message);
-            // The parked alert escalates an already-counted permission. It is
-            // logged for the record but must not add a second active item.
             const parkedTitle = this.sessionTitle(directory, pending.sessionID);
             const record = await this.history.append({
               kind: "parked",
@@ -467,8 +519,17 @@ export class NotificationService {
               body: `${pending.permission} has waited ${seconds}s for a reply`,
               displayBody: inAppMessage(parkedEvent, "parked", seconds),
               ...(message.click ? { click: message.click } : {}),
-              delivery,
+              delivery: this.pendingDelivery(preferences, message),
             });
+            const badge = await this.history.appBadgeSnapshot();
+            const delivery = await this.deliver(preferences, {
+              ...message,
+              badgeCount: badge.count,
+              badgeRevision: badge.revision,
+            });
+            await this.history.setDelivery(record.id, delivery);
+            // The parked alert is a separately delivered notification and also
+            // stamps its parent permission for the in-app escalation marker.
             this.emitRecorded(record.id, directory, pending.sessionID);
             await this.history.markParked(directory, pending.id);
             this.bus.emit("event", {

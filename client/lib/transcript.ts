@@ -19,7 +19,7 @@
 //     grouping and scroll anchoring work without backend knowledge.
 
 /** Discriminator for the row a transcript entry renders as. */
-export type TranscriptKind = "user" | "agent" | "thought" | "tool" | "status" | "error";
+export type TranscriptKind = "user" | "agent" | "thought" | "tool" | "patch" | "status" | "error";
 
 /**
  * Primary agent mode a prose message was produced under.
@@ -50,6 +50,8 @@ export interface UserEvent extends TranscriptBase {
   text: string;
   /** Per-message reminder blocks split from the persisted text sentinel. */
   reminders: Array<{ name: string; body: string }>;
+  /** Trusted workflow injector blocks split from the persisted text sentinel. */
+  workflows: Array<{ name: string; body: string }>;
   /** Files the user referenced or attached, if any. */
   attachments: Attachment[];
   /** Mode this prompt was sent under, when the backend states it exactly. */
@@ -98,6 +100,8 @@ export interface ToolEvent extends TranscriptBase {
   title?: string;
   /** One-line summary of the arguments, safe to render inline. */
   detail?: string;
+  /** Exact shell command for explicit .sh export; never rendered or shared. */
+  commandText?: string;
   /** Tool output. Present when completed; partial while running. */
   output?: string;
   /** Error text when `status === "error"`. */
@@ -117,6 +121,19 @@ export interface ToolEvent extends TranscriptBase {
    * that started it.
    */
   childSessionId?: string;
+}
+
+/** A file-edit milestone. Full patches are fetched only when this row is opened. */
+export interface PatchEvent extends TranscriptBase {
+  kind: "patch";
+  /** Bounded display names; never the raw upstream array. */
+  files: string[];
+  /** Total names reported upstream, including names omitted from `files`. */
+  fileCount: number;
+  /** At least one name was omitted or shortened for display. */
+  filesTruncated: boolean;
+  /** Initiating user message, stated directly by the assistant message. */
+  userMessageId?: string;
 }
 
 /** Lifecycle markers rendered as separators: compaction, retries, snapshots. */
@@ -140,6 +157,7 @@ export type TranscriptEvent =
   | AgentEvent
   | ThoughtEvent
   | ToolEvent
+  | PatchEvent
   | StatusEvent
   | ErrorEvent;
 

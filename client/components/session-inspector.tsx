@@ -12,12 +12,14 @@ import {
   type CommandEntry,
 } from "../lib/derive.js";
 import { api, type CatalogResponse, type McpStatus, type Todo } from "../lib/api.js";
-import { INSPECTOR_TABS, type InspectorTab } from "../lib/inspectorTabs.js";
+import { type InspectorTab } from "../lib/inspectorTabs.js";
 import { useSubagents, type SubagentsState } from "../lib/useSubagents.js";
 import type { TranscriptEvent } from "../lib/transcript.js";
 import { ReviewCard } from "./review-card.js";
 import { SubagentPanel } from "./subagent-panel.js";
+import { ManagedChildDialog } from "./managed-child-dialog.js";
 import { Link } from "react-router-dom";
+import type { ModelCatalogue, ModelSelection } from "../lib/models.js";
 
 interface SessionInspectorProps {
   directory: string;
@@ -28,6 +30,8 @@ interface SessionInspectorProps {
   requestedTab?: InspectorTab;
   mobileOpen?: boolean;
   onMobileClose?: () => void;
+  modelCatalogue: ModelCatalogue | null;
+  defaultModel?: ModelSelection;
 }
 
 const TAB_LABELS: Record<InspectorTab, string> = {
@@ -37,6 +41,8 @@ const TAB_LABELS: Record<InspectorTab, string> = {
   reviews: "Reviews",
   catalog: "Catalog",
 };
+
+const CORE_INSPECTOR_TABS = ["todo", "runlog", "subagents"] as const;
 
 function statusVariant(status: string): BadgeVariant {
   if (status === "completed" || status === "connected") return "success";
@@ -155,10 +161,146 @@ function exportCommands(commands: CommandEntry[]): void {
   URL.revokeObjectURL(url);
 }
 
+type RunLogFilter = "all" | "edit" | "command" | "read" | "failure" | "other";
+
+const RUN_LOG_FILTERS: Array<{ id: RunLogFilter; label: string }> = [
+  { id: "all", label: "All activity" },
+  { id: "edit", label: "Edits" },
+  { id: "command", label: "Commands" },
+  { id: "read", label: "Reads" },
+  { id: "failure", label: "Failures" },
+  { id: "other", label: "Other tools" },
+];
+
+function matchesRunLogFilter(command: CommandEntry, filter: RunLogFilter): boolean {
+  if (filter === "all") return true;
+  if (filter === "failure") return command.status === "error";
+  if (filter === "other") return command.activityKind === "tool" && command.category === "other";
+  return command.category === filter;
+}
+
+function RunLogPanel({ commands, onJump, onExportCommands, commandExporting, commandExportError }: {
+  commands: CommandEntry[];
+  onJump: (id: string) => void;
+  onExportCommands: () => void;
+  commandExporting: boolean;
+  commandExportError: string | null;
+}) {
+  const [filter, setFilter] = useState<RunLogFilter>("all");
+  const visible = commands.filter((command) => matchesRunLogFilter(command, filter));
+  const activeLabel = RUN_LOG_FILTERS.find((candidate) => candidate.id === filter)?.label ?? "activity";
+
+  return (
+    <section data-testid="opencode-command-list">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <div>
+          <h2 className="text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]">Agent activity</h2>
+          <p className="mt-0.5 text-xs text-[var(--color-text-muted)]" aria-live="polite">
+            {visible.length} of {commands.length} {commands.length === 1 ? "event" : "events"}
+          </p>
+        </div>
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={commandExporting}
+          onClick={onExportCommands}
+          data-testid="opencode-export-commands"
+        >
+          {commandExporting ? "Loading..." : "Export .sh"}
+        </Button>
+      </div>
+      <div className="mb-3 flex flex-wrap gap-1.5" role="group" aria-label="Filter agent activity">
+        {RUN_LOG_FILTERS.map((candidate) => {
+          const count = commands.filter((command) => matchesRunLogFilter(command, candidate.id)).length;
+          return (
+            <button
+              key={candidate.id}
+              type="button"
+              aria-pressed={filter === candidate.id}
+              className={`min-h-11 rounded-full border px-2.5 text-xs lg:min-h-0 lg:py-1 ${
+                filter === candidate.id
+                  ? "border-[var(--color-border-focus)] bg-[var(--color-background-surface-neutral-muted)] font-semibold"
+                  : "border-[var(--color-border-default)] text-[var(--color-text-muted)]"
+              }`}
+              onClick={() => setFilter(candidate.id)}
+              data-testid={`opencode-runlog-filter-${candidate.id}`}
+            >
+              {candidate.label} {count}
+            </button>
+          );
+        })}
+      </div>
+      {commandExportError && <p role="alert" className="mb-2 text-xs text-[var(--color-text-danger)]">{commandExportError}</p>}
+      {visible.length === 0 ? (
+        <p className="text-sm text-[var(--color-text-muted)]" data-testid="opencode-runlog-empty">
+          {commands.length === 0 ? "No agent activity yet." : `No ${activeLabel.toLowerCase()} in this run.`}
+        </p>
+      ) : (
+        <ol className="space-y-2" data-testid="opencode-runlog-timeline">
+          {visible.map((command) => {
+            const isAppliedPatch = command.activityKind === "change";
+            return (
+              <li key={command.id}>
+                <button
+                  type="button"
+                  className="min-h-11 w-full rounded border border-[var(--color-border-default)] p-2 text-left hover:bg-[var(--hh-row-hover)]"
+                  onClick={() => onJump(command.id)}
+                  data-testid="opencode-command-row"
+                  data-activity-id={command.id}
+                  data-category={command.category}
+                  data-status={command.status}
+                >
+                  <span className="flex items-center gap-2 text-[10px] uppercase text-[var(--color-text-muted)]">
+                    <span>{command.activityKind === "failure" ? "failure" : isAppliedPatch ? "edit" : command.category}</span>
+                    <span>{command.status}</span>
+                    <time className="ml-auto" dateTime={command.timestamp}>{formatClockTime(command.timestamp)}</time>
+                  </span>
+                  {isAppliedPatch ? (
+                    <>
+                      <strong className="mt-1 block text-sm">Changed</strong>
+                      <span className="mt-0.5 block truncate text-xs">
+                        {command.fileCount} {command.fileCount === 1 ? "file" : "files"}{command.fileSummary ? `: ${command.fileSummary}` : ""}
+                      </span>
+                    </>
+                  ) : (
+                    <code className="mt-1 block truncate text-xs">{command.text}</code>
+                  )}
+                  {command.outputPreview && (
+                    <span className={`mt-1 block truncate text-[11px] ${command.status === "error" ? "text-[var(--color-text-danger)]" : "text-[var(--color-text-muted)]"}`}>
+                      {command.outputPreview}
+                    </span>
+                  )}
+                </button>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+    </section>
+  );
+}
+
 function jumpToEvent(id: string): void {
   const row = document.querySelector<HTMLElement>(`[data-event-id="${CSS.escape(id)}"]`);
-  row?.scrollIntoView({ behavior: "smooth", block: "center" });
-  row?.focus({ preventScroll: true });
+  if (row) {
+    row.scrollIntoView({ behavior: "smooth", block: "center" });
+    row.focus({ preventScroll: true });
+    return;
+  }
+
+  const group = Array.from(document.querySelectorAll<HTMLElement>("[data-event-ids]"))
+    .find((candidate) => {
+      try {
+        return (JSON.parse(candidate.dataset.eventIds ?? "[]") as unknown[]).includes(id);
+      } catch {
+        return false;
+      }
+    });
+  const toggle = group?.querySelector<HTMLButtonElement>('[data-testid="opencode-action-group-toggle"]');
+  if (toggle?.getAttribute("aria-expanded") === "false") {
+    toggle.click();
+    requestAnimationFrame(() => jumpToEvent(id));
+  }
 }
 
 function InspectorContent({
@@ -179,6 +321,8 @@ function InspectorContent({
   commandExporting,
   commandExportError,
   subagents,
+  tabs,
+  onOpenManagedChild,
 }: {
   catalogue: CatalogResponse | null;
   catalogError: string | null;
@@ -197,12 +341,14 @@ function InspectorContent({
   commandExporting: boolean;
   commandExportError: string | null;
   subagents: SubagentsState;
+  tabs: readonly InspectorTab[];
+  onOpenManagedChild: () => void;
 }) {
   const subagentCount = subagents.report?.tasks.length ?? 0;
   return (
     <>
-      <nav className="thin-scrollbar sticky top-0 z-10 flex overflow-x-auto border-b border-[var(--color-border-default)] bg-[var(--color-background-surface)] p-1" aria-label="Session detail panels">
-        {INSPECTOR_TABS.map((name) => (
+      {tabs.length > 1 && <nav className="thin-scrollbar sticky top-0 z-10 flex overflow-x-auto border-b border-[var(--color-border-default)] bg-[var(--color-background-surface)] p-1" aria-label="Session detail panels">
+        {tabs.map((name) => (
           <button
             key={name}
             type="button"
@@ -214,7 +360,11 @@ function InspectorContent({
                 ? "bg-[var(--color-background-surface-neutral-muted)] font-semibold"
                 : "text-[var(--color-text-muted)]"
             }`}
-            onClick={() => onTabChange(name)}
+            onClick={(event) => {
+              const scroller = event.currentTarget.closest<HTMLElement>("[data-inspector-scroll]");
+              if (scroller) scroller.scrollTop = 0;
+              onTabChange(name);
+            }}
             data-testid={`opencode-inspector-${name}`}
           >
             {TAB_LABELS[name]}
@@ -224,57 +374,19 @@ function InspectorContent({
             {name === "reviews" && links.length ? ` ${links.length}` : ""}
           </button>
         ))}
-      </nav>
+      </nav>}
 
       <div className="p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
         {tab === "todo" && <TodoPanel todos={todos} loaded={todosLoaded} error={todosError} />}
 
         {tab === "runlog" && (
-          <section data-testid="opencode-command-list">
-            <div className="mb-3 flex items-center justify-between gap-2">
-              <h2 className="text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]">
-                Shell and tool history
-              </h2>
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={commandExporting}
-                onClick={onExportCommands}
-                data-testid="opencode-export-commands"
-              >
-                {commandExporting ? "Loading..." : "Export .sh"}
-              </Button>
-            </div>
-            {commandExportError && <p role="alert" className="mb-2 text-xs text-[var(--color-text-danger)]">{commandExportError}</p>}
-            {commands.length === 0 ? (
-              <p className="text-sm text-[var(--color-text-muted)]">No tool calls yet.</p>
-            ) : (
-              <ol className="space-y-2">
-                {commands.map((command) => (
-                  <li key={command.id}>
-                    <button
-                      type="button"
-                      className="min-h-11 w-full rounded border border-[var(--color-border-default)] p-2 text-left hover:bg-[var(--hh-row-hover)]"
-                      onClick={() => onJump(command.id)}
-                      data-testid="opencode-command-row"
-                    >
-                      <span className="flex items-center gap-2 text-[10px] uppercase text-[var(--color-text-muted)]">
-                        <span>{command.category}</span>
-                        <span>{command.status}</span>
-                        <time className="ml-auto">{formatClockTime(command.timestamp)}</time>
-                      </span>
-                      <code className="mt-1 block truncate text-xs">{command.text}</code>
-                      {command.outputPreview && (
-                        <span className="mt-1 block truncate text-[11px] text-[var(--color-text-muted)]">
-                          {command.outputPreview}
-                        </span>
-                      )}
-                    </button>
-                  </li>
-                ))}
-              </ol>
-            )}
-          </section>
+          <RunLogPanel
+            commands={commands}
+            onJump={onJump}
+            onExportCommands={onExportCommands}
+            commandExporting={commandExporting}
+            commandExportError={commandExportError}
+          />
         )}
 
         {tab === "subagents" && (
@@ -289,6 +401,7 @@ function InspectorContent({
             onRefresh={subagents.refresh}
             onAbort={subagents.abortChild}
             onPromote={subagents.promote}
+            onOpenLaunch={onOpenManagedChild}
           />
         )}
 
@@ -316,7 +429,7 @@ function InspectorContent({
   );
 }
 
-function MobileInspector({ onClose, children }: { onClose: () => void; children: (close: () => void) => React.ReactNode }) {
+function MobileInspector({ title, onClose, children }: { title: string; onClose: () => void; children: (close: () => void) => React.ReactNode }) {
   const onCloseRef = useRef(onClose);
   const dialogRef = useRef<HTMLElement>(null);
   onCloseRef.current = onClose;
@@ -360,29 +473,62 @@ function MobileInspector({ onClose, children }: { onClose: () => void; children:
         className="fixed inset-x-0 bottom-0 top-[max(0.75rem,env(safe-area-inset-top))] z-50 flex min-w-0 flex-col overflow-hidden rounded-t-2xl border-t border-[var(--color-border-default)] bg-[var(--color-background-surface)] shadow-xl"
         role="dialog"
         aria-modal="true"
-        aria-label="Session details"
+        aria-label={title}
         data-testid="opencode-mobile-inspector"
       >
         <header className="flex min-h-11 shrink-0 items-center border-b border-[var(--color-border-default)] px-3">
-          <h2 className="text-sm font-semibold">Session details</h2>
-          <button type="button" className="ml-auto flex min-h-11 min-w-11 items-center justify-center rounded text-sm" onClick={close} data-testid="opencode-mobile-inspector-close" aria-label="Close session details">Close</button>
+          <h2 className="text-sm font-semibold">{title}</h2>
+          <button type="button" className="ml-auto flex min-h-11 min-w-11 items-center justify-center rounded text-sm" onClick={close} data-testid="opencode-mobile-inspector-close" aria-label={`Close ${title.toLowerCase()}`}>Close</button>
         </header>
-        <div className="thin-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain">{children(close)}</div>
+        <div className="thin-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain" data-inspector-scroll>{children(close)}</div>
       </section>
     </div>
   );
 }
 
-export function SessionInspector({ directory, sessionID, events, todos, todosLoaded, todosError, requestedTab, mobileOpen = false, onMobileClose }: SessionInspectorProps & { sessionID: string }) {
+function DesktopInspector({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  const dialogRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    dialogRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      previousFocus?.focus();
+    };
+  }, [onClose]);
+
+  return (
+    <div className="hidden lg:block" data-testid="opencode-desktop-inspector-surface">
+      <button type="button" className="fixed inset-0 z-50 bg-[var(--color-background-overlay)]" aria-label={`Close ${title.toLowerCase()}`} onClick={onClose} />
+      <section ref={dialogRef} tabIndex={-1} className="fixed inset-y-0 right-0 z-50 flex w-[28rem] max-w-[calc(100vw-2rem)] flex-col overflow-hidden border-l border-[var(--color-border-default)] bg-[var(--color-background-surface)] shadow-xl" role="dialog" aria-modal="true" aria-label={title} data-testid="opencode-desktop-inspector">
+        <header className="flex min-h-11 shrink-0 items-center border-b border-[var(--color-border-default)] px-4">
+          <h2 className="text-sm font-semibold">{title}</h2>
+          <Button className="ml-auto" size="sm" variant="ghost" onClick={onClose} data-testid="opencode-desktop-inspector-close">Close</Button>
+        </header>
+        <div className="thin-scrollbar min-h-0 flex-1 overflow-y-auto" data-inspector-scroll>{children}</div>
+      </section>
+    </div>
+  );
+}
+
+export function SessionInspector({ directory, sessionID, events, todos, todosLoaded, todosError, requestedTab, mobileOpen = false, onMobileClose, modelCatalogue, defaultModel }: SessionInspectorProps & { sessionID: string }) {
+  const [desktopViewport, setDesktopViewport] = useState(() => window.matchMedia("(min-width: 1024px)").matches);
   const commandScope = `${directory}\0${sessionID}`;
   const commands = useMemo(() => extractCommands(events), [events]);
   const links = useMemo(() => extractMrUrls(events), [events]);
   const [tab, setTab] = useState<InspectorTab>("todo");
+  const [surfaceTab, setSurfaceTab] = useState<Extract<InspectorTab, "reviews" | "catalog">>();
   const [catalogue, setCatalogue] = useState<{ directory: string; value: CatalogResponse } | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [commandExporting, setCommandExporting] = useState(false);
   const [commandExportError, setCommandExportError] = useState<string | null>(null);
+  const [managedChildOpen, setManagedChildOpen] = useState(false);
   const commandExportScope = useRef(commandScope);
   const commandExportGeneration = useRef(0);
   if (commandExportScope.current !== commandScope) {
@@ -399,8 +545,19 @@ export function SessionInspector({ directory, sessionID, events, todos, todosLoa
   catalogueRef.current = catalogue;
   directoryRef.current = directory;
   useEffect(() => {
-    if (requestedTab) setTab(requestedTab);
+    if (!requestedTab) return;
+    if (requestedTab === "reviews" || requestedTab === "catalog") setSurfaceTab(requestedTab);
+    else {
+      setSurfaceTab(undefined);
+      setTab(requestedTab);
+    }
   }, [requestedTab]);
+  useEffect(() => {
+    const query = window.matchMedia("(min-width: 1024px)");
+    const updateViewport = () => setDesktopViewport(query.matches);
+    query.addEventListener("change", updateViewport);
+    return () => query.removeEventListener("change", updateViewport);
+  }, []);
   const exportCompleteCommands = useCallback(() => {
     const generation = commandExportGeneration.current;
     setCommandExporting(true);
@@ -420,6 +577,7 @@ export function SessionInspector({ directory, sessionID, events, todos, todosLoa
   useEffect(() => {
     setCommandExporting(false);
     setCommandExportError(null);
+    setManagedChildOpen(false);
   }, [commandScope]);
   useEffect(() => () => { commandExportGeneration.current += 1; }, []);
 
@@ -444,12 +602,12 @@ export function SessionInspector({ directory, sessionID, events, todos, todosLoa
   }, [directory]);
 
   useEffect(() => {
-    if (tab === "catalog") loadCatalogue();
-  }, [loadCatalogue, tab]);
+    if (surfaceTab === "catalog") loadCatalogue();
+  }, [loadCatalogue, surfaceTab]);
 
   useEffect(() => () => catalogRequest.current?.controller.abort(), []);
 
-  const content = (onJump: (id: string) => void) => (
+  const content = (onJump: (id: string) => void, tabs: readonly InspectorTab[] = CORE_INSPECTOR_TABS, activeTab = tab) => (
     <InspectorContent
       catalogue={catalogue?.directory === directory ? catalogue.value : null}
       catalogError={catalogError}
@@ -460,7 +618,7 @@ export function SessionInspector({ directory, sessionID, events, todos, todosLoa
       todos={todos}
       todosLoaded={todosLoaded}
       todosError={todosError}
-      tab={tab}
+      tab={activeTab}
       onTabChange={setTab}
       onCatalogRefresh={() => loadCatalogue(true)}
       onJump={onJump}
@@ -468,8 +626,19 @@ export function SessionInspector({ directory, sessionID, events, todos, todosLoa
       commandExporting={commandExporting}
       commandExportError={commandExportError}
       subagents={subagents}
+      tabs={tabs}
+      onOpenManagedChild={() => {
+        subagents.clearLaunchError();
+        setManagedChildOpen(true);
+      }}
     />
   );
+  const mobileTabs = requestedTab === "reviews"
+    ? ["reviews"] as const
+    : requestedTab === "catalog"
+      ? ["catalog"] as const
+      : ["runlog", "todo", "subagents"] as const;
+  const mobileTitle = requestedTab === "reviews" ? "Reviews" : requestedTab === "catalog" ? "Catalog" : "Run log";
 
   return (
     <>
@@ -477,17 +646,34 @@ export function SessionInspector({ directory, sessionID, events, todos, todosLoa
         className="hidden w-80 shrink-0 overflow-y-auto border-l border-[var(--color-border-default)] lg:block"
         aria-label="Session details"
         data-testid="opencode-session-inspector"
+        data-inspector-scroll
       >
         {content(jumpToEvent)}
       </aside>
-      {mobileOpen && onMobileClose && (
-        <MobileInspector onClose={onMobileClose}>
+      {mobileOpen && onMobileClose && surfaceTab && desktopViewport && (
+        <DesktopInspector title={TAB_LABELS[surfaceTab]} onClose={onMobileClose}>
+          {content(jumpToEvent, [surfaceTab], surfaceTab)}
+        </DesktopInspector>
+      )}
+      {mobileOpen && onMobileClose && !desktopViewport && (
+        <MobileInspector title={mobileTitle} onClose={onMobileClose}>
           {(close) => content((eventId) => {
             close();
             setTimeout(() => jumpToEvent(eventId), 0);
-          })}
+          }, surfaceTab ? [surfaceTab] : mobileTabs, surfaceTab ?? tab)}
         </MobileInspector>
       )}
+      <ManagedChildDialog
+        key={commandScope}
+        open={managedChildOpen}
+        directory={directory}
+        catalogue={modelCatalogue}
+        defaultModel={defaultModel}
+        submitting={subagents.launching}
+        error={subagents.launchError}
+        onClose={() => setManagedChildOpen(false)}
+        onSubmit={subagents.launchChild}
+      />
     </>
   );
 }

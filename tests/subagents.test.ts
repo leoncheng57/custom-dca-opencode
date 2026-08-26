@@ -12,7 +12,7 @@ import {
   type RawTranscriptMessage,
   type TaskLaunch,
 } from "../server/opencode/subagents.js";
-import { parseCapabilities, resetCapabilitiesCache } from "../server/opencode/capabilities.js";
+import { parseCapabilities, resetCapabilitiesCache, supportsManagedChildren } from "../server/opencode/capabilities.js";
 import { toSummary, withChildCounts, type SessionSummary } from "../server/opencode/sessions.js";
 
 const CHILD = "ses_child_abcdef";
@@ -28,6 +28,7 @@ function taskMessage(
     start?: number;
     end?: number;
     created?: number;
+    model?: Record<string, unknown>;
   } = {},
 ): RawTranscriptMessage {
   return {
@@ -44,6 +45,7 @@ function taskMessage(
           metadata: {
             sessionId: over.sessionId ?? CHILD,
             ...(over.background ? { background: true } : {}),
+            ...(over.model ? { model: over.model } : {}),
           },
           time: { start: over.start ?? 1_000, end: over.end ?? 2_000 },
         },
@@ -143,6 +145,19 @@ describe("collectTaskLaunches", () => {
     expect(collectTaskLaunches([taskMessage({ input: { prompt: "Do   the\nthing" } })])[0].description)
       .toBe("Do the thing");
   });
+
+  it("captures the resolved child model as provenance and keeps it across resume parts", () => {
+    const launches = collectTaskLaunches([
+      taskMessage({ status: "running", model: { providerID: "anthropic", modelID: "claude-opus-5" } }),
+      taskMessage({ status: "completed", start: 5_000, end: 6_000 }),
+    ]);
+    expect(launches[0].model).toEqual({ providerID: "anthropic", modelID: "claude-opus-5" });
+  });
+
+  it("ignores malformed model metadata rather than guessing", () => {
+    expect(collectTaskLaunches([taskMessage({ model: { providerID: "anthropic" } })])[0].model).toBeUndefined();
+    expect(collectTaskLaunches([taskMessage({ model: { providerID: " ", modelID: "x" } })])[0].model).toBeUndefined();
+  });
 });
 
 describe("collectSyntheticOutcomes", () => {
@@ -196,6 +211,18 @@ describe("childTerminalState", () => {
 });
 
 describe("deriveSubagentTasks", () => {
+  it("carries the resolved model onto native task rows as provenance", () => {
+    const [task] = deriveSubagentTasks(deriveInput({
+      launches: [launch({ model: { providerID: "anthropic", modelID: "claude-opus-5" } })],
+      children: [child()],
+      childTerminals: new Map([[CHILD, { state: "completed" as const }]]),
+    }));
+    expect(task).toMatchObject({
+      origin: "native-task",
+      model: { providerID: "anthropic", modelID: "claude-opus-5" },
+    });
+  });
+
   it("prefers observed liveness over every inference below it", () => {
     const [task] = deriveSubagentTasks(deriveInput({
       launches: [launch({ status: "completed" })],
@@ -275,12 +302,33 @@ describe("deriveSubagentTasks", () => {
     expect(task).toMatchObject({ sessionID: CHILD, present: false, title: "Sub-agent session" });
   });
 
-  it("includes a child that was never announced by a task part", () => {
+  it("includes a Managed Child that was never announced by a task part", () => {
     const tasks = deriveSubagentTasks(deriveInput({
-      children: [child({ id: OTHER, title: "Orphan child" })],
+      children: [child({
+        id: OTHER,
+        title: "Managed Child",
+        managed: {
+          origin: "managed-human",
+          requestedAgent: "general",
+          requestedModel: { providerID: "anthropic", modelID: "claude-opus-5" },
+          background: true,
+          policySource: "creation-permission",
+          effectivePolicyObserved: true,
+        },
+      })],
     }));
     expect(tasks.map((task) => task.sessionID)).toEqual([OTHER]);
-    expect(tasks[0]).toMatchObject({ present: true, background: false });
+    expect(tasks[0]).toMatchObject({
+      present: true,
+      background: true,
+      origin: "managed-human",
+      requestedAgent: "general",
+      requestedModel: { providerID: "anthropic", modelID: "claude-opus-5" },
+      policySource: "creation-permission",
+      effectivePolicyObserved: true,
+      state: "unknown",
+      evidence: "no-terminal-evidence",
+    });
   });
 
   it("keys rows by child session, not by task part, when resume duplicates a launch", () => {
@@ -332,6 +380,7 @@ describe("listSubagents", () => {
     status?: Record<string, { type: string }>;
     parentMessages?: RawTranscriptMessage[];
     capabilities?: unknown;
+    health?: unknown;
     childMessages?: Record<string, RawTranscriptMessage[]>;
   }
 
@@ -344,6 +393,7 @@ describe("listSubagents", () => {
 
       if (url.pathname === "/session/status") return body(options.status ?? {});
       if (url.pathname === "/experimental/capabilities") return body(options.capabilities ?? { backgroundSubagents: true });
+      if (url.pathname === "/global/health") return body(options.health ?? { healthy: true, version: "1.18.22" });
       if (url.pathname === "/session/ses_parent/children") return body(options.children ?? []);
       if (url.pathname === "/session/ses_parent/message") return body(options.parentMessages ?? []);
       const child = /^\/session\/([^/]+)\/message$/.exec(url.pathname);
@@ -364,7 +414,7 @@ describe("listSubagents", () => {
 
     const report = await listSubagents(config, "/tmp/p", "ses_parent");
     expect(report.parentID).toBe("ses_parent");
-    expect(report.capabilities).toEqual({ backgroundSubagents: true });
+    expect(report.capabilities).toEqual({ backgroundSubagents: true, managedChildren: true });
     expect(report.tasks).toHaveLength(1);
     expect(report.tasks[0]).toMatchObject({
       sessionID: CHILD,
@@ -414,7 +464,7 @@ describe("listSubagents", () => {
     }));
 
     const report = await listSubagents(config, "/tmp/p", "ses_parent");
-    expect(report.capabilities).toEqual({ backgroundSubagents: false });
+    expect(report.capabilities).toEqual({ backgroundSubagents: false, managedChildren: false });
     expect(report.tasks).toEqual([]);
   });
 
@@ -435,13 +485,21 @@ describe("listSubagents", () => {
 
 describe("parseCapabilities", () => {
   it("reads the background flag only when it is exactly true", () => {
-    expect(parseCapabilities({ backgroundSubagents: true })).toEqual({ backgroundSubagents: true });
-    expect(parseCapabilities({ backgroundSubagents: "true" })).toEqual({ backgroundSubagents: false });
+    expect(parseCapabilities({ backgroundSubagents: true })).toEqual({ backgroundSubagents: true, managedChildren: false });
+    expect(parseCapabilities({ backgroundSubagents: "true" })).toEqual({ backgroundSubagents: false, managedChildren: false });
   });
 
   it("treats an absent or malformed probe as no capability", () => {
     for (const value of [undefined, null, "yes", 1, []]) {
-      expect(parseCapabilities(value)).toEqual({ backgroundSubagents: false });
+      expect(parseCapabilities(value)).toEqual({ backgroundSubagents: false, managedChildren: false });
     }
+  });
+
+  it("enables managed children only for the validated OpenCode V1 contract", () => {
+    expect(supportsManagedChildren({ version: "1.18.21" })).toBe(false);
+    expect(supportsManagedChildren({ version: "1.18.22" })).toBe(true);
+    expect(supportsManagedChildren({ version: "1.19.0" })).toBe(true);
+    expect(supportsManagedChildren({ version: "2.0.0" })).toBe(false);
+    expect(supportsManagedChildren({ version: "dev" })).toBe(false);
   });
 });

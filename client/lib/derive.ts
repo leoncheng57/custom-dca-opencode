@@ -25,13 +25,15 @@ import type { ToolEvent, TranscriptEvent } from "./transcript.js";
 function fingerprint(event: TranscriptEvent): string {
   switch (event.kind) {
     case "tool":
-      return `${event.status}|${event.output ?? ""}|${event.error ?? ""}|${event.durationMs ?? ""}`;
+      return `${event.status}|${event.output ?? ""}|${event.error ?? ""}|${event.durationMs ?? ""}|${event.commandText ?? ""}`;
     case "user":
-      return `${event.mode ?? ""}|${event.text}|${event.reminders.map((reminder) => `${reminder.name}:${reminder.body}`).join("|")}`;
+      return `${event.mode ?? ""}|${event.text}|${event.reminders.map((reminder) => `${reminder.name}:${reminder.body}`).join("|")}|${event.workflows.map((workflow) => `${workflow.name}:${workflow.body}`).join("|")}`;
     case "agent":
       return `${event.mode ?? ""}|${event.text}`;
     case "thought":
       return event.text;
+    case "patch":
+      return `${event.files.join("|")}|${event.fileCount}|${event.filesTruncated}|${event.userMessageId ?? ""}`;
     case "status":
       return `${event.label}|${event.detail ?? ""}`;
     case "error":
@@ -55,7 +57,8 @@ export function mergeEvents(
   const byId = new Map<string, TranscriptEvent>();
 
   let changed = previous.length !== incoming.length;
-  for (const event of incoming) {
+  for (const [index, event] of incoming.entries()) {
+    if (previous[index]?.id !== event.id) changed = true;
     const existing = previousById.get(event.id);
     if (!existing || fingerprint(existing) !== fingerprint(event)) {
       changed = true;
@@ -66,11 +69,10 @@ export function mergeEvents(
   }
   if (!changed) return previous;
 
-  // ISO timestamps are fixed-width, so lexicographic order is chronological.
-  // Id is a deterministic tiebreak for events sharing a millisecond.
-  return [...byId.values()].sort(
-    (a, b) => a.timestamp.localeCompare(b.timestamp) || a.id.localeCompare(b.id),
-  );
+  // The upstream message and part arrays are authoritative chronology. Several
+  // parts in one assistant message share a timestamp, so sorting by id would
+  // move edit milestones away from the prose and tools that surround them.
+  return incoming.map((event) => byId.get(event.id) ?? event);
 }
 
 // ── Grouping ────────────────────────────────────────────────────────────────
@@ -145,7 +147,7 @@ export function runningActivity(events: TranscriptEvent[]): RunningActivity {
 
   for (let i = events.length - 1; i >= 0; i--) {
     const event = events[i];
-    if (event.kind === "status") continue; // separators are not activity
+    if (event.kind === "status" || event.kind === "patch") continue; // milestones are not activity
     if (event.kind === "tool" && (event.status === "running" || event.status === "pending")) {
       return {
         kind: "tool",
@@ -167,17 +169,23 @@ export interface CommandEntry {
   /** Equals the transcript row's data-event-id, so jump-to-event works. */
   id: string;
   category: CommandCategory;
+  activityKind: "tool" | "change" | "failure";
   name: string;
   text: string;
   timestamp: string;
   status: "ok" | "error" | "pending";
   outputPreview?: string;
+  /** Present only when a shell command was captured exactly enough to replay. */
+  commandText?: string;
+  /** Present only for applied patch events. */
+  fileCount?: number;
+  fileSummary?: string;
 }
 
 export function serializeCommands(commands: CommandEntry[]): string {
   return ["#!/usr/bin/env bash", "set -euo pipefail", "", ...commands
-    .filter((command) => command.category === "command")
-    .flatMap((command) => [`# ${command.status} at ${command.timestamp}`, command.text, ""])].join("\n");
+    .filter((command) => command.category === "command" && command.commandText)
+    .flatMap((command) => [`# ${command.status} at ${command.timestamp}`, command.commandText!, ""])].join("\n");
 }
 
 // Narrow on purpose: a loose /file/ would swallow unrelated tools. Anything
@@ -186,7 +194,6 @@ export function serializeCommands(commands: CommandEntry[]): string {
 const COMMAND_TOOLS = /^(bash|shell)$|terminal/i;
 const EDIT_TOOLS = /^(edit|write|patch|apply_patch)$|str_replace/i;
 const READ_TOOLS = /^(read|grep|glob|list|webfetch|websearch)$/i;
-
 function categorize(name: string): CommandCategory {
   if (COMMAND_TOOLS.test(name)) return "command";
   if (EDIT_TOOLS.test(name)) return "edit";
@@ -205,19 +212,54 @@ function firstLine(text: string): string {
 export function extractCommands(events: TranscriptEvent[]): CommandEntry[] {
   const out: CommandEntry[] = [];
   for (const event of events) {
-    if (event.kind !== "tool") continue;
-    const text = event.detail ?? event.title;
-    if (!text) continue;
-    out.push({
-      id: event.id,
-      category: categorize(event.name),
-      name: event.name,
-      text,
-      timestamp: event.timestamp,
-      status:
-        event.status === "completed" ? "ok" : event.status === "error" ? "error" : "pending",
-      ...(event.output ? { outputPreview: firstLine(event.output).slice(0, 120) } : {}),
-    });
+    if (event.kind === "tool") {
+      const category = categorize(event.name);
+      out.push({
+        id: event.id,
+        category,
+        activityKind: "tool",
+        name: event.name,
+        text: event.detail ?? event.title ?? event.name,
+        timestamp: event.timestamp,
+        status:
+          event.status === "completed" ? "ok" : event.status === "error" ? "error" : "pending",
+        ...(event.output || event.error
+          ? { outputPreview: firstLine(event.output ?? event.error ?? "").slice(0, 120) }
+          : {}),
+        ...(category === "command" && event.commandText ? { commandText: event.commandText } : {}),
+      });
+      continue;
+    }
+
+    if (event.kind === "patch") {
+      const fileSummary = event.files.length
+        ? `${event.files.join(", ")}${event.filesTruncated ? ", …" : ""}`
+        : undefined;
+      out.push({
+        id: event.id,
+        category: "edit",
+        activityKind: "change",
+        name: "patch",
+        text: fileSummary ?? `Changed ${event.fileCount} ${event.fileCount === 1 ? "file" : "files"}`,
+        timestamp: event.timestamp,
+        status: "ok",
+        fileCount: event.fileCount,
+        ...(fileSummary ? { fileSummary } : {}),
+      });
+      continue;
+    }
+
+    if (event.kind === "error") {
+      out.push({
+        id: event.id,
+        category: "other",
+        activityKind: "failure",
+        name: "error",
+        text: event.message,
+        timestamp: event.timestamp,
+        status: "error",
+      });
+    }
   }
   return out;
 }
@@ -261,6 +303,8 @@ export function extractMrUrls(events: TranscriptEvent[]): string[] {
       case "status":
         scanText(event.label, seen, out);
         scanText(event.detail, seen, out);
+        break;
+      case "patch":
         break;
       case "error":
         scanText(event.message, seen, out);

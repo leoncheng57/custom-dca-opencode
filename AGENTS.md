@@ -23,7 +23,7 @@ several decisions below.
   OpenAPI 3.1 with 162 paths / 188 operations; the published docs show ~60. When in
   doubt, curl `/doc`, not the website.
 - **The live `GET /doc` is the contract.** The SDK's classic query types are narrower
-  than the 1.18.21 server and its event union is stale, so `server/opencode/client.ts`
+  than the 1.18.22 server and its event union is stale, so `server/opencode/client.ts`
   owns a small typed fetch seam instead of casting around the SDK.
 - Tests: `npm test` (vitest, `tests/*.test.ts`, node environment, import with `.js`
   suffixes). `npm run typecheck` runs the client, server, and screenshot-tool tsconfigs.
@@ -253,8 +253,123 @@ several decisions below.
     explicitly rather than silently implying the feed is complete. Creation accepts
     only a bounded title, Markdown description and names from the bounded label
     catalogue, posts with the server-only `GITHUB_TOKEN`, and invalidates the read
-    cache only after GitHub confirms the issue. The browser still cannot select a
-    repository or project directory.
+    cache only after GitHub confirms the issue. A deep-linked item dialog reads a
+    bounded 20,000-character description and the first 50 conversation comments,
+    with each comment bounded at 8,000 characters; externally-authored Markdown is
+    always rendered as untrusted. The same fixed-repository seam replaces labels on
+    issues and pull requests only after validating them against a complete repository
+    label catalogue, preserves up to 100 existing labels and refuses replacement
+    when the upstream item exceeds that bound, permits at most one recognized
+    priority label, and updates the grouped browser snapshot only after GitHub
+    succeeds. The browser still cannot select a repository or project directory.
+17a. **Planning is a priority-first queue with deterministic ownership.** Exact,
+    case-insensitive `priority:high`, `priority:medium`, and `priority:low` labels
+    select the outer section; items with multiple distinct priority labels appear
+    only in an expanded `Needs triage` section rather than being silently promoted
+    or demoted. Within a priority section, the alphabetically first non-priority
+    label owns the item and `Untagged` sorts last, while every label remains visible
+    on the row. High priority and conflicts open by default; lower queues collapse
+    so a large backlog does not obscure current work. Five row-density treatments
+    are a device-local display preference in `localStorage`, not repository planning
+    data; the densest treatment is the first-visit default, and row labels share the
+    status line rather than consuming another vertical band.
+17b. **Planning epic hierarchy is bounded, read-only and device-local.** GitHub's
+    issue list exposes child counts but not parent links, so the BFF fans out only
+    across a bounded, concurrency-limited set of candidate parents and applies
+    results afterward in deterministic parent order. The UI promotes an epic to
+    the highest priority found on its parent or visible children, nests children
+    only beneath that parent, and shows closed children as progress evidence. It
+    never edits hierarchy. Expanded epic numbers persist in localStorage and
+    malformed or blocked storage falls back to all epics collapsed. If filtering
+    removes a parent while retaining its child, the child remains top-level with
+    a parent breadcrumb rather than disappearing; unresolved or truncated edges
+    are reported honestly instead of blanking the feed.
+18. **PWA push supplements rather than replaces ntfy.** Web Push is a third independent
+    delivery channel with its own server-backed enabled flag and event matrix. Device
+    subscriptions are persisted server-side with mode `0600`; VAPID private material is
+    environment-only. The service worker handles push, notification clicks, and explicit
+    user-approved updates only: it has no `fetch` handler and caches no application or
+    agent data. Expired subscriptions are removed after provider `404`/`410` responses.
+    `web-push` is the runtime dependency because standards-compliant payload encryption,
+    VAPID signing, and browser push-service requests are cryptographic protocol work that
+    should not be reimplemented locally.
+    Installed-PWA app badges use the global unresolved count across every project, excluding
+    auto-permission and sub-agent records because those categories were never delivered.
+    Every push snapshots that authoritative global count; opening the app and resolving or
+    reopening a record resynchronizes it. A change made on another device therefore reaches
+    the phone on its next push or app open, not through a separate badge-only background job.
+19. **Human-managed children are a separate privilege lane from native tasks.** Native `task`
+    delegation remains agent-initiated and keeps OpenCode's parent-session deny ceiling, task
+    parts, depth accounting and hand-back. The sub-agent panel's **Launch child** action is an
+    explicit human authorization: the BFF resolves a Plan/Build policy and validated model,
+    creates a child with `parentID`, metadata and an exact creation-time ruleset, rereads the
+    session to verify every security-relevant field, then submits directly to that child. The
+    browser never authors raw rules, and this route must never be registered as an agent tool.
+    Managed children appear in the normal hierarchy but create no parent task part or synthetic
+    hand-back; their lifecycle is derived from their own status/transcript and may remain
+    `unknown`. Live 1.18.22 probes confirmed direct creation and also confirmed #75's asymmetry:
+    native derivation copies a historical parent deny but discards its later Build allow. The
+    resolved Plan agent alone is not read-only after project policy merges, so session-level Plan
+    enforcement remains required.
+    #75's asymmetry is fixed upstream in anomalyco/opencode#45064 (drop a copied deny when a
+    later rule supersedes it for the exact permission+pattern), and the reference deployment's
+    `ai.opencode.serve` LaunchAgent runs a patched binary
+    (`~/.opencode/bin/opencode-1.18.22-dca`, branch `v1.18.22-dca` in the local opencode
+    checkout = v1.18.22 + that commit; stock plist preserved as
+    `.state/launchd/ai.opencode.serve.plist.bak-stock-binary`). Verified live: a parent with
+    appended `[bash deny, bash allow]` spawned a task child with no inherited bash deny that ran
+    bash successfully. When the upstream fix ships in a release, bump the pin, point the plist
+    back at the stock binary, and re-run the probes. Session-level Plan enforcement is still
+    required regardless — the resolved Plan agent is not read-only after project merges.
+20. **A file reference is data the server verified, never a URL the client trusted.**
+    The client contract is `WorkspaceTarget { path, startLine?, endLine? }`, not a route:
+    following a reference must not change the browser location, because the drawer is a
+    temporary overlay and the reader's place in the transcript is the thing being
+    preserved. Candidates come from parsed Markdown nodes — inline code spans and explicit
+    links only — so bare prose, fenced examples, absolute paths, `~`, `..`, `file://`,
+    UNC/Windows drives, query strings and non-line fragments never become candidates at
+    all. Surviving candidates are collected from the frozen `TranscriptEvent` list rather
+    than during render, deduplicated, and validated in one batched
+    `POST /api/workspace/references` (64 per request, rejected rather than truncated),
+    because each check spawns `git check-ignore` and one request per rendered code span
+    would be a process storm on a streaming turn. Only `status: "file"` becomes
+    interactive, and the UI opens the server's canonical `resolvedPath`, never the
+    candidate — a symlink alias re-resolved later could point somewhere else.
+    `server/opencode/workspace.ts` reuses `requireReadableWorkspacePath`, the same
+    authority the read routes use, so validation can never be a wider door than the route
+    it gates. A client-side match grants nothing; an unverified candidate simply renders
+    as the ordinary text it renders as today.
+21. **Composer workflows are forms first, and their injectors are visible-but-trusted.**
+    The Workflows picker beside Reminder (#167) offers exactly three guided actions —
+    Playwright UI review, send an update to another session, launch a Managed Child.
+    Choosing one only opens a form; the sole exits are Cancel, "Apply to composer"
+    (fills the draft, never sends), or the explicit Send/Launch on a preview that shows
+    the exact generated prompt AND the trusted injector. Injectors invert the reminder
+    secrecy rule deliberately: `GET /api/workflows` exposes the body so it can be read
+    before submission, but sends still only carry the workflow *id* — the server
+    (`server/workflows/workflows.ts`) resolves the text again at submit time, so a
+    tampered browser cannot author hidden prompt content. The injector rides the
+    persisted message as a `<workflow name="id">` sentinel with byte-identical
+    client/server splitters (dual-copy-tested like reminders); the transcript strips it
+    back out of the user bubble. Session updates send in the TARGET session's own mode
+    (a hardcoded Build would restore write access to a session left in Plan), and the
+    dialog states that prompt_async 204/202 means accepted, not completed. The
+    managed-child form reuses decision #19's route with the same Build authorization
+    checkbox and creates no task card and no automatic hand-back.
+22. **PR previews are static simulators, never public agent servers.** GitHub Pages cannot
+    host the Express BFF or `opencode serve`, and putting either on a public endpoint would
+    require credentials and expose host-level agent authority. `VITE_PUBLIC_SIMULATOR=true`
+    therefore builds the real client with a browser-local `/api` fixture adapter, hash
+    routing, a visible simulator banner, and no service worker or PWA manifest. Mutations
+    are tab-local and reset on reload. Same-repository PRs build on every commit, publish
+    only `gh-pages:pr-previews/pr-<number>/`, create a transient GitHub Deployment, and
+    maintain one `<!-- pr-preview -->` comment; forks build an artifact but never publish
+    JavaScript on the repository's Pages origin. The artifact manifest is bound to PR,
+    full SHA, base path, file sizes, and SHA-256 digests and is revalidated before the
+    shared non-force Pages write. Preview, screenshot, and public-site writers all use the
+    `pr-screenshot-publication` concurrency group. Close cleanup removes only that PR's
+    preview and screenshot directories, deletes their marker-owned comments, and marks the
+    preview deployments inactive.
 
 ## Client conventions (inherited from the OpenHands runner, still enforced)
 
@@ -262,10 +377,40 @@ several decisions below.
   only. **Never raw hex.**
 - Every interactive element carries a `data-testid`.
 - No new runtime dependencies without a reason recorded here.
+- `mermaid` is the lazy-loaded diagram parser and layout engine for repository-owned
+  in-app docs only. It runs with Mermaid strict security, then its generated SVG is
+  stripped of links, executable DOM, embedded resources and unsafe CSS before mounting.
 - `qrcode-generator@2.0.4` is the sole QR runtime dependency: it creates the
   phone-transfer matrix entirely in the browser, avoiding URL disclosure to an
   external image service. The app reads its matrix API and renders a React SVG
   path rather than injecting the package's generated markup.
+- `react-markdown` + `remark-gfm` render agent prose. `client/ds/markdown.tsx` used to
+  be a regex chain producing an HTML string for `dangerouslySetInnerHTML`, and its own
+  header comment named these two packages as the replacement once the surface grew.
+  Issue #140 grew it: a verified `scripts/launchd.ts:222` has to become a real button,
+  and injecting controls by pattern-matching generated HTML is how a rendering bug
+  becomes an injection bug. Rendering from parsed nodes also *removes*
+  `dangerouslySetInnerHTML` from this path entirely. Consequences worth stating: raw
+  HTML in the source is dropped rather than rendered (no `rehype-raw`, deliberately),
+  `untrusted` still entity-escapes first so that markup survives as visible text,
+  markdown images render their alt text instead of an `<img>` — an agent-chosen `src`
+  is an SSRF and tracking-pixel surface — and a ~15-line local remark plugin restores
+  single-newline hard breaks rather than adding `remark-breaks` for that alone.
+- CodeMirror 6 (`@codemirror/{state,view,language,search}` plus the
+  `lang-{javascript,json,css,html,markdown,python}` grammars) is the read-only file
+  viewer, loaded through `React.lazy` so a reader who never opens a file never
+  downloads a parser — it is a ~550 kB chunk that stays out of the main bundle. It was
+  chosen over Monaco, which does not support mobile browsers, and over embedding
+  OpenVSCode Server, Theia or the OpenCode UI, which would each add a second process,
+  a second security surface and a competing notion of workspace state. Read-only is
+  enforced twice, by `EditorState.readOnly` and `EditorView.editable`, because this
+  surface must never imply the reader can save. The grammar list is short on purpose:
+  every grammar is bytes in that chunk, and an unknown extension renders as plain text
+  rather than being guessed at. `@lezer/highlight` is a direct dependency because the
+  viewer maps grammar roles onto app-owned semantic syntax tokens; CodeMirror's fixed
+  default palette contains low-contrast primary blue and purple on this app's dark
+  surface. Both light and dark token sets must keep every syntax foreground at WCAG AA
+  text contrast against the editor surface.
 - The transcript renderer consumes a backend-neutral `TranscriptEvent`. Row components
   must never touch raw OpenCode `Part` shapes — that mapping lives in exactly one place
   (`client/lib/events.ts`), which is what made this migration a ~363-line adapter

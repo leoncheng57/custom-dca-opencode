@@ -1,0 +1,184 @@
+const BADGE_DB = "opencode-pwa-state";
+const BADGE_STORE = "metadata";
+let badgeQueue = Promise.resolve();
+
+function badgeDatabase() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(BADGE_DB, 1);
+    request.onupgradeneeded = () => request.result.createObjectStore(BADGE_STORE);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function storedBadgeState() {
+  const database = await badgeDatabase();
+  return new Promise((resolve, reject) => {
+    const request = database.transaction(BADGE_STORE).objectStore(BADGE_STORE).get("badgeState");
+    request.onsuccess = () => {
+      const revision = Number(request.result?.revision);
+      const count = Number(request.result?.count);
+      resolve({
+        revision: Number.isSafeInteger(revision) && revision >= 0 ? revision : -1,
+        count: Number.isSafeInteger(count) && count >= 0 ? count : null,
+      });
+    };
+    request.onerror = () => reject(request.error);
+  }).finally(() => database.close());
+}
+
+async function storeBadgeState(count, revision) {
+  const database = await badgeDatabase();
+  return new Promise((resolve, reject) => {
+    const transaction = database.transaction(BADGE_STORE, "readwrite");
+    transaction.objectStore(BADGE_STORE).put({ count, revision }, "badgeState");
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+  }).finally(() => database.close());
+}
+
+async function acceptBadgeState(count, revision) {
+  if (!Number.isSafeInteger(count) || count < 0 || !Number.isSafeInteger(revision) || revision < 0) return;
+  const stored = await storedBadgeState();
+  if (revision < stored.revision || (revision === stored.revision && stored.count !== count)) return false;
+  await storeBadgeState(count, revision);
+  return true;
+}
+
+async function applyBadge(count, revision) {
+  if (!await acceptBadgeState(count, revision)) return false;
+  return applyBadgeValue(count);
+}
+
+async function applyBadgeValue(count) {
+  if (count === 0 && typeof self.navigator.clearAppBadge === "function") return self.navigator.clearAppBadge();
+  if (count === 0 && typeof self.navigator.setAppBadge === "function") return self.navigator.setAppBadge(0);
+  if (count > 0 && typeof self.navigator.setAppBadge === "function") return self.navigator.setAppBadge(count);
+  return true;
+}
+
+async function reapplyStoredBadge() {
+  const stored = await storedBadgeState();
+  if (stored.count !== null) await applyBadgeValue(stored.count);
+}
+
+function waitForBadgeApplied(port) {
+  let releaseQueue;
+  let finishLifecycle;
+  const queueRelease = new Promise((resolve) => { releaseQueue = resolve; });
+  const lifecycle = new Promise((resolve) => { finishLifecycle = resolve; });
+  let finished = false;
+  let released = false;
+
+  const release = () => {
+    if (released) return;
+    released = true;
+    releaseQueue();
+  };
+  const restoreAndFinish = () => {
+    if (finished) return;
+    finished = true;
+    badgeQueue = badgeQueue.then(reapplyStoredBadge, reapplyStoredBadge);
+    void badgeQueue.finally(finishLifecycle);
+  };
+
+  const releaseTimer = setTimeout(release, 2_000);
+  const abandonTimer = setTimeout(() => {
+    port.close();
+    release();
+    restoreAndFinish();
+  }, 30_000);
+
+  port.onmessage = (message) => {
+    if (message.data?.applied !== true || finished) return;
+    clearTimeout(releaseTimer);
+    clearTimeout(abandonTimer);
+    port.close();
+    if (released) {
+      restoreAndFinish();
+    } else {
+      finished = true;
+      release();
+      finishLifecycle();
+    }
+  };
+
+  return { queueRelease, lifecycle };
+}
+
+function queueBadge(count, revision) {
+  badgeQueue = badgeQueue.then(() => applyBadge(count, revision), () => applyBadge(count, revision));
+  return badgeQueue;
+}
+
+self.addEventListener("push", (event) => {
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch {
+    payload = {};
+  }
+  const title = typeof payload.title === "string" ? payload.title : "OpenCode";
+  const body = typeof payload.body === "string" ? payload.body : "OpenCode needs your attention.";
+  const badgeCount = Number.isSafeInteger(payload.badgeCount) && payload.badgeCount >= 0 ? payload.badgeCount : null;
+  const badgeRevision = Number.isSafeInteger(payload.badgeRevision) && payload.badgeRevision >= 0 ? payload.badgeRevision : null;
+  let click = "/";
+  try {
+    const target = new URL(payload.click || "/", self.location.origin);
+    if (target.origin === self.location.origin) click = `${target.pathname}${target.search}${target.hash}`;
+  } catch {
+    click = "/";
+  }
+  const badge = badgeCount === null || badgeRevision === null
+    ? Promise.resolve()
+    : queueBadge(badgeCount, badgeRevision);
+  event.waitUntil(Promise.all([
+    self.registration.showNotification(title, {
+      body,
+      icon: "/icon.svg",
+      badge: "/icon.svg",
+      data: { click },
+    }),
+    badge.catch(() => undefined),
+  ]));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const click = typeof event.notification.data?.click === "string" ? event.notification.data.click : "/";
+  event.waitUntil((async () => {
+    const destination = new URL(click, self.location.origin).href;
+    const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    const existing = windows.find((client) => new URL(client.url).origin === self.location.origin);
+    if (existing) {
+      await existing.navigate(destination);
+      return existing.focus();
+    }
+    return self.clients.openWindow(destination);
+  })());
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "SKIP_WAITING") void self.skipWaiting();
+  if (event.data?.type === "SYNC_BADGE") {
+    let finishEvent;
+    const eventLifetime = new Promise((resolve) => { finishEvent = resolve; });
+    const update = badgeQueue
+      .then(() => acceptBadgeState(event.data.count, event.data.revision), () => acceptBadgeState(event.data.count, event.data.revision))
+      .then(async (accepted) => {
+        const port = event.ports[0];
+        if (!port || !accepted) {
+          port?.postMessage({ accepted });
+          finishEvent();
+          return;
+        }
+        const lease = waitForBadgeApplied(port);
+        void lease.lifecycle.finally(finishEvent);
+        port.postMessage({ accepted: true });
+        await lease.queueRelease;
+      })
+      .catch(() => finishEvent());
+    badgeQueue = update;
+    event.waitUntil(Promise.all([update, eventLifetime]));
+  }
+});

@@ -7,6 +7,10 @@ import type { RawMessage } from "./events.js";
 import type { AgentMode } from "./agentMode.js";
 import type { ModelCatalogue, ModelSelection } from "./models.js";
 
+export type ManagedChildAgent = "plan" | "build" | "explore" | "general";
+export type ManagedChildAccess = "read-only" | "can-modify";
+export interface ManagedChildAgentSummary { id: ManagedChildAgent; description?: string; access: ManagedChildAccess }
+
 export interface SessionSummary {
   id: string;
   title: string;
@@ -17,6 +21,17 @@ export interface SessionSummary {
   childCount: number;
   agent?: string;
   model?: ModelSelection;
+  managed?: {
+    origin: "managed-human";
+    requestedAgent: ManagedChildAgent;
+    requestedMode?: AgentMode;
+    requestedModel?: ModelSelection;
+    background: true;
+    policySource: "creation-permission";
+    effectivePolicyObserved: boolean;
+    authorization: "read-only" | "modify";
+  };
+  managedConfigurationPresent?: true;
   cost: number;
   tokens: {
     input: number;
@@ -54,6 +69,14 @@ export interface SubagentTask {
   parentID: string;
   title: string;
   agent?: string;
+  origin?: "native-task" | "managed-human";
+  requestedMode?: AgentMode;
+  requestedAgent?: ManagedChildAgent;
+  requestedModel?: ModelSelection;
+  /** Model the task tool resolved for a native child; provenance only. */
+  model?: { providerID: string; modelID: string };
+  policySource?: "creation-permission";
+  effectivePolicyObserved?: boolean;
   description?: string;
   state: SubagentState;
   evidence: SubagentEvidence;
@@ -65,11 +88,31 @@ export interface SubagentTask {
   detail?: string;
 }
 
+/**
+ * A machine-authored instruction this app itself sent to a child session.
+ * Explicit send-time audit data — never inferred from transcript wording.
+ */
+export interface InstructionRecord {
+  id: string;
+  at: number;
+  source: "managed-child-launch" | "managed-child-prompt";
+  directory: string;
+  targetSessionID: string;
+  parentSessionID?: string;
+  targetAgent?: string;
+  text: string;
+  truncated?: true;
+  delivery: "acknowledged" | "rejected";
+  reason?: string;
+}
+
 export interface SubagentReport {
   parentID: string;
   tasks: SubagentTask[];
-  capabilities: { backgroundSubagents: boolean };
+  capabilities: { backgroundSubagents: boolean; managedChildren: boolean };
   truncated: boolean;
+  /** Newest first; covers only instructions this app sent (issue #91). */
+  instructions: InstructionRecord[];
 }
 
 export interface HealthResponse {
@@ -120,6 +163,7 @@ export type NotifyEvent = "idle" | "error" | "abort" | "permission" | "question"
 export interface NotificationPreferences {
   version: 1;
   ntfy: { enabled: boolean; server: string; topic: string; events: Record<NotifyEvent, boolean> };
+  webPush: { enabled: boolean; events: Record<NotifyEvent, boolean> };
   browser: { desktop: boolean; sound: boolean; volume: number; events: Record<NotifyEvent, boolean> };
   parkedPermissionSeconds: number;
 }
@@ -153,10 +197,12 @@ export interface NotificationRecord {
   resolvedBy?: "checked" | "replied" | "reconciled" | "dismissed" | "suppressed";
   parkedAt?: number;
   delivery: {
-    ntfy: "sent" | "off" | "failed";
+    ntfy: "sent" | "pending" | "off" | "failed";
     ntfyError?: string;
     /** Desktop-notification preference; sound and speech are device-local. */
     desktop: "allowed" | "off";
+    webPush?: "sent" | "partial" | "pending" | "off" | "failed";
+    webPushError?: string;
     suppressed?: NotificationSuppression;
   };
 }
@@ -183,6 +229,19 @@ export interface VcsFileDiff {
   deletions: number;
   status?: "added" | "deleted" | "modified";
 }
+
+/** Mirrors `server/opencode/workspace.ts`; only `file` may become interactive. */
+export type WorkspaceReferenceStatus = "file" | "directory" | "invalid" | "forbidden" | "missing";
+
+export interface WorkspaceReference {
+  path: string;
+  status: WorkspaceReferenceStatus;
+  /** Canonical target to read. Present only when `status === "file"`. */
+  resolvedPath?: string;
+}
+
+/** Server-enforced ceiling; callers must chunk rather than be truncated. */
+export const WORKSPACE_REFERENCE_BATCH = 64;
 
 export interface GitCommit {
   sha: string;
@@ -254,10 +313,27 @@ export interface ReminderSummary {
   triggers: string[];
 }
 
+export interface WorkflowSummary {
+  id: string;
+  title: string;
+  description: string;
+  /**
+   * The trusted server-resolved injector text, exposed read-only so it can be
+   * previewed before submission. Sends only ever name the workflow by id; the
+   * server resolves this text again at submit time.
+   */
+  injector: string;
+}
+
 export interface MessagePage {
   messages: RawMessage[];
   running: boolean;
   nextCursor: string | null;
+}
+
+export interface SessionTurnDiff extends VcsFileDiff {
+  patch: string;
+  status: NonNullable<VcsFileDiff["status"]>;
 }
 
 /**
@@ -266,7 +342,12 @@ export interface MessagePage {
  * The status is attached so callers can distinguish "this session is gone"
  * (404, stop polling) from "the agent server is down" (502, keep retrying).
  */
-export type ApiErrorCode = "SESSION_AGENT_UNKNOWN" | "SESSION_AGENT_UNSUPPORTED";
+export type ApiErrorCode =
+  | "SESSION_AGENT_UNKNOWN"
+  | "SESSION_AGENT_UNSUPPORTED"
+  | "SESSION_AGENT_MISMATCH"
+  | "SESSION_AGENT_UNAVAILABLE"
+  | "TURN_DIFF_TOO_LARGE";
 
 export class ApiError extends Error {
   constructor(
@@ -300,17 +381,45 @@ export interface PlanningItem {
   createdAt: string;
   updatedAt: string;
   commentCount: number;
+  /** Sub-issue count reported by GitHub; 0 for anything that is not an epic. */
+  childCount: number;
+  /** Completed sub-issues, never greater than `childCount`. */
+  completedChildCount: number;
+  /**
+   * The epic this item belongs to, resolved by the BFF's bounded fan-out.
+   * `null` means top-level *or* an edge nobody spent a request to discover, so
+   * it is never evidence that an item has no parent.
+   */
+  parentNumber: number | null;
 }
 
 export interface PlanningSnapshot {
   repository: { owner: string; repo: string; url: string };
   items: PlanningItem[];
   truncated: boolean;
+  /** True when more epics existed than the BFF resolved parent links for. */
+  epicsTruncated: boolean;
   fetchedAt: string;
 }
 
 export interface PlanningLabel { name: string; description: string | null }
 export interface CreatePlanningIssueInput { title: string; body: string; labels: string[] }
+export interface PlanningComment {
+  id: string;
+  author: string;
+  body: string;
+  createdAt: string;
+  bodyTruncated: boolean;
+}
+export interface PlanningItemDetails {
+  item: PlanningItem;
+  itemLabelsTruncated: boolean;
+  body: string;
+  bodyTruncated: boolean;
+  comments: PlanningComment[];
+  commentsTruncated: boolean;
+  commentsError: string | null;
+}
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -319,7 +428,13 @@ async function json<T>(res: Response): Promise<T> {
     try {
       const body = (await res.json()) as { error?: string; code?: string };
       if (body.error) message = body.error;
-      if (body.code === "SESSION_AGENT_UNKNOWN" || body.code === "SESSION_AGENT_UNSUPPORTED") code = body.code;
+      if (
+        body.code === "SESSION_AGENT_UNKNOWN" ||
+        body.code === "SESSION_AGENT_UNSUPPORTED" ||
+        body.code === "SESSION_AGENT_MISMATCH" ||
+        body.code === "SESSION_AGENT_UNAVAILABLE" ||
+        body.code === "TURN_DIFF_TOO_LARGE"
+      ) code = body.code;
     } catch {
       /* keep the status-only message */
     }
@@ -380,6 +495,11 @@ export const api = {
   models: (directory: string) =>
     fetch(scoped("/models", directory)).then((r) => json<ModelCatalogue>(r)),
 
+  managedChildAgents: (directory: string) =>
+    fetch(scoped("/managed-child-agents", directory)).then((r) =>
+      json<{ agents: ManagedChildAgentSummary[] }>(r),
+    ),
+
   session: (directory: string, id: string) =>
     fetch(scoped(`/sessions/${encodeURIComponent(id)}`, directory)).then((r) =>
       json<{ session: SessionSummary }>(r),
@@ -391,6 +511,11 @@ export const api = {
       ...(options.before ? { before: options.before } : {}),
     })).then((r) =>
       json<MessagePage>(r),
+    ),
+
+  sessionTurnDiff: (directory: string, id: string, userMessageID: string, signal?: AbortSignal) =>
+    fetch(scoped(`/sessions/${encodeURIComponent(id)}/diff`, directory, { userMessageID }), { signal }).then((r) =>
+      json<{ changes: SessionTurnDiff[] }>(r),
     ),
 
   todos: (directory: string, id: string) =>
@@ -430,22 +555,31 @@ export const api = {
     directory: string,
     id: string,
     text: string,
-    mode: AgentMode,
+    // Plan/Build activate session policy; a foreign identity rides the
+    // exclusive `agent` contract instead (issue #52, narrowed).
+    identity: { mode: AgentMode } | { agent: string },
     model?: ModelSelection,
     attachments?: Array<{ filename: string; mime: string; url: string }>,
     reminder?: string,
+    workflow?: string,
   ) =>
     fetch(scoped(`/sessions/${encodeURIComponent(id)}/prompt`, directory), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         text,
-        mode,
+        ...identity,
         ...(model ? { model } : {}),
         ...(attachments?.length ? { attachments } : {}),
         ...(reminder ? { reminder } : {}),
+        ...(workflow ? { workflow } : {}),
       }),
     }).then((r) => json<{ accepted: boolean }>(r)),
+
+  sessionAgents: (directory: string) =>
+    fetch(scoped("/session-agents", directory)).then(
+      (r) => json<{ agents: Array<{ id: string; description?: string }> }>(r),
+    ),
 
   abort: (directory: string, id: string) =>
     fetch(scoped(`/sessions/${encodeURIComponent(id)}/abort`, directory), { method: "POST" }).then(
@@ -456,6 +590,20 @@ export const api = {
     fetch(scoped(`/sessions/${encodeURIComponent(id)}/subagents`, directory), { signal }).then((r) =>
       json<SubagentReport>(r),
     ),
+
+  createManagedChild: (directory: string, id: string, input: {
+    prompt: string;
+    agent: ManagedChildAgent;
+    model?: ModelSelection;
+    authorization?: "modify";
+    idempotencyKey: string;
+    workflow?: string;
+  }) =>
+    fetch(scoped(`/sessions/${encodeURIComponent(id)}/managed-children`, directory), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }).then((r) => json<{ session: SessionSummary }>(r)),
 
   abortSubagent: (directory: string, id: string, childID: string) =>
     fetch(
@@ -496,16 +644,34 @@ export const api = {
 
   notifications: () =>
     fetch("/api/notifications").then((r) =>
-      json<{ preferences: NotificationPreferences; tokenConfigured: boolean }>(r),
+      json<{ preferences: NotificationPreferences; tokenConfigured: boolean; webPush: { configured: boolean; publicKey: string | null } }>(r),
     ),
   saveNotifications: (preferences: NotificationPreferences) =>
     fetch("/api/notifications", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(preferences),
-    }).then((r) => json<{ preferences: NotificationPreferences; tokenConfigured: boolean }>(r)),
+    }).then((r) => json<{ preferences: NotificationPreferences; tokenConfigured: boolean; webPush: { configured: boolean; publicKey: string | null } }>(r)),
   testNtfy: () =>
     fetch("/api/notifications/test", { method: "POST" }).then((r) => json<{ sent: boolean }>(r)),
+  addPushSubscription: (subscription: PushSubscriptionJSON) =>
+    fetch("/api/notifications/push-subscriptions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(subscription),
+    }).then((r) => r.ok ? undefined : json<never>(r)),
+  removePushSubscription: (endpoint: string) =>
+    fetch("/api/notifications/push-subscriptions", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ endpoint }),
+    }).then((r) => r.ok ? undefined : json<never>(r)),
+  testWebPush: (endpoint: string) =>
+    fetch("/api/notifications/test-web-push", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ endpoint }),
+    }).then((r) => json<{ sent: number; failed: number }>(r)),
   notificationHistory: (
     options: {
       limit?: number;
@@ -528,20 +694,22 @@ export const api = {
       json<{
         records: NotificationRecord[];
         activeCount: number;
+        appBadgeCount: number;
+        appBadgeRevision: number;
         suppressedActive?: SuppressedActiveCounts;
       }>(r),
     );
   },
   dismissNotification: (id: string) =>
     fetch(`/api/notifications/${encodeURIComponent(id)}/dismiss`, { method: "POST" }).then((r) =>
-      json<{ dismissed: boolean; activeCount: number }>(r),
+      json<{ dismissed: boolean; activeCount: number; appBadgeCount: number; appBadgeRevision: number }>(r),
     ),
   setNotificationResolved: (id: string, resolved: boolean) =>
     fetch(`/api/notifications/${encodeURIComponent(id)}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ resolved }),
-    }).then((r) => json<{ record: NotificationRecord; activeCount: number }>(r)),
+    }).then((r) => json<{ record: NotificationRecord; activeCount: number; appBadgeCount: number; appBadgeRevision: number }>(r)),
 
   autoPermissions: (directory: string) =>
     fetch(scoped("/auto-approve", directory)).then((r) => json<AutoPermissionStatus>(r)),
@@ -556,8 +724,17 @@ export const api = {
     fetch(scoped("/workspace/tree", directory, { path })).then((r) =>
       json<{ path: string; dirs: WorkspaceNode[]; files: WorkspaceNode[] }>(r),
     ),
-  workspaceFile: (directory: string, path: string) =>
-    fetch(scoped("/workspace/file", directory, { path })).then((r) => json<WorkspaceFile>(r)),
+  workspaceFile: (directory: string, path: string, signal?: AbortSignal) =>
+    fetch(scoped("/workspace/file", directory, { path }), { signal }).then((r) => json<WorkspaceFile>(r)),
+  /** Batched on purpose: one request per rendered code span would spawn a
+   * `git check-ignore` process per span. See server/routes/workspace.ts. */
+  workspaceReferences: (directory: string, paths: string[], signal?: AbortSignal) =>
+    fetch(scoped("/workspace/references", directory), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paths }),
+      signal,
+    }).then((r) => json<{ references: WorkspaceReference[] }>(r)),
   changes: (directory: string, mode: "git" | "branch") =>
     fetch(scoped("/workspace/changes", directory, { mode })).then((r) =>
       json<{ changes: VcsFileDiff[] }>(r),
@@ -587,6 +764,13 @@ export const api = {
   /** Not project-scoped: the planning feed is one fixed repository (see server/github-planning.ts). */
   planningItems: (refresh = false) => fetch(`/api/planning/items${refresh ? "?refresh=1" : ""}`).then((r) => json<PlanningSnapshot>(r)),
   planningLabels: () => fetch("/api/planning/labels").then((r) => json<{ labels: PlanningLabel[]; truncated: boolean }>(r)),
+  planningItemDetails: (number: number) => fetch(`/api/planning/items/${encodeURIComponent(number)}`).then((r) => json<{ details: PlanningItemDetails }>(r)),
+  updatePlanningItemLabels: (number: number, labels: string[]) =>
+    fetch(`/api/planning/items/${encodeURIComponent(number)}/labels`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ labels }),
+    }).then((r) => json<{ item: PlanningItem }>(r)),
   createPlanningIssue: (input: CreatePlanningIssueInput) =>
     fetch("/api/planning/issues", {
       method: "POST",
@@ -629,6 +813,8 @@ export const api = {
     }).then((r) => json<{ rejected: boolean }>(r)),
   reminders: () =>
     fetch("/api/reminders").then((r) => json<{ reminders: ReminderSummary[] }>(r)),
+  workflows: () =>
+    fetch("/api/workflows").then((r) => json<{ workflows: WorkflowSummary[] }>(r)),
 
   /** SSE endpoint URL — consumed by EventSource, not fetch. */
   eventsUrl: (directory?: string) =>

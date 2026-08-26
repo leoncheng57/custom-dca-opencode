@@ -29,9 +29,11 @@ import { notificationRoutes } from "./routes/notifications.js";
 import { PreferenceStore } from "./notifications/preferences.js";
 import { HistoryStore } from "./notifications/history.js";
 import { NotificationService } from "./notifications/service.js";
+import { PushSubscriptionStore, webPushConfig } from "./notifications/webpush.js";
 import { forgeRoutes } from "./routes/forge.js";
 import { planningRoutes } from "./routes/planning.js";
 import { reminderRoutes } from "./routes/reminders.js";
+import { workflowRoutes } from "./routes/workflows.js";
 import { appConfigRoutes } from "./routes/appConfig.js";
 import { projectRoutes } from "./routes/projects.js";
 import { modelPinRoutes } from "./routes/modelPins.js";
@@ -56,6 +58,8 @@ const autoPermissions = new AutoPermissionService(opencode, bus);
 autoPermissions.start();
 const notificationStore = new PreferenceStore();
 const notificationHistory = new HistoryStore();
+const pushSubscriptions = new PushSubscriptionStore();
+webPushConfig(); // Fail at startup rather than exposing a half-configured channel.
 const notificationService = new NotificationService(
   opencode,
   bus,
@@ -63,6 +67,8 @@ const notificationService = new NotificationService(
   notificationHistory,
   publicAppUrl,
   (directory) => autoPermissions.isEnabled(directory),
+  undefined,
+  pushSubscriptions,
 );
 notificationService.start();
 bus.start();
@@ -72,10 +78,11 @@ app.use("/api", settingsRoutes(opencode));
 app.use("/api", mcpRoutes(opencode));
 app.use("/api", workspaceRoutes(opencode));
 app.use("/api", worktreeRoutes(opencode, bus));
-app.use("/api", notificationRoutes(notificationStore, notificationHistory));
+app.use("/api", notificationRoutes(notificationStore, notificationHistory, pushSubscriptions));
 app.use("/api", forgeRoutes());
 app.use("/api", planningRoutes());
 app.use("/api", reminderRoutes());
+app.use("/api", workflowRoutes());
 app.use("/api", appConfigRoutes(publicAppUrl));
 app.use("/api", projectRoutes());
 app.use("/api", modelPinRoutes());

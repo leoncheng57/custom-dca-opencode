@@ -58,6 +58,14 @@ describe("transcript page merging", () => {
     expect(merged[1].parts?.[0].id).toBe("msg_2-part");
   });
 
+  it("preserves authoritative input order when message timestamps tie", () => {
+    const merged = mergeMessagePages(
+      [message("msg_z", 1), message("msg_a", 1)],
+      [message("msg_m", 1)],
+    );
+    expect(merged.map((item) => item.info?.id)).toEqual(["msg_z", "msg_a", "msg_m"]);
+  });
+
   it("keeps loaded history unchanged for an empty end-of-history page", () => {
     const loaded = [message("msg_1", 1), message("msg_2", 2)];
     expect(mergeMessagePages(loaded, [])).toBe(loaded);
@@ -105,6 +113,13 @@ describe("transcript page merging", () => {
     expect(cursors).toEqual([undefined, "125", "25"]);
     expect(complete).toHaveLength(225);
     expect(complete.map((item) => item.info?.id)).toEqual(all.map((item) => item.info?.id));
+  });
+
+  it("places an older cursor page first when cross-page timestamps tie", async () => {
+    const complete = await fetchAllMessagePages(async (before) => before
+      ? { messages: [message("msg_older", 1)], nextCursor: null }
+      : { messages: [message("msg_newer", 1)], nextCursor: "older" });
+    expect(complete.map((item) => item.info?.id)).toEqual(["msg_older", "msg_newer"]);
   });
 
   it("invalidates stale content when a mutated message belongs to older backfill", () => {

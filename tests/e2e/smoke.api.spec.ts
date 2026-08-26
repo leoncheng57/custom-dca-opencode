@@ -63,7 +63,7 @@ test.describe("health", () => {
     const body = await res.json();
     expect(body.healthy).toBe(true);
     expect(body.upstream.reachable).toBe(true);
-    expect(body.upstream.version).toBe("1.18.21");
+    expect(body.upstream.version).toBe("1.18.22");
     expect(body.upstream.versionMatches).toBe(true);
   });
 
@@ -260,6 +260,37 @@ test.describe("transcript", () => {
     const body = await (await request.get(`/api/sessions/ses_mock_done/todos?directory=${DIR}`)).json();
     expect(body.todos.length).toBe(3);
     expect(body.todos[0]).toMatchObject({ status: "completed" });
+  });
+
+  test("returns a message-scoped turn diff without sensitive files", async ({ request }) => {
+    const response = await request.get(
+      `/api/sessions/ses_mock_done/diff?directory=${DIR}&userMessageID=msg_user_001`,
+    );
+    expect(response.ok()).toBe(true);
+    expect(await response.json()).toEqual({
+      changes: [{
+        file: "src/index.ts",
+        patch: "@@ -1 +1 @@\n-old\n+new",
+        additions: 1,
+        deletions: 1,
+        status: "modified",
+      }],
+    });
+
+    const assistant = await request.get(
+      `/api/sessions/ses_mock_done/diff?directory=${DIR}&userMessageID=msg_asst_001`,
+    );
+    expect(assistant.ok()).toBe(true);
+    expect(await assistant.json()).toEqual({ changes: [] });
+
+    const unknown = await request.get(
+      `/api/sessions/ses_mock_done/diff?directory=${DIR}&userMessageID=msg_unknown`,
+    );
+    expect(unknown.ok()).toBe(true);
+    expect(await unknown.json()).toEqual({ changes: [] });
+
+    const missingMessage = await request.get(`/api/sessions/ses_mock_done/diff?directory=${DIR}`);
+    expect(missingMessage.status()).toBe(400);
   });
 });
 
@@ -904,6 +935,8 @@ test.describe("notification history", () => {
   ): Promise<{
     records: Array<Record<string, unknown>>;
     activeCount: number;
+    appBadgeCount: number;
+    appBadgeRevision: number;
     suppressedActive: Record<string, number>;
   }> {
     return await (await request.get(`/api/notifications/history?limit=200${query}`)).json();
@@ -985,10 +1018,15 @@ test.describe("notification history", () => {
     await expect.poll(async () => Boolean(record((await history(request)).records, requestID))).toBe(true);
 
     const before = await history(request);
+    expect(typeof before.appBadgeCount).toBe("number");
+    expect(typeof before.appBadgeRevision).toBe("number");
     const id = record(before.records, requestID)!.id as string;
     const resolved = await request.patch(`/api/notifications/${id}`, { data: { resolved: true } });
     expect(resolved.status()).toBe(200);
-    expect((await resolved.json()).record).toMatchObject({ id, resolvedBy: "checked" });
+    const resolvedBody = await resolved.json();
+    expect(resolvedBody.record).toMatchObject({ id, resolvedBy: "checked" });
+    expect(typeof resolvedBody.appBadgeCount).toBe("number");
+    expect(resolvedBody.appBadgeRevision).toBeGreaterThan(before.appBadgeRevision);
 
     const after = await history(request);
     expect(record(after.records, requestID)).toMatchObject({ resolvedBy: "checked" });

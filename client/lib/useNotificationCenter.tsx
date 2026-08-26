@@ -3,6 +3,7 @@ import { useLocation } from "react-router-dom";
 
 import { api, type NotificationRecord, type SuppressedActiveCounts } from "./api.js";
 import { DIRECTORY_STORAGE_KEY, resolvePaletteDirectory } from "./palette.js";
+import { syncAppBadge } from "./appBadge.js";
 import {
   DEFAULT_NOTIFICATION_VIEW,
   loadNotificationView,
@@ -74,6 +75,7 @@ export function NotificationCenterProvider({ children }: { children: ReactNode }
         setRecords(result.records);
         setActiveCount(result.activeCount);
         setSuppressedActive(result.suppressedActive ?? NO_SUPPRESSED_ACTIVE);
+        void syncAppBadge(result.appBadgeCount, navigator, result.appBadgeRevision);
         setError("");
       })
       .catch((e: Error) => {
@@ -90,6 +92,19 @@ export function NotificationCenterProvider({ children }: { children: ReactNode }
   // tab's upstream fan-out for no benefit.
   useEffect(() => {
     void refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    const refreshVisible = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    const refreshPage = () => void refresh();
+    document.addEventListener("visibilitychange", refreshVisible);
+    window.addEventListener("pageshow", refreshPage);
+    return () => {
+      document.removeEventListener("visibilitychange", refreshVisible);
+      window.removeEventListener("pageshow", refreshPage);
+    };
   }, [refresh]);
 
   const setResolved = useCallback(

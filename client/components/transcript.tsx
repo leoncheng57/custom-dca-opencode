@@ -5,18 +5,22 @@
 // OpenCode Part. That wall is what made this migration a small adapter rewrite
 // instead of a rebuild; see client/lib/transcript.ts.
 
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
+import { ChangeModal } from "./change-modal.js";
 import { Markdown } from "../ds/markdown.js";
 import { Badge } from "../ds/badge.js";
+import { FileReference } from "../ds/file-reference.js";
 import { cn } from "../ds/utils.js";
+import { useWorkspaceAttachmentReference } from "../lib/workspaceReferences.js";
 import { formatClockTime, formatDurationMs, formatRelative, type DisplayItem, type RunningActivity } from "../lib/derive.js";
 import type {
   Attachment,
   AgentEvent,
   ErrorEvent,
   MessageMode,
+  PatchEvent,
   StatusEvent,
   ThoughtEvent,
   ToolEvent,
@@ -47,6 +51,42 @@ function TimeLabel({ timestamp, className }: { timestamp: string; className?: st
 }
 
 /**
+ * One attachment chip.
+ *
+ * A workspace path the server confirmed is readable becomes a control that
+ * opens the file; anything else keeps the inert chip it has always been. The
+ * control still never carries `Attachment.url` — it carries a validated
+ * workspace path, and opening it goes through the read route like any other
+ * file. See the note on `Attachments` for why the URL is untouchable.
+ */
+function AttachmentChip({ item }: { item: Attachment }) {
+  const reference = useWorkspaceAttachmentReference(item.path);
+  if (reference) {
+    return (
+      <FileReference
+        path={reference.target.path}
+        onOpen={reference.open}
+        testId="opencode-attachment-reference"
+        className="inline-flex items-center gap-1 rounded-full text-[11px] no-underline"
+      >
+        <span aria-hidden>📎</span>
+        <span className="max-w-48 truncate">{item.filename}</span>
+      </FileReference>
+    );
+  }
+  return (
+    <span
+      title={item.path ?? item.filename}
+      className="inline-flex items-center gap-1 rounded-full border border-[var(--color-border-default)] px-2 py-0.5 text-[11px] text-[var(--color-text-muted)]"
+      data-testid="opencode-attachment-chip-inert"
+    >
+      <span aria-hidden>📎</span>
+      <span className="max-w-48 truncate">{item.filename}</span>
+    </span>
+  );
+}
+
+/**
  * Attachments render as filename chips, never as <img src={url}>.
  *
  * `Attachment.url` is explicitly "not necessarily an http URL" and can point
@@ -71,16 +111,7 @@ function Attachments({ items }: { items: Attachment[] }) {
             />
           );
         }
-        return (
-          <span
-            key={`${item.filename}-${index}`}
-            title={item.path ?? item.filename}
-            className="inline-flex items-center gap-1 rounded-full border border-[var(--color-border-default)] px-2 py-0.5 text-[11px] text-[var(--color-text-muted)]"
-          >
-            <span aria-hidden>📎</span>
-            <span className="max-w-48 truncate">{item.filename}</span>
-          </span>
-        );
+        return <AttachmentChip key={`${item.filename}-${index}`} item={item} />;
       })}
     </div>
   );
@@ -233,6 +264,19 @@ function UserBubble({ event, onExport }: { event: UserEvent; onExport?: (event: 
             reminder attached - {reminder.name}
           </summary>
           <pre className="mt-1 whitespace-pre-wrap break-words font-sans leading-relaxed">{reminder.body}</pre>
+        </details>
+      ))}
+      {event.workflows.map((workflow, index) => (
+        <details
+          open
+          key={`${workflow.name}-${index}`}
+          className="max-w-[90%] rounded-lg border border-[var(--color-border-default)] p-2 text-left text-[11px] text-[var(--color-text-muted)] sm:max-w-[75%]"
+          data-testid="opencode-manual-workflow"
+        >
+          <summary className="cursor-pointer font-medium" data-testid="opencode-manual-workflow-toggle">
+            workflow attached - {workflow.name}
+          </summary>
+          <pre className="mt-1 whitespace-pre-wrap break-words font-sans leading-relaxed">{workflow.body}</pre>
         </details>
       ))}
       {event.mode && <ModePill mode={event.mode} />}
@@ -499,6 +543,81 @@ function StatusSeparator({ event, directory }: { event: StatusEvent; directory?:
   );
 }
 
+/**
+ * A file-edit milestone.
+ *
+ * Deliberately renders no patch body: issue #134 established that a normal
+ * turn and an oversized turn must behave identically, and only one of those
+ * can ever be shown inline. The card states what changed and opens the one
+ * modal that explains its own scope.
+ */
+function ChangedFilesCard({
+  event,
+  directory,
+  sessionId,
+  onOpenWorkspaceChanges,
+}: {
+  event: PatchEvent;
+  directory?: string;
+  sessionId?: string;
+  onOpenWorkspaceChanges?: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const canOpen = Boolean(directory && sessionId && event.userMessageId);
+  const countLabel = event.fileCount === 1 ? "1 file changed" : `${event.fileCount} files changed`;
+
+  // A session or turn change invalidates whatever the modal was showing.
+  useEffect(() => setOpen(false), [directory, event.userMessageId, sessionId]);
+
+  return (
+    <section
+      className="min-w-0 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-background-surface)] p-3"
+      data-kind="patch"
+      data-testid="opencode-changed-files-card"
+    >
+      <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start">
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+            <h3 className="text-xs font-semibold">{countLabel}</h3>
+            <TimeLabel timestamp={event.timestamp} />
+          </div>
+          {(event.files.length > 0 || event.filesTruncated) && (
+            <p className="mt-1 break-words font-mono text-[11px] leading-5 text-[var(--color-text-muted)]" data-testid="opencode-changed-files-names">
+              {event.files.map((file, index) => <span key={`${file}-${index}`}>{index > 0 ? ", " : ""}{file}</span>)}
+              {event.files.length < event.fileCount && <span>{event.files.length > 0 ? ", " : ""}+{event.fileCount - event.files.length} more</span>}
+              {event.filesTruncated && event.files.length === event.fileCount && <span> (names truncated)</span>}
+            </p>
+          )}
+        </div>
+        {canOpen ? (
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            aria-haspopup="dialog"
+            className="min-h-9 shrink-0 self-start rounded-md border border-[var(--color-border-default)] px-3 text-xs font-medium hover:bg-[var(--color-background-muted)] pointer-coarse:min-h-11"
+            data-testid="opencode-turn-diff-toggle"
+          >
+            View changes
+          </button>
+        ) : (
+          <span className="text-xs text-[var(--color-text-muted)]" data-testid="opencode-turn-diff-unavailable">
+            Detailed changes unavailable
+          </span>
+        )}
+      </div>
+      {open && canOpen && (
+        <ChangeModal
+          directory={directory!}
+          sessionId={sessionId!}
+          event={event}
+          onClose={() => setOpen(false)}
+          onOpenWorkspaceChanges={onOpenWorkspaceChanges}
+        />
+      )}
+    </section>
+  );
+}
+
 function ErrorCard({ event }: { event: ErrorEvent }) {
   return (
     <div
@@ -530,7 +649,11 @@ function ActionGroupRow({
 }) {
   const last = calls[calls.length - 1];
   return (
-    <div data-kind="action-group" data-testid="opencode-action-group">
+    <div
+      data-kind="action-group"
+      data-testid="opencode-action-group"
+      data-event-ids={JSON.stringify(calls.map((call) => call.id))}
+    >
       <button
         type="button"
         onClick={onToggle}
@@ -545,7 +668,7 @@ function ActionGroupRow({
       {expanded && (
         <div className="mt-1.5 space-y-1.5 border-l border-[var(--color-border-default)] pl-3">
           {calls.map((call) => (
-            <div key={call.id} data-event-id={call.id}>
+            <div key={call.id} data-event-id={call.id} tabIndex={-1}>
               <ToolCallRow event={call} wrap={wrap} directory={directory} />
             </div>
           ))}
@@ -555,7 +678,7 @@ function ActionGroupRow({
   );
 }
 
-const TranscriptRow = memo(function TranscriptRow({ event, wrap, onExport, directory }: { event: TranscriptEvent; wrap: boolean; onExport?: (event: UserEvent | AgentEvent) => void; directory?: string }) {
+const TranscriptRow = memo(function TranscriptRow({ event, wrap, onExport, directory, sessionId, onOpenWorkspaceChanges }: { event: TranscriptEvent; wrap: boolean; onExport?: (event: UserEvent | AgentEvent) => void; directory?: string; sessionId?: string; onOpenWorkspaceChanges?: () => void }) {
   switch (event.kind) {
     case "user":
       return <UserBubble event={event} onExport={onExport} />;
@@ -565,6 +688,8 @@ const TranscriptRow = memo(function TranscriptRow({ event, wrap, onExport, direc
       return <ThoughtRow text={event.text} durationMs={event.durationMs} />;
     case "tool":
       return <ToolCallRow event={event} wrap={wrap} directory={directory} />;
+    case "patch":
+      return <ChangedFilesCard event={event} directory={directory} sessionId={sessionId} onOpenWorkspaceChanges={onOpenWorkspaceChanges} />;
     case "status":
       return <StatusSeparator event={event} directory={directory} />;
     case "error":
@@ -631,7 +756,7 @@ function rowSpacing(previous: DisplayItem | undefined, item: DisplayItem): strin
     candidate.type === "actionGroup" ||
     (candidate.type === "event" && candidate.event.kind === "tool");
   if (isAction(previous) && isAction(item)) return "mt-1.5";
-  if (item.type === "event" && item.event.kind === "status") return "mt-5";
+  if (item.type === "event" && (item.event.kind === "status" || item.event.kind === "patch")) return "mt-5";
   return "mt-6";
 }
 
@@ -642,6 +767,8 @@ export const Transcript = memo(function Transcript({
   onToggleGroup,
   onExport,
   directory,
+  sessionId,
+  onOpenWorkspaceChanges,
 }: {
   items: DisplayItem[];
   wrap: boolean;
@@ -650,6 +777,10 @@ export const Transcript = memo(function Transcript({
   onExport?: (event: UserEvent | AgentEvent) => void;
   /** Project scope, required to build links to delegated child sessions. */
   directory?: string;
+  /** Session scope, required for lazy per-turn diff requests. */
+  sessionId?: string;
+  /** Opens the working-tree diff when historical detail is unavailable. */
+  onOpenWorkspaceChanges?: () => void;
 }) {
   return (
     <>
@@ -657,6 +788,7 @@ export const Transcript = memo(function Transcript({
         <div
           key={item.id}
           data-event-id={item.type === "actionGroup" ? undefined : item.id}
+          tabIndex={item.type === "actionGroup" ? undefined : -1}
           className={rowSpacing(items[index - 1], item)}
         >
           {item.type === "actionGroup" ? (
@@ -668,7 +800,7 @@ export const Transcript = memo(function Transcript({
               directory={directory}
             />
           ) : (
-            <TranscriptRow event={item.event} wrap={wrap} onExport={onExport} directory={directory} />
+            <TranscriptRow event={item.event} wrap={wrap} onExport={onExport} directory={directory} sessionId={sessionId} onOpenWorkspaceChanges={onOpenWorkspaceChanges} />
           )}
         </div>
       ))}

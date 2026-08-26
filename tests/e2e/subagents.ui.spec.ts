@@ -254,8 +254,7 @@ test.describe("subagents panel", () => {
   test("is reachable on mobile", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 740 });
     await page.goto(parentUrl);
-    await page.getByTestId("opencode-mobile-session-menu").locator("summary").click();
-    await page.getByTestId("opencode-mobile-inspector-menu-open").click();
+    await page.getByTestId("opencode-mobile-runlog-open").click();
     const sheet = page.getByTestId("opencode-mobile-inspector");
     await expect(sheet).toBeVisible();
     await sheet.getByTestId("opencode-inspector-subagents").click();

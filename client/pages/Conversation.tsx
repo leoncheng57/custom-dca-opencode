@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { ChevronDown, Ellipsis, MessageSquareText } from "lucide-react";
+import { ChevronDown, Ellipsis, FolderOpen, GitPullRequest, Info, MessageSquareText, OctagonX, Waves } from "lucide-react";
 
 import { Alert } from "../ds/alert.js";
 import { Badge } from "../ds/badge.js";
@@ -15,13 +15,18 @@ import { ModelPicker } from "../components/model-picker.js";
 import { QuestionRequest } from "../components/question-request.js";
 import { ReminderPicker } from "../components/reminder-picker.js";
 import { ShareExportDialog } from "../components/share-export-dialog.js";
-import { api, ApiError, formatCost, type ReminderSummary, type SessionSummary } from "../lib/api.js";
-import { latestModeMessageID, modeFromSession, type AgentMode } from "../lib/agentMode.js";
+import { WorkflowDialog } from "../components/workflow-dialog.js";
+import { WorkflowPicker } from "../components/workflow-picker.js";
+import { api, ApiError, formatCost, type ReminderSummary, type SessionSummary, type WorkflowSummary } from "../lib/api.js";
+import { foreignAgentFromSession, latestModeMessageID, modeFromSession, type AgentMode } from "../lib/agentMode.js";
 import { MAX_IMAGE_ATTACHMENTS, readImageAttachment, selectImageFiles, type ImageAttachment } from "../lib/attachments.js";
+import { createComposerCollapseGuard } from "../lib/composerCollapse.js";
 import { composerEnterAction } from "../lib/composerKeys.js";
 import { collapseActionGroups, mergeEvents, runningActivity } from "../lib/derive.js";
 import { normalizeTranscript, type RawMessage } from "../lib/events.js";
 import { parseInspectorTab, type InspectorTab } from "../lib/inspectorTabs.js";
+import { referenceCandidatesFromEvents, type WorkspaceTarget } from "../lib/fileReferences.js";
+import { WorkspaceReferenceProvider, useWorkspaceReferences } from "../lib/workspaceReferences.js";
 import { useSessionStream } from "../lib/useSessionStream.js";
 import type { TranscriptEvent } from "../lib/transcript.js";
 import type { ShareTarget } from "../lib/sessionSharing.js";
@@ -38,11 +43,7 @@ import {
 } from "../lib/models.js";
 
 const WRAP_KEY = "opencode.wrapOutput.v1";
-
-// Issue #72: the conversation actions read as a toolbar, not as five buttons.
-// Only the pointer-fine rendering shrinks — a coarse pointer still gets a 44px
-// hit area, which is larger than the 40px the shared `sm` size gives it.
-const COMPACT_ACTION = "h-7 px-2 text-[11px] pointer-coarse:h-11 pointer-coarse:px-3";
+const APP_NAME = "DCA";
 
 export function ConversationPage() {
   const { id = "" } = useParams();
@@ -63,6 +64,8 @@ export function ConversationPage() {
   const [sending, setSending] = useState(false);
   const [composerError, setComposerError] = useState<string | null>(null);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [workspaceTab, setWorkspaceTab] = useState<"files" | "changes">("files");
+  const [workspaceTarget, setWorkspaceTarget] = useState<WorkspaceTarget | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [requestedInspectorTab, setRequestedInspectorTab] = useState<InspectorTab | undefined>();
   const appliedPanelScope = useRef("");
@@ -71,8 +74,16 @@ export function ConversationPage() {
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [reminderCatalogue, setReminderCatalogue] = useState<ReminderSummary[]>([]);
   const [selectedReminder, setSelectedReminder] = useState("");
+  const [workflowCatalogue, setWorkflowCatalogue] = useState<WorkflowSummary[]>([]);
+  const [selectedWorkflow, setSelectedWorkflow] = useState("");
+  const [activeWorkflow, setActiveWorkflow] = useState<WorkflowSummary | null>(null);
   const [mode, setMode] = useState<AgentMode>("build");
   const [agentIdentityKnown, setAgentIdentityKnown] = useState(false);
+  // A session driven by an arbitrary roster agent (issue #52, narrowed):
+  // identity is preserved and displayed, never remapped to Plan/Build.
+  const [foreignAgent, setForeignAgent] = useState<string | null>(null);
+  // null = unchecked, true/false = live roster verdict. Only true enables send.
+  const [foreignAgentAvailable, setForeignAgentAvailable] = useState<boolean | null>(null);
   const derivedModeMessage = useRef<string | undefined>(undefined);
   const modeSelectionDirty = useRef(false);
   const [replyingPermission, setReplyingPermission] = useState<string | null>(null);
@@ -92,7 +103,27 @@ export function ConversationPage() {
   const [newActivity, setNewActivity] = useState(false);
   const [shareTarget, setShareTarget] = useState<ShareTarget | null>(null);
   const [composerCollapsed, setComposerCollapsed] = useState(false);
+  const composerCardRef = useRef<HTMLDivElement | null>(null);
+  const [autoSafetyOpen, setAutoSafetyOpen] = useState(false);
+  const collapseGuard = useRef(createComposerCollapseGuard());
+  const [stopConfirmOpen, setStopConfirmOpen] = useState(false);
+  const [stopping, setStopping] = useState(false);
+  const [stopError, setStopError] = useState<string | null>(null);
+  const stopTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const stopDialogRef = useRef<HTMLElement | null>(null);
   const [parent, setParent] = useState<SessionSummary | null>(null);
+
+  useEffect(() => {
+    if (session?.title) document.title = `${session.title} | ${APP_NAME}`;
+  }, [session?.title]);
+
+  useEffect(() => {
+    const protectDraft = (event: Event) => {
+      if (draft.trim() || attachments.length) event.preventDefault();
+    };
+    window.addEventListener("opencode:before-app-refresh", protectDraft);
+    return () => window.removeEventListener("opencode:before-app-refresh", protectDraft);
+  }, [draft, attachments.length]);
 
   // Keep event identity stable across polls so memoised rows do not churn.
   const [events, setEvents] = useState<TranscriptEvent[]>([]);
@@ -107,7 +138,9 @@ export function ConversationPage() {
     if (appliedPanelScope.current === scope) return;
     appliedPanelScope.current = scope;
     setRequestedInspectorTab(panelParam);
-    if (window.matchMedia("(max-width: 1023.98px)").matches) setInspectorOpen(true);
+    if (panelParam === "reviews" || panelParam === "catalog" || window.matchMedia("(max-width: 1023.98px)").matches) {
+      setInspectorOpen(true);
+    }
   }, [id, panelParam]);
   useEffect(() => {
     const scope = `${directory}\0${id}`;
@@ -122,16 +155,53 @@ export function ConversationPage() {
 
   useEffect(() => {
     if (!stream.loaded) return;
-    const marker = `${session?.agent ?? ""}:${latestModeMessageID(stream.messages as RawMessage[]) ?? ""}`;
+    const managedAgent = session?.managed?.requestedAgent;
+    const marker = `${session?.agent ?? ""}:${managedAgent ?? ""}:${latestModeMessageID(stream.messages as RawMessage[]) ?? ""}`;
     if (marker === derivedModeMessage.current) return;
     derivedModeMessage.current = marker;
+    if (managedAgent) {
+      modeSelectionDirty.current = false;
+      setAgentIdentityKnown(true);
+      setForeignAgent(null);
+      setMode(managedAgent === "plan" || managedAgent === "explore" ? "plan" : "build");
+      return;
+    }
     const persistedMode = modeFromSession(session?.agent, stream.messages as RawMessage[]);
-    setAgentIdentityKnown(persistedMode !== undefined);
-    if (!persistedMode) return;
-    if (modeSelectionDirty.current && persistedMode !== mode) return;
-    modeSelectionDirty.current = false;
-    setMode(persistedMode);
-  }, [mode, session?.agent, stream.loaded, stream.messages]);
+    if (persistedMode) {
+      setForeignAgent(null);
+      setAgentIdentityKnown(true);
+      if (modeSelectionDirty.current && persistedMode !== mode) return;
+      modeSelectionDirty.current = false;
+      setMode(persistedMode);
+      return;
+    }
+    // Not Plan/Build: a consistent foreign identity is promptable with its own
+    // agent once the live roster confirms the agent still exists.
+    const foreign = foreignAgentFromSession(session?.agent, stream.messages as RawMessage[]) ?? null;
+    setForeignAgent(foreign);
+    setAgentIdentityKnown(false);
+  }, [mode, session?.agent, session?.managed?.requestedAgent, stream.loaded, stream.messages]);
+
+  useEffect(() => {
+    if (!foreignAgent || !directory) {
+      setForeignAgentAvailable(null);
+      return;
+    }
+    let cancelled = false;
+    setForeignAgentAvailable(null);
+    void api.sessionAgents(directory)
+      .then((result) => {
+        if (cancelled) return;
+        setForeignAgentAvailable(result.agents.some((agent) => agent.id === foreignAgent));
+      })
+      .catch(() => {
+        // Roster unavailable = agent unverifiable = keep the composer closed.
+        if (!cancelled) setForeignAgentAvailable(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [directory, foreignAgent]);
 
   const selectMode = (nextMode: AgentMode) => {
     modeSelectionDirty.current = true;
@@ -222,6 +292,11 @@ export function ConversationPage() {
     }).catch(() => {
       // A missing catalogue is optional; keep the picker hidden.
     });
+    void api.workflows().then((result) => {
+      if (!cancelled) setWorkflowCatalogue(result.workflows);
+    }).catch(() => {
+      // Same as reminders: an unreachable catalogue only hides the picker.
+    });
     return () => {
       cancelled = true;
     };
@@ -229,6 +304,30 @@ export function ConversationPage() {
 
   const items = useMemo(() => collapseActionGroups(events), [events]);
   const activity = useMemo(() => runningActivity(events), [events]);
+
+  // Reference validation is derived from the transcript rather than from
+  // rendering, so a streaming turn produces one batched request per new set of
+  // paths instead of one per rendered code span.
+  const referenceCandidates = useMemo(
+    () => referenceCandidatesFromEvents(events, directory),
+    [directory, events],
+  );
+  const resolvedReferences = useWorkspaceReferences(directory, referenceCandidates);
+  // Opening a file must not change the route or the transcript scroll: the
+  // drawer is an overlay and the transcript stays mounted underneath it.
+  const openWorkspaceTarget = useCallback((target: WorkspaceTarget) => {
+    setWorkspaceTarget(target);
+    setWorkspaceTab("files");
+    setWorkspaceOpen(true);
+  }, []);
+  // The change modal offers this when historical detail is unavailable, so it
+  // must land on the working-tree diff rather than the file browser.
+  const openWorkspaceChanges = useCallback(() => {
+    setWorkspaceTarget(null);
+    setWorkspaceTab("changes");
+    setWorkspaceOpen(true);
+  }, []);
+  const clearWorkspaceTarget = useCallback(() => setWorkspaceTarget(null), []);
   const latestUsage = transcript.usage.at(-1);
   const contextTokens = latestUsage
     ? latestUsage.tokens.input + latestUsage.tokens.output + latestUsage.tokens.reasoning + latestUsage.tokens.cacheRead + latestUsage.tokens.cacheWrite
@@ -248,6 +347,52 @@ export function ConversationPage() {
       localStorage.setItem(WRAP_KEY, value ? "off" : "on");
       return !value;
     });
+  };
+
+  const dismissStopConfirmation = useCallback(() => {
+    if (stopping) return;
+    if ((window.history.state as { opencodeStopConfirmation?: boolean } | null)?.opencodeStopConfirmation) {
+      window.history.back();
+    } else {
+      setStopConfirmOpen(false);
+    }
+  }, [stopping]);
+
+  useEffect(() => {
+    if (!stopConfirmOpen) return;
+    if (!(window.history.state as { opencodeStopConfirmation?: boolean } | null)?.opencodeStopConfirmation) {
+      window.history.pushState({ opencodeStopConfirmation: true }, "");
+    }
+    const onPopState = () => setStopConfirmOpen(false);
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") dismissStopConfirmation();
+    };
+    window.addEventListener("popstate", onPopState);
+    window.addEventListener("keydown", onKeyDown);
+    stopDialogRef.current?.focus();
+    return () => {
+      window.removeEventListener("popstate", onPopState);
+      window.removeEventListener("keydown", onKeyDown);
+      stopTriggerRef.current?.focus();
+    };
+  }, [dismissStopConfirmation, stopConfirmOpen]);
+
+  const stopRun = async () => {
+    if (stopping) return;
+    setStopping(true);
+    setStopError(null);
+    try {
+      await api.abort(directory, id);
+      stream.refresh();
+      setStopConfirmOpen(false);
+      if ((window.history.state as { opencodeStopConfirmation?: boolean } | null)?.opencodeStopConfirmation) {
+        window.history.back();
+      }
+    } catch (error) {
+      setStopError(`Could not stop the run: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setStopping(false);
+    }
   };
 
   // Follow live output only while the reader remains near the bottom. Depending
@@ -324,6 +469,9 @@ export function ConversationPage() {
     textarea.style.height = `${textarea.scrollHeight}px`;
   }, [draft]);
 
+  const foreignReady = foreignAgent !== null && foreignAgentAvailable === true;
+  const canPrompt = agentIdentityKnown || foreignReady;
+
   const send = async () => {
     const text = draft.trim();
     if (!text) return;
@@ -335,15 +483,18 @@ export function ConversationPage() {
         directory,
         id,
         text,
-        mode,
+        foreignReady && foreignAgent ? { agent: foreignAgent } : { mode },
         modelOverride,
         attachments,
         selectedReminder || undefined,
+        selectedWorkflow || undefined,
       );
       setDraft("");
       setAttachments([]);
-      // Per-message choice: never let a reminder silently ride on later turns.
+      // Per-message choices: never let a reminder or a workflow injector
+      // silently ride on later turns.
       setSelectedReminder("");
+      setSelectedWorkflow("");
       if (modelOverride) {
         setCurrentModel(modelOverride);
         modelSelectionDirty.current = false;
@@ -351,7 +502,8 @@ export function ConversationPage() {
       stream.refresh();
     } catch (error) {
       if (error instanceof ApiError &&
-          (error.code === "SESSION_AGENT_UNKNOWN" || error.code === "SESSION_AGENT_UNSUPPORTED")) {
+          (error.code === "SESSION_AGENT_UNKNOWN" || error.code === "SESSION_AGENT_UNSUPPORTED" ||
+            error.code === "SESSION_AGENT_MISMATCH" || error.code === "SESSION_AGENT_UNAVAILABLE")) {
         setComposerError(error.message);
       } else {
         setComposerError(`Could not send the prompt: ${error instanceof Error ? error.message : String(error)}`);
@@ -377,7 +529,7 @@ export function ConversationPage() {
         coarsePointer: window.matchMedia("(pointer: coarse)").matches,
         // `send()` has no re-entry guard and prompt_async returns as soon as
         // the turn is queued, so a fast double Enter would post two turns.
-        canSubmit: agentIdentityKnown && !sending && draft.trim().length > 0,
+        canSubmit: canPrompt && !sending && draft.trim().length > 0,
       },
     );
     if (action.preventDefault) event.preventDefault();
@@ -415,14 +567,11 @@ export function ConversationPage() {
 
   return (
     <main className="flex h-full min-h-0 flex-col overflow-hidden" data-testid="opencode-conversation">
-      {/* Two rows on purpose (issue #72). The title is the most important
-          element on the page and used to be squeezed between a back link and
-          five controls; it now owns a full-width line of its own. Everything
-          actionable — including auto permissions, which used to claim a
-          third full-width row — collapses into one compact toolbar below. */}
+      {/* The session title owns the header context. The same action set follows
+          it at every width so changing viewport does not change the workflow. */}
       <header className="flex shrink-0 flex-col gap-1.5 border-b border-[var(--color-border-default)] px-3 py-2 sm:px-4 sm:py-2.5">
         <div className="flex min-w-0 items-center gap-2">
-          <Link to={`/?directory=${encodeURIComponent(directory)}`} className="shrink-0 text-sm underline">
+          <Link to={`/?directory=${encodeURIComponent(directory)}`} className="hidden shrink-0 text-sm underline sm:inline">
             ← Sessions
           </Link>
           <h1 className="min-w-0 flex-1 truncate text-sm font-semibold sm:text-base" data-testid="opencode-session-title">
@@ -430,59 +579,103 @@ export function ConversationPage() {
           </h1>
           {parentID && <Badge variant="neutral" data-testid="opencode-subagent-badge">sub</Badge>}
           {stream.running && <Badge variant="info">running</Badge>}
+          {stream.running && <button
+            ref={stopTriggerRef}
+            type="button"
+            className="flex min-h-11 min-w-11 items-center justify-center rounded-md text-[var(--color-text-danger)] hover:bg-[var(--color-background-surface-danger-muted)]"
+            onClick={() => { setStopError(null); setStopConfirmOpen(true); }}
+            aria-label="Stop running agent"
+            title="Stop running agent"
+            data-testid="opencode-mobile-stop-open"
+          >
+            <OctagonX aria-hidden="true" className="h-4 w-4" />
+          </button>}
         </div>
 
-        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1" data-testid="opencode-conversation-toolbar">
-          {session && session.cost > 0 && (
-            <span className="hidden text-xs tabular-nums text-[var(--color-text-muted)] sm:inline" data-testid="opencode-session-cost">
-              {formatCost(session.cost)}
-            </span>
-          )}
-          {contextTokens > 0 && (
-            <span className="hidden text-xs tabular-nums text-[var(--color-text-muted)] sm:inline" data-testid="opencode-context-tokens" title="Latest turn context tokens">
-              context {Intl.NumberFormat(undefined, { notation: "compact" }).format(contextTokens)}
-              {displayedContextLimit ? ` / ${Math.round((contextTokens / displayedContextLimit) * 100)}%` : ""}
-            </span>
-          )}
-          <AutoPermissionsControl directory={directory} testId="opencode-conversation-auto-permissions" variant="compact" />
-          <span className="flex-1" aria-hidden="true" />
-          <div className="hidden items-center gap-1.5 sm:flex">
-            <Button size="sm" variant="secondary" className={COMPACT_ACTION} onClick={toggleWrap} data-testid="opencode-wrap-toggle">
-              {wrap ? "Wrap: on" : "Wrap: off"}
-            </Button>
-            <Button size="sm" variant="secondary" className={COMPACT_ACTION} onClick={() => setShareTarget({ kind: "session" })} data-testid="opencode-share-export-open">
-              Share
-            </Button>
-            <Button size="sm" variant="secondary" className={COMPACT_ACTION} onClick={() => setWorkspaceOpen(true)} data-testid="opencode-workspace-open">
-              Workspace
-            </Button>
-            <Button className={`${COMPACT_ACTION} lg:hidden`} size="sm" variant="secondary" onClick={() => setInspectorOpen(true)} data-testid="opencode-mobile-inspector-open">
-              Details
-            </Button>
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="hidden min-w-0 items-center gap-2 text-xs tabular-nums text-[var(--color-text-muted)] sm:flex">
+            {session && session.cost > 0 && <span data-testid="opencode-session-cost">{formatCost(session.cost)}</span>}
+            {contextTokens > 0 && (
+              <span data-testid="opencode-context-tokens" title="Latest turn context tokens">
+                context {Intl.NumberFormat(undefined, { notation: "compact" }).format(contextTokens)}
+                {displayedContextLimit ? ` / ${Math.round((contextTokens / displayedContextLimit) * 100)}%` : ""}
+              </span>
+            )}
           </div>
-          {stream.running && (
-            <Button
-              size="sm"
-              variant="secondary"
-              className={COMPACT_ACTION}
-              onClick={() => void api.abort(directory, id).then(stream.refresh)}
-              data-testid="opencode-abort"
-            >
-              Stop
-            </Button>
-          )}
-          <details className="relative sm:hidden" data-testid="opencode-mobile-session-menu">
-            <summary className="flex h-11 w-11 cursor-pointer list-none items-center justify-center rounded-md text-[var(--color-text-muted)] hover:bg-[var(--hh-row-hover)] [&::-webkit-details-marker]:hidden" aria-label="Session actions">
-              <Ellipsis aria-hidden="true" className="h-5 w-5" />
+          <div className="flex min-w-0 flex-1 items-center justify-end gap-1 sm:ml-auto sm:w-fit sm:flex-none" aria-label="Session actions" data-testid="opencode-mobile-conversation-actions">
+          <Button
+            size="md"
+            variant="ghost"
+            className="min-h-11 min-w-12 px-0"
+            onClick={() => { setWorkspaceTab("files"); setWorkspaceOpen(true); }}
+            aria-label="Open workspace"
+            title="Open workspace"
+            data-testid="opencode-mobile-workspace-open"
+          >
+            <FolderOpen aria-hidden="true" className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            size="md"
+            variant="ghost"
+            className="min-h-11 min-w-12 px-0"
+            onClick={() => {
+              setRequestedInspectorTab("reviews");
+              setInspectorOpen(true);
+            }}
+            aria-label="Open reviews"
+            title="Open reviews"
+            data-testid="opencode-mobile-reviews-open"
+          >
+            <GitPullRequest aria-hidden="true" className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            size="md"
+            variant="ghost"
+            className="min-h-11 min-w-12 px-0"
+            onClick={() => {
+              setRequestedInspectorTab("runlog");
+              setInspectorOpen(true);
+            }}
+            aria-label="Open run log"
+            title="Open run log"
+            data-testid="opencode-mobile-runlog-open"
+          >
+            <Waves aria-hidden="true" className="h-3.5 w-3.5" />
+          </Button>
+          <AutoPermissionsControl
+            directory={directory}
+            testId="opencode-mobile-auto-permissions"
+            variant="pill"
+            trailing={
+              <Button size="md" variant="ghost" className="min-h-9 min-w-9 rounded-lg px-0" onClick={() => setAutoSafetyOpen(true)} aria-label="Auto permissions safety" title="Auto permissions safety" data-testid="opencode-mobile-auto-permissions-info">
+                <Info aria-hidden="true" className="h-3.5 w-3.5" />
+              </Button>
+            }
+          />
+          <details className="relative" data-testid="opencode-mobile-session-menu">
+            <summary className="flex min-h-11 min-w-12 cursor-pointer list-none items-center justify-center rounded-md text-[var(--color-text-muted)] hover:bg-[var(--hh-row-hover)] [&::-webkit-details-marker]:hidden" aria-label="More session actions" title="More session actions">
+              <Ellipsis aria-hidden="true" className="h-3.5 w-3.5" />
             </summary>
             <div className="absolute right-0 z-30 mt-1 grid min-w-40 overflow-hidden rounded-lg border border-[var(--color-border-default)] bg-[var(--color-background-surface)] p-1 shadow-xl">
               <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); toggleWrap(); }} data-testid="opencode-mobile-wrap-toggle">{wrap ? "Disable wrapping" : "Enable wrapping"}</button>
-              <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setShareTarget({ kind: "session" }); }} data-testid="opencode-mobile-share-export-open">Share</button>
-              <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setWorkspaceOpen(true); }} data-testid="opencode-mobile-workspace-open">Workspace</button>
-              <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setInspectorOpen(true); }} data-testid="opencode-mobile-inspector-menu-open">Details</button>
+              <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => {
+                const menu = event.currentTarget.closest("details");
+                menu?.removeAttribute("open");
+                menu?.querySelector<HTMLElement>("summary")?.focus();
+                setShareTarget({ kind: "session" });
+              }} data-testid="opencode-mobile-share-export-open">Share</button>
+              <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => {
+                const menu = event.currentTarget.closest("details");
+                menu?.removeAttribute("open");
+                menu?.querySelector<HTMLElement>("summary")?.focus();
+                setRequestedInspectorTab("catalog");
+                setInspectorOpen(true);
+              }} data-testid="opencode-mobile-catalog-open">Catalog</button>
             </div>
           </details>
+          </div>
         </div>
+
       </header>
 
       {parentID && (
@@ -614,14 +807,22 @@ export function ConversationPage() {
                 No transcript events yet.
               </p>
             ) : (
-              <Transcript
-                items={items}
-                wrap={wrap}
-                collapsedGroups={collapsedGroups}
-                onToggleGroup={toggleGroup}
-                onExport={exportMessage}
+              <WorkspaceReferenceProvider
                 directory={directory}
-              />
+                resolved={resolvedReferences}
+                onOpen={openWorkspaceTarget}
+              >
+                <Transcript
+                  items={items}
+                  wrap={wrap}
+                  collapsedGroups={collapsedGroups}
+                  onToggleGroup={toggleGroup}
+                  onExport={exportMessage}
+                  directory={directory}
+                  sessionId={id}
+                  onOpenWorkspaceChanges={openWorkspaceChanges}
+                />
+              </WorkspaceReferenceProvider>
             )}
             {stream.running && (
               <div className="mt-6">
@@ -641,11 +842,13 @@ export function ConversationPage() {
           requestedTab={requestedInspectorTab}
           mobileOpen={inspectorOpen}
           onMobileClose={() => setInspectorOpen(false)}
+          modelCatalogue={modelCatalogue}
+          defaultModel={selectedModel}
         />
       </div>
 
       <footer className="relative z-20 shrink-0 border-t border-[var(--color-border-default)] bg-[var(--color-background-surface)] px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-        <div className="mx-auto max-w-3xl">
+        <div className="mx-auto max-w-3xl" ref={composerCardRef}>
           {composerCollapsed ? (
             <button
               type="button"
@@ -661,8 +864,20 @@ export function ConversationPage() {
               {attachments.length > 0 && <span className="text-xs">{attachments.length} attached</span>}
             </button>
           ) : <>
-          <div className="mb-2 flex min-w-0 flex-wrap items-center gap-2">
-            <AgentModeToggle mode={agentIdentityKnown ? mode : undefined} onChange={selectMode} disabled={!agentIdentityKnown} testId="opencode-composer-mode" />
+          <div className="mb-2 flex min-w-0 flex-wrap items-center gap-2" onPointerDownCapture={() => collapseGuard.current.markControlInteraction()}>
+            {session?.managed ? (
+              <div className="flex min-h-10 items-center rounded-md border border-[var(--color-border-default)] bg-[var(--color-background-surface-neutral-muted)] px-3 text-sm" data-testid="opencode-managed-child-agent-fixed">
+                Managed Child · <span className="ml-1 font-semibold">{session.managed.requestedAgent[0].toUpperCase() + session.managed.requestedAgent.slice(1)}</span>
+              </div>
+            ) : foreignAgent ? (
+              // Identity is preserved, never remapped: the session's own agent
+              // is the only prompt identity offered here (issue #52, narrowed).
+              <div className="flex min-h-10 items-center rounded-md border border-[var(--color-border-default)] bg-[var(--color-background-surface-neutral-muted)] px-3 text-sm" data-testid="opencode-session-agent-fixed" data-available={foreignAgentAvailable === null ? "checking" : String(foreignAgentAvailable)}>
+                Agent · <span className="ml-1 font-semibold">{foreignAgent}</span>
+              </div>
+            ) : (
+              <AgentModeToggle mode={agentIdentityKnown ? mode : undefined} onChange={selectMode} disabled={!agentIdentityKnown} testId="opencode-composer-mode" />
+            )}
             <ModelPicker
               catalogue={modelCatalogue}
               value={selectedModel}
@@ -680,8 +895,14 @@ export function ConversationPage() {
             >
               <ChevronDown aria-hidden="true" className="h-4 w-4" />
             </button>
-            <span className={`${!agentIdentityKnown || selectedModel && !sameModel(selectedModel, currentModel) ? "block" : "hidden"} basis-full text-[11px] text-[var(--color-text-muted)]`} data-testid="opencode-current-model">
-              {!agentIdentityKnown ? "Agent identity unavailable; continue in the TUI or create a web session" : "switches next message"}
+            <span className={`${!canPrompt || selectedModel && !sameModel(selectedModel, currentModel) ? "block" : "hidden"} basis-full text-[11px] text-[var(--color-text-muted)]`} data-testid="opencode-current-model">
+              {canPrompt
+                ? "switches next message"
+                : foreignAgent && foreignAgentAvailable === false
+                  ? `Agent "${foreignAgent}" is not available on the connected server; the session cannot be prompted from here.`
+                  : foreignAgent
+                    ? `Verifying agent "${foreignAgent}" against the live roster…`
+                    : "Agent identity unavailable; continue in the TUI or create a web session"}
             </span>
           </div>
           {attachments.length > 0 && <div className="mb-2 flex flex-wrap gap-2">{attachments.map((attachment, index) => <button key={`${attachment.filename}-${index}`} type="button" onClick={() => setAttachments((items) => items.filter((_, itemIndex) => itemIndex !== index))} className="rounded border border-[var(--color-border-default)] px-2 py-1 text-xs" data-testid="opencode-attachment-chip">{attachment.filename} x</button>)}</div>}
@@ -705,6 +926,20 @@ export function ConversationPage() {
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={submitOnEnter}
+              onFocus={() => {
+                setComposerCollapsed(false);
+                collapseGuard.current.markComposerFocus();
+              }}
+              onBlur={() => {
+                requestAnimationFrame(() => {
+                  if (collapseGuard.current.shouldCollapseOnBlur({
+                    narrowViewport: window.matchMedia("(max-width: 639.98px)").matches,
+                    focusInsideComposer: composerCardRef.current?.contains(document.activeElement) ?? false,
+                  })) {
+                    setComposerCollapsed(true);
+                  }
+                });
+              }}
               onPaste={(event) => {
                 const images = [...event.clipboardData.items]
                   .filter((item) => item.kind === "file")
@@ -725,7 +960,10 @@ export function ConversationPage() {
                 interrupted, permission and question banners at once leaves the
                 transcript only a sliver of a 720px viewport, so every pixel the
                 footer takes comes straight out of readable transcript. */}
-            <div className="flex min-w-0 items-center gap-2 border-t border-[var(--color-border-default)] px-2 py-2 sm:py-1">
+            {/* The whole row arms the collapse guard: Reminder, Workflows and
+                Send used to sit outside the Attach-only guard, so tapping them
+                with the keyboard open collapsed the composer mid-tap. */}
+            <div className="flex min-w-0 items-center gap-2 border-t border-[var(--color-border-default)] px-2 py-2 sm:py-1" onPointerDownCapture={() => collapseGuard.current.markControlInteraction()}>
               <label className="inline-flex min-h-11 shrink-0 cursor-pointer items-center rounded-md px-2.5 text-xs font-semibold text-[var(--color-text-muted)] hover:bg-[var(--hh-row-hover)] hover:text-[var(--color-text-default)] sm:min-h-8" data-testid="opencode-attach-label">
                 Attach
                 <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple className="sr-only" data-testid="opencode-attach" onChange={(event) => {
@@ -740,8 +978,16 @@ export function ConversationPage() {
                   onChange={setSelectedReminder}
                 />
               )}
+              {workflowCatalogue.length > 0 && (
+                <WorkflowPicker
+                  catalogue={workflowCatalogue}
+                  attached={selectedWorkflow}
+                  onDetach={() => setSelectedWorkflow("")}
+                  onPick={setActiveWorkflow}
+                />
+              )}
               <span className="flex-1" aria-hidden="true" />
-              <Button size="sm" className="min-h-11 shrink-0 sm:min-h-8" onClick={() => void send()} disabled={!agentIdentityKnown || sending || !draft.trim()} data-testid="opencode-send">
+              <Button size="sm" className="min-h-11 shrink-0 sm:min-h-8" onClick={() => void send()} disabled={!canPrompt || sending || !draft.trim()} data-testid="opencode-send">
                 {sending ? "Sending…" : "Send"}
               </Button>
             </div>
@@ -749,7 +995,57 @@ export function ConversationPage() {
           </>}
         </div>
       </footer>
-      {workspaceOpen && <WorkspacePanels directory={directory} onClose={() => setWorkspaceOpen(false)} />}
+      {workspaceOpen && (
+        <WorkspacePanels
+          directory={directory}
+          onClose={() => setWorkspaceOpen(false)}
+          target={workspaceTarget}
+          onTargetConsumed={clearWorkspaceTarget}
+          initialTab={workspaceTab}
+        />
+      )}
+      {autoSafetyOpen && (
+        <div className="fixed inset-0 z-[90] flex items-end justify-center sm:items-start sm:p-4 sm:pt-[10vh]" data-testid="opencode-mobile-auto-permissions-safety-sheet">
+          <button type="button" className="absolute inset-0 bg-[var(--color-background-overlay)]" aria-label="Close auto permissions safety" onClick={() => setAutoSafetyOpen(false)} data-testid="opencode-mobile-auto-permissions-safety-scrim" />
+          <section className="relative w-full rounded-t-2xl border border-[var(--color-border-default)] bg-[var(--color-background-surface)] p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-xl sm:max-w-md sm:rounded-xl" role="dialog" aria-modal="true" aria-label="Auto permissions safety">
+            <div className="flex items-center gap-2"><h2 className="text-sm font-semibold">Auto permissions safety</h2><button type="button" className="ml-auto min-h-11 min-w-11 rounded text-sm" onClick={() => setAutoSafetyOpen(false)} aria-label="Close auto permissions safety" data-testid="opencode-mobile-auto-permissions-safety-close">Close</button></div>
+            <p className="mt-3 text-sm text-[var(--color-text-muted)]">Auto permissions approves every asked permission once, including arbitrary shell commands, external-directory access, and repeated requests from a doom loop. This affects every session using this project directory and resets to off when the BFF restarts.</p>
+          </section>
+        </div>
+      )}
+      {stopConfirmOpen && (
+        <div className="fixed inset-0 z-[90] flex items-end justify-center sm:items-center sm:p-4" data-testid="opencode-stop-confirmation">
+          <button type="button" className="absolute inset-0 bg-[var(--color-background-overlay)] disabled:cursor-wait" aria-label="Keep running" disabled={stopping} onClick={dismissStopConfirmation} data-testid="opencode-stop-confirmation-scrim" />
+          <section ref={stopDialogRef} tabIndex={-1} className="relative w-full rounded-t-2xl border border-[var(--color-border-default)] bg-[var(--color-background-surface)] p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-xl sm:max-w-md sm:rounded-xl" role="dialog" aria-modal="true" aria-labelledby="stop-confirmation-title">
+            <h2 id="stop-confirmation-title" className="text-base font-semibold">Stop this run?</h2>
+            <p className="mt-2 text-sm text-[var(--color-text-muted)]">The agent will stop immediately. Its current work may be incomplete.</p>
+            {stopError && <p className="mt-3 text-sm text-[var(--color-text-danger)]" role="alert" data-testid="opencode-stop-error">{stopError}</p>}
+            <div className="mt-5 flex justify-end gap-2">
+              <Button type="button" variant="secondary" disabled={stopping} onClick={dismissStopConfirmation} data-testid="opencode-stop-keep-running">Keep running</Button>
+              <Button type="button" variant="danger" disabled={stopping} onClick={() => void stopRun()} data-testid="opencode-stop-confirm">{stopping ? "Stopping..." : "Stop agent"}</Button>
+            </div>
+          </section>
+        </div>
+      )}
+      {activeWorkflow && (
+        <WorkflowDialog
+          workflow={activeWorkflow}
+          directory={directory}
+          sessionID={id}
+          mode={mode}
+          modelCatalogue={modelCatalogue}
+          defaultModel={selectedModel}
+          onClose={() => setActiveWorkflow(null)}
+          onApplyToComposer={(draftText, workflowID) => {
+            setDraft(draftText);
+            setSelectedWorkflow(workflowID);
+            setActiveWorkflow(null);
+            setComposerCollapsed(false);
+            requestAnimationFrame(() => composerRef.current?.focus());
+          }}
+          onSent={() => stream.refresh()}
+        />
+      )}
       {shareTarget && session && (
         <ShareExportDialog
           directory={directory}

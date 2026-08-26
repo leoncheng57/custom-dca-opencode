@@ -21,6 +21,7 @@ import type {
   Attachment,
   InterruptedState,
   MessageMode,
+  PatchEvent,
   TaskExecution,
   ToolStatus,
   Transcript,
@@ -28,6 +29,7 @@ import type {
   UsageSnapshot,
 } from "./transcript.js";
 import { splitReminderTags } from "./reminders.js";
+import { splitWorkflowTags } from "./workflows.js";
 
 // ── Minimal structural types for what we consume ────────────────────────────
 // Intentionally not imported from the SDK: the client bundle should not depend
@@ -86,6 +88,45 @@ interface RawTokens {
   cache?: { read?: number; write?: number };
 }
 
+export const PATCH_FILE_METADATA_LIMITS = {
+  displayedFiles: 8,
+  pathCharacters: 240,
+  aggregatePathCharacters: 1_200,
+} as const;
+
+function patchFileMetadata(value: unknown): Pick<PatchEvent, "files" | "fileCount" | "filesTruncated"> {
+  if (!Array.isArray(value)) return { files: [], fileCount: 0, filesTruncated: false };
+
+  const files: string[] = [];
+  let aggregateCharacters = 0;
+  let filesTruncated = false;
+  const inspectedCount = Math.min(value.length, PATCH_FILE_METADATA_LIMITS.displayedFiles);
+  for (let index = 0; index < inspectedCount; index += 1) {
+    const candidate = value[index];
+    if (typeof candidate !== "string") {
+      filesTruncated = true;
+      continue;
+    }
+    const bounded = candidate.slice(0, PATCH_FILE_METADATA_LIMITS.pathCharacters + 1).trim();
+    if (!bounded) {
+      filesTruncated = true;
+      continue;
+    }
+    const remaining = PATCH_FILE_METADATA_LIMITS.aggregatePathCharacters - aggregateCharacters;
+    if (remaining <= 0) {
+      filesTruncated = true;
+      continue;
+    }
+    const pathWasTruncated = candidate.length > PATCH_FILE_METADATA_LIMITS.pathCharacters || bounded.length > remaining;
+    const display = bounded.slice(0, Math.min(PATCH_FILE_METADATA_LIMITS.pathCharacters, remaining));
+    files.push(pathWasTruncated && display.length > 3 ? `${display.slice(0, -3)}...` : display);
+    aggregateCharacters += files.at(-1)?.length ?? 0;
+    filesTruncated ||= pathWasTruncated;
+  }
+  filesTruncated ||= files.length < value.length;
+  return { files, fileCount: value.length, filesTruncated };
+}
+
 export interface RawMessageInfo {
   id?: string;
   role?: string;
@@ -101,6 +142,8 @@ export interface RawMessageInfo {
   tokens?: RawTokens;
   finish?: string;
   error?: unknown;
+  /** Initiating user message on assistant turns. */
+  parentID?: string;
 }
 
 export interface RawMessage {
@@ -158,6 +201,12 @@ export function toolDetail(input: Record<string, unknown> | undefined): string |
     }
   }
   return undefined;
+}
+
+function shellCommand(part: RawPart): string | undefined {
+  if (!part.tool || !(/^(bash|shell)$|terminal/i.test(part.tool))) return undefined;
+  const command = part.state?.input?.command;
+  return typeof command === "string" && command.trim() ? command : undefined;
 }
 
 /**
@@ -364,14 +413,16 @@ function normalizePart(
           };
         }
         const split = splitReminderTags(text);
-        if (!split.text && split.reminders.length === 0) return null;
+        const workflowSplit = splitWorkflowTags(split.text);
+        if (!workflowSplit.text && split.reminders.length === 0 && workflowSplit.workflows.length === 0) return null;
         return {
           kind: "user",
           id,
           messageId,
           timestamp: iso(created, created),
-          text: split.text,
+          text: workflowSplit.text,
           reminders: split.reminders,
+          workflows: workflowSplit.workflows,
           attachments: [],
           ...(mode ? { mode } : {}),
         };
@@ -415,6 +466,7 @@ function normalizePart(
         name: part.tool || "tool",
         title: state.title,
         detail: toolDetail(state.input),
+        commandText: shellCommand(part),
         // While running, partial output hides in state.metadata.output.
         output:
           state.output ??
@@ -434,14 +486,15 @@ function normalizePart(
     }
 
     case "patch": {
-      const files = part.files ?? [];
+      const fileMetadata = patchFileMetadata(part.files);
+      const userMessageId = info.role === "assistant" ? nonEmptyString(info.parentID) : undefined;
       return {
-        kind: "status",
+        kind: "patch",
         id,
         messageId,
         timestamp: iso(created, created),
-        label: files.length === 1 ? "Edited 1 file" : `Edited ${files.length} files`,
-        detail: files.length ? files.join(", ") : undefined,
+        ...fileMetadata,
+        ...(userMessageId ? { userMessageId } : {}),
       };
     }
 
@@ -532,8 +585,9 @@ export function normalizeMessage(message: RawMessage): TranscriptEvent[] {
     if (target && "attachments" in target) target.attachments = attachments;
   }
 
-  // A turn that errored with no parts still needs to say so.
-  if (!events.length && info.error) {
+  // A partial turn can contain useful parts and still fail afterward. Preserve
+  // both the work and the turn-level failure instead of hiding the outcome.
+  if (info.error) {
     events.push({
       kind: "error",
       id: `${info.id ?? "unknown"}:error`,

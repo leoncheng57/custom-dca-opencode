@@ -17,10 +17,11 @@
 // Run standalone:  npx tsx tests/e2e/mock-opencode.ts [port]
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { mkdirSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+
+import { ensureGitFixture } from "./git-fixture.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const fixture = JSON.parse(
@@ -95,6 +96,57 @@ function modeMessages(): unknown[] {
   ];
 }
 
+// ── Workspace file reference fixture ────────────────────────────────────────
+//
+// One assistant turn carrying every candidate shape the parser distinguishes,
+// so a single deterministic session proves both that verified references
+// become controls and that unsafe, missing, ignored, secret, prose and fenced
+// candidates stay inert. Built by join() because the body contains a fence.
+function filesMessages(directory: string): unknown[] {
+  const prose = [
+    "Reviewing the fixture project.",
+    "",
+    "The port constant is at `src/index.ts:12`, and the defaults span `src/index.ts:8-11`.",
+    "",
+    "Git-style ranges work too: `docs/guide.md#L1-L3`.",
+    "",
+    "An explicit local link: [the guide](file:docs/guide.md#L3).",
+    "",
+    "None of these may become controls: `src/missing.ts`, `../../etc/passwd`, `.env`,",
+    "`generated.txt`, `https://example.test/src/index.ts`, and `npm test`.",
+    "",
+    "A prose mention of src/index.ts must stay prose.",
+    "",
+    "```text",
+    "`src/index.ts:12`",
+    "```",
+    "",
+    "Deeply nested: `src/deep/nested.ts`.",
+  ].join("\n");
+  return [
+    {
+      info: { id: "msg_files_user", role: "user", agent: "build", time: { created: 1787600000000 } },
+      parts: [
+        { id: "prt_files_user", messageID: "msg_files_user", type: "text", text: "Show me the entry point." },
+        {
+          // A structured attachment: an absolute path the UI must relativise
+          // before it can be validated or opened.
+          id: "prt_files_attachment",
+          messageID: "msg_files_user",
+          type: "file",
+          filename: "index.ts",
+          mime: "text/plain",
+          source: { type: "file", path: `${directory}/src/index.ts` },
+        },
+      ],
+    },
+    {
+      info: { id: "msg_files_agent", role: "assistant", agent: "build", mode: "build", time: { created: 1787600001000, completed: 1787600002000 } },
+      parts: [{ id: "prt_files_agent", messageID: "msg_files_agent", type: "text", text: prose }],
+    },
+  ];
+}
+
 function paginatedMessages(): unknown[] {
   return Array.from({ length: 225 }, (_, index) => {
     const number = index + 1;
@@ -120,6 +172,10 @@ const GRANDCHILD = "ses_mock_grandchild";
 const CHILD_UNKNOWN = "ses_mock_child_unknown";
 const CHILD_FAILED = "ses_mock_child_failed";
 const CHILD_LAUNCHED = "ses_mock_child_launched";
+const MANAGED_API_PARENT = "ses_mock_managed_api_parent";
+const MANAGED_UI_PARENT = "ses_mock_managed_ui_parent";
+const MANAGED_FAILURE_PARENT = "ses_mock_managed_failure_parent";
+const MANAGED_CLEANUP_FAILURE_PARENT = "ses_mock_managed_cleanup_failure_parent";
 
 function taskPart(
   index: number,
@@ -230,6 +286,15 @@ const messages = new Map<string, unknown[]>([
   ["ses_mock_foreign_agent", [
     { info: { id: "msg_foreign", role: "user", agent: "explore", time: { created: 1787300000000 } }, parts: [], },
   ]],
+  ["ses_mock_agent_reviewer", [
+    {
+      info: { id: "msg_reviewer", role: "user", agent: "reviewer", time: { created: 1787420000000 } },
+      parts: [{ id: "prt_reviewer", messageID: "msg_reviewer", type: "text", text: "Review the diff." }],
+    },
+  ]],
+  ["ses_mock_agent_departed", [
+    { info: { id: "msg_departed", role: "user", agent: "departed", time: { created: 1787420001000 } }, parts: [] },
+  ]],
   ["ses_mock_identity_mismatch", [
     { info: { id: "msg_mismatch", role: "user", agent: "explore", time: { created: 1787300050000 } }, parts: [], },
   ]],
@@ -237,6 +302,7 @@ const messages = new Map<string, unknown[]>([
 ]);
 const promptPayloads: Array<Record<string, unknown> & { sessionID: string }> = [];
 let sessionListRequests = 0;
+let createdSessionSequence = 0;
 let mobileRunning = true;
 const sessionPayloads: Array<Record<string, unknown>> = [];
 const toolIDs = [
@@ -258,8 +324,26 @@ const buildPermission: PermissionRule[] = [
   { permission: "external_directory", pattern: "*", action: "ask" },
 ];
 const agents = [
-  { name: "build", mode: "primary", options: {}, permission: buildPermission },
-  { name: "plan", mode: "primary", options: {}, permission: [...buildPermission, { permission: "edit", pattern: "*", action: "deny" as const }] },
+  { name: "build", mode: "primary", description: "Primary implementation agent", options: {}, permission: buildPermission },
+  { name: "plan", mode: "primary", description: "Primary planning agent", options: {}, permission: [...buildPermission, { permission: "edit", pattern: "*", action: "deny" as const }] },
+  { name: "explore", mode: "subagent", description: "Fast read-only codebase exploration", options: {}, permission: [
+    { permission: "*", pattern: "*", action: "deny" as const },
+    { permission: "read", pattern: "*", action: "allow" as const },
+    { permission: "glob", pattern: "*", action: "allow" as const },
+    { permission: "grep", pattern: "*", action: "allow" as const },
+    // Adversarial project override: Managed Child creation must still append a
+    // hard read-only ceiling rather than trusting this mutable agent policy.
+    { permission: "edit", pattern: "*", action: "allow" as const },
+  ] },
+  { name: "general", mode: "subagent", description: "General research and multi-step work", options: {}, permission: [
+    ...buildPermission,
+    { permission: "todowrite", pattern: "*", action: "deny" as const },
+  ] },
+  // Session-capable foreign agent for the narrowed #52 path: promptable with
+  // its own identity, never remapped to Plan/Build.
+  { name: "reviewer", mode: "primary", description: "Code review specialist", options: {}, permission: buildPermission },
+  // Hidden internals must never appear in the session-agent catalogue.
+  { name: "secretive", mode: "primary", hidden: true, description: "Internal agent", options: {}, permission: buildPermission },
 ];
 
 function globMatches(pattern: string, value: string): boolean {
@@ -291,6 +375,8 @@ function policyProbe(session: Record<string, any>): Record<string, unknown> {
   };
 }
 
+// These fixed paths are shared across mock processes. The E2E lock prevents
+// concurrent runs; fixture repair intentionally does not provide run isolation.
 const MOCK_DIRECTORY_INPUT = "/tmp/mock-project";
 // A second project with its own sessions, so the cross-project recents panel
 // has something to merge. Kept separate from the auto-permissions fixture
@@ -310,8 +396,25 @@ const API_PERMISSION_DIRECTORY_INPUT = "/tmp/mock-api-permissions";
 const TOOL_FAILURE_DIRECTORY_INPUT = "/tmp/mock-tool-failure";
 const CATALOGUE_FAILURE_DIRECTORY_INPUT = "/tmp/mock-catalogue-failure";
 const POLICY_FAILURE_DIRECTORY_INPUT = "/tmp/mock-policy-failure";
+// Workspace file viewer fixture. Unlike the canned `/file` responses used by
+// the smoke tests, this project exists on disk with real nested directories,
+// a real .gitignore and a real symlink escape — the BFF's containment checks
+// are filesystem checks, so a fake listing would prove nothing about them.
+// Owned by workspace-files.ui.spec.ts and workspace-references.api.spec.ts,
+// which only read from it.
+const FILES_DIRECTORY_INPUT = "/tmp/mock-files-project";
 const SUBAGENT_DIRECTORY_INPUT = "/tmp/mock-subagent-project";
+const MANAGED_SUBAGENT_DIRECTORY_INPUT = "/tmp/mock-managed-subagent-project";
+// Composer workflow sends append user messages to their sessions and launch a
+// managed child under ses_mock_workflow_main, so the fixtures live in a
+// directory only workflows.ui.spec.ts uses.
+const WORKFLOW_DIRECTORY_INPUT = "/tmp/mock-workflow-project";
+// Owned by session-agents.spec.ts: foreign-identity prompting fixtures.
+const SESSION_AGENT_DIRECTORY_INPUT = "/tmp/mock-session-agents-project";
 mkdirSync(SUBAGENT_DIRECTORY_INPUT, { recursive: true });
+mkdirSync(MANAGED_SUBAGENT_DIRECTORY_INPUT, { recursive: true });
+mkdirSync(WORKFLOW_DIRECTORY_INPUT, { recursive: true });
+mkdirSync(SESSION_AGENT_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(MOCK_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(SECOND_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(AUTO_DIRECTORY_INPUT, { recursive: true });
@@ -330,14 +433,131 @@ const TOOL_FAILURE_DIRECTORY = realpathSync(TOOL_FAILURE_DIRECTORY_INPUT);
 const CATALOGUE_FAILURE_DIRECTORY = realpathSync(CATALOGUE_FAILURE_DIRECTORY_INPUT);
 const POLICY_FAILURE_DIRECTORY = realpathSync(POLICY_FAILURE_DIRECTORY_INPUT);
 export const SUBAGENT_DIRECTORY = realpathSync(SUBAGENT_DIRECTORY_INPUT);
-if (!existsSync(path.join(MOCK_DIRECTORY, ".git"))) {
-  execFileSync("git", ["init", "-q", MOCK_DIRECTORY]);
-  writeFileSync(path.join(MOCK_DIRECTORY, "README.md"), "# Mock project\n");
-  execFileSync("git", ["-C", MOCK_DIRECTORY, "add", "README.md"]);
-  execFileSync("git", ["-C", MOCK_DIRECTORY, "-c", "user.name=E2E", "-c", "user.email=e2e@example.test", "commit", "-qm", "fixture"]);
+export const MANAGED_SUBAGENT_DIRECTORY = realpathSync(MANAGED_SUBAGENT_DIRECTORY_INPUT);
+export const WORKFLOW_DIRECTORY = realpathSync(WORKFLOW_DIRECTORY_INPUT);
+const SESSION_AGENT_DIRECTORY = realpathSync(SESSION_AGENT_DIRECTORY_INPUT);
+ensureGitFixture({
+  directory: MOCK_DIRECTORY,
+  files: { "README.md": "# Mock project\n" },
+  trackedFiles: ["README.md"],
+  commitSubject: "fixture",
+});
+
+// ── Workspace file viewer fixture ───────────────────────────────────────────
+//
+// Written eagerly and deterministically so the viewer's line numbers, range
+// highlight and breadcrumbs can be asserted by exact value.
+
+/** Line 12 is the one the transcript cites; keep it stable. */
+const FIXTURE_INDEX_TS = [
+  "// src/index.ts — workspace file viewer fixture.",
+  "",
+  "export interface FixtureOptions {",
+  "  label: string;",
+  "  retries: number;",
+  "}",
+  "",
+  "export const DEFAULTS: FixtureOptions = {",
+  "  label: \"fixture\",",
+  "  retries: 2,",
+  "};",
+  "export const DEFAULT_PORT = 3210;",
+  "",
+  "export function describeFixture(options: FixtureOptions): string {",
+  "  return `${options.label} (${options.retries} retries)`;",
+  "}",
+  "",
+  "export const answer = 42;",
+  "",
+].join("\n");
+
+const FIXTURE_GUIDE_MD = [
+  "# Fixture guide",
+  "",
+  "The workspace viewer reads this file through the same BFF route as any other.",
+  "",
+  "- Nothing here is editable.",
+  "",
+].join("\n");
+
+mkdirSync(FILES_DIRECTORY_INPUT, { recursive: true });
+export const FILES_DIRECTORY = realpathSync(FILES_DIRECTORY_INPUT);
+ensureGitFixture({
+  directory: FILES_DIRECTORY,
+  files: {
+    ".gitignore": "generated.txt\n",
+    ".env": "FIXTURE_SECRET=must-not-be-readable\n",
+    "generated.txt": "generated output that git ignores\n",
+    "README.md": "# Files fixture\n",
+    "src/index.ts": FIXTURE_INDEX_TS,
+    "src/deep/nested.ts": "export const nested = true;\n",
+    "docs/guide.md": FIXTURE_GUIDE_MD,
+    "assets/logo.bin": Buffer.from([0, 1, 2, 3, 255, 254]),
+  },
+  // `.env` remains untracked to prove the BFF withholds secret-like files.
+  trackedFiles: [
+    ".gitignore",
+    "README.md",
+    "src/index.ts",
+    "src/deep/nested.ts",
+    "docs/guide.md",
+    "assets/logo.bin",
+  ],
+  commitSubject: "workspace file viewer fixture",
+});
+// Registered here rather than in the map literal: the transcript embeds the
+// realpath'd fixture directory, which is only known once it exists.
+messages.set("ses_mock_files", filesMessages(FILES_DIRECTORY));
+
+/** Names this fixture reports as git-ignored, mirroring its .gitignore. */
+const FILES_IGNORED = new Set(["generated.txt", ".git"]);
+
+function fixtureListing(relative: string): Array<Record<string, unknown>> {
+  const absolute = path.join(FILES_DIRECTORY, relative);
+  return readdirSync(absolute, { withFileTypes: true })
+    .filter((entry) => entry.name !== ".git")
+    .map((entry) => ({
+      name: entry.name,
+      path: relative ? `${relative}/${entry.name}` : entry.name,
+      type: entry.isDirectory() ? "directory" : "file",
+      ignored: FILES_IGNORED.has(entry.name),
+    }))
+    .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+}
+
+function fixtureContent(relative: string): Record<string, unknown> {
+  const absolute = path.join(FILES_DIRECTORY, relative);
+  const bytes = readFileSync(absolute);
+  // Mirrors the real server: a file with NUL bytes comes back as binary.
+  if (bytes.includes(0)) {
+    return { type: "binary", mimeType: "application/octet-stream", encoding: "base64", content: bytes.toString("base64") };
+  }
+  return { type: "text", content: bytes.toString("utf8") };
 }
 
 const SESSIONS: Array<Record<string, any>> = [
+  {
+    // The session workflows.ui.spec.ts drives its composer from.
+    id: "ses_mock_workflow_main",
+    title: "Workflow picker main",
+    directory: WORKFLOW_DIRECTORY,
+    agent: "build",
+    model: { providerID: "anthropic", id: "claude-opus-5" },
+    cost: 0,
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    time: { created: 1787000000000, updated: 1787000012000 },
+  },
+  {
+    // The "Send an update to another session" delivery target.
+    id: "ses_mock_workflow_target",
+    title: "Workflow update target",
+    directory: WORKFLOW_DIRECTORY,
+    agent: "build",
+    model: { providerID: "anthropic", id: "claude-opus-5" },
+    cost: 0,
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    time: { created: 1787000000000, updated: 1787000011000 },
+  },
   {
     id: "ses_mock_done",
     title: "Add a health endpoint",
@@ -574,6 +794,71 @@ const SESSIONS: Array<Record<string, any>> = [
     time: { created: 1787390000000, updated: 1787390000000 },
   },
   {
+    id: MANAGED_API_PARENT,
+    title: "Managed API parent",
+    directory: MANAGED_SUBAGENT_DIRECTORY,
+    agent: "plan",
+    model: { providerID: "anthropic", id: "claude-opus-5" },
+    permission: [],
+    cost: 0,
+    tokens: {},
+    time: { created: 1787410000000, updated: 1787410000000 },
+  },
+  {
+    id: "ses_mock_agent_reviewer",
+    title: "Review session driven by a foreign agent",
+    directory: SESSION_AGENT_DIRECTORY,
+    agent: "reviewer",
+    model: { providerID: "anthropic", id: "claude-opus-5" },
+    permission: [],
+    cost: 0,
+    tokens: {},
+    time: { created: 1787420000000, updated: 1787420000000 },
+  },
+  {
+    id: "ses_mock_agent_departed",
+    title: "Session whose agent left the roster",
+    directory: SESSION_AGENT_DIRECTORY,
+    agent: "departed",
+    permission: [],
+    cost: 0,
+    tokens: {},
+    time: { created: 1787420001000, updated: 1787420001000 },
+  },
+  {
+    id: MANAGED_UI_PARENT,
+    title: "Managed UI parent",
+    directory: MANAGED_SUBAGENT_DIRECTORY,
+    agent: "plan",
+    model: { providerID: "anthropic", id: "claude-opus-5" },
+    permission: [],
+    cost: 0,
+    tokens: {},
+    time: { created: 1787411000000, updated: 1787411000000 },
+  },
+  {
+    id: MANAGED_FAILURE_PARENT,
+    title: "Managed failure parent",
+    directory: MANAGED_SUBAGENT_DIRECTORY,
+    agent: "plan",
+    model: { providerID: "anthropic", id: "claude-opus-5" },
+    permission: [],
+    cost: 0,
+    tokens: {},
+    time: { created: 1787412000000, updated: 1787412000000 },
+  },
+  {
+    id: MANAGED_CLEANUP_FAILURE_PARENT,
+    title: "Managed cleanup failure parent",
+    directory: MANAGED_SUBAGENT_DIRECTORY,
+    agent: "plan",
+    model: { providerID: "anthropic", id: "claude-opus-5" },
+    permission: [],
+    cost: 0,
+    tokens: {},
+    time: { created: 1787413000000, updated: 1787413000000 },
+  },
+  {
     // Lives in a directory only smoke.api.spec.ts drives, so that file can park,
     // answer and count permission requests without smoke.ui.spec.ts resetting
     // MOCK_DIRECTORY under it.
@@ -585,6 +870,18 @@ const SESSIONS: Array<Record<string, any>> = [
     cost: 0,
     tokens: {},
     time: { created: 1787200500000, updated: 1787200500000 },
+  },
+  {
+    // The workspace file viewer fixture, in its own project so browsing it
+    // cannot perturb the hub counts or the permission fixtures.
+    id: "ses_mock_files",
+    title: "Workspace file viewer fixture",
+    directory: FILES_DIRECTORY,
+    agent: "build",
+    model: { providerID: "anthropic", id: "claude-opus-5" },
+    cost: 0,
+    tokens: {},
+    time: { created: 1787600000000, updated: 1787600002000 },
   },
   {
     id: "ses_mock_share_failure",
@@ -752,7 +1049,7 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
   const directory = url.searchParams.get("directory");
 
   if (pathname === "/global/health") {
-    return json(res, 200, { healthy: true, version: "1.18.21" });
+    return json(res, 200, { healthy: true, version: "1.18.22" });
   }
 
   if (pathname === "/global/event") {
@@ -905,6 +1202,22 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     emit("message.part.updated", { sessionID: "ses_mock_paginated", part: { id: "prt_page_225", messageID: "msg_page_225" } });
     return json(res, 200, true);
   }
+  if (pathname === "/test/session-policy/tamper" && req.method === "POST") {
+    const session = SESSIONS.find((candidate) => candidate.id === url.searchParams.get("id"));
+    if (!session) return unknownError(res);
+    session.permission = [
+      ...((session.permission as PermissionRule[] | undefined) ?? []),
+      { permission: "edit", pattern: "*", action: "allow" },
+    ];
+    return json(res, 200, true);
+  }
+  if (pathname === "/test/managed-metadata/tamper" && req.method === "POST") {
+    const session = SESSIONS.find((candidate) => candidate.id === url.searchParams.get("id"));
+    const marker = session?.metadata?.customDcaManagedChild;
+    if (!session || !marker || typeof marker !== "object") return unknownError(res);
+    session.metadata.customDcaManagedChild = { ...marker, requestedAgent: "unknown-agent" };
+    return json(res, 200, true);
+  }
   if (pathname === "/test/session-policy") {
     const session = SESSIONS.find((candidate) => candidate.id === url.searchParams.get("id"));
     return session ? json(res, 200, policyProbe(session)) : unknownError(res);
@@ -1011,6 +1324,15 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
   }
   if (pathname === "/file") {
     const relative = url.searchParams.get("path") ?? "";
+    // The file-viewer fixture is a real directory tree; everything else keeps
+    // the canned two-level listing the older smoke tests are written against.
+    if (directory === FILES_DIRECTORY) {
+      try {
+        return json(res, 200, fixtureListing(relative));
+      } catch {
+        return json(res, 404, { error: "no such directory" });
+      }
+    }
     return json(res, 200, relative === "src"
       ? [{ name: "index.ts", path: "src/index.ts", type: "file", ignored: false }]
       : [
@@ -1021,6 +1343,13 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
   }
   if (pathname === "/file/content") {
     const relative = url.searchParams.get("path") ?? "";
+    if (directory === FILES_DIRECTORY) {
+      try {
+        return json(res, 200, fixtureContent(relative));
+      } catch {
+        return json(res, 404, { error: "no such file" });
+      }
+    }
     return json(res, 200, { type: "text", content: relative === "README.md" ? "# Mock project" : "export const answer = 42;" });
   }
   if (pathname === "/vcs/diff") {
@@ -1063,18 +1392,27 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     let raw = "";
     req.on("data", (chunk) => (raw += chunk));
     req.on("end", () => {
-      const body = raw ? (JSON.parse(raw) as { title?: string; agent?: string; model?: { providerID?: string; id?: string; modelID?: string; variant?: string } }) : {};
+      const body = raw ? (JSON.parse(raw) as {
+        title?: string;
+        agent?: string;
+        parentID?: string;
+        metadata?: Record<string, unknown>;
+        permission?: PermissionRule[];
+        model?: { providerID?: string; id?: string; modelID?: string; variant?: string };
+      }) : {};
       sessionPayloads.push(body);
       if (body.model && (!body.model.providerID || !body.model.id || body.model.modelID)) {
         return json(res, 400, { error: "session model must use providerID and id" });
       }
       const created = {
-        id: `ses_mock_new_${Date.now()}`,
+        id: `ses_mock_new_${++createdSessionSequence}`,
         title: body.title ?? "Untitled session",
         directory: directory ?? MOCK_DIRECTORY,
         agent: body.agent,
+        parentID: body.parentID,
         model: body.model,
-        permission: [],
+        metadata: body.metadata,
+        permission: body.permission ?? [],
         cost: 0,
         tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
         time: { created: Date.now(), updated: Date.now() },
@@ -1116,6 +1454,9 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
         };
         const parts = Array.isArray(input.parts) ? input.parts as Array<Record<string, unknown>> : [];
         const text = parts.find((part) => part.type === "text")?.text;
+        if (text === "FAIL_MANAGED_PROMPT") {
+          return json(res, 503, { error: "mock managed prompt failure" });
+        }
         if (typeof text === "string") {
           const now = Date.now();
           const sessionMessages = messages.get(id) ?? [];
@@ -1136,6 +1477,24 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
             },
             parts: [{ id: `prt_user_${now}`, messageID: `msg_user_${now}`, type: "text", text }],
           });
+          if (session.metadata?.customDcaManagedChild) {
+            sessionMessages.push({
+              info: {
+                id: `msg_assistant_${now}`,
+                role: "assistant",
+                agent: input.agent,
+                modelID: promptModel?.modelID ?? session.model?.id,
+                providerID: promptModel?.providerID ?? session.model?.providerID,
+                time: { created: now + 1, completed: now + 2 },
+              },
+              parts: [{
+                id: `prt_assistant_${now}`,
+                messageID: `msg_assistant_${now}`,
+                type: "text",
+                text: "Managed child completed its mock assignment.",
+              }],
+            });
+          }
           messages.set(id, sessionMessages);
         }
         res.writeHead(204).end(); // 204, no body — the real contract.
@@ -1165,7 +1524,15 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     if (!session) return unknownError(res);
 
     if (rest === "") {
-      if (req.method === "DELETE") return json(res, 200, true);
+      if (req.method === "DELETE") {
+        if (session.parentID === MANAGED_CLEANUP_FAILURE_PARENT) {
+          return json(res, 503, { error: "mock managed cleanup failure" });
+        }
+        const index = SESSIONS.indexOf(session);
+        if (index >= 0) SESSIONS.splice(index, 1);
+        messages.delete(id);
+        return json(res, 200, true);
+      }
       if (req.method === "PATCH") {
         if (directory === POLICY_FAILURE_DIRECTORY) return json(res, 503, { error: "mock policy activation failed" });
         void body(req).then(async (patch) => {
@@ -1198,6 +1565,22 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
       const start = Math.max(0, end - limit);
       const nextCursor = start > 0 ? String(start) : null;
       return json(res, 200, all.slice(start, end), nextCursor ? { "X-Next-Cursor": nextCursor } : {});
+    }
+    if (rest === "/diff") {
+      const messageID = url.searchParams.get("messageID");
+      if (!messageID) return json(res, 400, { error: "messageID required" });
+      const message = (messages.get(id) ?? []).find((candidate) => {
+        if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return false;
+        const info = (candidate as { info?: unknown }).info;
+        return !!info && typeof info === "object" && !Array.isArray(info) &&
+          (info as { id?: unknown }).id === messageID;
+      }) as { info?: { role?: unknown } } | undefined;
+      if (message?.info?.role !== "user") return json(res, 200, []);
+      return json(res, 200, [
+        { file: "src/index.ts", patch: "@@ -1 +1 @@\n-old\n+new", additions: 1, deletions: 1, status: "modified" },
+        { file: ".env", patch: "@@ -1 +1 @@\n-TOKEN=old\n+TOKEN=new", additions: 1, deletions: 1, status: "modified" },
+        { patch: "missing file", additions: 1, deletions: 0, status: "added" },
+      ]);
     }
     if (rest === "/children") {
       return json(res, 200, SESSIONS.filter((candidate) => candidate.parentID === id));
