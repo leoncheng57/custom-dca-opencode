@@ -294,8 +294,9 @@ children.
 ## Model selection for delegated work
 
 Managed Children accept an explicit, validated model at launch, and the ledger shows the
-requested model as provenance. The reference deployment's **forked** OpenCode 1.18.23 binary
-also adds an optional `model` parameter to native `task` calls (issue #90):
+requested model as provenance. The reference deployment's **forked** OpenCode binary, which
+reports `1.18.23+dca.2`, also adds an optional `model` parameter to native `task` calls
+(issue #90):
 
 ```text
 explicit task model > subagent configured model > invoking parent model
@@ -325,6 +326,32 @@ Upstream tracking is explicit:
 The deployed fork exposes the raw parameter because the operator chose immediate model control
 over a deny-by-default cost gate. Revisit that choice when adopting an upstream implementation;
 do not claim that the fork's model parameter has landed in a stock release.
+
+### Why the version string carries `+dca.<n>`
+
+The fork build reports `<upstream package version>+dca.<n>`, where `<n>` counts the fork patch
+set. That suffix is SemVer **build metadata**, deliberately not a prerelease tag:
+
+| Form | Plugin `engines` ranges | Ordering vs stock | Honest about the fork |
+|---|---|---|---|
+| `1.18.23` | passes | equal | **no** |
+| `1.18.23-dca.1` | **fails `>=1.18.0`** | **sorts lower** | yes |
+| `1.18.23+dca.2` | passes | equal | yes |
+
+A prerelease would be rejected by `semver.satisfies`, so any plugin declaring an `engines.opencode`
+range would refuse to load. Build metadata is stripped before comparison, so the build behaves
+exactly like the release it is based on while still naming itself honestly in `/global/health`,
+`--version`, the LLM `User-Agent`, MCP `clientInfo`, and the durable per-session `version` field.
+
+Rebuild with both variables set explicitly:
+
+```bash
+OPENCODE_VERSION=1.18.23+dca.2 OPENCODE_CHANNEL=prod bun run build --single
+```
+
+Omitting `OPENCODE_VERSION` stamps `0.0.0-<branch>-<timestamp>`, and a major of `0` silently
+disables the plugin engine check. Omitting `OPENCODE_CHANNEL=prod` lets the channel be inferred,
+which can change database selection and enable experimental websockets.
 
 ```mermaid
 flowchart TD
@@ -440,7 +467,7 @@ terminal Bash denies even after Build made the parent's own tools available agai
 allows that superseded them. A fork-only patch copies only denies that are still the parent's
 effective action for their exact permission and pattern; deployments running a build with that
 patch verified live (the reference deployment runs
-`opencode-1.18.23-dca-taskmodel`, built from the
+`opencode-1.18.23-dca.2`, built from the
 `fix/subagent-effective-deny-inheritance` branch; the binary filename is not a branch) no longer
 need the fresh-parent workaround. On a build without it, failed preflight means stop; do not
 weaken policy or silently replace the native child with an independent root session.
