@@ -667,6 +667,20 @@ for (const viewport of VIEWPORTS) {
       await expect(group.getByTestId("opencode-notification-group-chip-permission")).toContainText(
         String(ACTIVE_COUNT),
       );
+      const chipMetrics = await group.getByTestId("opencode-notification-group-chip-permission").evaluate((chip) => {
+        const style = getComputedStyle(chip);
+        return {
+          fontSize: Number.parseFloat(style.fontSize),
+          paddingLeft: Number.parseFloat(style.paddingLeft),
+          paddingTop: Number.parseFloat(style.paddingTop),
+        };
+      });
+      // Aggregate chips can appear six at a time. They are intentionally ~40%
+      // smaller than the normal 12px / 10px-padded row status badges so a
+      // folded mobile group stays compact without shrinking row actions.
+      expect(chipMetrics.fontSize).toBeLessThanOrEqual(8);
+      expect(chipMetrics.paddingLeft).toBeLessThanOrEqual(6);
+      expect(chipMetrics.paddingTop).toBeLessThanOrEqual(1);
 
       // The header names the session, truncated, with the whole title kept in
       // the tooltip.
@@ -843,18 +857,26 @@ for (const viewport of VIEWPORTS) {
       await expect(page.getByTestId("opencode-notification-popover-active-count")).toHaveText(String(ACTIVE_COUNT - 1));
     });
 
-    test("resolves only the active rows loaded after explicit confirmation", async ({ page }) => {
+    test("resolves only one session group after explicit confirmation", async ({ page }) => {
       await page.goto(hub);
       await bell(page).click();
       page.on("dialog", (dialog) => dialog.accept());
+      // Make a second session visible. The action must not spill over into it.
+      await page.getByTestId("opencode-notification-filter-subagent").uncheck();
 
-      const resolve = page.getByTestId("opencode-notification-resolve-shown");
-      await expect(resolve).toHaveText(`Resolve all loaded (${ACTIVE_COUNT})`);
+      const group = page.getByTestId("opencode-notification-group").first();
+      const resolve = group.getByTestId("opencode-notification-group-resolve");
+      await expect(resolve).toHaveText(`Resolve all (${ACTIVE_COUNT})`);
       await resolve.click();
 
-      await expect(page.getByTestId("opencode-notification-popover-active-count")).toHaveText("0");
-      // The resolved archive retains the evidence; bulk means selected rows,
-      // never a destructive clear.
+      await expect(page.getByTestId("opencode-notification-popover-active-count")).toHaveText(String(SUBAGENT_COUNT));
+      const childGroup = page.getByTestId("opencode-notification-group").filter({ hasText: "Audit the delegated worktree" });
+      await expect(childGroup).toHaveCount(1);
+      await expect(childGroup.getByTestId("opencode-notification-group-resolve")).toHaveText(
+        `Resolve all (${SUBAGENT_COUNT})`,
+      );
+      // The resolved archive retains the evidence; this only changed the
+      // selected session, never a destructive global clear.
       await expandResolved(page);
       await expect(page.getByTestId("opencode-notification-popover-resolved-count"))
         .toHaveText(String(ACTIVE_COUNT + RESOLVED_COUNT));

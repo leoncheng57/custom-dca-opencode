@@ -8,7 +8,6 @@ import { NotificationFilters } from "../components/notification-filters.js";
 import { NotificationGroup } from "../components/notification-group.js";
 import { NotificationPreferencesSection } from "../components/notification-preferences.js";
 import { NotificationRecordRow } from "../components/notification-record-row.js";
-import { ResolveShownNotifications } from "../components/notification-resolve-shown.js";
 import type { NotificationHistoryState } from "../lib/api.js";
 import { groupBySession } from "../lib/notificationGroups.js";
 import { NOTIFICATION_STATE_PARAM, parseNotificationHistoryState } from "../lib/notificationView.js";
@@ -22,9 +21,9 @@ const STATES: Array<{ value: NotificationHistoryState; label: string }> = [
 ];
 
 /**
- * The full, filterable notification history. Delivery preferences moved to the
- * Settings page: this surface is only the record of what was sent and what the
- * user has manually resolved.
+ * The full notification centre: history, per-session resolution, and delivery
+ * preferences live together so the controls deciding what reaches the inbox
+ * are not split from the inbox itself.
  */
 export function NotificationsPage() {
   const [error, setError] = useState("");
@@ -78,9 +77,9 @@ export function NotificationsPage() {
   );
 
   // The badge above is the server's unwindowed total, but this list is the
-  // newest page only. Unresolved records are retained forever, while an
-  // unloaded older row cannot be bulk-resolved, so the two diverge in normal
-  // use; name the gap rather than let the badge silently contradict the rows.
+  // newest page only. Unresolved records are retained forever, so the two
+  // diverge in normal use; name the gap rather than let the badge silently
+  // contradict the rows.
   const hiddenActive = Math.max(
     0,
     activeCount - records.filter((record) => record.resolvedAt === undefined).length,
@@ -127,13 +126,6 @@ export function NotificationsPage() {
             onAllGroupsCollapsedChange={setAllGroupsCollapsed}
           />
         </div>
-        <div className="flex justify-end border-b border-[var(--color-border-default)] px-3 py-2">
-          <ResolveShownNotifications
-            records={visible}
-            onResolve={resolveMany}
-            onError={(error) => setError(error.message)}
-          />
-        </div>
         {historyError && <Alert variant="danger">{historyError}</Alert>}
         {hiddenActive > 0 && (
           <p
@@ -159,6 +151,8 @@ export function NotificationsPage() {
                 expanded={isGroupExpanded(group.key)}
                 onToggle={() => toggleGroup(group.key)}
                 onResolvedChange={(id, resolved) => void setResolved(id, resolved).catch((e: Error) => setError(e.message))}
+                onResolveMany={resolveMany}
+                onError={(error) => setError(error.message)}
               />
             ))}
           </ul>

@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { Badge } from "../ds/badge.js";
+import { Button } from "../ds/button.js";
 import { cn } from "../ds/utils.js";
 import type { SessionGroup } from "../lib/notificationGroups.js";
 import { KIND_VARIANT, NotificationRecordRow, truncateSessionTitle } from "./notification-record-row.js";
@@ -25,6 +27,8 @@ export function NotificationGroup({
   expanded,
   onToggle,
   onResolvedChange,
+  onResolveMany,
+  onError,
   compact = false,
   onNavigate,
 }: {
@@ -32,12 +36,31 @@ export function NotificationGroup({
   expanded: boolean;
   onToggle: () => void;
   onResolvedChange: (id: string, resolved: boolean) => void;
+  /** Resolve the active records belonging to this one session group. */
+  onResolveMany?: (ids: string[]) => Promise<void>;
+  onError?: (error: Error) => void;
   compact?: boolean;
   /** Fired when the header or a row navigates, so an overlay can dismiss. */
   onNavigate?: () => void;
 }) {
+  const [resolvePending, setResolvePending] = useState(false);
   const bodyId = `opencode-notification-group-body-${group.key}`;
   const label = truncateSessionTitle(group.label, compact ? 38 : 64);
+  const activeIDs = group.records.filter((record) => record.resolvedAt === undefined).map((record) => record.id);
+
+  const resolveSession = async () => {
+    if (!onResolveMany || activeIDs.length === 0) return;
+    const noun = activeIDs.length === 1 ? "notification" : "notifications";
+    if (!window.confirm(`Resolve all ${activeIDs.length} active ${noun} for ${group.label}? You can reopen each one later.`)) return;
+    setResolvePending(true);
+    try {
+      await onResolveMany(activeIDs);
+    } catch (error) {
+      onError?.(error instanceof Error ? error : new Error(String(error)));
+    } finally {
+      setResolvePending(false);
+    }
+  };
 
   return (
     <li
@@ -74,7 +97,18 @@ export function NotificationGroup({
               data-testid="opencode-notification-group-chips"
             >
               {group.chips.map((chip) => (
-                <Badge key={chip.kind} variant={KIND_VARIANT[chip.kind]} data-testid={`opencode-notification-group-chip-${chip.kind}`}>
+                <Badge
+                  key={chip.kind}
+                  variant={KIND_VARIANT[chip.kind]}
+                  // Group headers can carry six kinds. The DS badge is right
+                  // for a row's primary status, but at that density it made a
+                  // folded mobile group taller than the information it held.
+                  // This is deliberately ~40% smaller in text and padding,
+                  // scoped only to the aggregate chip strip — individual row
+                  // statuses stay at the normal touch-readable size.
+                  className="px-1.5 py-px text-[8px] leading-none"
+                  data-testid={`opencode-notification-group-chip-${chip.kind}`}
+                >
                   {chip.kind}
                   {chip.count > 1 && <span className="ml-1 tabular-nums">{chip.count}</span>}
                 </Badge>
@@ -102,6 +136,18 @@ export function NotificationGroup({
           >
             Open
           </Link>
+        )}
+        {onResolveMany && activeIDs.length > 0 && (
+          <Button
+            size="sm"
+            variant="primary"
+            className={cn("shrink-0", compact ? "h-7 px-2 text-[11px]" : undefined)}
+            disabled={resolvePending}
+            onClick={() => void resolveSession()}
+            data-testid="opencode-notification-group-resolve"
+          >
+            {resolvePending ? "Resolving..." : `Resolve all (${activeIDs.length})`}
+          </Button>
         )}
       </div>
       {expanded && (

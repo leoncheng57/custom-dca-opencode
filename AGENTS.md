@@ -388,11 +388,12 @@ several decisions below.
     unwindowed log; the client window and server `MAX_PAGE` were raised to 1000 together
     so that count is rarely a lie, while retention is 5,000 per capped category.
     Resolution stays reversible per decision 10: every row can still be reopened.
-    **Resolve all loaded (N)** is a deliberate, bounded exception to one-at-a-time action: it
-    accepts only the currently loaded filtered unresolved ids (at most the 1,000-row window),
-    states that exact count, requires confirmation, and never claims to clear older
-    records it cannot see. It persists the batch in one write rather than firing N
-    requests, then returns every changed record to the ordinary Resolved list. Every row keeps its own link to the session, and a
+    **Resolve all (N)** on a session header is a deliberate, bounded exception to
+    one-at-a-time action: it accepts only that group's currently loaded unresolved ids,
+    states that exact count, requires confirmation, and never affects another session
+    or older records outside the window. It persists the batch in one write rather than
+    firing N requests, then returns every changed record to the ordinary Resolved list.
+    Every row keeps its own link to the session, and a
     folded header carries one too so a group is reachable without being opened first;
     grouping moved the repeated *title* out of the rows, never their ability to
     navigate. That link is built client-side from `sessionID` + `directory` rather than
