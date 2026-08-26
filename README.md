@@ -186,7 +186,9 @@ full:/sessions/ses_mock_done?directory=/tmp/mock-project
 CI accepts up to 10 routes and captures each one in dark mode at desktop (1280x800) and
 mobile (390x740) widths. The sticky PR comment shows `Route`, `Desktop`, and `Mobile`
 columns with public full-size links; a 30-day Actions artifact contains both PNGs per
-route. `full:` captures the full scroll height at both widths. Blank and `#` comment lines
+route. `full:` captures the full scroll height at both widths. A route may appear once on
+its own and once as `full:`; requesting the exact same route and mode twice is rejected
+when the block is parsed, before any browser starts. Blank and `#` comment lines
 are ignored. Routes cannot contain whitespace, hosts, schemes, controls, backslashes, or
 traversal. Removing the block removes that PR's published directory; closing the PR
 removes the directory and comment. Capture always uses the deterministic Playwright mocks,

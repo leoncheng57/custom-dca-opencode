@@ -116,15 +116,32 @@ export function screenshotFilename(route: string, fullPage: boolean, index: numb
   return `${String(index + 1).padStart(2, "0")}-${readable}-${digest}--${viewport}${fullPage ? "--full" : ""}.png`;
 }
 
+/**
+ * The identity of a request: a route captured at viewport height and the same route
+ * captured full-page are two different requests, so `fullPage` is part of the label.
+ * Because `validateRoute()` requires a leading "/", a route can never itself begin with
+ * "full:", which makes this mapping injective. Used both to reject exact duplicates here
+ * and to title the capture tests, so validation and test generation cannot disagree.
+ */
+export function screenshotRequestLabel(route: string, fullPage: boolean): string {
+  return `${fullPage ? "full:" : ""}${route}`;
+}
+
 export function normalizeScreenshotRequests(value: unknown): ScreenshotRequest[] {
   if (!Array.isArray(value)) throw new Error("screenshot request must be an array");
   if (value.length > MAX_SCREENSHOTS) throw new Error(`at most ${MAX_SCREENSHOTS} screenshots may be requested`);
+  const seen = new Set<string>();
   return value.map((raw, index) => {
     assertRecord(raw, `screenshot ${index + 1}`);
     if (typeof raw.requestedRoute !== "string" || typeof raw.fullPage !== "boolean") {
       throw new Error(`screenshot ${index + 1} has invalid route metadata`);
     }
     validateRoute(raw.requestedRoute);
+    const label = screenshotRequestLabel(raw.requestedRoute, raw.fullPage);
+    if (seen.has(label)) {
+      throw new Error(`route ${JSON.stringify(label)} is requested more than once; a route may appear at most once on its own and at most once as "full:"`);
+    }
+    seen.add(label);
     return {
       requestedRoute: raw.requestedRoute,
       fullPage: raw.fullPage,

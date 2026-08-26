@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { expect, test } from "@playwright/test";
 
-import { resolveCaptureConfig, SCREENSHOT_VIEWPORTS, VIEWPORTS, type ScreenshotRequest } from "../../scripts/pr-screenshots.js";
+import { resolveCaptureConfig, screenshotRequestLabel, SCREENSHOT_VIEWPORTS, VIEWPORTS, type ScreenshotRequest } from "../../scripts/pr-screenshots.js";
 
 const config = resolveCaptureConfig(process.env, process.env.PR_SCREENSHOT_CAPTURE_REQUIRED === "true");
 const requests = config
@@ -16,7 +16,7 @@ test.describe("requested PR screenshots", () => {
     return;
   }
   for (const request of requests) {
-    test(`${request.requestedRoute} @shots`, async ({ page }) => {
+    test(`${screenshotRequestLabel(request.requestedRoute, request.fullPage)} @shots`, async ({ page }) => {
       await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
       await page.addInitScript(() => localStorage.setItem("theme", "dark"));
       for (const viewport of SCREENSHOT_VIEWPORTS) {
