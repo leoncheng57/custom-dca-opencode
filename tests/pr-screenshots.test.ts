@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { decidePublication, MAX_ROUTE_LENGTH, MAX_SCREENSHOTS, parseScreenshotBlock, resolveCaptureConfig, screenshotFilename } from "../scripts/pr-screenshots.js";
+import { decidePublication, MAX_ROUTE_LENGTH, MAX_SCREENSHOTS, parseScreenshotBlock, resolveCaptureConfig, screenshotFilename, screenshotRequestLabel } from "../scripts/pr-screenshots.js";
 
 describe("screenshot E2E discovery", () => {
   it("skips ordinary E2E discovery but fails when capture config is required", () => {
@@ -116,6 +116,34 @@ describe("PR screenshot requests", () => {
       .toThrow("at most one");
     const routes = Array.from({ length: MAX_SCREENSHOTS + 1 }, (_, index) => `/sessions/session-${index}`).join("\n");
     expect(() => parseScreenshotBlock(`\`\`\`screenshots\n${routes}\n\`\`\``)).toThrow("at most");
+  });
+
+  it("rejects an exact duplicate route and names it", () => {
+    expect(() => parseScreenshotBlock("```screenshots\n/tools\n/tools\n```"))
+      .toThrow('route "/tools" is requested more than once');
+    expect(() => parseScreenshotBlock("```screenshots\nfull:/tools\nfull:/tools\n```"))
+      .toThrow('route "full:/tools" is requested more than once');
+    expect(() => parseScreenshotBlock("```screenshots\n/planning\n/tools\n/planning\n```"))
+      .toThrow('route "/planning" is requested more than once');
+  });
+
+  it("accepts the same route once bare and once full-page, with four distinct filenames", () => {
+    const requests = parseScreenshotBlock("```screenshots\n/tools\nfull:/tools\n```").requests;
+    expect(requests).toMatchObject([
+      { requestedRoute: "/tools", fullPage: false },
+      { requestedRoute: "/tools", fullPage: true },
+    ]);
+    const filenames = requests.flatMap(({ filenames: pair }) => [pair.desktop, pair.mobile]);
+    expect(new Set(filenames).size).toBe(4);
+  });
+
+  it("titles the bare and full-page forms of one route distinctly", () => {
+    // Mirrors the expression tests/e2e/screenshots.ui.spec.ts uses to name each capture
+    // test, so a duplicate title can never reappear as a mid-run Playwright crash.
+    const titles = parseScreenshotBlock("```screenshots\n/tools\nfull:/tools\n```").requests
+      .map((request) => screenshotRequestLabel(request.requestedRoute, request.fullPage));
+    expect(titles).toEqual(["/tools", "full:/tools"]);
+    expect(new Set(titles).size).toBe(2);
   });
 
   it("rejects an unclosed screenshots fence", () => {
