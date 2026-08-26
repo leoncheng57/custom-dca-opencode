@@ -382,10 +382,11 @@ terminal Bash denies even after Build made the parent's own tools available agai
 `deriveSubagentSessionPermission` copies every parent-session deny while discarding the later
 allows that superseded them. An upstream fix (anomalyco/opencode#45064) copies only denies that
 are still the parent's effective action for their exact permission and pattern; deployments
-running a build with that fix verified live (the reference deployment runs `v1.18.22-dca`,
-v1.18.22 plus that commit) no longer need the fresh-parent workaround. On a build without it,
-failed preflight means stop; do not weaken policy or silently replace the native child with an
-independent root session.
+running a build with that fix verified live (the reference deployment's binary
+`opencode-1.18.22-dca` is built from the `fix/subagent-effective-deny-inheritance` branch; that
+name is the binary's filename, not a branch) no longer need the fresh-parent workaround. On a
+build without it, failed preflight means stop; do not weaken policy or silently replace the
+native child with an independent root session.
 
 Before launching parallel mutating workers:
 
