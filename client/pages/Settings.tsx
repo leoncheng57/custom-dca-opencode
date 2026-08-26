@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import { Alert } from "../ds/alert.js";
 import { Button } from "../ds/button.js";
 import { AppearanceControl } from "../components/appearance-control.js";
-import { NotificationPreferencesSection } from "../components/notification-preferences.js";
 import { api, type AppSettings } from "../lib/api.js";
 import {
   booleanFromOverride,
@@ -143,8 +142,6 @@ export function SettingsPage() {
           </div>
         </form>
       )}
-      <hr className="border-[var(--color-border-default)]" />
-      <NotificationPreferencesSection />
-    </main>
+     </main>
   );
 }

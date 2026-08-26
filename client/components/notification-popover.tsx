@@ -7,8 +7,10 @@ import { Badge } from "../ds/badge.js";
 import { Button } from "../ds/button.js";
 import { cn } from "../ds/utils.js";
 import type { NotificationRecord } from "../lib/api.js";
+import { groupBySession } from "../lib/notificationGroups.js";
 import { useNotificationCenter } from "../lib/useNotificationCenter.js";
 import { NotificationFilters } from "./notification-filters.js";
+import { NotificationGroup } from "./notification-group.js";
 import { NotificationRecordRow } from "./notification-record-row.js";
 
 /** Highest number the decorative pill prints literally; above this it reads "99+". */
@@ -33,6 +35,12 @@ function RecordSection({
   maxHeight = "max-h-64",
   collapsed,
   onToggle,
+  grouped = false,
+  isGroupExpanded,
+  toggleGroup,
+  onNavigate,
+  onResolveMany,
+  onError,
 }: {
   title: string;
   records: NotificationRecord[];
@@ -43,6 +51,15 @@ function RecordSection({
   maxHeight?: string;
   collapsed?: boolean;
   onToggle?: () => void;
+  /** Collect rows under one header per session. Grouping happens inside a
+   *  section, never across them: a session's unresolved and resolved rows
+   *  belong on opposite sides of the Active/Resolved split. */
+  grouped?: boolean;
+  isGroupExpanded?: (key: string) => boolean;
+  toggleGroup?: (key: string) => void;
+  onNavigate?: () => void;
+  onResolveMany?: (ids: string[]) => Promise<void>;
+  onError?: (error: Error) => void;
 }) {
   const headingId = `${testId}-heading`;
   const bodyId = `${testId}-body`;
@@ -96,9 +113,29 @@ function RecordSection({
               className={cn("min-h-0 flex-1 overflow-y-auto overscroll-contain", maxHeight)}
               data-testid={testId}
             >
-              {records.map((record) => (
-                <NotificationRecordRow key={record.id} record={record} onResolvedChange={onResolvedChange} compact />
-              ))}
+              {grouped
+                ? groupBySession(records).map((group) => (
+                    <NotificationGroup
+                      key={group.key}
+                      group={group}
+                      expanded={isGroupExpanded?.(group.key) ?? true}
+                      onToggle={() => toggleGroup?.(group.key)}
+                      onResolvedChange={onResolvedChange}
+                      onResolveMany={onResolveMany}
+                      onError={onError}
+                      compact
+                      onNavigate={onNavigate}
+                    />
+                  ))
+                : records.map((record) => (
+                    <NotificationRecordRow
+                      key={record.id}
+                      record={record}
+                      onResolvedChange={onResolvedChange}
+                      compact
+                      onNavigate={onNavigate}
+                    />
+                  ))}
             </ul>
           )}
           {footer}
@@ -121,8 +158,20 @@ function outsideWindowNotice(hidden: number): string {
  * filterable history still lives at /settings/notifications.
  */
 export function NotificationPopover({ scopedPath }: { scopedPath: (path: string) => string }) {
-  const { activeCount, records, suppressedActive, view, setView, loading, error, setResolved } =
-    useNotificationCenter();
+  const {
+    activeCount,
+    records,
+    suppressedActive,
+    view,
+    setView,
+    isGroupExpanded,
+    toggleGroup,
+    setAllGroupsCollapsed,
+    loading,
+    error,
+    setResolved,
+    resolveMany,
+  } = useNotificationCenter();
   const [open, setOpen] = useState(false);
   const [mutationError, setMutationError] = useState("");
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -136,7 +185,7 @@ export function NotificationPopover({ scopedPath }: { scopedPath: (path: string)
   };
 
   // Focus the panel itself rather than its first control: the first control is
-  // a Resolved checkbox, and landing on it invites an accidental toggle.
+  // a Resolve button, and landing on it invites an accidental toggle.
   useEffect(() => {
     if (open) panelRef.current?.focus();
   }, [open]);
@@ -239,6 +288,7 @@ export function NotificationPopover({ scopedPath }: { scopedPath: (path: string)
               view={view}
               onChange={setView}
               suppressedActive={suppressedActive}
+              onAllGroupsCollapsedChange={setAllGroupsCollapsed}
               className="shrink-0 px-1 pb-1"
             />
             <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
@@ -256,6 +306,12 @@ export function NotificationPopover({ scopedPath }: { scopedPath: (path: string)
                 }
                 testId="opencode-notification-popover-active"
                 onResolvedChange={onResolvedChange}
+                grouped={view.groupBySession}
+                isGroupExpanded={isGroupExpanded}
+                toggleGroup={toggleGroup}
+                onNavigate={() => close(false)}
+                onResolveMany={resolveMany}
+                onError={(error) => setMutationError(error.message)}
                 footer={
                   hiddenActive > 0 ? (
                     <p
@@ -273,6 +329,10 @@ export function NotificationPopover({ scopedPath }: { scopedPath: (path: string)
                 emptyLabel={loading ? "Loading..." : "Nothing resolved yet."}
                 testId="opencode-notification-popover-resolved"
                 onResolvedChange={onResolvedChange}
+                grouped={view.groupBySession}
+                isGroupExpanded={isGroupExpanded}
+                toggleGroup={toggleGroup}
+                onNavigate={() => close(false)}
                 maxHeight="max-h-48"
                 collapsed={!view.resolvedExpanded}
                 onToggle={() => setView({ resolvedExpanded: !view.resolvedExpanded })}

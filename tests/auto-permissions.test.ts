@@ -1,4 +1,6 @@
 import { EventEmitter } from "node:events";
+import { mkdir, mkdtemp, realpath, symlink } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -66,6 +68,22 @@ describe("AutoPermissionService", () => {
     await first.setEnabled(directory, false);
     expect(first.status(directory)).toEqual({ enabled: false, error: null });
     expect(service().instance.status(directory).enabled).toBe(false);
+  });
+
+  it("resolves aliases before checking enabled state", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "dca-auto-permission-alias-"));
+    const project = path.join(root, "project");
+    const alias = path.join(root, "alias");
+    await mkdir(project);
+    await symlink(project, alias);
+    process.env.PROJECTS_DIR = root;
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json([])));
+    const { instance } = service();
+
+    await instance.setEnabled(await realpath(project), true);
+
+    expect(instance.isEnabled(alias)).toBe(false);
+    await expect(instance.isEnabledCanonical(alias)).resolves.toBe(true);
   });
 
   it("reconciles existing requests with once and never uses always", async () => {

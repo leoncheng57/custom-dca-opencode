@@ -1268,6 +1268,58 @@ export async function listMessages(
   };
 }
 
+/**
+ * Cap on the agent-output excerpt stored on a notification record.
+ *
+ * Model-authored text on a durable record, so it is bounded before it is
+ * persisted — the same rule as SESSION_TITLE_LIMIT. Longer than a title
+ * because this line exists to tell two notifications from the same session
+ * apart, and the first few words of an agent's answer are often boilerplate.
+ */
+export const SESSION_EXCERPT_LIMIT = 240;
+
+/**
+ * Last thing the agent actually said in a session, for notification copy.
+ *
+ * Reads only the newest page and scans backwards for the newest assistant
+ * turn, joining its text parts. Tool calls, reasoning and user messages are
+ * skipped: the excerpt should read like the answer the user is coming back to.
+ *
+ * Returns undefined rather than a placeholder whenever the transcript does not
+ * clearly supply one — a notification that invents a summary is worse than one
+ * that stays generic.
+ */
+export async function latestAssistantExcerpt(
+  config: OpencodeConfig,
+  directory: string,
+  sessionID: string,
+  signal?: AbortSignal,
+): Promise<string | undefined> {
+  const response = await requestWithResponse<unknown[]>(
+    config,
+    `/session/${encodeURIComponent(sessionID)}/message`,
+    { directory, query: { limit: 1 }, ...(signal ? { signal } : {}) },
+  );
+  const messages = response.data ?? [];
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const entry = messages[index];
+    if (!entry || typeof entry !== "object") continue;
+    const { info, parts } = entry as { info?: { role?: unknown }; parts?: unknown };
+    if (!info || typeof info !== "object" || (info as { role?: unknown }).role !== "assistant") continue;
+    const text = (Array.isArray(parts) ? parts : [])
+      .filter((part): part is { type?: unknown; text?: unknown } => Boolean(part) && typeof part === "object")
+      .filter((part) => part.type === "text" && typeof part.text === "string")
+      .map((part) => part.text as string)
+      .join(" ");
+    const flat = text.replace(/\s+/gu, " ").trim();
+    if (!flat) continue;
+    return flat.length > SESSION_EXCERPT_LIMIT
+      ? `${flat.slice(0, SESSION_EXCERPT_LIMIT - 1)}\u2026`
+      : flat;
+  }
+  return undefined;
+}
+
 export interface Todo {
   content: string;
   status: string;

@@ -1339,9 +1339,9 @@ test.describe("settings and tools UI", () => {
   });
 
   test("keeps browser and ntfy event toggles independent", async ({ page }) => {
-    // Delivery preferences now live on the Settings page; /settings/notifications
-    // is history only.
-    await page.goto("/settings");
+    // Delivery preferences live beside history, so the inbox and the controls
+    // deciding what reaches it stay in one place.
+    await page.goto("/settings/notifications");
     const browser = page.getByTestId("opencode-notify-browser-idle");
     const ntfy = page.getByTestId("opencode-notify-ntfy-idle");
     const ntfyBefore = await ntfy.isChecked();
@@ -1350,7 +1350,7 @@ test.describe("settings and tools UI", () => {
   });
 
   test("explains the delivery matrix in plain language instead of wire values", async ({ page }) => {
-    await page.goto("/settings");
+    await page.goto("/settings/notifications");
     const events = page.getByTestId("opencode-notification-events");
     await expect(events).toBeVisible();
 
@@ -1381,7 +1381,7 @@ test.describe("settings and tools UI", () => {
   });
 
   test("restores the recommended profile in one click", async ({ page }) => {
-    await page.goto("/settings");
+    await page.goto("/settings/notifications");
     const abort = page.getByTestId("opencode-notify-browser-abort");
     const permission = page.getByTestId("opencode-notify-browser-permission");
     await abort.setChecked(true);
@@ -1407,6 +1407,10 @@ test.describe("settings and tools UI", () => {
     });
 
     await page.goto("/settings/notifications");
+    // Grouping ships on and folded, so the rows sit behind their session
+    // header. Opening them writes the persisted default, which is what keeps
+    // them open across the reloads below.
+    await page.getByTestId("opencode-notification-groups-expand-all").click();
     const badge = page.getByTestId("opencode-nav-notifications-badge");
     const bell = page.getByTestId("opencode-nav-notifications");
     // The exact count lives on the bell's accessible label, which is the real
@@ -1424,10 +1428,13 @@ test.describe("settings and tools UI", () => {
     await expect(row).toHaveAttribute("data-active", "true");
     await expect(row).toContainText("ntfy off");
 
+    // A pressed-state button, not a checkbox: the row's one action deserves a
+    // real target.
     const resolved = row.getByTestId("opencode-notification-resolved");
-    await expect(resolved).not.toBeChecked();
+    await expect(resolved).toHaveAttribute("aria-pressed", "false");
+    await expect(resolved).toHaveText("Resolve");
     const countBefore = await unresolvedCount();
-    await resolved.check();
+    await resolved.click();
     if (countBefore > 1) {
       await expect(bell).toHaveAttribute("aria-label", `Notifications, ${countBefore - 1} unresolved`);
       await expect(badge).toBeVisible();
@@ -1437,11 +1444,12 @@ test.describe("settings and tools UI", () => {
     }
 
     await page.reload();
-    await expect(row.getByTestId("opencode-notification-resolved")).toBeChecked();
-    await row.getByTestId("opencode-notification-resolved").uncheck();
+    await expect(row.getByTestId("opencode-notification-resolved")).toHaveAttribute("aria-pressed", "true");
+    // Still reversible, per decision 10.
+    await row.getByTestId("opencode-notification-resolved").click();
     await expect(bell).toHaveAttribute("aria-label", `Notifications, ${countBefore} unresolved`);
     await expect(badge).toBeVisible();
-    await row.getByTestId("opencode-notification-resolved").check();
+    await row.getByTestId("opencode-notification-resolved").click();
 
     await fetch(`${MOCK_URL}/test/permissions/reset?directory=${encodeURIComponent(DIR)}`, { method: "POST" });
   });

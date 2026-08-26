@@ -10,6 +10,11 @@ export interface NotificationMessage {
   badgeCount?: number;
   /** Monotonic revision prevents out-of-order pushes from regressing a badge. */
   badgeRevision?: number;
+  /**
+   * Record id, forwarded to the service worker as an OS notification tag so a
+   * foreground PWA and its own push do not both buzz for one record.
+   */
+  tag?: string;
 }
 
 export async function sendNtfy(

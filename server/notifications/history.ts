@@ -13,7 +13,7 @@
 //     cannot observe whether a browser tab was open, so claiming delivery
 //     would be a lie. Sound and speech are device-local and intentionally not
 //     represented here because the server cannot see those settings at all.
-//   - Every record starts unresolved and only an explicit user checkbox may
+//   - Every record starts unresolved and only an explicit user action may
 //     change that state. Upstream permission/question lifecycle events never
 //     mutate notification resolution.
 
@@ -39,11 +39,16 @@ export type ResolutionReason = "checked" | "replied" | "reconciled" | "dismissed
  *     decision to make.
  *   - "subagent": a delegated child session, whose lifecycle is the parent's
  *     business, not the user's inbox.
+ *   - "preference-off": the user switched this event kind off in every channel,
+ *     so no ping was ever going to be sent. These used to be recorded as
+ *     ordinary deliverable records, which meant disabling a kind silenced the
+ *     ping but left it incrementing the red badge forever — and `abort` ships
+ *     disabled, so every Stop press added an item nobody opted into.
  * One field rather than a separate origin marker, because today these are
  * exactly the records that are recorded-but-not-delivered. If sub-agent
  * notifications ever become deliverable, split origin out then.
  */
-export const SUPPRESSION_REASONS = ["auto-permissions", "subagent"] as const;
+export const SUPPRESSION_REASONS = ["auto-permissions", "subagent", "preference-off"] as const;
 export type SuppressionReason = (typeof SUPPRESSION_REASONS)[number];
 
 export interface NotificationDelivery {
@@ -73,6 +78,14 @@ export interface NotificationRecord {
   body: string;
   /** Safe, event-specific copy for authenticated in-app notification rows. */
   displayBody?: string;
+  /**
+   * Bounded excerpt of what the agent actually said, so two notifications from
+   * one session are told apart.
+   *
+   * In-app only: it is never copied into the outbound ntfy/Web Push body, which
+   * stays deliberately lock-screen-safe and content-free.
+   */
+  detail?: string;
   click?: string;
   resolvedAt?: number;
   resolvedBy?: ResolutionReason;
@@ -90,6 +103,7 @@ export interface AppendRecord {
   title: string;
   body: string;
   displayBody?: string;
+  detail?: string;
   click?: string;
   delivery: NotificationDelivery;
 }
@@ -105,12 +119,14 @@ export interface AppendRecord {
 export interface HistoryFilters {
   hideAutoApproved?: boolean;
   hideSubagent?: boolean;
+  hidePreferenceOff?: boolean;
 }
 
 /** App-icon badges count unresolved notifications that were eligible for delivery. */
 export const APP_BADGE_FILTERS: Readonly<Required<HistoryFilters>> = {
   hideAutoApproved: true,
   hideSubagent: true,
+  hidePreferenceOff: true,
 };
 
 export interface HistoryQuery extends HistoryFilters {
@@ -130,17 +146,43 @@ export function isSuppressionReason(value: unknown): value is SuppressionReason 
 export function isFilteredOut(record: NotificationRecord, filters: HistoryFilters): boolean {
   if (filters.hideAutoApproved && record.delivery.suppressed === "auto-permissions") return true;
   if (filters.hideSubagent && record.delivery.suppressed === "subagent") return true;
+  if (filters.hidePreferenceOff && record.delivery.suppressed === "preference-off") return true;
   return false;
 }
 
-export const HISTORY_LIMIT = 500;
-const MAX_PAGE = 200;
+/**
+ * Durable retention per capped category — resolved records, and unresolved
+ * records that were never delivered.
+ *
+ * Raised from 500: those two categories are the audit trail that explains a
+ * missing ping, and at 500 a busy week of auto-approved permissions could evict
+ * the evidence before anyone went looking. Unresolved *delivered* records are
+ * still exempt from every cap — they are the checklist, and dropping one would
+ * silently retire work nobody acted on.
+ */
+export const HISTORY_LIMIT = 5_000;
+/**
+ * Ceiling on a single history page. Raised from 200 so the notification centre
+ * can group a meaningful window by session: a group header counts the rows it
+ * renders, so a window that stops at 200 makes every header understate a busy
+ * session. Retention is deliberately unchanged — HISTORY_LIMIT still caps
+ * resolved and suppressed records, so a 1000-row request returns at most 500
+ * resolved ones however large the page.
+ */
+const MAX_PAGE = 1000;
 function isNotifyEvent(value: unknown): value is NotifyEvent {
   return typeof value === "string" && (NOTIFY_EVENTS as readonly string[]).includes(value);
 }
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value ? value : undefined;
+}
+
+/** Agent-authored text must not be able to grow the history file. */
+const DETAIL_LIMIT = 240;
+function boundedDetail(value: string): string {
+  const flat = value.replace(/\s+/gu, " ").trim();
+  return flat.length > DETAIL_LIMIT ? `${flat.slice(0, DETAIL_LIMIT - 1)}\u2026` : flat;
 }
 
 function normalizeDelivery(value: unknown): NotificationDelivery {
@@ -180,6 +222,12 @@ function normalizeRecord(value: unknown): NotificationRecord | null {
     title: typeof source.title === "string" ? source.title : "",
     body: typeof source.body === "string" ? source.body : "",
     ...(optionalString(source.displayBody) ? { displayBody: String(source.displayBody) } : {}),
+    // Re-bounded on read as well as on write: normalizeRecord is the only
+    // barrier against a hand-edited or older-format file, and this field is
+    // model-authored text on a durable record.
+    ...(optionalString(source.detail)
+      ? { detail: boundedDetail(String(source.detail)) }
+      : {}),
     ...(optionalString(source.click) ? { click: String(source.click) } : {}),
     ...(Number.isFinite(resolvedAt) ? { resolvedAt } : {}),
     ...(optionalString(source.resolvedBy) ? { resolvedBy: source.resolvedBy as ResolutionReason } : {}),
@@ -301,6 +349,7 @@ export class HistoryStore {
       title: entry.title,
       body: entry.body,
       ...(entry.displayBody ? { displayBody: entry.displayBody } : {}),
+      ...(entry.detail ? { detail: boundedDetail(entry.detail) } : {}),
       ...(entry.click ? { click: entry.click } : {}),
       delivery: entry.delivery,
     };
@@ -311,7 +360,7 @@ export class HistoryStore {
     return record;
   }
 
-  /** The sole mutation of resolved state: an explicit user checkbox action. */
+  /** The single-record resolved-state mutation: an explicit user action. */
   async setResolved(id: string, resolved: boolean, at = Date.now()): Promise<NotificationRecord | undefined> {
     await this.load();
     const record = this.records.find((candidate) => candidate.id === id);
@@ -331,6 +380,32 @@ export class HistoryStore {
     }
     this.persist();
     return record;
+  }
+
+  /**
+   * Resolve a bounded, browser-supplied selection in one durable write.
+   *
+   * This is deliberately not an unscoped "clear inbox" primitive: the caller
+   * supplies only ids it rendered, so older records outside the history window
+   * stay untouched. Changed rows return to the ordinary Resolved list and can
+   * be reopened through setResolved() while they remain inside the bounded
+   * resolved-record retention window.
+   */
+  async resolveMany(ids: readonly string[], at = Date.now()): Promise<NotificationRecord[]> {
+    await this.load();
+    const wanted = new Set(ids);
+    const changed: NotificationRecord[] = [];
+    for (const record of this.records) {
+      if (!wanted.has(record.id) || !isActive(record)) continue;
+      record.resolvedAt = at;
+      record.resolvedBy = "checked";
+      if (record.delivery.suppressed === undefined) this.bumpBadgeRevision();
+      changed.push(record);
+    }
+    if (changed.length === 0) return changed;
+    this.prune();
+    this.persist();
+    return changed;
   }
 
   async setDelivery(id: string, delivery: NotificationDelivery): Promise<NotificationRecord | undefined> {
@@ -394,7 +469,11 @@ export class HistoryStore {
    */
   async suppressedActiveCounts(directory?: string): Promise<SuppressedActiveCounts> {
     await this.load();
-    const counts: SuppressedActiveCounts = { "auto-permissions": 0, subagent: 0 };
+    // Built from SUPPRESSION_REASONS so a new category cannot be added without
+    // getting a tally — the filter that hides it has to be able to say so.
+    const counts = Object.fromEntries(
+      SUPPRESSION_REASONS.map((reason) => [reason, 0]),
+    ) as SuppressedActiveCounts;
     for (const record of this.records) {
       if (!isActive(record)) continue;
       if (directory && record.directory !== directory) continue;

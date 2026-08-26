@@ -1039,6 +1039,46 @@ test.describe("notification history", () => {
     await fetch(`${MOCK_URL}/test/permissions/reset?directory=${encodeURIComponent(PERMISSION_DIR)}`, { method: "POST" });
   });
 
+  test("resolves only the bounded selection the browser showed", async ({ request }) => {
+    const firstRequest = `perm_bulk_first_${Date.now()}`;
+    const secondRequest = `perm_bulk_second_${Date.now()}`;
+    const untouchedRequest = `perm_bulk_outside_${Date.now()}`;
+    for (const id of [firstRequest, secondRequest, untouchedRequest]) {
+      await fetch(`${MOCK_URL}/test/permission?directory=${encodeURIComponent(PERMISSION_DIR)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, sessionID: "ses_mock_api_permission", permission: "bash", patterns: [id] }),
+      });
+    }
+    await expect.poll(async () => record((await history(request)).records, untouchedRequest)).toBeTruthy();
+    const before = await history(request);
+    const first = record(before.records, firstRequest)!;
+    const second = record(before.records, secondRequest)!;
+    const untouched = record(before.records, untouchedRequest)!;
+
+    const response = await request.post("/api/notifications/resolve", {
+      data: { ids: [first.id, second.id, first.id, "missing"] },
+    });
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.records.map((item: { id: string }) => item.id).sort()).toEqual([first.id, second.id].sort());
+
+    const after = await history(request);
+    expect(record(after.records, firstRequest)).toMatchObject({ resolvedBy: "checked" });
+    expect(record(after.records, secondRequest)).toMatchObject({ resolvedBy: "checked" });
+    expect(record(after.records, untouchedRequest)?.resolvedAt).toBeUndefined();
+
+    // Bulk resolution is not destructive: each row still uses the ordinary
+    // reversible endpoint afterward.
+    await request.patch(`/api/notifications/${first.id}`, { data: { resolved: false } });
+    expect(record((await history(request)).records, firstRequest)?.resolvedAt).toBeUndefined();
+    await request.patch(`/api/notifications/${first.id}`, { data: { resolved: true } });
+    await request.patch(`/api/notifications/${untouched.id}`, { data: { resolved: true } });
+    expect((await request.post("/api/notifications/resolve", { data: { ids: [] } })).status()).toBe(400);
+    expect((await request.post("/api/notifications/resolve", { data: { ids: [42] } })).status()).toBe(400);
+    await fetch(`${MOCK_URL}/test/permissions/reset?directory=${encodeURIComponent(PERMISSION_DIR)}`, { method: "POST" });
+  });
+
   test("scopes the badge count without filtering the history", async ({ request }) => {
     const requestID = `perm_scoped_${Date.now()}`;
     await fetch(`${MOCK_URL}/test/permission?directory=${encodeURIComponent(PERMISSION_DIR)}`, {
