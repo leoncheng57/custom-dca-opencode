@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { isSafeHref, linkAttributes } from "../client/ds/markdown.js";
+import { isMermaidClassName, isSafeHref, linkAttributes } from "../client/ds/markdown.js";
 import { DOCS, getDoc, rewriteDocLinks } from "../client/lib/docs.js";
 import { MANAGED_CHILD_AGENT_IDS } from "../server/opencode/sessions.js";
 
@@ -65,6 +65,13 @@ describe("documentation catalogue", () => {
 });
 
 describe("documentation markdown links", () => {
+  it("recognizes only Mermaid fenced-code language classes", () => {
+    expect(isMermaidClassName("language-mermaid")).toBe(true);
+    expect(isMermaidClassName("language-mermaid hljs")).toBe(true);
+    expect(isMermaidClassName("language-text")).toBe(false);
+    expect(isMermaidClassName(undefined)).toBe(false);
+  });
+
   it("keeps app links in this tab without changing external link behavior", () => {
     expect(linkAttributes("/docs/architecture", true)).toEqual({});
     expect(linkAttributes("#result", true)).toEqual({});

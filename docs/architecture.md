@@ -6,25 +6,15 @@ without replacing the OpenCode CLI.
 
 ## System topology
 
-```text
-Browser (desktop or phone over Tailscale)
-  |
-  v
-React 19 + Vite SPA
-  |
-  | same-origin HTTP and SSE
-  v
-Express BFF
-  |-- OpenCode credential, directory validation, SSE fan-out
-  |-- local Git and GitHub/GitLab integrations
-  |-- notification history and ntfy delivery
-  |-- constrained localhost preview proxy
-  |
-  v
-opencode serve :4096
-  |-- one process for every project
-  |-- sessions selected with ?directory=<absolute path>
-  `-- agent tools execute on the host as the current user
+```mermaid
+flowchart TD
+  Browser[Browser: desktop or phone over Tailscale] -->|same-origin HTTP and SSE| SPA[React 19 + Vite SPA]
+  SPA --> BFF[Express BFF]
+  BFF --> OpenCode[opencode serve :4096]
+  BFF --- Boundary[Credentials, directory validation, SSE fan-out]
+  BFF --- Integrations[Local Git, GitHub/GitLab, ntfy, preview proxy]
+  OpenCode --- Sessions[One process for every project; sessions use directory]
+  OpenCode --- Tools[Agent tools execute on the host user]
 ```
 
 The browser never talks directly to OpenCode or a forge. The BFF is the credential and trust
