@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Check, ChevronDown, Pin, Search, X } from "lucide-react";
 import { createPortal } from "react-dom";
 
@@ -22,6 +22,7 @@ export function ModelPicker({
   testId,
   label = "Model",
   disabled = false,
+  portalLayer = "default",
 }: {
   catalogue: ModelCatalogue | null;
   value?: ModelSelection;
@@ -29,6 +30,8 @@ export function ModelPicker({
   testId: string;
   label?: string;
   disabled?: boolean;
+  /** Nested dialogs render above their owning modal instead of behind it. */
+  portalLayer?: "default" | "nested";
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -36,7 +39,9 @@ export function ModelPicker({
   const [pinError, setPinError] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
   const details = catalogue?.models.find((model) => sameModelID(model, value));
+  const portalZIndex = portalLayer === "nested" ? "z-[100]" : "z-[90]";
   const pinKeys = useMemo(() => new Set(pins.map(modelKey)), [pins]);
 
   useEffect(() => {
@@ -53,13 +58,51 @@ export function ModelPicker({
     if (!open) return;
     const previous = document.activeElement as HTMLElement | null;
     const overflow = document.body.style.overflow;
+    const parentDialog = portalLayer === "nested"
+      ? triggerRef.current?.closest<HTMLElement>('[role="dialog"][aria-modal="true"]') ?? null
+      : null;
+    const parentWasInert = parentDialog?.inert ?? false;
+    const parentAriaHidden = parentDialog ? parentDialog.getAttribute("aria-hidden") : null;
     document.body.style.overflow = "hidden";
+    if (parentDialog) {
+      parentDialog.inert = true;
+      parentDialog.setAttribute("aria-hidden", "true");
+    }
     requestAnimationFrame(() => searchRef.current?.focus());
     return () => {
       document.body.style.overflow = overflow;
+      if (parentDialog) {
+        parentDialog.inert = parentWasInert;
+        if (parentAriaHidden === null) parentDialog.removeAttribute("aria-hidden");
+        else parentDialog.setAttribute("aria-hidden", parentAriaHidden);
+      }
       if (previous?.isConnected) previous.focus();
     };
-  }, [open]);
+  }, [open, portalLayer]);
+
+  const onDialogKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Escape") {
+      close();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = [...(dialogRef.current?.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+    ) ?? [])].filter((element) => !element.hidden);
+    if (focusable.length === 0) {
+      event.preventDefault();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && (document.activeElement === first || !dialogRef.current?.contains(document.activeElement))) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
 
   const visiblePinned = pins
     .map((pin) => catalogue?.models.find((model) => sameModelID(model, pin)))
@@ -140,9 +183,9 @@ export function ModelPicker({
       <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 text-[var(--color-text-muted)]" />
     </button>
     {open && createPortal(
-      <div className="fixed inset-0 z-[90] flex items-end justify-center sm:items-start sm:p-4 sm:pt-[10vh]" data-testid={`${testId}-panel`}>
+      <div className={`fixed inset-0 ${portalZIndex} flex items-end justify-center sm:items-start sm:p-4 sm:pt-[10vh]`} data-testid={`${testId}-panel`}>
         <button type="button" aria-label="Close model picker" className="absolute inset-0 bg-[var(--color-background-overlay)]" onClick={close} />
-        <div className="relative flex max-h-[82dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-[var(--color-border-default)] bg-[var(--color-background-surface)] shadow-xl sm:max-h-[72vh] sm:max-w-xl sm:rounded-xl" role="dialog" aria-modal="true" aria-label={`${label} picker`} onKeyDown={(event) => { if (event.key === "Escape") close(); }}>
+        <div ref={dialogRef} className="relative flex max-h-[82dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-[var(--color-border-default)] bg-[var(--color-background-surface)] shadow-xl sm:max-h-[72vh] sm:max-w-xl sm:rounded-xl" role="dialog" aria-modal="true" aria-label={`${label} picker`} onKeyDown={onDialogKeyDown}>
           <div className="flex items-center gap-2 border-b border-[var(--color-border-default)] p-3">
             <div className="relative min-w-0 flex-1">
               <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-muted)]" />

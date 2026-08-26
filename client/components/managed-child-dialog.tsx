@@ -135,6 +135,7 @@ export function ManagedChildDialog({
               testId="opencode-managed-child-model"
               label="Sub-agent model"
               disabled={submitting}
+              portalLayer="nested"
             />
           </div>
 
