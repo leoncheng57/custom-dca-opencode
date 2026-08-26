@@ -243,14 +243,19 @@ function PlanningGroupSection({ section, density, onOpen }: {
       </summary>
 
       <div className="border-t border-[var(--color-border-default)]">
-        {section.groups.map((tagGroup) => (
+        {section.groups.map((tagGroup) => {
+          // Wave 1 ships the hierarchy in the data layer only; until the epic UI
+          // lands, a node renders as its parent row followed by its children so
+          // no row is lost.
+          const rows = tagGroup.nodes.flatMap((node) => [node.item, ...node.children]);
+          return (
           <section data-testid={`opencode-planning-group-${section.id}-${tagGroup.label.toLocaleLowerCase()}`} key={tagGroup.label}>
             <header className="flex items-center justify-between gap-3 border-b border-[var(--color-border-default)] bg-[var(--color-background-base)] px-4 py-2">
               <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">{tagGroup.label}</h3>
-              <span className="text-xs tabular-nums text-[var(--color-text-muted)]">{tagGroup.items.length}</span>
+              <span className="text-xs tabular-nums text-[var(--color-text-muted)]">{rows.length}</span>
             </header>
             <ul className="divide-y divide-[var(--color-border-default)]">
-              {tagGroup.items.map((item) => (
+              {rows.map((item) => (
                 <PlanningRow
                   conflict={isConflict}
                   density={density}
@@ -261,7 +266,8 @@ function PlanningGroupSection({ section, density, onOpen }: {
               ))}
             </ul>
           </section>
-        ))}
+          );
+        })}
       </div>
     </details>
   );

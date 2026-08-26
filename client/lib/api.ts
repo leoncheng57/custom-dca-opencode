@@ -381,12 +381,24 @@ export interface PlanningItem {
   createdAt: string;
   updatedAt: string;
   commentCount: number;
+  /** Sub-issue count reported by GitHub; 0 for anything that is not an epic. */
+  childCount: number;
+  /** Completed sub-issues, never greater than `childCount`. */
+  completedChildCount: number;
+  /**
+   * The epic this item belongs to, resolved by the BFF's bounded fan-out.
+   * `null` means top-level *or* an edge nobody spent a request to discover, so
+   * it is never evidence that an item has no parent.
+   */
+  parentNumber: number | null;
 }
 
 export interface PlanningSnapshot {
   repository: { owner: string; repo: string; url: string };
   items: PlanningItem[];
   truncated: boolean;
+  /** True when more epics existed than the BFF resolved parent links for. */
+  epicsTruncated: boolean;
   fetchedAt: string;
 }
 

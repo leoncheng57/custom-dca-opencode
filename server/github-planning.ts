@@ -32,6 +32,16 @@ export const PLANNING_LIMITS = {
   detailBodyCharacters: 20_000,
   commentBodyCharacters: 8_000,
   comments: 50,
+  /**
+   * Parent/child ("epic") edges cost one extra request per parent, because the
+   * list endpoint reports a child *count* but never a parent link. These three
+   * bound that fan-out: how many epics we will resolve at all, how many of
+   * those requests may be open at once, and how many children we read from any
+   * single epic.
+   */
+  epics: 25,
+  epicConcurrency: 4,
+  epicChildren: 100,
 } as const;
 
 export type PlanningItemType = "issue" | "pull_request";
@@ -66,6 +76,16 @@ export interface PlanningItem {
   createdAt: string;
   updatedAt: string;
   commentCount: number;
+  /** `sub_issues_summary.total`; 0 for anything that is not an epic. */
+  childCount: number;
+  /** `sub_issues_summary.completed`, clamped to at most `childCount`. */
+  completedChildCount: number;
+  /**
+   * Resolved by the snapshot's bounded `/sub_issues` fan-out, never by the
+   * list endpoint, which carries no parent link at all. `null` means either
+   * top-level or an edge we did not spend a request to discover.
+   */
+  parentNumber: number | null;
 }
 
 export interface PlanningSnapshot {
@@ -73,6 +93,8 @@ export interface PlanningSnapshot {
   items: PlanningItem[];
   /** True when more records exist than PLANNING_LIMITS allows us to fetch. */
   truncated: boolean;
+  /** True when more epics were discovered than PLANNING_LIMITS.epics resolves. */
+  epicsTruncated: boolean;
   fetchedAt: string;
 }
 
@@ -150,6 +172,17 @@ function commentsUrl(number: number): URL {
   const url = new URL(`${itemUrl(number).pathname}/comments`, githubApi());
   url.searchParams.set("per_page", String(PLANNING_LIMITS.comments + 1));
   url.searchParams.set("page", "1");
+  return url;
+}
+
+/**
+ * The only endpoint that names an epic's children. The list endpoint carries
+ * `sub_issues_summary` but no parent link, and the single-issue endpoint's
+ * `parent_issue_url` would cost one request *per item* rather than per parent.
+ */
+function subIssuesUrl(number: number): URL {
+  const url = new URL(`${itemUrl(number).pathname}/sub_issues`, githubApi());
+  url.searchParams.set("per_page", String(PLANNING_LIMITS.epicChildren));
   return url;
 }
 
@@ -305,6 +338,12 @@ function webUrl(value: unknown): string {
   }
 }
 
+/** Absent, malformed, fractional and negative counters all read as zero. */
+function counter(value: unknown): number {
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number >= 0 ? number : 0;
+}
+
 export function normalizePlanningItem(raw: Record<string, unknown>): PlanningItem | null {
   const number = Number(raw.number);
   if (!Number.isSafeInteger(number) || number <= 0) return null;
@@ -313,6 +352,12 @@ export function normalizePlanningItem(raw: Record<string, unknown>): PlanningIte
   const isPull = !!pull && typeof pull === "object";
   const mergedAt = isPull ? (pull as { merged_at?: unknown }).merged_at : undefined;
   const title = String(raw.title ?? "");
+
+  const rawSummary = raw.sub_issues_summary;
+  const summary = rawSummary && typeof rawSummary === "object" && !Array.isArray(rawSummary)
+    ? (rawSummary as Record<string, unknown>)
+    : {};
+  const childCount = counter(summary.total);
 
   return {
     id: String(raw.id ?? `${isPull ? "pull" : "issue"}-${number}`),
@@ -329,6 +374,10 @@ export function normalizePlanningItem(raw: Record<string, unknown>): PlanningIte
     createdAt: String(raw.created_at ?? ""),
     updatedAt: String(raw.updated_at ?? ""),
     commentCount: Number.isFinite(Number(raw.comments)) ? Math.max(0, Math.trunc(Number(raw.comments))) : 0,
+    childCount,
+    completedChildCount: Math.min(childCount, counter(summary.completed)),
+    // Only the snapshot fan-out may set this; a single record never knows.
+    parentNumber: null,
   };
 }
 
@@ -421,6 +470,68 @@ export async function getPlanningItemDetails(value: unknown): Promise<PlanningIt
   };
 }
 
+/** Runs `worker` over every index with at most `limit` in flight. No dependency. */
+async function withConcurrency(count: number, limit: number, worker: (index: number) => Promise<void>): Promise<void> {
+  if (count <= 0) return;
+  let cursor = 0;
+  const lanes = Array.from({ length: Math.max(1, Math.min(limit, count)) }, async () => {
+    while (cursor < count) {
+      const index = cursor;
+      cursor += 1;
+      await worker(index);
+    }
+  });
+  await Promise.all(lanes);
+}
+
+/**
+ * Resolves parent/child edges for the snapshot and reports whether more epics
+ * existed than we were willing to spend requests on.
+ *
+ * Fails open per parent, exactly like the comments fetch in
+ * getPlanningItemDetails: an epic whose `/sub_issues` rejects or answers with
+ * something other than an array simply contributes no edges. One unlucky epic
+ * must never blank a backlog that is mostly about other work.
+ *
+ * Requests run concurrently but assignments are applied afterwards in parent
+ * order, so a child claimed by two parents always lands on the same one.
+ */
+async function resolveEpicEdges(items: PlanningItem[]): Promise<boolean> {
+  const byNumber = new Map(items.map((item) => [item.number, item]));
+  // Pull requests never have sub-issues, so they are never candidate parents.
+  const candidates = items
+    .filter((item) => item.type === "issue" && item.childCount > 0)
+    .sort((left, right) => right.number - left.number);
+  const epicsTruncated = candidates.length > PLANNING_LIMITS.epics;
+  const parents = epicsTruncated ? candidates.slice(0, PLANNING_LIMITS.epics) : candidates;
+  if (parents.length === 0) return false;
+
+  const responses: unknown[] = new Array(parents.length).fill(null);
+  await withConcurrency(parents.length, PLANNING_LIMITS.epicConcurrency, async (index) => {
+    try {
+      responses[index] = await planningRequest(subIssuesUrl(parents[index].number));
+    } catch {
+      responses[index] = null;
+    }
+  });
+
+  parents.forEach((parent, index) => {
+    const body = responses[index];
+    if (!Array.isArray(body)) return;
+    for (const entry of body.slice(0, PLANNING_LIMITS.epicChildren)) {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+      const number = Number((entry as { number?: unknown }).number);
+      if (!Number.isSafeInteger(number) || number === parent.number) continue;
+      const child = byNumber.get(number);
+      // Unknown numbers are children outside the fetched window; keep the edge unresolved.
+      if (!child || child.parentNumber !== null) continue;
+      child.parentNumber = parent.number;
+    }
+  });
+
+  return epicsTruncated;
+}
+
 async function loadSnapshot(): Promise<PlanningSnapshot> {
   const items: PlanningItem[] = [];
   let truncated = false;
@@ -433,7 +544,8 @@ async function loadSnapshot(): Promise<PlanningSnapshot> {
     if (!result.hasNext) break;
     if (page === PLANNING_LIMITS.pages) truncated = true;
   }
-  return { repository: { ...PLANNING_REPOSITORY }, items, truncated, fetchedAt: new Date().toISOString() };
+  const epicsTruncated = await resolveEpicEdges(items);
+  return { repository: { ...PLANNING_REPOSITORY }, items, truncated, epicsTruncated, fetchedAt: new Date().toISOString() };
 }
 
 let cached: { snapshot: PlanningSnapshot; expiresAt: number } | null = null;
