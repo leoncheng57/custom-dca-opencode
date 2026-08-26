@@ -1,8 +1,8 @@
 {
   "schemaVersion": 2,
   "prNumber": 205,
-  "sourceSha": "72e24a2045558006da42ec030415fde54ad93dd7",
-  "capturedAt": "2026-08-26T05:02:18.764Z",
+  "sourceSha": "a5ed20c9a7cf30c658a0f5e8cd9832dc3f11b974",
+  "capturedAt": "2026-08-26T05:08:23.696Z",
   "screenshots": [
     {
       "requestedRoute": "/docs/architecture",
@@ -14,8 +14,8 @@
             "width": 1280,
             "height": 800
           },
-          "bytes": 43711,
-          "sha256": "efd832e03e1b5f034b660b65c227ca1ed4f98a638bb789d4a3b8950ebcb703ee"
+          "bytes": 66433,
+          "sha256": "0b1e6511e6fbb740f99487bdae4382ccbee1edfcd69702b5471b2fa4fdb2d904"
         },
         "mobile": {
           "filename": "01-docs-architecture-fcb6d548--mobile--full.png",
@@ -23,8 +23,8 @@
             "width": 390,
             "height": 740
           },
-          "bytes": 38582,
-          "sha256": "2cf3fc799f2f9ddf242b38b734c5702055bea7a990890899d000a65d14c02f67"
+          "bytes": 49548,
+          "sha256": "990c8b8881776f86b89a203ffc81a7a00353e2855be58a6619d93623c72cad59"
         }
       }
     },
@@ -38,17 +38,17 @@
             "width": 1280,
             "height": 950
           },
-          "bytes": 86043,
-          "sha256": "dfdc9ceb1f1b16986373d08192907067cf68f9c8fbde94ee79871377149aef68"
+          "bytes": 90559,
+          "sha256": "7905cf8f07fcdb1521aef67370e64cffc7159b036e29336030e3d7576b6cb779"
         },
         "mobile": {
           "filename": "02-docs-pr-previews-df02c2ed--mobile--full.png",
           "dimensions": {
             "width": 390,
-            "height": 890
+            "height": 740
           },
-          "bytes": 60109,
-          "sha256": "c16c4a3d61552047d67e4aa260f4f8174edc4f81867a7731580aaa0e85d906dc"
+          "bytes": 59587,
+          "sha256": "876e8a40c9234b6ebb22c83725803896e0406b637fd48c7f3b1279a698dec69c"
         }
       }
     }
