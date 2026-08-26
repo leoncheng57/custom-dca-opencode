@@ -27,6 +27,7 @@
 
 import { request, type OpencodeConfig } from "./client.js";
 import { getCapabilities, type Capabilities } from "./capabilities.js";
+import { instructionAudit, type InstructionRecord } from "./instruction-audit.js";
 import { listMessages, runningSessions, toSummary, type ManagedChildAgent, type SessionSummary } from "./sessions.js";
 import type { ModelSelection } from "./config.js";
 
@@ -90,6 +91,14 @@ export interface SubagentReport {
    * `unknown` rows may only be unknown because we did not look.
    */
   truncated: boolean;
+  /**
+   * Machine-authored instructions this BFF sent to the parent's children,
+   * newest first (issue #91). Explicit send-time audit records — never
+   * inferred from transcript text — so lanes the BFF does not operate
+   * (agent-authored native task prompts, external controllers) are absent by
+   * design and the UI states that gap.
+   */
+  instructions: InstructionRecord[];
 }
 
 // ── Narrow structural types ─────────────────────────────────────────────────
@@ -467,11 +476,13 @@ export async function listSubagents(
 ): Promise<SubagentReport> {
   const running = await runningSessions(config, directory).catch(() => new Set<string>());
 
-  const [children, parentPage, capabilities] = await Promise.all([
+  const [children, parentPage, capabilities, instructions] = await Promise.all([
     listChildren(config, directory, parentID, running),
     listMessages(config, directory, parentID, { limit: SUBAGENT_ENRICHMENT_MESSAGE_LIMIT })
       .catch(() => ({ messages: [] as unknown[], nextCursor: null })),
     getCapabilities(config, directory),
+    // Losing audit visibility must degrade to an empty list, not fail the ledger.
+    instructionAudit.list(directory, parentID).catch(() => [] as InstructionRecord[]),
   ]);
 
   const parentMessages = parentPage.messages as RawTranscriptMessage[];
@@ -505,6 +516,7 @@ export async function listSubagents(
     }),
     capabilities,
     truncated: unresolved.length > probed.length,
+    instructions,
   };
 }
 

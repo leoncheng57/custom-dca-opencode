@@ -51,6 +51,7 @@ export default defineConfig({
         OPENCODE_WORKTREE_ROOT: "/tmp/custom-dca-opencode-e2e-worktrees",
         NOTIFICATION_PREFS_FILE: "/tmp/custom-dca-opencode-e2e-notifications.json",
         NOTIFICATION_HISTORY_FILE: "/tmp/custom-dca-opencode-e2e-notification-history.json",
+        INSTRUCTION_AUDIT_FILE: `/tmp/custom-dca-opencode-e2e-instruction-audit-${process.pid}.json`,
         PREVIEW_ALLOWED_PORTS: String(PREVIEW_PORT),
         PUBLIC_APP_URL: "https://ide.e2e.example.test:8443",
         GITHUB_API_URL: `http://127.0.0.1:${PREVIEW_PORT}`,

@@ -40,6 +40,7 @@ import {
   type AgentMode,
 } from "../opencode/sessions.js";
 import { listSubagents, promoteSubagentToBackground } from "../opencode/subagents.js";
+import { recordInstruction } from "../opencode/instruction-audit.js";
 import { createWorktree } from "../opencode/worktrees.js";
 import {
   getModelCatalogue,
@@ -445,7 +446,21 @@ export function sessionRoutes(
       };
       const session = await getSession(config, directory, sessionID);
       if (session.managedConfigurationPresent) {
-        if (!session.managed) throw new ManagedChildConfigurationError();
+        if (!session.managed) {
+          // Audit the refusal (issue #91): the human tried to instruct a
+          // Managed Child whose configuration no longer verifies, and that
+          // attempt should outlive this 409.
+          recordInstruction({
+            source: "managed-child-prompt",
+            directory,
+            targetSessionID: sessionID,
+            ...(session.parentID ? { parentSessionID: session.parentID } : {}),
+            text,
+            delivery: "rejected",
+            reason: "Managed Child configuration could not be verified; prompt was not sent",
+          });
+          throw new ManagedChildConfigurationError();
+        }
         await promptManagedChild(config, directory, sessionID, input);
       }
       else await prompt(config, directory, sessionID, input);

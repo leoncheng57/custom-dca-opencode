@@ -17,6 +17,7 @@ import { createHash } from "node:crypto";
 import { withReminderTag, type ReminderPreset } from "../reminders/reminders.js";
 import { withWorkflowTag, type WorkflowPreset } from "../workflows/workflows.js";
 import { isSensitiveWorkspacePath } from "../paths.js";
+import { recordInstruction } from "./instruction-audit.js";
 import { request, requestWithResponse, type OpencodeConfig } from "./client.js";
 import type { VcsFileDiff } from "./workspace.js";
 
@@ -983,13 +984,36 @@ export function createManagedChild(
         throw new Error("OpenCode did not persist the managed child configuration exactly");
       }
       child = toSummary(persisted, false);
-      await withSessionPromptLock(directory, child.id, () => submitPromptAsync(config, directory, child!.id, {
+      try {
+        await withSessionPromptLock(directory, child.id, () => submitPromptAsync(config, directory, child!.id, {
+          text: input.text,
+          mode: input.agent === "plan" ? "plan" : "build",
+          agent: input.agent,
+          model: input.model,
+          workflow: input.workflow,
+        }));
+      } catch (submitError) {
+        recordInstruction({
+          source: "managed-child-launch",
+          directory,
+          targetSessionID: child.id,
+          parentSessionID: input.parentID,
+          targetAgent: input.agent,
+          text: input.text,
+          delivery: "rejected",
+          reason: submitError instanceof Error ? submitError.message : String(submitError),
+        });
+        throw submitError;
+      }
+      recordInstruction({
+        source: "managed-child-launch",
+        directory,
+        targetSessionID: child.id,
+        parentSessionID: input.parentID,
+        targetAgent: input.agent,
         text: input.text,
-        mode: input.agent === "plan" ? "plan" : "build",
-        agent: input.agent,
-        model: input.model,
-        workflow: input.workflow,
-      }));
+        delivery: "acknowledged",
+      });
       return child;
     } catch (error) {
       if (child?.id) {
@@ -1021,18 +1045,41 @@ export async function promptManagedChild(
   await withSessionPromptLock(directory, sessionID, async () => {
     const session = await request<RawSession>(config, `/session/${encodeURIComponent(sessionID)}`, { directory });
     const managed = managedChildMetadata(session.metadata, session.permission);
+    const audit = {
+      source: "managed-child-prompt" as const,
+      directory,
+      targetSessionID: sessionID,
+      ...(typeof session.parentID === "string" && session.parentID ? { parentSessionID: session.parentID } : {}),
+      ...(managed?.requestedAgent ? { targetAgent: managed.requestedAgent } : {}),
+      text: input.text,
+    };
     if (
       session.id !== sessionID ||
       session.directory !== directory ||
       session.agent !== managed?.requestedAgent ||
       managed?.effectivePolicyObserved !== true
     ) {
+      recordInstruction({
+        ...audit,
+        delivery: "rejected",
+        reason: "Managed Child configuration could not be verified; prompt was not sent",
+      });
       throw new ManagedChildConfigurationError();
     }
-    await submitPromptAsync(config, directory, sessionID, {
-      ...input,
-      agent: managed.requestedAgent,
-    });
+    try {
+      await submitPromptAsync(config, directory, sessionID, {
+        ...input,
+        agent: managed.requestedAgent,
+      });
+    } catch (submitError) {
+      recordInstruction({
+        ...audit,
+        delivery: "rejected",
+        reason: submitError instanceof Error ? submitError.message : String(submitError),
+      });
+      throw submitError;
+    }
+    recordInstruction({ ...audit, delivery: "acknowledged" });
   });
 }
 
