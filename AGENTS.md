@@ -175,6 +175,19 @@ several decisions below.
     pinned nor previously opened in this browser stays invisible. Recents poll on
     their own 60s timer, not the 10s session poll. Invalid directories are dropped
     rather than rejected — localStorage outlives renames and moves between machines.
+12a. **The recents row budget is 100, and it is a row budget rather than a height
+    budget.** Each Hub column scrolls inside a fixed `max-h-60` container, so more
+    rows cost DOM nodes and no page height. The cap is enforced twice on purpose and
+    both clamps use `Math.min`, so neither side can widen the other: the BFF's
+    `RECENT_SESSION_LIMIT` slices the already-fetched merged pool (no extra upstream
+    request — the per-directory pool is fetched at `RECENT_SESSION_CONTEXT_LIMIT`
+    regardless), and `MAX_VISIBLE_RECENT_SESSIONS` bounds what the browser renders.
+    Raising only one silently does nothing, which is why `api.recentSessions` derives
+    its request default from the client constant instead of repeating the number a
+    third time. `MAX_STORED_RECENT_SESSIONS` stays at 50: that is localStorage
+    retention for this browser's own open-history, a different concern. The columns
+    are grid children of an `overflow-hidden` grid, so they need `min-h-0` or
+    `min-height: auto` lets the list push the section taller instead of scrolling.
 13. **Sub-agent state is derived, and `unknown` is a first-class answer.**
     OpenCode has child sessions but no durable background-job API, so
     `server/opencode/subagents.ts` combines four upstream facts —

@@ -6,7 +6,12 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import type { OpencodeConfig } from "../server/opencode/client.js";
 import { listSessionsAcross, RECENT_FANOUT_CONCURRENCY } from "../server/opencode/sessions.js";
-import { recentSessionContext, resolveRecentDirectories } from "../server/routes/recents.js";
+import {
+  RECENT_SESSION_LIMIT,
+  recentSessionContext,
+  recentSessionLimit,
+  resolveRecentDirectories,
+} from "../server/routes/recents.js";
 
 const servers: Server[] = [];
 
@@ -137,6 +142,43 @@ describe("recent directory resolution", () => {
     }
     expect(await resolveRecentDirectories(directories, [], 2)).toHaveLength(2);
     delete process.env.PROJECTS_DIR;
+  });
+});
+
+describe("recent session window", () => {
+  it("serves far more than the old five rows", () => {
+    // Issue #44: the Hub scrolls these lists, so the window is a row budget
+    // rather than a height budget.
+    expect(RECENT_SESSION_LIMIT).toBeGreaterThanOrEqual(100);
+    expect(recentSessionLimit(undefined)).toBe(RECENT_SESSION_LIMIT);
+    expect(recentSessionLimit("40")).toBe(40);
+  });
+
+  it("clamps down, never up, however large a limit the client sends", () => {
+    // Math.min, not Math.max. A browser that asks for 5000 rows gets the BFF's
+    // bound; this is the server half of the cap and it does not trust the
+    // client's half.
+    expect(recentSessionLimit(String(RECENT_SESSION_LIMIT + 1))).toBe(RECENT_SESSION_LIMIT);
+    expect(recentSessionLimit("5000")).toBe(RECENT_SESSION_LIMIT);
+    expect(recentSessionLimit(Number.MAX_SAFE_INTEGER)).toBe(RECENT_SESSION_LIMIT);
+    expect(recentSessionLimit("Infinity")).toBe(RECENT_SESSION_LIMIT);
+  });
+
+  it("refuses negatives, fractions and junk without collapsing the panel", () => {
+    expect(recentSessionLimit("-1")).toBe(0);
+    expect(recentSessionLimit("7.9")).toBe(7);
+    // Unparseable falls back to the default rather than to zero rows: a stray
+    // query string must not blank the panel.
+    expect(recentSessionLimit("not-a-number")).toBe(RECENT_SESSION_LIMIT);
+    expect(recentSessionLimit(["3", "4"])).toBe(RECENT_SESSION_LIMIT);
+    // An explicit empty value is still a number (0), and stays one.
+    expect(recentSessionLimit("")).toBe(0);
+  });
+
+  it("honours a caller-supplied maximum, so the bound stays injectable", () => {
+    expect(recentSessionLimit("99", 5)).toBe(5);
+    expect(recentSessionLimit(undefined, 5)).toBe(5);
+    expect(recentSessionLimit("2", 5)).toBe(2);
   });
 });
 
