@@ -8,7 +8,10 @@ https://leoncheng.dev/custom-dca-opencode/pr-previews/pr-<number>/
 
 The preview refreshes for every new pull request commit. It is the pull request's real
 client bundle running against deterministic browser-local BFF stubs. It does not publish
-the Express BFF, an OpenCode process, credentials, host files, or live conversations.
+the Express BFF, an OpenCode or DeepSeek Harness process, credentials, host files, or live
+conversations. The experimental DSH Lab is fixture-backed in previews just like OpenCode:
+its sessions, prompts, cancellation, transcript, and preview frame mutate only that browser
+tab and reset on reload.
 
 This guide owns the contributor and reviewer contract for preview builds. For the local
 production deployment, use [Deployment operations](../deploy/README.md). For static PR

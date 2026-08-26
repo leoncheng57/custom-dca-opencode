@@ -1,11 +1,14 @@
 import type {
   AppSettings,
+  DshConfigResponse,
+  DshSessionSummary,
   NotificationPreferences,
   NotificationRecord,
   PlanningItem,
   SessionSummary,
 } from "../lib/api.js";
 import type { RawMessage } from "../lib/events.js";
+import type { TranscriptEvent } from "../lib/transcript.js";
 
 export const SIMULATOR_DIRECTORY = "/tmp/mock-project";
 const SECOND_DIRECTORY = "/tmp/mock-second-project";
@@ -80,6 +83,50 @@ const notificationRecords: NotificationRecord[] = [
   { id: "note-preview-idle", kind: "idle", at: 1_787_000_010_000, directory: SIMULATOR_DIRECTORY, sessionID: "ses_preview_done", sessionTitle: "Build the PR preview pipeline", title: "Session finished", body: "Open the IDE to review the session.", detail: "Published the preview bundle to gh-pages and updated the sticky PR comment.", resolvedAt: 1_787_000_015_000, resolvedBy: "checked", delivery: { ntfy: "off", desktop: "allowed", webPush: "off" } },
 ];
 
+// ---------------------------------------------------------------------------
+// DSH V1 fixture data — tab-local, reset on reload.
+// ---------------------------------------------------------------------------
+
+const DSH_PRESET_ID = "dsh-preview-preset";
+const DSH_WORKSPACE_ID = "dsh-preview-workspace";
+
+const dshConfig: DshConfigResponse = {
+  enabled: true,
+  configured: true,
+  protocol: 1,
+  readOnly: true,
+  sdkVersion: "0.1.0",
+  sandbox: "seatbelt",
+  presets: [{ id: DSH_PRESET_ID, label: "Preview preset", provider: "simulator", model: "sim-preview-v1", fingerprint: "0".repeat(64) }],
+  workspaces: [{ id: DSH_WORKSPACE_ID, label: "Preview workspace" }],
+};
+
+interface DshFixtureSession extends DshSessionSummary {
+  events: TranscriptEvent[];
+}
+
+function dshSummary(session: DshFixtureSession): DshSessionSummary {
+  return { id: session.id, title: session.title, presetId: session.presetId, workspaceId: session.workspaceId, createdAt: session.createdAt, updatedAt: session.updatedAt, running: session.running };
+}
+
+function makeDshSeedSession(): DshFixtureSession {
+  const now = "2026-08-25T18:00:00.000Z";
+  return {
+    id: "dsh-preview-done",
+    title: "DSH experiment conversation",
+    presetId: DSH_PRESET_ID,
+    workspaceId: DSH_WORKSPACE_ID,
+    createdAt: now,
+    updatedAt: now,
+    running: false,
+    events: [
+      { id: "dsh-evt-1", messageId: "dsh-msg-1", timestamp: now, kind: "user", text: "Explain the seatbelt sandbox.", reminders: [], workflows: [], attachments: [] },
+      { id: "dsh-evt-2", messageId: "dsh-msg-2", timestamp: now, kind: "agent", text: "The DSH preview is simulated. No DSH runtime, model provider, or filesystem was contacted." },
+      { id: "dsh-evt-3", messageId: "dsh-msg-3", timestamp: now, kind: "status", label: "Run completed" },
+    ],
+  };
+}
+
 function response(body: unknown, status = 200): Response {
   if (status === 204) return new Response(null, { status });
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -140,6 +187,10 @@ export function createPublicSimulator(): typeof fetch {
   let permissions = [{ id: "perm_preview", sessionID: "ses_preview_done", permission: "bash", patterns: ["npm test"], metadata: { command: "npm test" }, always: ["npm *"] }];
   let questions = [{ id: "que_preview", sessionID: "ses_preview_done", questions: [{ header: "Deployment", question: "Which preview surface should be verified?", options: [{ label: "Desktop", description: "Review the wide layout" }, { label: "Mobile", description: "Review the phone layout" }], multiple: true, custom: true }] }];
 
+  // DSH fixture state — mutable per tab, reset on page reload.
+  const dshSessions: DshFixtureSession[] = [makeDshSeedSession()];
+  let dshCounter = 0;
+
   return (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const raw = input instanceof Request ? input.url : String(input);
     const url = new URL(raw, "https://preview.invalid");
@@ -149,7 +200,7 @@ export function createPublicSimulator(): typeof fetch {
     const path = url.pathname;
 
     if (path === "/api/health") return response({ healthy: true, upstream: { url: "simulator://opencode", reachable: true, version: "1.18.22", expected: "1.18.22", versionMatches: true }, events: { connected: true } });
-    if (path === "/api/app-config") return response({ publicAppUrl: null, dshEnabled: false });
+    if (path === "/api/app-config") return response({ publicAppUrl: null, dshEnabled: true });
     if (path === "/api/projects") return response({ root: "/tmp", projects: [{ name: "mock-project", relativePath: "mock-project", directory: SIMULATOR_DIRECTORY, kind: "repository" }, { name: "mock-second-project", relativePath: "mock-second-project", directory: SECOND_DIRECTORY, kind: "repository" }] });
     if (path === "/api/project-pins") {
       if (method === "PATCH") projectPins = Array.isArray(body.directories) ? body.directories : projectPins;
@@ -308,6 +359,80 @@ export function createPublicSimulator(): typeof fetch {
     if (permissionRoute && method === "POST") { permissions = permissions.filter((item) => item.id !== decodeURIComponent(permissionRoute[1])); return response({ replied: true }); }
     if (path === "/api/reminders") return response({ reminders: [{ id: "verify", title: "Verify changes", description: "Run focused verification before reporting completion.", triggers: ["verify", "test"] }, { id: "review", title: "Review implementation", description: "Review behavior, risks, and missing tests.", triggers: ["review"] }] });
     if (path === "/api/workflows") return response({ workflows: [{ id: "playwright-review", title: "Playwright UI review", description: "Review a route and interaction in the browser.", injector: "Use Playwright to verify this interaction against the running application." }, { id: "session-update", title: "Send session update", description: "Deliver a handoff to another session.", injector: "Treat this as an update from another workstream." }, { id: "managed-child", title: "Launch Managed Child", description: "Launch a human-authorized child session.", injector: "Complete the delegated task and report concrete findings." }] });
+
+    // -----------------------------------------------------------------------
+    // DSH V1 fixture routes
+    // -----------------------------------------------------------------------
+
+    if (path === "/api/dsh/config") return response(dshConfig);
+
+    if (path === "/api/dsh/sessions" && method === "POST") {
+      const selectedPreset = dshConfig.presets.find((item) => item.id === body.presetId);
+      const selectedWorkspace = dshConfig.workspaces.find((item) => item.id === body.workspaceId);
+      if (!selectedPreset || !selectedWorkspace) return response({ error: "presetId and workspaceId must be allowlisted" }, 400);
+      const now = new Date().toISOString();
+      const session: DshFixtureSession = {
+        id: `dsh-sim-${++dshCounter}`,
+        title: typeof body.title === "string" ? body.title.trim().slice(0, 120) || "New DSH conversation" : "New DSH conversation",
+        presetId: selectedPreset.id,
+        workspaceId: selectedWorkspace.id,
+        createdAt: now,
+        updatedAt: now,
+        running: false,
+        events: [],
+      };
+      dshSessions.unshift(session);
+      return response({ session: dshSummary(session) }, 201);
+    }
+    if (path === "/api/dsh/sessions") {
+      return response({ sessions: dshSessions.map(dshSummary) });
+    }
+
+    const dshSessionRoute = routeMatch(path, /^\/api\/dsh\/sessions\/([^/]+)(.*)$/u);
+    if (dshSessionRoute) {
+      const dshId = decodeURIComponent(dshSessionRoute[1]);
+      const dshRest = dshSessionRoute[2];
+      const dshSession = dshSessions.find((item) => item.id === dshId);
+      if (!dshSession) return response({ error: "DSH session not found" }, 404);
+
+      if (dshRest === "/prompt" && method === "POST") {
+        const text = typeof body.text === "string" ? body.text.trim() : "";
+        if (!text || text.length > 40_000) return response({ error: "text must contain 1-40000 characters" }, 400);
+        if (dshSession.running) return response({ error: "DSH session is already running" }, 409);
+        const now = new Date().toISOString();
+        const userMsgId = `dsh-user-${++dshCounter}`;
+        const agentMsgId = `dsh-agent-${++dshCounter}`;
+        dshSession.events.push(
+          { id: `dsh-evt-u-${dshCounter}`, messageId: userMsgId, timestamp: now, kind: "user", text, reminders: [], workflows: [], attachments: [] },
+          { id: `dsh-evt-a-${dshCounter}`, messageId: agentMsgId, timestamp: now, kind: "agent", text: "Simulated DSH fixture response. No DSH runtime or model provider was called." },
+        );
+        dshSession.updatedAt = now;
+        return response({ accepted: true }, 202);
+      }
+
+      if (dshRest === "/cancel" && method === "POST") {
+        const wasCancelled = dshSession.running;
+        dshSession.running = false;
+        if (wasCancelled) {
+          const now = new Date().toISOString();
+          dshSession.events.push({ id: `dsh-evt-cancel-${++dshCounter}`, messageId: `dsh-cancel-${dshCounter}`, timestamp: now, kind: "status", label: "Cancelled by user" });
+          dshSession.updatedAt = now;
+        }
+        return response({ cancelled: wasCancelled });
+      }
+
+      // GET /api/dsh/sessions/:id — session + normalized events
+      if (!dshRest) return response({ session: dshSummary(dshSession), events: dshSession.events });
+    }
+
+    // /api/dsh/events is SSE (EventSource). The fixture adapter intercepts
+    // fetch() but not new EventSource(). The client's `dshEventsUrl` helper
+    // builds a URL and hands it to EventSource directly, so this route
+    // cannot be served from a fetch shim. UI-side the EventSource would
+    // need to be wrapped or the DSH page would need to skip SSE when
+    // VITE_PUBLIC_SIMULATOR is true and poll GET /api/dsh/sessions/:id
+    // instead. No network request is made here.
+    if (path === "/api/dsh/events") return response({ error: "DSH events SSE is not available in the public simulator. Poll GET /api/dsh/sessions/:id instead." }, 501);
 
     return response({ error: `The public simulator has no fixture for ${method} ${path}` }, 404);
   }) as typeof fetch;
