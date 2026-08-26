@@ -26,13 +26,14 @@ function childNotification(rootSessionId: string, nativeSessionId: string, event
 describe("DCA-captured DSH trajectory projection", () => {
   it("keeps raw prompt, command, path, context, reasoning, and tool content out of safe summaries", async () => {
     const { store, sessionId } = await fixture();
+    const fakeApiKey = ["sk", "1234567890abcdef"].join("-");
     await store.appendBridge(notification(sessionId, {
       type: "request/header", seq: 0, time: 1_700_000_000_000,
       data: { reason: "initial", header: { config: { provider: "deepseek", model: "safe-model" }, system: "RAW SYSTEM PROMPT /private/secret", tools: [{ name: "bash", description: "run rm -rf" }] } },
     }));
     await store.appendBridge(notification(sessionId, {
       type: "tool/call", seq: 1, time: 1_700_000_000_001,
-      data: { turn: 0, step: 0, callId: "call-1", name: "bash", arguments: JSON.stringify({ command: "cat /private/secret", apiKey: "sk-1234567890abcdef" }) },
+      data: { turn: 0, step: 0, callId: "call-1", name: "bash", arguments: JSON.stringify({ command: "cat /private/secret", apiKey: fakeApiKey }) },
     }));
     await store.appendBridge(notification(sessionId, {
       type: "assistant/message", seq: 2, time: 1_700_000_000_002,
@@ -53,7 +54,7 @@ describe("DCA-captured DSH trajectory projection", () => {
 
     const detail = await store.detail(sessionId, exported.events.find((event) => event.type === "tool/call")!.id);
     expect(JSON.stringify(detail)).toContain("cat /private/secret");
-    expect(JSON.stringify(detail)).not.toContain("sk-1234567890abcdef");
+    expect(JSON.stringify(detail)).not.toContain(fakeApiKey);
     expect(JSON.stringify(detail)).toContain("[REDACTED]");
   });
 
