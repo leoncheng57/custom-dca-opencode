@@ -34,6 +34,11 @@ function documentTitle(pathname: string): string {
   if (pathname === "/docs") return `Docs | ${APP_NAME}`;
   if (pathname.startsWith("/docs/")) return `${getDoc(pathname.slice("/docs/".length))?.title ?? "Document"} | ${APP_NAME}`;
   if (pathname === "/planning") return `Planning | ${APP_NAME}`;
+  if (pathname === "/playbooks") return `Playbooks | ${APP_NAME}`;
+  if (pathname === "/playbooks/skills") return `Skills | Playbooks | ${APP_NAME}`;
+  if (pathname.startsWith("/playbooks/skills/")) return `Skill | Playbooks | ${APP_NAME}`;
+  if (pathname === "/playbooks/commands") return `Commands | Playbooks | ${APP_NAME}`;
+  if (pathname.startsWith("/playbooks/commands/")) return `Command | Playbooks | ${APP_NAME}`;
   return APP_NAME;
 }
 
@@ -133,6 +138,7 @@ export function AppShell() {
       },
       { id: "settings", title: "Settings", to: scopedPath("/settings") },
       { id: "planning", title: "Planning", to: "/planning", keywords: ["issues", "pull requests", "roadmap", "github"] },
+      { id: "playbooks", title: "Playbooks", to: "/playbooks", keywords: ["skills", "commands", "workflows", "procedures"] },
     ],
     actions: [
       {

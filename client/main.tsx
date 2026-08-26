@@ -1,4 +1,4 @@
-import { StrictMode } from "react";
+import { lazy, StrictMode, Suspense, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, HashRouter, Route, Routes } from "react-router-dom";
 import { ThemeProvider } from "next-themes";
@@ -17,6 +17,14 @@ import { NotificationCenterProvider } from "./lib/useNotificationCenter.js";
 import { ServiceWorkerUpdate } from "./components/service-worker-update.js";
 import { PUBLIC_SIMULATOR } from "./lib/runtime.js";
 import "./styles.css";
+
+const PlaybooksPage = lazy(() => import("./pages/Playbooks.js").then((module) => ({ default: module.PlaybooksPage })));
+const SkillPlaybookPage = lazy(() => import("./pages/PlaybookDetail.js").then((module) => ({ default: module.SkillPlaybookPage })));
+const CommandPlaybookPage = lazy(() => import("./pages/PlaybookDetail.js").then((module) => ({ default: module.CommandPlaybookPage })));
+
+function playbookPage(page: ReactNode): ReactNode {
+  return <Suspense fallback={<main className="p-8 text-sm text-[var(--color-text-muted)]">Loading playbooks…</main>}>{page}</Suspense>;
+}
 
 async function start(): Promise<void> {
   if (PUBLIC_SIMULATOR) {
@@ -42,6 +50,11 @@ async function start(): Promise<void> {
                 <Route path="/docs" element={<DocsPage />} />
                 <Route path="/docs/:slug" element={<DocPage />} />
                 <Route path="/planning" element={<PlanningPage />} />
+                <Route path="/playbooks" element={playbookPage(<PlaybooksPage />)} />
+                <Route path="/playbooks/skills" element={playbookPage(<PlaybooksPage kind="skills" />)} />
+                <Route path="/playbooks/skills/:name" element={playbookPage(<SkillPlaybookPage />)} />
+                <Route path="/playbooks/commands" element={playbookPage(<PlaybooksPage kind="commands" />)} />
+                <Route path="/playbooks/commands/:name" element={playbookPage(<CommandPlaybookPage />)} />
               </Route>
             </Routes>
           </NotificationCenterProvider>

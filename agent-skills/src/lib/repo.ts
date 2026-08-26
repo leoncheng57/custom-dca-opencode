@@ -20,8 +20,6 @@ export const DEFAULT_BRANCH = 'main'
 /** Top-level directory inside the codeload tarball: `<repo>-<branch>`. */
 export const TARBALL_ROOT = `${REPO_NAME}-${DEFAULT_BRANCH}`
 
-export const SITE_URL = 'https://leoncheng.dev/agent-skills/'
-
 export function skillSourceUrl(skillName: string): string {
   return `${REPO_URL}/blob/${DEFAULT_BRANCH}/${CONTENT_ROOT}/skills/${skillName}/SKILL.md`
 }
