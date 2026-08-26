@@ -577,7 +577,11 @@ export function ConversationPage() {
           <h1 className="min-w-0 flex-1 truncate text-sm font-semibold sm:text-base" data-testid="opencode-session-title">
             {session?.title ?? "Session"}
           </h1>
-          {parentID && <Badge variant="neutral" data-testid="opencode-subagent-badge">sub</Badge>}
+          {/* A validated Managed Child was authorized by a human; an ordinary
+              delegated child keeps the neutral badge. */}
+          {parentID && (session?.managed
+            ? <Badge variant="info" data-testid="opencode-subagent-badge" data-managed="true">Managed Child</Badge>
+            : <Badge variant="neutral" data-testid="opencode-subagent-badge" data-managed="false">sub</Badge>)}
           {stream.running && <Badge variant="info">running</Badge>}
           {stream.running && <button
             ref={stopTriggerRef}

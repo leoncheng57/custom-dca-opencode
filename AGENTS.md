@@ -307,16 +307,34 @@ several decisions below.
     browser never authors raw rules, and this route must never be registered as an agent tool.
     Managed children appear in the normal hierarchy but create no parent task part or synthetic
     hand-back; their lifecycle is derived from their own status/transcript and may remain
-    `unknown`. Live 1.18.22 probes confirmed direct creation and also confirmed #75's asymmetry:
+    `unknown`. They are also **visually distinct** from native tasks wherever both appear (#182):
+    the sub-agent row carries an info accent, a `Managed Child` badge beside its title and a stable
+    `data-origin`, and the Hub pill and child-transcript badge say `Managed Child` rather than the
+    neutral `sub`. The label is driven by the server-derived `origin`, never by the absence of a
+    task part — a child with neither validated managed metadata nor a launch stays unlabelled,
+    because relabelling an `unknown` child as either lane would print a confident falsehood about
+    who authorized it.
+    The child's persisted **title** is derived metadata and is redacted with the audit log's
+    `redactInstructionText` **before** the first line is taken and before the 80-char cap; cutting
+    first leaves an unmatchable token prefix in the title. The title is the widest leak surface
+    derived from an assignment — it is copied into session summaries, sub-agent rows, Hub titles,
+    breadcrumbs and persisted notification history — so it is redacted at the source rather than at
+    render time in five places. The **submitted prompt and the child transcript are never
+    redacted**: the child must receive the exact text its human wrote. Consequence to state
+    plainly: this mitigates credential *shapes* in derived metadata and is not a safe channel for
+    secrets, because the assignment retains them verbatim. Live 1.18.22 probes confirmed direct creation and also confirmed #75's asymmetry:
     native derivation copies a historical parent deny but discards its later Build allow. The
     resolved Plan agent alone is not read-only after project policy merges, so session-level Plan
     enforcement remains required.
     #75's asymmetry is fixed upstream in anomalyco/opencode#45064 (drop a copied deny when a
     later rule supersedes it for the exact permission+pattern), and the reference deployment's
-    `ai.opencode.serve` LaunchAgent runs a patched binary
-    (`~/.opencode/bin/opencode-1.18.22-dca`, branch `v1.18.22-dca` in the local opencode
-    checkout = v1.18.22 + that commit; stock plist preserved as
-    `.state/launchd/ai.opencode.serve.plist.bak-stock-binary`). Verified live: a parent with
+    `ai.opencode.serve` LaunchAgent runs a patched binary built from
+    `fix/subagent-effective-deny-inheritance` in the local opencode checkout (tip `f35ae140ed`,
+    source version 1.18.23; `dev` is an ancestor ~4,129 commits behind at 1.4.7 and is not a
+    rebuild source). `~/.opencode/bin/opencode-1.18.22-dca` is that binary's filename and
+    self-reported version, **not** a branch — rebuild from the branch, never from that string.
+    Stock plist preserved as
+    `.state/launchd/ai.opencode.serve.plist.bak-stock-binary`. Verified live: a parent with
     appended `[bash deny, bash allow]` spawned a task child with no inherited bash deny that ran
     bash successfully. When the upstream fix ships in a release, bump the pin, point the plist
     back at the stock binary, and re-run the probes. Session-level Plan enforcement is still
@@ -354,8 +372,21 @@ several decisions below.
     back out of the user bubble. Session updates send in the TARGET session's own mode
     (a hardcoded Build would restore write access to a session left in Plan), and the
     dialog states that prompt_async 204/202 means accepted, not completed. The
-    managed-child form reuses decision #19's route with the same Build authorization
-    checkbox and creates no task card and no automatic hand-back.
+    managed-child form reuses decision #19's route and creates no task card and no
+    automatic hand-back.
+    That form has **no agent roster of its own**: it reads `GET /api/managed-child-agents`,
+    the same catalogue the dedicated launcher reads, and derives the authorization
+    requirement from each agent's `access === "can-modify"`. It shipped with a hardcoded
+    `["plan","build"]` pair, which hid `explore` and `general` and — worse — decided
+    "needs consent" by comparing an id to `"build"`, so a fourth can-modify agent would
+    have launched unauthorized. Only the catalogue knows which agents survived the
+    server-side filter and which can modify files. The default is a read-only agent so
+    the pre-selected choice is never the one still missing consent, the consent resets on
+    **every** agent change (an authorization for one agent is not one for the next), and
+    an unreadable catalogue disables launch with a visible reason rather than presenting a
+    dead button. Its `ModelPicker` must pass `portalLayer="nested"`: the default `z-[90]`
+    portal renders *behind* this `z-[95]` dialog, and "nested" is also what inerts and
+    `aria-hidden`s the parent so focus cannot land underneath the open picker.
 22. **PR previews are static simulators, never public agent servers.** GitHub Pages cannot
     host the Express BFF or `opencode serve`, and putting either on a public endpoint would
     require credentials and expose host-level agent authority. `VITE_PUBLIC_SIMULATOR=true`

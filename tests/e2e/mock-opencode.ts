@@ -17,6 +17,7 @@
 // Run standalone:  npx tsx tests/e2e/mock-opencode.ts [port]
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -176,6 +177,14 @@ const MANAGED_API_PARENT = "ses_mock_managed_api_parent";
 const MANAGED_UI_PARENT = "ses_mock_managed_ui_parent";
 const MANAGED_FAILURE_PARENT = "ses_mock_managed_failure_parent";
 const MANAGED_CLEANUP_FAILURE_PARENT = "ses_mock_managed_cleanup_failure_parent";
+// A pre-existing managed child, so the managed/native distinction (#182) is
+// visible on a plain page load — a launch performed by one spec cannot be
+// screenshotted, and PR screenshot capture starts a fresh mock.
+const MANAGED_SEEDED_CHILD = "ses_mock_managed_seeded_child";
+const MANAGED_SEEDED_POLICY = [
+  { permission: "bash", pattern: "*", action: "deny" },
+  { permission: "edit", pattern: "*", action: "deny" },
+];
 
 function taskPart(
   index: number,
@@ -281,6 +290,10 @@ const messages = new Map<string, unknown[]>([
     { info: { id: "msg_cf_1", role: "assistant", agent: "explore", time: { created: 1787400004100 }, error: { message: "Deployment credentials were unavailable." } }, parts: [] },
   ]],
   [CHILD_LAUNCHED, []],
+  [MANAGED_SEEDED_CHILD, [
+    { info: { id: "msg_msc_1", role: "user", agent: "plan", time: { created: 1787411500000 } }, parts: [{ id: "prt_msc_1", messageID: "msg_msc_1", type: "text", text: "Summarize the release checklist" }] },
+    { info: { id: "msg_msc_2", role: "assistant", agent: "plan", time: { created: 1787411550000, completed: 1787411600000 } }, parts: [{ id: "prt_msc_2", messageID: "msg_msc_2", type: "text", text: "Checklist summarized; nothing was modified." }] },
+  ]],
   ["ses_mock_mobile", mobileMessages()],
   ["ses_mock_modes", modeMessages()],
   ["ses_mock_foreign_agent", [
@@ -835,6 +848,31 @@ const SESSIONS: Array<Record<string, any>> = [
     cost: 0,
     tokens: {},
     time: { created: 1787411000000, updated: 1787411000000 },
+  },
+  {
+    id: MANAGED_SEEDED_CHILD,
+    title: "Summarize the release checklist",
+    directory: MANAGED_SUBAGENT_DIRECTORY,
+    parentID: MANAGED_UI_PARENT,
+    agent: "plan",
+    model: { providerID: "anthropic", id: "claude-opus-5" },
+    permission: MANAGED_SEEDED_POLICY,
+    // The fingerprint must match the ruleset above or the BFF reports
+    // `effectivePolicyObserved: false`, which is a different (honest) row.
+    metadata: {
+      customDcaManagedChild: {
+        version: 2,
+        origin: "managed-human",
+        requestedAgent: "plan",
+        authorization: "read-only",
+        requestedModel: { providerID: "anthropic", modelID: "claude-opus-5" },
+        background: true,
+        policyFingerprint: createHash("sha256").update(JSON.stringify(MANAGED_SEEDED_POLICY)).digest("hex"),
+      },
+    },
+    cost: 0.003,
+    tokens: {},
+    time: { created: 1787411500000, updated: 1787411600000 },
   },
   {
     id: MANAGED_FAILURE_PARENT,

@@ -216,6 +216,42 @@ test.describe("subagents panel", () => {
     await expect(launched.getByTestId("opencode-subagent-evidence")).toContainText("no progress");
   });
 
+  // Issue #182 gives human-authorized Managed Children their own accent. This
+  // fixture has none, so every row here must stay in the native/unknown
+  // treatment — an `unknown` child in particular must not be promoted to a
+  // provenance it never proved.
+  test("never applies managed styling to native or unknown children", async ({ page }) => {
+    await page.goto(parentUrl);
+    await page.getByTestId("opencode-inspector-subagents").click();
+    const rows = page.getByTestId("opencode-subagent-row");
+    await expect(rows).toHaveCount(6);
+    await expect(page.locator('[data-testid="opencode-subagent-row"][data-origin="managed-human"]')).toHaveCount(0);
+    await expect(page.getByTestId("opencode-subagent-origin").filter({ hasText: "Managed Child" })).toHaveCount(0);
+    await expect(page.getByTestId("opencode-subagent-policy-status")).toHaveCount(0);
+
+    const native = page.locator(`[data-testid="opencode-subagent-row"][data-session="${CHILD_DONE}"]`);
+    await expect(native).toHaveAttribute("data-origin", "native-task");
+    await expect(native.getByTestId("opencode-subagent-origin")).toHaveText("Native task");
+
+    // A row settled by nothing keeps its native provenance and its plain
+    // surface; `unknown` state is not evidence of a managed launch.
+    const unknown = page.locator(`[data-testid="opencode-subagent-row"][data-session="${CHILD_UNKNOWN}"]`);
+    await expect(unknown).toHaveAttribute("data-state", "unknown");
+    await expect(unknown).not.toHaveAttribute("data-origin", "managed-human");
+    expect(await rows.evaluateAll((items) => items.every((item) => {
+      const style = getComputedStyle(item);
+      return style.backgroundColor === "rgba(0, 0, 0, 0)" || style.backgroundColor === "transparent";
+    }))).toBe(true);
+  });
+
+  test("keeps every hub child on the neutral sub pill without managed metadata", async ({ page }) => {
+    await page.goto(hub);
+    await page.getByTestId("opencode-session-list-disclosure").first().click();
+    const pills = page.getByTestId("opencode-session-list").getByTestId("opencode-subagent-pill");
+    await expect(pills.first()).toHaveText("sub");
+    expect(await pills.evaluateAll((items) => items.every((item) => item.getAttribute("data-managed") === "false"))).toBe(true);
+  });
+
   test("offers Stop only for work the connected server is actually running", async ({ page }) => {
     await page.goto(parentUrl);
     await page.getByTestId("opencode-inspector-subagents").click();
