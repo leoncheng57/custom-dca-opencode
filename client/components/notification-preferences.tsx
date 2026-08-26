@@ -29,10 +29,10 @@ import { currentPushSubscription, subscribeWebPush, unsubscribeWebPush, webPushS
 const EVENTS: NotifyEvent[] = NOTIFY_EVENT_CATALOGUE.map((descriptor) => descriptor.event);
 
 /**
- * Delivery preferences for notifications. Lives on the Settings page; the
- * notification *history* is a separate surface (the nav popover and
- * /settings/notifications) because reading a backlog and configuring delivery
- * are different jobs.
+ * Delivery preferences for notifications. Lives beside notification history at
+ * /settings/notifications: the inbox and the controls that decide what reaches
+ * it form one coherent notification centre, while /settings stays focused on
+ * global OpenCode agent defaults.
  */
 export function NotificationPreferencesSection() {
   const [preferences, setPreferences] = useState<NotificationPreferences | null>(null);
@@ -133,7 +133,7 @@ export function NotificationPreferencesSection() {
   return (
     <section className="space-y-5" data-testid="opencode-notification-preferences">
       <header>
-        <h2 className="text-lg font-bold">Notifications</h2>
+        <h2 className="text-lg font-bold">Delivery settings</h2>
         <p className="text-sm text-[var(--color-text-muted)]">
           Pick which events reach you through this browser, PWA push, and ntfy.
         </p>

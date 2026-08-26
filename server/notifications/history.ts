@@ -13,7 +13,7 @@
 //     cannot observe whether a browser tab was open, so claiming delivery
 //     would be a lie. Sound and speech are device-local and intentionally not
 //     represented here because the server cannot see those settings at all.
-//   - Every record starts unresolved and only an explicit user checkbox may
+//   - Every record starts unresolved and only an explicit user action may
 //     change that state. Upstream permission/question lifecycle events never
 //     mutate notification resolution.
 
@@ -360,7 +360,7 @@ export class HistoryStore {
     return record;
   }
 
-  /** The sole mutation of resolved state: an explicit user checkbox action. */
+  /** The single-record resolved-state mutation: an explicit user action. */
   async setResolved(id: string, resolved: boolean, at = Date.now()): Promise<NotificationRecord | undefined> {
     await this.load();
     const record = this.records.find((candidate) => candidate.id === id);
@@ -380,6 +380,32 @@ export class HistoryStore {
     }
     this.persist();
     return record;
+  }
+
+  /**
+   * Resolve a bounded, browser-supplied selection in one durable write.
+   *
+   * This is deliberately not an unscoped "clear inbox" primitive: the caller
+   * supplies only ids it rendered, so older records outside the history window
+   * stay untouched. Changed rows return to the ordinary Resolved list and can
+   * be reopened through setResolved() while they remain inside the bounded
+   * resolved-record retention window.
+   */
+  async resolveMany(ids: readonly string[], at = Date.now()): Promise<NotificationRecord[]> {
+    await this.load();
+    const wanted = new Set(ids);
+    const changed: NotificationRecord[] = [];
+    for (const record of this.records) {
+      if (!wanted.has(record.id) || !isActive(record)) continue;
+      record.resolvedAt = at;
+      record.resolvedBy = "checked";
+      if (record.delivery.suppressed === undefined) this.bumpBadgeRevision();
+      changed.push(record);
+    }
+    if (changed.length === 0) return changed;
+    this.prune();
+    this.persist();
+    return changed;
   }
 
   async setDelivery(id: string, delivery: NotificationDelivery): Promise<NotificationRecord | undefined> {

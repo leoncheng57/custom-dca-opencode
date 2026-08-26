@@ -147,6 +147,24 @@ async function stubHistory(page: Page, records = seedRecords(), outsideWindowAct
       },
     });
   });
+  await page.route("**/api/notifications/resolve*", async (route) => {
+    const { ids } = route.request().postDataJSON() as { ids: string[] };
+    const selected = new Set(ids);
+    const records = state.records.filter((record) => selected.has(record.id) && record.resolvedAt === undefined);
+    for (const record of records) {
+      record.resolvedAt = Date.UTC(2026, 7, 22, 13, 0, 0);
+      record.resolvedBy = "checked";
+    }
+    appBadgeRevision += 1;
+    await route.fulfill({
+      json: {
+        records,
+        activeCount: activeCount(true, true),
+        appBadgeCount: activeCount(true, true),
+        appBadgeRevision,
+      },
+    });
+  });
   await page.route(/\/api\/notifications\/ntf_[^/]+$/, async (route) => {
     const { resolved } = route.request().postDataJSON() as { resolved: boolean };
     const id = decodeURIComponent(new URL(route.request().url()).pathname.split("/").pop() ?? "");
@@ -580,7 +598,7 @@ for (const viewport of VIEWPORTS) {
       }
     });
 
-    test("keeps history at /settings/notifications and preferences at /settings", async ({ page }) => {
+    test("keeps history and notification delivery controls together", async ({ page }) => {
       await page.goto(`/settings/notifications?directory=${encodeURIComponent(DIR)}`);
       await expect(page.getByTestId("opencode-notifications")).toBeVisible();
       await expect(page.getByTestId("opencode-notification-history")).toBeVisible();
@@ -590,11 +608,6 @@ for (const viewport of VIEWPORTS) {
       await expect(page.getByTestId("opencode-notification-record")).toHaveCount(RESOLVED_COUNT);
       await page.getByTestId("opencode-history-filter-active").click();
       await expect(page.getByTestId("opencode-notification-record")).toHaveCount(ACTIVE_COUNT);
-      // Preferences are no longer here.
-      await expect(page.getByTestId("opencode-notification-media")).toHaveCount(0);
-      await expect(page.getByTestId("opencode-notifications-save")).toHaveCount(0);
-
-      await page.goto(`/settings?directory=${encodeURIComponent(DIR)}`);
       await expect(page.getByTestId("opencode-notification-preferences")).toBeVisible();
       for (const testId of [
         "opencode-ntfy-enabled",
@@ -613,6 +626,12 @@ for (const viewport of VIEWPORTS) {
       ]) {
         await expect(page.getByTestId(testId)).toBeVisible();
       }
+
+      // /settings is now agent defaults only, so it no longer has a second
+      // notification settings surface that can drift from the inbox.
+      await page.goto(`/settings?directory=${encodeURIComponent(DIR)}`);
+      await expect(page.getByTestId("opencode-notification-preferences")).toHaveCount(0);
+      await expect(page.getByTestId("opencode-notifications-save")).toHaveCount(0);
       expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth))
         .toBeLessThanOrEqual(1);
     });
@@ -808,9 +827,37 @@ for (const viewport of VIEWPORTS) {
       await expect(control).toHaveText("Resolve");
       const box = await control.boundingBox();
       expect(box?.height ?? 0).toBeGreaterThanOrEqual(40);
+      const colors = await control.evaluate((element) => {
+        const style = getComputedStyle(element);
+        const primary = getComputedStyle(document.documentElement).getPropertyValue("--color-background-action-primary").trim();
+        const probe = document.createElement("span");
+        probe.style.backgroundColor = primary;
+        document.body.append(probe);
+        const expected = getComputedStyle(probe).backgroundColor;
+        probe.remove();
+        return { actual: style.backgroundColor, expected };
+      });
+      expect(colors.actual).toBe(colors.expected);
 
       await control.click();
       await expect(page.getByTestId("opencode-notification-popover-active-count")).toHaveText(String(ACTIVE_COUNT - 1));
+    });
+
+    test("resolves only the active rows loaded after explicit confirmation", async ({ page }) => {
+      await page.goto(hub);
+      await bell(page).click();
+      page.on("dialog", (dialog) => dialog.accept());
+
+      const resolve = page.getByTestId("opencode-notification-resolve-shown");
+      await expect(resolve).toHaveText(`Resolve all loaded (${ACTIVE_COUNT})`);
+      await resolve.click();
+
+      await expect(page.getByTestId("opencode-notification-popover-active-count")).toHaveText("0");
+      // The resolved archive retains the evidence; bulk means selected rows,
+      // never a destructive clear.
+      await expandResolved(page);
+      await expect(page.getByTestId("opencode-notification-popover-resolved-count"))
+        .toHaveText(String(ACTIVE_COUNT + RESOLVED_COUNT));
     });
 
     test("says what the agent did, so same-session rows are told apart", async ({ page }) => {

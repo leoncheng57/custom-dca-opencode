@@ -1,12 +1,14 @@
 import { useCallback, useMemo, useState } from "react";
-import { Link, useLocation, useSearchParams } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 
 import { Alert } from "../ds/alert.js";
 import { Badge } from "../ds/badge.js";
 import { Button } from "../ds/button.js";
 import { NotificationFilters } from "../components/notification-filters.js";
 import { NotificationGroup } from "../components/notification-group.js";
+import { NotificationPreferencesSection } from "../components/notification-preferences.js";
 import { NotificationRecordRow } from "../components/notification-record-row.js";
+import { ResolveShownNotifications } from "../components/notification-resolve-shown.js";
 import type { NotificationHistoryState } from "../lib/api.js";
 import { groupBySession } from "../lib/notificationGroups.js";
 import { NOTIFICATION_STATE_PARAM, parseNotificationHistoryState } from "../lib/notificationView.js";
@@ -57,10 +59,10 @@ export function NotificationsPage() {
     loading,
     error: historyError,
     setResolved,
+    resolveMany,
   } = useNotificationCenter();
   const location = useLocation();
   const directory = resolvePaletteDirectory(location.search, localStorage.getItem(DIRECTORY_STORAGE_KEY));
-  const settingsPath = directory ? `/settings?${new URLSearchParams({ directory })}` : "/settings";
 
   // Filtered client-side: the centre already holds the newest page, so a
   // round trip per filter click would only add latency.
@@ -76,9 +78,9 @@ export function NotificationsPage() {
   );
 
   // The badge above is the server's unwindowed total, but this list is the
-  // newest page only. Unresolved records are retained forever and there is no
-  // bulk clear, so the two diverge in normal use; name the gap rather than let
-  // the badge silently contradict the rows.
+  // newest page only. Unresolved records are retained forever, while an
+  // unloaded older row cannot be bulk-resolved, so the two diverge in normal
+  // use; name the gap rather than let the badge silently contradict the rows.
   const hiddenActive = Math.max(
     0,
     activeCount - records.filter((record) => record.resolvedAt === undefined).length,
@@ -96,11 +98,7 @@ export function NotificationsPage() {
           )}
         </h1>
         <p className="text-sm text-[var(--color-text-muted)]">
-          Everything OpenCode tried to send you. Delivery preferences live in{" "}
-          <Link className="underline underline-offset-2" to={settingsPath} data-testid="opencode-notifications-preferences-link">
-            Settings
-          </Link>
-          .
+          Everything OpenCode tried to send you, with delivery preferences below.
         </p>
       </header>
       {error && <Alert variant="danger">{error}</Alert>}
@@ -127,6 +125,13 @@ export function NotificationsPage() {
             onChange={setView}
             suppressedActive={suppressedActive}
             onAllGroupsCollapsedChange={setAllGroupsCollapsed}
+          />
+        </div>
+        <div className="flex justify-end border-b border-[var(--color-border-default)] px-3 py-2">
+          <ResolveShownNotifications
+            records={visible}
+            onResolve={resolveMany}
+            onError={(error) => setError(error.message)}
           />
         </div>
         {historyError && <Alert variant="danger">{historyError}</Alert>}
@@ -168,7 +173,9 @@ export function NotificationsPage() {
             ))}
           </ul>
         )}
-      </section>
-    </main>
+       </section>
+       <hr className="border-[var(--color-border-default)]" />
+       <NotificationPreferencesSection />
+     </main>
   );
 }
