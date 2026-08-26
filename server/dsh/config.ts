@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 
 export interface DshPreset {
@@ -16,6 +16,8 @@ export interface DshWorkspace {
   id: string;
   label: string;
   directory: string;
+  device: number;
+  inode: number;
 }
 
 export interface DshConfig {
@@ -25,6 +27,8 @@ export interface DshConfig {
   bridgeScript: string;
   sessionRoot: string;
   ledgerFile: string;
+  sdkVersion: string;
+  sandbox: "seatbelt" | "test-unsafe";
   presets: DshPreset[];
   workspaces: DshWorkspace[];
   errors: string[];
@@ -36,10 +40,34 @@ function absolute(value: unknown): string | null {
   return typeof value === "string" && path.isAbsolute(value) ? path.normalize(value) : null;
 }
 
+function canonicalProspective(value: string): string {
+  let cursor = value;
+  const suffix: string[] = [];
+  while (!existsSync(cursor)) {
+    const parent = path.dirname(cursor);
+    if (parent === cursor) return value;
+    suffix.unshift(path.basename(cursor));
+    cursor = parent;
+  }
+  return path.join(realpathSync(cursor), ...suffix);
+}
+
 export function readDshConfig(env: NodeJS.ProcessEnv = process.env): DshConfig {
   const enabled = env.DSH_EXPERIMENT_ENABLED === "true";
   const errors: string[] = [];
-  const root = path.resolve(env.DSH_STATE_DIR || ".state/dsh");
+  const root = canonicalProspective(path.resolve(env.DSH_STATE_DIR || ".state/dsh"));
+  const sdkVersion = env.DSH_SDK_VERSION || "";
+  const testUnsafe = env.NODE_ENV === "test" && env.DSH_TEST_UNSAFE_BRIDGE === "true";
+  const sandbox = testUnsafe ? "test-unsafe" : "seatbelt";
+  if (enabled && !/^\d+\.\d+\.\d+(?:[A-Za-z0-9.-]+)?$/.test(sdkVersion)) {
+    errors.push("DSH_SDK_VERSION must pin one exact SDK version");
+  }
+  if (enabled && process.platform !== "darwin" && !testUnsafe) {
+    errors.push("DSH V1 requires macOS Seatbelt; non-macOS launch is test-only");
+  }
+  if (enabled && !testUnsafe && !path.isAbsolute(env.DSH_PYTHON || "")) {
+    errors.push("DSH_PYTHON must be an absolute interpreter path");
+  }
   let rawPresets: unknown = [];
   let rawWorkspaces: unknown = [];
   try {
@@ -98,13 +126,23 @@ export function readDshConfig(env: NodeJS.ProcessEnv = process.env): DshConfig {
       errors.push(`DSH workspace ${String(item.id)} does not exist`);
       continue;
     }
-    workspaces.push({ id: String(item.id), label: item.label, directory: realpathSync(directory) });
+    const canonical = realpathSync(directory);
+    const metadata = statSync(canonical);
+    workspaces.push({ id: String(item.id), label: item.label, directory: canonical, device: metadata.dev, inode: metadata.ino });
   }
 
   const bridgeScript = path.resolve(env.DSH_BRIDGE_SCRIPT || "scripts/dsh-bridge.py");
   if (enabled && !existsSync(bridgeScript)) errors.push("DSH bridge script does not exist");
   if (enabled && presets.length === 0) errors.push("at least one read-only DSH preset is required");
   if (enabled && workspaces.length === 0) errors.push("at least one allowlisted DSH workspace is required");
+  for (const workspace of workspaces) {
+    const relative = path.relative(workspace.directory, root);
+    const reverse = path.relative(root, workspace.directory);
+    if ((!relative || (!relative.startsWith("..") && !path.isAbsolute(relative))) ||
+        (!reverse || (!reverse.startsWith("..") && !path.isAbsolute(reverse)))) {
+      errors.push(`DSH state directory must not overlap workspace ${workspace.id}`);
+    }
+  }
 
   return {
     enabled,
@@ -113,6 +151,8 @@ export function readDshConfig(env: NodeJS.ProcessEnv = process.env): DshConfig {
     bridgeScript,
     sessionRoot: path.join(root, "sessions"),
     ledgerFile: path.resolve(env.DSH_EXPERIMENT_LEDGER || path.join(root, "experiment-ledger.json")),
+    sdkVersion,
+    sandbox,
     presets,
     workspaces,
     errors,

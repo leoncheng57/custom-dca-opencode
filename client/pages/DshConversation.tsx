@@ -40,25 +40,55 @@ export function DshConversationPage() {
   const [sending, setSending] = useState(false);
   const [preview, setPreview] = useState(false);
   const bottom = useRef<HTMLDivElement | null>(null);
+  const refreshInFlight = useRef(false);
+  const refreshQueued = useRef<string | null>(null);
+  const sessionScope = useRef(id);
 
-  const refresh = async () => {
+  const load = async (targetId: string) => {
+    if (refreshInFlight.current) {
+      refreshQueued.current = targetId;
+      return;
+    }
+    refreshInFlight.current = true;
     try {
-      const result = await api.dshSession(id);
+      const result = await api.dshSession(targetId);
+      if (sessionScope.current !== targetId) return;
       setSession(result.session);
       setEvents(result.events);
       setSending(false);
       setError("");
     } catch (cause) {
+      if (sessionScope.current !== targetId) return;
       setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      refreshInFlight.current = false;
+      const queued = refreshQueued.current;
+      refreshQueued.current = null;
+      if (queued) {
+        void load(queued);
+      }
     }
   };
+  const refresh = () => load(id);
 
   useEffect(() => {
+    sessionScope.current = id;
+    refreshQueued.current = null;
+    setSession(null);
+    setEvents([]);
     void refresh();
     const source = new EventSource(api.dshEventsUrl(id));
-    source.addEventListener("update", () => void refresh());
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    source.addEventListener("update", () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => void refresh(), 250);
+    });
+    source.addEventListener("ready", () => void refresh());
     source.onerror = () => undefined; // EventSource owns bounded reconnect; fetch remains authoritative.
-    return () => source.close();
+    return () => {
+      clearTimeout(timer);
+      source.close();
+    };
   }, [id]);
 
   useEffect(() => { bottom.current?.scrollIntoView({ block: "end" }); }, [events, session?.running]);
@@ -113,7 +143,7 @@ export function DshConversationPage() {
           <div ref={bottom} />
         </div>
       </div>
-      <form className="shrink-0 border-t border-[var(--color-border-default)] bg-[var(--color-background-surface)] p-3" onSubmit={(event) => { event.preventDefault(); void send(); }} data-testid="dsh-composer">
+      <form className="shrink-0 border-t border-[var(--color-border-default)] bg-[var(--color-background-surface)] px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]" onSubmit={(event) => { event.preventDefault(); void send(); }} data-testid="dsh-composer">
         <div className="mx-auto flex max-w-4xl items-end gap-2">
           <textarea className="min-h-11 max-h-40 flex-1 resize-y rounded-lg border border-[var(--color-border-default)] bg-[var(--color-background-base)] px-3 py-2 text-sm" value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={keyDown} placeholder="Ask DSH to inspect the workspace..." disabled={!session || session.running} data-testid="dsh-prompt" />
           {session?.running ? <Button type="button" variant="danger" onClick={() => void cancel()} data-testid="dsh-cancel"><OctagonX aria-hidden="true" size={15} className="mr-1" /> Stop</Button> : <Button type="submit" disabled={!draft.trim() || sending || !session} data-testid="dsh-send"><Send aria-hidden="true" size={15} className="mr-1" /> Send</Button>}

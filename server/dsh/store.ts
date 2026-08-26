@@ -15,18 +15,22 @@ export interface DshSession {
   id: string;
   title: string;
   presetId: string;
+  presetFingerprint: string;
   workspaceId: string;
   createdAt: string;
   updatedAt: string;
   running: boolean;
   events: DshTranscriptEvent[];
   runStartedAt?: number;
+  activeRunId?: string;
+  lastAssistantRunId?: string;
 }
 
 export interface ExperimentRecord {
   id: string;
   sessionId: string;
   presetId: string;
+  presetFingerprint: string;
   workspaceId: string;
   taskClass: "conversation";
   startedAt: number;
@@ -71,12 +75,13 @@ export class DshSessionStore extends EventEmitter {
     }
   }
 
-  create(input: { presetId: string; workspaceId: string; title?: string }): DshSession {
+  create(input: { presetId: string; presetFingerprint: string; workspaceId: string; title?: string }): DshSession {
     const now = new Date().toISOString();
     const session: DshSession = {
       id: `dsh-${randomUUID()}`,
       title: input.title?.trim().slice(0, 120) || "New DSH conversation",
       presetId: input.presetId,
+      presetFingerprint: input.presetFingerprint,
       workspaceId: input.workspaceId,
       createdAt: now,
       updatedAt: now,
@@ -111,9 +116,10 @@ export class DshSessionStore extends EventEmitter {
       reminders: [], workflows: [], attachments: [],
     });
     const record: ExperimentRecord = {
-      id: randomUUID(), sessionId: session.id, presetId: session.presetId, workspaceId: session.workspaceId,
+      id: randomUUID(), sessionId: session.id, presetId: session.presetId, presetFingerprint: session.presetFingerprint, workspaceId: session.workspaceId,
       taskClass: "conversation", startedAt: now, outcome: "running", interventions: 0, testResult: "not-recorded",
     };
+    session.activeRunId = record.id;
     this.ledger.records.push(record);
     this.ledger.records = this.ledger.records.slice(-1_000);
     this.persist();
@@ -124,6 +130,7 @@ export class DshSessionStore extends EventEmitter {
   applyBridge(event: BridgeNotification): void {
     const session = this.sessions.get(event.sessionId);
     if (!session) return;
+    if (!session.running) return;
     const now = new Date().toISOString();
     const raw = event.notification?.payload as Record<string, unknown> | undefined;
     const rawEvent = raw?.event as Record<string, unknown> | undefined;
@@ -132,7 +139,7 @@ export class DshSessionStore extends EventEmitter {
       if (rawType === "assistant/chunk") {
         const text = textFrom(rawEvent?.data);
         if (text) {
-          const id = `agent-live-${session.id}`;
+          const id = `agent-live-${session.activeRunId}`;
           const existing = session.events.find((item) => item.id === id && item.kind === "agent");
           if (existing?.kind === "agent") existing.text += text;
           else session.events.push({ id, messageId: id, timestamp: now, kind: "agent", text });
@@ -140,21 +147,24 @@ export class DshSessionStore extends EventEmitter {
       } else if (rawType === "assistant/message") {
         const text = textFrom(rawEvent?.data);
         if (text) {
-          session.events = session.events.filter((item) => item.id !== `agent-live-${session.id}`);
+          session.events = session.events.filter((item) => item.id !== `agent-live-${session.activeRunId}`);
           const id = `agent-${randomUUID()}`;
           session.events.push({ id, messageId: id, timestamp: now, kind: "agent", text });
+          session.lastAssistantRunId = session.activeRunId;
         }
       } else if (/tool|compaction|subagent/i.test(rawType)) {
         const id = `status-${randomUUID()}`;
         session.events.push({ id, messageId: id, timestamp: now, kind: "status", label: rawType });
       }
     } else if (event.type === "finished") {
-      const hasAssistant = session.events.some((item) => item.kind === "agent");
+      const hasAssistant = session.lastAssistantRunId === session.activeRunId ||
+        session.events.some((item) => item.id === `agent-live-${session.activeRunId}`);
       if (!hasAssistant && event.finalResponse) {
         const id = `agent-${randomUUID()}`;
         session.events.push({ id, messageId: id, timestamp: now, kind: "agent", text: event.finalResponse });
       }
-      this.finish(session, "completed");
+      const outcome = event.finishReason === "completed" ? "completed" : event.finishReason === "aborted" ? "cancelled" : "failed";
+      this.finish(session, outcome);
     } else {
       const id = `error-${randomUUID()}`;
       session.events.push({ id, messageId: id, timestamp: now, kind: "error", message: event.error || "DSH run failed" });
@@ -165,21 +175,35 @@ export class DshSessionStore extends EventEmitter {
     this.emit("update", session.id);
   }
 
-  cancel(session: DshSession): void {
-    this.finish(session, "cancelled");
+  cancel(session: DshSession): boolean {
+    if (!session.running) return false;
+    this.finish(session, "cancelled", true);
     const id = `status-${randomUUID()}`;
     session.events.push({ id, messageId: id, timestamp: new Date().toISOString(), kind: "status", label: "Cancelled by user" });
     this.emit("update", session.id);
+    return true;
   }
 
-  private finish(session: DshSession, outcome: ExperimentRecord["outcome"]): void {
+  failRunning(presetId: string, workspaceId: string): void {
+    for (const session of this.sessions.values()) {
+      if (!session.running || session.presetId !== presetId || session.workspaceId !== workspaceId) continue;
+      const id = `error-${randomUUID()}`;
+      session.events.push({ id, messageId: id, timestamp: new Date().toISOString(), kind: "error", message: "DSH bridge stopped during the run" });
+      this.finish(session, "failed");
+      this.emit("update", session.id);
+    }
+  }
+
+  private finish(session: DshSession, outcome: ExperimentRecord["outcome"], humanIntervention = false): void {
     session.running = false;
     session.runStartedAt = undefined;
+    session.activeRunId = undefined;
+    session.lastAssistantRunId = undefined;
     const record = [...this.ledger.records].reverse().find((item) => item.sessionId === session.id && item.outcome === "running");
     if (record) {
       record.outcome = outcome;
       record.endedAt = Date.now();
-      if (outcome === "cancelled") record.interventions += 1;
+      if (humanIntervention) record.interventions += 1;
     }
     this.persist();
   }

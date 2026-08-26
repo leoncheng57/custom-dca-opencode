@@ -1,5 +1,5 @@
 import { Router, type Response } from "express";
-import { realpath } from "node:fs/promises";
+import { realpath, stat } from "node:fs/promises";
 
 import type { DshConfig, DshPreset, DshWorkspace } from "../dsh/config.js";
 import { DshBridgePool } from "../dsh/bridge.js";
@@ -20,10 +20,20 @@ function publicSession(session: ReturnType<DshSessionStore["create"]>) {
 
 export function dshRoutes(config: DshConfig, pool = new DshBridgePool(config), store = new DshSessionStore(config.ledgerFile)): Router {
   const router = Router();
-  void store.load();
+  let loadError: Error | null = null;
+  const ready = store.load().catch((cause) => {
+    loadError = cause instanceof Error ? cause : new Error(String(cause));
+  });
   pool.on("notification", (event) => store.applyBridge(event));
+  pool.on("bridgeExit", ({ presetId, workspaceId }) => store.failRunning(presetId, workspaceId));
   pool.on("diagnostic", (detail) => console.warn("[dsh]", detail));
   store.on("error", (detail) => console.warn("[dsh-ledger]", detail));
+
+  router.use(async (_req, res, next) => {
+    await ready;
+    if (loadError) return error(res, 503, "DSH experiment ledger is unavailable");
+    next();
+  });
 
   function requireEnabled(res: Response): boolean {
     if (!config.enabled) {
@@ -46,6 +56,8 @@ export function dshRoutes(config: DshConfig, pool = new DshBridgePool(config), s
       configured: config.configured,
       protocol: 1,
       readOnly: true,
+      sdkVersion: config.sdkVersion,
+      sandbox: config.sandbox,
       presets: config.presets.map(({ id, label, provider, model, fingerprint }) => ({ id, label, provider, model, fingerprint })),
       workspaces: config.workspaces.map(({ id, label }) => ({ id, label })),
     });
@@ -62,8 +74,12 @@ export function dshRoutes(config: DshConfig, pool = new DshBridgePool(config), s
     const selectedWorkspace = workspace(req.body?.workspaceId);
     if (!selectedPreset || !selectedWorkspace) return error(res, 400, "presetId and workspaceId must be allowlisted");
     try {
-      await realpath(selectedWorkspace.directory);
-      const session = store.create({ presetId: selectedPreset.id, workspaceId: selectedWorkspace.id, title: req.body?.title });
+      const canonical = await realpath(selectedWorkspace.directory);
+      const metadata = await stat(canonical);
+      if (canonical !== selectedWorkspace.directory || metadata.dev !== selectedWorkspace.device || metadata.ino !== selectedWorkspace.inode) {
+        return error(res, 409, "allowlisted DSH workspace identity changed");
+      }
+      const session = store.create({ presetId: selectedPreset.id, presetFingerprint: selectedPreset.fingerprint, workspaceId: selectedWorkspace.id, title: req.body?.title });
       res.status(201).json({ session: publicSession(session) });
     } catch {
       error(res, 400, "allowlisted DSH workspace is unavailable");
@@ -106,9 +122,10 @@ export function dshRoutes(config: DshConfig, pool = new DshBridgePool(config), s
     if (!selectedPreset || !selectedWorkspace) return error(res, 409, "DSH session configuration is no longer allowlisted");
     try {
       const result = await pool.get(selectedPreset, selectedWorkspace).request("cancel", { sessionId: session.id }) as { cancelled?: boolean };
-      if (result.cancelled) store.cancel(session);
-      res.json({ cancelled: result.cancelled === true });
+      const cancelled = result.cancelled === true && store.cancel(session);
+      res.json({ cancelled });
     } catch {
+      store.applyBridge({ type: "failed", sessionId: session.id, error: "DSH bridge cancellation failed" });
       error(res, 502, "DSH bridge cancellation failed");
     }
   });

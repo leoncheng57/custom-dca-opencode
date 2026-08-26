@@ -112,6 +112,7 @@ app.get("/api/health", async (_req, res) => {
         versionMatches: upstream.versionMatches,
       },
       events: { connected: bus.isConnected() },
+      dsh: { enabled: dsh.enabled, configured: dsh.configured, sdkVersion: dsh.sdkVersion, sandbox: dsh.sandbox },
     });
   } catch (error) {
     res.status(503).json({

@@ -14,7 +14,7 @@ describe("DSH session store", () => {
     temporary.push(root);
     const store = new DshSessionStore(path.join(root, "ledger.json"));
     await store.load();
-    const session = store.create({ presetId: "flash", workspaceId: "fixture" });
+    const session = store.create({ presetId: "flash", presetFingerprint: "a".repeat(64), workspaceId: "fixture" });
     store.startRun(session, "Inspect the repository");
     store.applyBridge({
       type: "notification", sessionId: session.id,
@@ -37,7 +37,7 @@ describe("DSH session store", () => {
     const ledger = path.join(root, "ledger.json");
     const store = new DshSessionStore(ledger);
     await store.load();
-    const session = store.create({ presetId: "flash", workspaceId: "fixture" });
+    const session = store.create({ presetId: "flash", presetFingerprint: "a".repeat(64), workspaceId: "fixture" });
     store.startRun(session, "SECRET PROMPT CONTENT");
     store.applyBridge({ type: "finished", sessionId: session.id, finalResponse: "SECRET MODEL OUTPUT", finishReason: "completed" });
     await store.flush();
@@ -46,5 +46,21 @@ describe("DSH session store", () => {
     expect(content).not.toContain("SECRET PROMPT CONTENT");
     expect(content).not.toContain("SECRET MODEL OUTPUT");
     expect(content).toContain('"taskClass": "conversation"');
+    expect(content).toContain(`"presetFingerprint": "${"a".repeat(64)}"`);
+  });
+
+  it("settles running sessions when their bridge exits and ignores stale completion", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "dsh-exit-"));
+    temporary.push(root);
+    const store = new DshSessionStore(path.join(root, "ledger.json"));
+    await store.load();
+    const session = store.create({ presetId: "flash", presetFingerprint: "a".repeat(64), workspaceId: "fixture" });
+    store.startRun(session, "Inspect");
+    store.failRunning("flash", "fixture");
+    expect(session.running).toBe(false);
+    expect(session.events.at(-1)).toMatchObject({ kind: "error", message: "DSH bridge stopped during the run" });
+    store.applyBridge({ type: "finished", sessionId: session.id, finalResponse: "stale", finishReason: "completed" });
+    expect(session.events.some((event) => event.kind === "agent" && event.text === "stale")).toBe(false);
+    await store.flush();
   });
 });

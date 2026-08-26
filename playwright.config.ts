@@ -82,6 +82,10 @@ export default defineConfig({
         GITHUB_API_URL: `http://127.0.0.1:${PREVIEW_PORT}`,
         GITHUB_TOKEN: "e2e-planning-token",
         DSH_EXPERIMENT_ENABLED: "true",
+        NODE_ENV: "test",
+        DSH_TEST_UNSAFE_BRIDGE: "true",
+        DSH_SDK_VERSION: "0.1.1rc2",
+        DSH_STATE_DIR: `/tmp/custom-dca-opencode-dsh-state-${PORT}`,
         DSH_BRIDGE_SCRIPT: `${process.cwd()}/tests/e2e/mock-dsh-bridge.py`,
         DSH_PRESETS_JSON: JSON.stringify([{
           id: "e2e-readonly",

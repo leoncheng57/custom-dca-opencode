@@ -144,6 +144,8 @@ export interface DshConfigResponse {
   configured: boolean;
   protocol: 1;
   readOnly: true;
+  sdkVersion: string;
+  sandbox: "seatbelt" | "test-unsafe";
   presets: DshPresetSummary[];
   workspaces: DshWorkspaceSummary[];
 }

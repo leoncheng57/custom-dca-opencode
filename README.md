@@ -256,10 +256,14 @@ OpenCode API doesn't expose (git history, forge APIs, notification transport).
 
 DSH can run beside OpenCode behind a separate `/dsh` UI and `/api/dsh/*` bridge. It is
 off by default and does not alter OpenCode sessions, events, permissions, or URLs. V1 is
-read-only: install `deepseek-harness-sdk` in a dedicated Python environment, provide an
+read-only: install one exact `deepseek-harness-sdk` version in a dedicated Python environment, provide an
 explicit read-only Cordis composition, and configure allowlisted presets and workspaces as
 shown in `.env.example`. The BFF verifies and exposes the canonical entry-composition
 file fingerprint for diagnostics; it never falls back to the SDK's writable default composition.
+On the supported macOS V1 target, the bridge and every DSH child process run under a
+Seatbelt profile that denies writes inside the selected workspace. The Cordis policy is
+still responsible for narrowing tools and non-workspace access; the OS rule is the
+independent workspace-write backstop.
 
 The DSH subprocess inherits only a small environment allowlist (`PATH`, basic locale/temp
 state, and the DeepSeek endpoint/key). GitHub, OpenCode, notification, and DCA credentials

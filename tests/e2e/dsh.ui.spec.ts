@@ -32,4 +32,14 @@ test.describe("experimental DSH workspace", () => {
     await page.getByTestId("dsh-open-preview").click();
     await expect(page.getByTestId("dsh-preview")).toHaveCSS("width", "390px");
   });
+
+  test("cancels a running DSH turn and reopens the composer", async ({ page }) => {
+    await createSession(page);
+    await page.getByTestId("dsh-prompt").fill("stay running until cancelled");
+    await page.getByTestId("dsh-send").click();
+    await expect(page.getByTestId("dsh-cancel")).toBeVisible();
+    await page.getByTestId("dsh-cancel").click();
+    await expect(page.getByText("Cancelled by user")).toBeVisible();
+    await expect(page.getByTestId("dsh-prompt")).toBeEnabled();
+  });
 });

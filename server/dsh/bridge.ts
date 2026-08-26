@@ -2,6 +2,9 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { createInterface } from "node:readline";
 import { randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
+import { mkdirSync, readFileSync, statSync } from "node:fs";
+import path from "node:path";
 
 import type { DshConfig, DshPreset, DshWorkspace } from "./config.js";
 
@@ -22,6 +25,25 @@ interface Pending {
 
 const SAFE_ENV = ["PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL"] as const;
 
+function seatbeltLiteral(value: string): string {
+  return value.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
+}
+
+export function dshSeatbeltProfile(input: {
+  workspace: string;
+  stateRoot: string;
+  python: string;
+  bridgeScript: string;
+  cordis: string;
+}): string {
+  const pythonRoot = path.dirname(path.dirname(input.python));
+  const reads = [
+    input.workspace, input.stateRoot, pythonRoot, input.bridgeScript, input.cordis,
+    "/System", "/usr", "/bin", "/sbin", "/Library", "/private/etc", "/dev",
+  ].map((item) => `(subpath "${seatbeltLiteral(item)}")`).join(" ");
+  return `(version 1)\n(deny default)\n(import "system.sb")\n(allow process*)\n(allow network*)\n(allow file-read-metadata)\n(allow file-read* ${reads})\n(allow file-write* (subpath "${seatbeltLiteral(input.stateRoot)}"))`;
+}
+
 export class DshBridge extends EventEmitter {
   private child: ChildProcessWithoutNullStreams | null = null;
   private readonly pending = new Map<string, Pending>();
@@ -41,15 +63,46 @@ export class DshBridge extends EventEmitter {
       let ready = false;
       const env: NodeJS.ProcessEnv = {};
       for (const key of SAFE_ENV) if (process.env[key]) env[key] = process.env[key];
+      const stateHome = path.join(this.config.sessionRoot, "home");
+      const stateTmp = path.join(this.config.sessionRoot, "tmp");
+      mkdirSync(stateHome, { recursive: true, mode: 0o700 });
+      mkdirSync(stateTmp, { recursive: true, mode: 0o700 });
+      const fingerprint = createHash("sha256").update(readFileSync(this.preset.cordis)).digest("hex");
+      if (fingerprint !== this.preset.fingerprint) {
+        reject(new Error("DSH composition changed after startup"));
+        return;
+      }
+      const workspaceMetadata = statSync(this.workspace.directory);
+      if (workspaceMetadata.dev !== this.workspace.device || workspaceMetadata.ino !== this.workspace.inode) {
+        reject(new Error("DSH workspace identity changed after startup"));
+        return;
+      }
       Object.assign(env, {
+        HOME: stateHome,
+        TMPDIR: stateTmp,
+        PYTHONDONTWRITEBYTECODE: "1",
         DSH_BRIDGE_PROVIDER: this.preset.provider,
         DSH_BRIDGE_MODEL: this.preset.model,
         DSH_BRIDGE_CORDIS: this.preset.cordis,
         DSH_BRIDGE_WORKSPACE: this.workspace.directory,
         DSH_BRIDGE_SESSION_ROOT: this.config.sessionRoot,
+        DSH_BRIDGE_SDK_VERSION: this.config.sdkVersion,
         ...(this.preset.maxTokens ? { DSH_BRIDGE_MAX_TOKENS: String(this.preset.maxTokens) } : {}),
       });
-      const child = spawn(this.config.python, [this.config.bridgeScript], {
+      let command = this.config.python;
+      let args = [this.config.bridgeScript];
+      if (this.config.sandbox === "seatbelt") {
+        const profile = dshSeatbeltProfile({
+          workspace: this.workspace.directory,
+          stateRoot: path.dirname(this.config.sessionRoot),
+          python: this.config.python,
+          bridgeScript: this.config.bridgeScript,
+          cordis: this.preset.cordis,
+        });
+        command = "/usr/bin/sandbox-exec";
+        args = ["-p", profile, this.config.python, this.config.bridgeScript];
+      }
+      const child = spawn(command, args, {
         cwd: this.workspace.directory,
         env,
         stdio: ["pipe", "pipe", "pipe"],
@@ -96,6 +149,10 @@ export class DshBridge extends EventEmitter {
       return;
     }
     if (message.type === "ready") {
+      if (message.protocol !== 1 || message.sdkVersion !== this.config.sdkVersion) {
+        this.emit("diagnostic", "DSH bridge protocol or SDK version mismatch");
+        return;
+      }
       ready();
       return;
     }
@@ -129,7 +186,8 @@ export class DshBridge extends EventEmitter {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`DSH bridge ${method} timed out`));
-      }, 10_000);
+        this.child?.kill("SIGTERM");
+      }, method === "prompt" ? 60_000 : 10_000);
       this.pending.set(id, { resolve, reject, timer });
     });
     child.stdin.write(`${JSON.stringify({ id, method, params })}\n`);
@@ -154,8 +212,11 @@ export class DshBridgePool extends EventEmitter {
     if (!bridge) {
       bridge = new DshBridge(this.config, preset, workspace);
       bridge.on("notification", (event: BridgeNotification) => this.emit("notification", event));
-      bridge.on("diagnostic", (message: string) => this.emit("diagnostic", { preset: preset.id, workspace: workspace.id, message }));
-      bridge.on("exit", (error: Error) => this.emit("diagnostic", { preset: preset.id, workspace: workspace.id, message: error.message }));
+      bridge.on("diagnostic", () => this.emit("diagnostic", { preset: preset.id, workspace: workspace.id, message: "bridge diagnostic available locally" }));
+      bridge.on("exit", (error: Error) => {
+        this.emit("bridgeExit", { presetId: preset.id, workspaceId: workspace.id });
+        this.emit("diagnostic", { preset: preset.id, workspace: workspace.id, message: error.message });
+      });
       this.bridges.set(key, bridge);
     }
     return bridge;

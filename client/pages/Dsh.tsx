@@ -48,6 +48,7 @@ export function DshPage() {
               <FlaskConical aria-hidden="true" size={18} />
               <Badge variant="neutral">Experimental runtime</Badge>
               <Badge variant="neutral">Read only</Badge>
+              {config && <Badge variant="neutral">SDK {config.sdkVersion} · {config.sandbox}</Badge>}
             </div>
             <h1 className="text-3xl font-semibold tracking-tight">DeepSeek Harness lab</h1>
             <p className="mt-2 max-w-2xl text-sm text-[var(--color-text-muted)]">
