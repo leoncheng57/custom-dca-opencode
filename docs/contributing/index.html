@@ -342,8 +342,10 @@
             <article class="path-card">
               <span class="card-label">Operations</span>
               <h3>Host and deployment work</h3>
-              <p>The BFF and OpenCode are host processes, not containers. Follow the
-                LaunchAgent, Tailscale, logging, and port guidance before changing service behavior.</p>
+              <p>The BFF and OpenCode are host processes, not containers. Docker appears
+                only as an optional end-to-end test lane and never runs the application.
+                Follow the LaunchAgent, Tailscale, logging, and port guidance before
+                changing service behavior.</p>
               <a href="../../deploy/README.md">Open the deployment guide</a>
               <div class="evidence"><span>scripts/launchd.ts</span><span>deploy/</span><span>.env.example</span></div>
             </article>
@@ -355,14 +357,19 @@
             <span class="section-no">02 / Verification gate</span>
             <h2>Evidence before confidence</h2>
             <p>The Playwright suite runs the built application and real BFF against local
-              mocks. It does not require a running OpenCode stack, model access, or API keys.</p>
+              mocks. It does not require a running OpenCode stack, model access, or API keys.
+              End-to-end runs write shared <code>/tmp</code> fixtures and fixed ports, so use
+              the isolated lane when another run may be active.</p>
           </header>
           <div class="command-panel">
             <pre aria-label="Local verification commands"><code>npm run typecheck
 npm test
 npm run build
 npm run test:e2e
-npm run test:preview</code></pre>
+npm run test:preview
+
+npm run test:e2e:docker     # isolated, safe to run concurrently
+npm run test:contract:host  # macOS-only contracts</code></pre>
             <div class="gate">
               <span class="card-label">Before review</span>
               <ol>
