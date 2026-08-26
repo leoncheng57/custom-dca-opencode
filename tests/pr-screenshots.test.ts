@@ -88,6 +88,11 @@ describe("PR screenshot requests", () => {
       .toMatchObject({ requestedRoute: "/planning", fullPage: false });
   });
 
+  it("accepts Playbooks catalog and detail routes", () => {
+    expect(parseScreenshotBlock("```screenshots\n/playbooks\n/playbooks/skills/grill-me\n/playbooks/commands/verify\n```").requests)
+      .toHaveLength(3);
+  });
+
   it("accepts the deterministic create-issue dialog state", () => {
     expect(parseScreenshotBlock("```screenshots\n/planning?create=1\n```").requests[0])
       .toMatchObject({ requestedRoute: "/planning?create=1", fullPage: false });

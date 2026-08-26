@@ -3,21 +3,19 @@
 Portable [agent skills](https://opencode.ai/docs) — reusable workflow instructions
 that a coding agent loads on demand when a task matches the skill's description.
 
-This workspace is maintained as part of
+This content collection is maintained as part of
 [`custom-dca-opencode`](https://github.com/leoncheng57/custom-dca-opencode). It is
 written for [OpenCode](https://opencode.ai), and compatible with any agent that
 reads `SKILL.md` files with YAML frontmatter (Claude Code included).
 
-Website: <https://leoncheng.dev/agent-skills/>
-
-Run `npm install` and the verification commands from the parent repository root;
-the root npm workspace lockfile and CI own this package.
+Browse it in the Runner's native **Playbooks** page at `/playbooks`. This directory
+contains installable Markdown and its parsers; it is deliberately not a separate
+SPA, npm workspace, or deployment.
 
 ## Skills
 
-Browse the [complete skill catalog](https://leoncheng.dev/agent-skills/). The site
-discovers every `skills/*/SKILL.md` directly, so it is the canonical inventory and
-cannot drift from this repository.
+The Playbooks page discovers every `skills/*/SKILL.md` directly, so its inventory
+cannot drift from this directory.
 
 ## Install
 
@@ -78,7 +76,7 @@ failure-mode table beat general advice.
 ## Worked examples
 
 A skill directory may also hold a `SIMULATION.md`: one short, hand-written
-transcript of the skill firing. The site renders it as a **Simulation Example**
+transcript of the skill firing. Playbooks renders it as a **Simulation Example**
 section above the instructions, and the file travels with the skill on install,
 so the agent can read it on demand too.
 
@@ -161,10 +159,10 @@ markdown files you fire by typing `/name` in the TUI.
 
 ```
 commands/<name>.md              the command itself
-command-simulations/<name>.md   its worked example (site + docs only)
+command-simulations/<name>.md   its worked example (Playbooks + docs only)
 ```
 
-Browse them at <https://leoncheng.dev/agent-skills/commands>.
+Browse them under `/playbooks/commands` in the Runner.
 
 ### Why both
 

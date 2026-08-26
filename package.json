@@ -9,9 +9,6 @@
     "type": "git",
     "url": "git+https://github.com/leoncheng57/custom-dca-opencode.git"
   },
-  "workspaces": [
-    "agent-skills"
-  ],
   "engines": {
     "node": ">=22"
   },
@@ -22,14 +19,14 @@
     "build:ui": "vite build",
     "build:preview": "VITE_PUBLIC_SIMULATOR=true vite build --base=${PREVIEW_BASE_PATH:-/}",
     "build:server": "tsc -p tsconfig.server.json",
-    "build": "npm run build:ui && npm run build:server && npm run build --workspace agent-skills-site",
+    "build": "npm run build:ui && npm run build:server",
     "start": "node dist/server/index.js",
     "service:install": "tsx scripts/launchd.ts install",
     "service:status": "tsx scripts/launchd.ts status",
     "service:logs": "tsx scripts/launchd.ts logs",
     "service:uninstall": "tsx scripts/launchd.ts uninstall",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.tools.json --noEmit && npm run typecheck --workspace agent-skills-site",
-    "test": "vitest run && npm test --workspace agent-skills-site",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.tools.json --noEmit",
+    "test": "vitest run",
     "test:e2e": "playwright test",
     "test:preview": "playwright test --config playwright.preview.config.ts",
     "preview:package": "tsx scripts/pr-preview.ts package",
