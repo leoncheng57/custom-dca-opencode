@@ -136,9 +136,12 @@ describe("Web Push delivery", () => {
     bus.emit("event", { type: "session.idle", directory: "/tmp/project", properties: { sessionID: "ses_push" } });
 
     await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
-    const payload = JSON.parse(String(send.mock.calls[0][1])) as { badgeCount: number; badgeRevision: number };
+    const payload = JSON.parse(String(send.mock.calls[0][1])) as { badgeCount: number; badgeRevision: number; tag: string };
     expect(payload.badgeCount).toBe(2);
     expect(payload.badgeRevision).toBeGreaterThan(0);
+    // Session-scoped, so the service worker replaces this session's previous
+    // card instead of piling a new one into the OS notification center.
+    expect(payload.tag).toBe("ses_push");
     await vi.waitFor(async () => expect((await history.list()).find((record) => record.sessionID === "ses_push")?.delivery)
       .toMatchObject({ ntfy: "off", webPush: "sent" }));
     service.stop();

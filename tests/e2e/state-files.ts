@@ -44,6 +44,7 @@ export interface E2EStateFiles {
   NOTIFICATION_PREFS_FILE: string;
   NOTIFICATION_HISTORY_FILE: string;
   INSTRUCTION_AUDIT_FILE: string;
+  AUTO_APPROVE_STATE_FILE: string;
 }
 
 function safeID(value: string | number, what: string): string {
@@ -66,6 +67,11 @@ export function e2eStateFiles(runID: string | number): E2EStateFiles {
     NOTIFICATION_PREFS_FILE: `${E2E_STATE_PREFIX}notifications-${id}.json`,
     NOTIFICATION_HISTORY_FILE: `${E2E_STATE_PREFIX}notification-history-${id}.json`,
     INSTRUCTION_AUDIT_FILE: `${E2E_STATE_PREFIX}instruction-audit-${id}.json`,
+    // Persisted auto-approve flags must start empty per run for the same
+    // reason notification history does: specs toggle auto permissions, and a
+    // flag surviving into the next run would flip that run's ask-mode
+    // assertions before it made a single request.
+    AUTO_APPROVE_STATE_FILE: `${E2E_STATE_PREFIX}auto-approve-${id}.json`,
   };
 }
 

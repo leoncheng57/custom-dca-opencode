@@ -117,7 +117,14 @@ export function createRecordedMediaSink(): (
       ? properties.sessionTitle
       : undefined;
     const click = typeof properties.click === "string" ? properties.click : event.click;
-    notifyBrowser(preferences, kind, title, click, devicePreferences, key);
+    // The OS notification tag is the server's, computed once for both this tab
+    // and the push service worker so they can never disagree about identity.
+    // It is session-scoped (one replaceable slot per session, so a burst of
+    // asks does not pile up cards), while the dedupe key above stays the
+    // record id — collapsing popups is presentation, but skipping a distinct
+    // record's sound entirely would be a policy change.
+    const tag = typeof properties.tag === "string" && properties.tag ? properties.tag : key;
+    notifyBrowser(preferences, kind, title, click, devicePreferences, tag);
     return kind;
   };
 }

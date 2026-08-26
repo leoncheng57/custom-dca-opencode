@@ -128,6 +128,26 @@ describe("notifications the server delivered", () => {
     expect(media.spoken).toEqual(["Session finished"]);
   });
 
+  it("collapses a session's records under the server's shared tag", () => {
+    // The tag is the server's session-scoped identity, so a burst of asks
+    // occupies ONE replaceable OS notification slot instead of piling cards —
+    // while each distinct record still rings, because collapsing popups is
+    // presentation and skipping a record's sound would be a policy change.
+    const sink = createRecordedMediaSink();
+
+    expect(sink(recorded({ id: "ntf_1", kind: "permission", tag: "ses_busy" }), preferences, devicePreferences)).toBe("permission");
+    expect(sink(recorded({ id: "ntf_2", kind: "permission", tag: "ses_busy" }), preferences, devicePreferences)).toBe("permission");
+    expect(media.desktop.map((item) => item.tag)).toEqual(["ses_busy", "ses_busy"]);
+    expect(media.spoken).toHaveLength(2);
+  });
+
+  it("falls back to the record id when the server sent no tag", () => {
+    const sink = createRecordedMediaSink();
+
+    expect(sink(recorded({ id: "ntf_old", kind: "idle" }), preferences, devicePreferences)).toBe("idle");
+    expect(media.desktop).toEqual([{ title: "OpenCode: idle", tag: "ntf_old" }]);
+  });
+
   it("refuses a record with an unknown kind", () => {
     const sink = createRecordedMediaSink();
 

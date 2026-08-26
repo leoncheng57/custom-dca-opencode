@@ -152,7 +152,14 @@ several decisions below.
     asked?" and "did my delegated child ever finish?" stay answerable — sub-agent events
     used to be dropped at ingest, which made the second question unanswerable — but they
     are noise in an inbox, so the UI hides both by **default** behind checkboxes rather
-    than excluding them in code. Because they were never delivered they are not a
+    than excluding them in code. One child event is exempt from the subagent category:
+    a **permission ask** takes the delivery path regardless of lineage, because a child
+    stopped on an unanswered ask is stalled work nobody else can unblock, and suppressing
+    it meant a delegated task sat frozen while the inbox swore nothing needed anyone. Its
+    parked escalation follows the same policy. A child ask in an auto-approved directory
+    is still suppressed — as `auto-permissions`, since it was answered before anyone was
+    blocked. A child that merely finishes stays recorded-only: it hands back to its
+    parent, so telling the human is noise. Because they were never delivered they are not a
     checklist, so unlike delivered unresolved records they are capped by `prune()`; a busy
     auto-permissions project would otherwise grow the log without limit. The filters are
     applied in `HistoryStore.list()` **and** `activeCount()` together and driven by query
@@ -165,14 +172,23 @@ several decisions below.
     `session.created`/`session.updated` or its parent/child lookups — it never issues a
     request of its own, and omits the field rather than inventing a placeholder. Sessions
     get renamed and deleted, so resolving later would misattribute or lose the record.
-11. **Auto permissions is volatile and directory-scoped.** The BFF keeps it in memory,
-    defaults it off after every restart, and replies `once` to `permission.asked` for
-    every session in an enabled directory. It never mutates policy, replies `always`,
-    or answers questions; it can only approve requests that upstream emits as asked.
-    It does not change the Plan/Build session-policy activation above. Permission and
-    parked-permission notifications are recorded with `suppressed: "auto-permissions"`
-    while enabled — never delivered, and hidden from the inbox and the badge by the
-    default filter — because those asks were answered before the user saw them.
+11. **Auto permissions is directory-scoped and persisted.** The BFF replies `once` to
+    `permission.asked` for every session in an enabled directory. It never mutates
+    policy, replies `always`, or answers questions; it can only approve requests that
+    upstream emits as asked. It does not change the Plan/Build session-policy activation
+    above. Permission and parked-permission notifications are recorded with
+    `suppressed: "auto-permissions"` while enabled — never delivered, and hidden from
+    the inbox and the badge by the default filter — because those asks were answered
+    before the user saw them. The enabled flags live in
+    `.state/auto-approve.json` (`AUTO_APPROVE_STATE_FILE`, mode 0600) and are restored
+    on boot: the flag was memory-only at first, which read as a safety default but had
+    the opposite effect — every deploy silently flipped an auto-approved directory back
+    to ask mode, and the next agent turn pushed one permission ask per tool call at
+    every configured phone until the user noticed and re-toggled. Persisting an
+    instruction the user already gave through the authenticated UI is not an
+    escalation. A corrupt state file fails closed to everything-off; an explicit toggle
+    always wins over the startup load; on restore the service reconciles pending asks,
+    so requests that arrived while the BFF was down are answered too.
 12. **Recents are cross-project; they are the one non-directory-scoped route.**
     The Hub shows recent work before a project is chosen, so `GET /api/recent-sessions`
     takes a *set* of directories instead of `?directory=`. There is no global session
@@ -468,9 +484,19 @@ several decisions below.
     `notification.recorded`, which carries the server's post-append verdict, and skips
     anything `suppressed`. Raw events are still forwarded untouched for the transcript
     and the sub-agent ledger. Consequences: the record id becomes an exact dedupe
-    identity instead of a heuristic, and it doubles as the OS notification `tag` in both
-    `new Notification` and the service worker, so N open tabs — and a foreground PWA
-    that also receives the push — collapse to one popup instead of stacking.
+    identity instead of a heuristic, and the server stamps one OS notification `tag`
+    onto both the push payload and `notification.recorded`, used by `new Notification`
+    and the service worker alike, so N open tabs — and a foreground PWA that also
+    receives the push — collapse to one popup instead of stacking. The tag is
+    **session-scoped** (record-id only for sessionless records), because Web Push
+    cannot retract a shown notification and replacement via a shared tag is its only
+    correction: with per-record tags, a session that asked for bash seven times left
+    seven stale "Needs approval" cards piled in the OS notification center, most of
+    them already answered in the app. One replaceable slot per session means a later
+    ask overwrites the stale one, the parked escalation overwrites the ask it
+    escalates, and the eventual idle overwrites whatever was left. Collapsing is
+    presentation only: the per-record dedupe still governs sound and speech, so a
+    distinct record is never silently skipped.
 25. **A kind switched off in every channel is suppressed, not silently badged.**
     Preferences used to gate delivery only, so turning a kind off silenced the ping but
     still wrote a permanent unresolved record — and `abort` ships disabled, so every

@@ -58,7 +58,7 @@ describe("permission request parsing", () => {
 });
 
 describe("AutoPermissionService", () => {
-  it("is volatile, disabled by default, and scoped by directory", async () => {
+  it("is volatile without a state file, disabled by default, and scoped by directory", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json([])));
     const first = service().instance;
     expect(first.status(directory)).toEqual({ enabled: false, error: null });
@@ -68,6 +68,62 @@ describe("AutoPermissionService", () => {
     await first.setEnabled(directory, false);
     expect(first.status(directory)).toEqual({ enabled: false, error: null });
     expect(service().instance.status(directory).enabled).toBe(false);
+  });
+
+  it("restores persisted flags across a restart and reconciles pending asks", async () => {
+    // The flag used to be memory-only, so every deploy silently flipped an
+    // auto-approved directory back to ask mode — and the next agent turn fired
+    // one permission push per tool call until the user noticed.
+    const pending = permission("perm_boot");
+    const replies: string[] = [];
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/reply")) {
+        replies.push(url);
+        return Response.json(true);
+      }
+      return init?.method === "POST" ? Response.json(true) : Response.json([pending]);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const file = path.join(await mkdtemp(path.join(os.tmpdir(), "dca-auto-permission-state-")), "auto-approve.json");
+
+    const bus = new EventEmitter() as EventBus;
+    const first = new AutoPermissionService(config, bus, file);
+    first.start();
+    await first.setEnabled(directory, true);
+    first.stop();
+
+    const second = new AutoPermissionService(config, new EventEmitter() as EventBus, file);
+    second.start();
+    // The restored flag also answers asks that arrived while the BFF was down.
+    await vi.waitFor(() => expect(second.isEnabled(directory)).toBe(true));
+    await vi.waitFor(() => expect(replies.some((url) => url.includes("perm_boot"))).toBe(true));
+    second.stop();
+
+    // An explicit disable is persisted too: the next restart stays off.
+    await second.setEnabled(directory, false);
+    const third = new AutoPermissionService(config, new EventEmitter() as EventBus, file);
+    third.start();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(third.isEnabled(directory)).toBe(false);
+    third.stop();
+  });
+
+  it("fails closed on a corrupt state file and an explicit toggle wins over the load", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json([])));
+    const root = await mkdtemp(path.join(os.tmpdir(), "dca-auto-permission-corrupt-"));
+    const corrupt = path.join(root, "auto-approve.json");
+    const { writeFile, readFile } = await import("node:fs/promises");
+    await writeFile(corrupt, "not json");
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const instance = new AutoPermissionService(config, new EventEmitter() as EventBus, corrupt);
+    instance.start();
+    // setEnabled awaits the load, so this is also the explicit-toggle-wins path.
+    await instance.setEnabled(directory, true);
+    expect(instance.isEnabled(directory)).toBe(true);
+    expect(JSON.parse(await readFile(corrupt, "utf8"))).toEqual({ version: 1, enabled: [directory] });
+    instance.stop();
+    warning.mockRestore();
   });
 
   it("resolves aliases before checking enabled state", async () => {

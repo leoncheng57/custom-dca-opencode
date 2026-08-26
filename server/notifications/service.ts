@@ -180,6 +180,27 @@ export function inAppMessage(event: OpencodeEvent, kind: NotifyEvent, parkedSeco
   return "Stopped at your request";
 }
 
+/**
+ * OS notification identity: one slot per session, not one per record.
+ *
+ * The tag used to be the record id, whose only job was stopping a foreground
+ * PWA and its own push from buzzing twice for one record. But every ask in a
+ * busy session then piled its own entry into the OS notification center — a
+ * session that asked for bash seven times left seven "Needs approval" cards,
+ * most of them stale the moment the user answered in the app. Web Push cannot
+ * retract a shown notification; the only correction it has is replacement, and
+ * replacement needs a shared tag. Keying by session makes each session one
+ * slot that the newest state overwrites: a later ask replaces the stale one,
+ * the parked escalation replaces the ask it escalates, and the eventual idle
+ * replaces whatever was left. The server computes the tag once and sends it on
+ * both the push payload and `notification.recorded`, so the service worker and
+ * an open tab can never disagree about identity. Records with no session keep
+ * the record id — there is nothing meaningful to collapse them under.
+ */
+export function notificationTag(record: Pick<NotificationRecord, "id" | "sessionID">): string {
+  return record.sessionID || record.id;
+}
+
 export class NotificationService {
   private timers = new Map<string, NodeJS.Timeout>();
   private seen = new Map<string, number>();
@@ -303,11 +324,17 @@ export class NotificationService {
       }
     }
 
-    // Sub-agent activity is recorded but never delivered. It used to be
-    // dropped outright, which made "did my delegated child ever finish?"
-    // unanswerable; recording it keeps the audit trail while the default
-    // filter keeps it out of the inbox.
-    const subagent = (await this.sessionKind(event.directory, sessionID)) === "child";
+    // Sub-agent activity is recorded but not delivered — with one exception.
+    // A child that finishes hands back to its parent, so telling the human is
+    // noise; but a child stopped on an unanswered permission ask is stalled
+    // work nobody else can unblock, and suppressing that ask meant a delegated
+    // task could sit frozen for hours while the inbox swore nothing needed
+    // anyone. Permission asks therefore take the delivery path regardless of
+    // lineage (the auto-permissions gate below still answers them silently in
+    // an auto-approved directory); everything else a child emits stays a
+    // recorded-only audit trail.
+    const child = (await this.sessionKind(event.directory, sessionID)) === "child";
+    const subagent = child && kind !== "permission";
 
     const preferences = await this.store.read();
     const details = kind === "permission" ? permission(event) : null;
@@ -371,7 +398,7 @@ export class NotificationService {
       ...message,
       badgeCount: badge.count,
       badgeRevision: badge.revision,
-      tag: record.id,
+      tag: notificationTag(record),
     });
     await this.history.setDelivery(record.id, delivery);
     this.emitRecorded(record, delivery.suppressed);
@@ -516,6 +543,7 @@ export class NotificationService {
       properties: {
         id: record.id,
         kind: record.kind,
+        tag: notificationTag(record),
         ...(record.sessionID ? { sessionID: record.sessionID } : {}),
         ...(suppressed ? { suppressed } : {}),
         ...(record.sessionTitle ? { sessionTitle: record.sessionTitle } : {}),
@@ -622,7 +650,11 @@ export class NotificationService {
         this.timers.delete(key);
         void Promise.resolve(this.autoPermissionsEnabled(directory))
           .then(async (enabled) => {
-            if (enabled || await this.sessionKind(directory, pending.sessionID) === "child") return;
+            // No lineage gate here any more: a child permission ask is
+            // delivered (a stalled delegate is the one child event that needs
+            // a human), so its escalation must follow the same policy as the
+            // ask it escalates.
+            if (enabled) return;
             const requests = await listPermissions(this.config, directory);
             if (!requests.some((item) => item.id === pending.id)) return;
             const preferences = await this.store.read();
@@ -653,7 +685,7 @@ export class NotificationService {
               ...message,
               badgeCount: badge.count,
               badgeRevision: badge.revision,
-              tag: record.id,
+              tag: notificationTag(record),
             });
             await this.history.setDelivery(record.id, delivery);
             // The parked alert is a separately delivered notification and also
