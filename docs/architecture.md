@@ -102,8 +102,10 @@ rather than presenting a plausible guess as fact.
 ## Safety boundary
 
 OpenCode tools run directly on the host as the user running `opencode serve`; there is no
-container boundary. The primary guardrail is the permission policy in `opencode.jsonc`.
-Permission matching is last-match-wins, so broad rules come before specific overrides.
+container boundary around the agent runtime. The primary guardrail is the permission policy
+in `opencode.jsonc`. Permission matching is last-match-wins, so broad rules come before
+specific overrides. The optional end-to-end test container described below does not change
+this: it isolates test state, and it is never in the path of a real agent session.
 
 The BFF adds narrower boundaries around browser-controlled input:
 
@@ -140,6 +142,55 @@ npm test
 npm run build
 npm run test:e2e
 ```
+
+Those commands are host-native and remain the default. They also write machine-global state:
+the `/tmp/mock-*` fixtures, their real `.git` directories, and fixed ports 3410, 4599 and 4600.
+A separate worktree isolates source and dependencies but none of that, so two simultaneous
+end-to-end runs can race on one Git index.
+
+An optional container lane closes that gap by giving one Playwright invocation its own
+filesystem, PID and network namespace. The fixed paths and ports are deliberately unchanged
+inside the container, which is why no spec needed migrating.
+
+```text
+host worktree
+|-- npm run test:e2e            # host lane, shared /tmp + fixed ports
+|-- npm run test:contract:host  # macOS-only contracts a container cannot prove
+`-- npm run test:e2e:docker
+      |
+      v
+    scripts/e2e-docker.ts                     trusted host launcher
+      |  sanitized snapshot (.dockerignore allowlist: no .git/.env/.state)
+      v
+    Dockerfile.e2e image                      npm ci + Chromium layers cached
+      |
+      v
+    disposable container                      no mounts, no published ports,
+      |                                       --network none, --cap-drop ALL,
+      |                                       no-new-privileges, uid 1000
+      |-- /tmp/mock-*        private fixtures and private .git
+      |-- 3410/4599/4600     private BFF + mock OpenCode + mock forge
+      `-- /artifacts         test-results/ playwright-report/ logs/
+            |
+            |  docker cp from the STOPPED container, then host-side validation
+            v
+    docker-e2e-artifacts/<run-id>/            symlinks refused, size-bounded
+```
+
+Three properties are load-bearing. The container receives no Docker socket, host home,
+credentials, writable source or writable artifact mount, so artifacts are copied out of the
+stopped container and validated on the host rather than written into it. Cleanup names one
+generated container and one generated image tag, never a path derived from test output.
+And the lane is a state-isolation boundary, not a security sandbox — a pull request can edit
+the Dockerfile and the launcher, so untrusted code needs a trusted launcher from outside the
+checkout under test.
+
+Docker does not replace two things. Same-run cross-spec races are unaffected, because one
+container still hosts one BFF and one mock for every parallel spec file; that is what
+`tests/e2e-shared-state-ownership.test.ts` guards. And a Linux container cannot demonstrate
+macOS `/tmp` → `/private/tmp` canonicalization, real symlink containment, the host `git`
+integration or `0600` state-file modes, which is why `tests/host-contract.test.ts` stays
+host-native.
 
 See [Contributing](../CONTRIBUTING.md), the [OpenCode API audit](opencode-1.18.21-api-audit.md),
 and the [architecture research](research/README.md) for the workflow and evidence behind these

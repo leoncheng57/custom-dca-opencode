@@ -8,8 +8,9 @@ support, or production-readiness guarantee. Known gaps and planned work are trac
 A custom local coding-agent IDE built on the [OpenCode](https://opencode.ai) server API.
 
 React/Vite SPA + Express BFF talking to a long-lived `opencode serve` over HTTP and SSE.
-Runs entirely on the host — no Docker, one process to supervise. Reachable from a phone
-over Tailscale.
+Runs entirely on the host — no Docker in the application runtime, one process to
+supervise. Reachable from a phone over Tailscale. (Docker is optional *test*
+infrastructure only; see [Isolated E2E](#isolated-e2e-docker).)
 
 > Successor to `custom-dca-ide-with-openhands`, which is frozen as an artifact.
 > The research and plan behind the migration live in [`docs/research/`](docs/research/).
@@ -153,6 +154,64 @@ npm run build
 npm run test:e2e
 npm run test:preview
 ```
+
+### Isolated E2E (Docker)
+
+`npm run test:e2e` writes machine-global fixtures: `/tmp/mock-project` and its siblings,
+their real `.git` directories, and fixed ports `3410`, `4599`, `4600`. Separate worktrees
+isolate source and dependencies but not those, so two agents running E2E at the same time
+race on one Git index. The optional Docker lane gives each Playwright invocation its own
+filesystem, PID and network namespace, which makes the fixed paths and ports private per
+run:
+
+```bash
+npm run test:e2e:docker                                  # full suite, isolated
+npm run test:e2e:docker -- tests/e2e/smoke.ui.spec.ts    # one spec
+npm run test:e2e:host   -- tests/e2e/smoke.ui.spec.ts    # explicit host lane
+```
+
+```text
+docker create --network none --cap-drop ALL --init  (no mounts, no published ports)
+  |
+  +-- /workspace     sanitized source snapshot baked into the image
+  +-- /tmp           private: mock-project, mock-files-project, .git fixtures
+  +-- 3410/4599/4600 private: BFF + mock OpenCode + mock forge
+  `-- /artifacts     test-results/ playwright-report/ logs/
+        |
+        `-- docker cp after exit -> docker-e2e-artifacts/<run-id>/  (validated)
+```
+
+If Docker is not running, the lane **fails rather than silently using the host**, and says
+so with a dedicated exit code:
+
+| Exit | Meaning |
+|---:|---|
+| `0` | tests passed |
+| `1` | tests failed |
+| `69` | the lane could not run (Docker missing or daemon down) |
+
+`69` is `EX_UNAVAILABLE`, kept distinct from `1` so a script or agent can tell "the suite is
+red" from "the suite never ran". A local run without Docker is still available as a
+deliberate override — `npm run test:e2e:host` runs the same suite — but it writes the shared
+`/tmp` fixtures and binds `3410`/`4599`/`4600`, so it is safe only when no other end-to-end
+run is active. That includes a sibling worktree on a different `PORT`, which still shares
+those fixtures; because the launcher cannot verify that, it never falls back on its own.
+
+The container carries no Docker socket, no host home or credentials, no writable source or
+artifact mount, and no default route; it runs as uid 1000 with all capabilities dropped.
+Artifacts are copied out of the *stopped* container and validated on the host — symlinks
+are refused rather than followed, and the bundle is size- and count-bounded. Each run
+removes exactly the one container and image tag it created.
+
+Two containers were verified running the full suite concurrently with byte-identical
+internal paths and ports: destroying one lane's `.git` left the other's index and HEAD
+bit-identical, killing one lane left the other to finish with exit 0, and the host worktree
+was unchanged throughout (`npm run test:e2e:docker:proof`, 26/26 checks).
+
+Docker is **not** a hostile-code sandbox here: a pull request can edit `Dockerfile.e2e` and
+the launcher, so reviewing untrusted code needs a launcher and image definition from
+outside the tested checkout. Linux containers also cannot prove macOS `/tmp` →
+`/private/tmp` behaviour, which is why `npm run test:contract:host` stays host-native.
 
 ### Interactive PR previews
 

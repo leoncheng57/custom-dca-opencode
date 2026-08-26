@@ -16,8 +16,9 @@ You need:
 - A local OpenCode server at the version pinned in
   [`server/opencode/client.ts`](server/opencode/client.ts) for interactive development
 
-The application runs directly on the host. It does not use Docker, and the development
-script does not start OpenCode for you.
+The application runs directly on the host. Its runtime does not use Docker, and the
+development script does not start OpenCode for you. Docker appears only as an optional
+end-to-end test lane; nothing you need to run or deploy the application requires it.
 
 ## Set up the repository
 
@@ -122,6 +123,54 @@ npx playwright install chromium
 
 CI installs Chromium with its operating-system dependencies before running the suite.
 Failed CI runs upload the Playwright report as an artifact.
+
+### Run end-to-end tests in isolation
+
+The commands above write machine-global fixtures — `/tmp/mock-project` and its siblings,
+their real `.git` directories, and ports `3410`, `4599`, `4600`. A separate worktree does
+not isolate any of those, so two concurrent end-to-end runs can race on one Git index. If
+you are working alongside another run, use the optional container lane instead:
+
+```bash
+npm run test:e2e:docker
+npm run test:e2e:docker -- tests/e2e/workspace-files.ui.spec.ts
+```
+
+Each invocation builds a sanitized source snapshot into a disposable image, runs the suite
+in its own filesystem, PID and network namespace, copies `/artifacts` out of the stopped
+container into the ignored `docker-e2e-artifacts/<run-id>/`, and removes exactly the
+container and image tag it created. The fixed paths and ports stay unchanged inside the
+container, so no spec needed migrating.
+
+If Docker is not running, the lane stops with exit `69` rather than quietly running on the
+host: `0` means the tests passed, `1` means they failed, and `69` means the lane never ran.
+Keeping those separate lets a script or agent tell a red suite from an absent one.
+
+Running end-to-end tests locally without Docker is still supported as a deliberate
+override — use the host lane below. It is safe when no other end-to-end run is active, which
+includes a sibling worktree on a different `PORT`, since that still writes the same `/tmp`
+fixtures. The launcher cannot check for that, which is why it asks you rather than guessing.
+
+Keep using the host lane for debugging — it is faster and supports `--headed` and the
+Playwright inspector:
+
+```bash
+npm run test:e2e:host -- tests/e2e/workspace-files.ui.spec.ts --headed
+```
+
+The host lane is the one that reuses a listening server, so the port check under
+[Capture transient UI state locally](#capture-transient-ui-state-locally) still applies to
+it. Some contracts are host-only and cannot be proven in a Linux container — macOS `/tmp` →
+`/private/tmp` canonicalization, real symlink containment, the host `git` integration and
+`0600` state-file modes. Those live in a separate lane:
+
+```bash
+npm run test:contract:host
+```
+
+Docker here is a state-isolation boundary, not a security sandbox: a pull request can edit
+`Dockerfile.e2e` and `scripts/e2e-docker.ts`, so running untrusted code safely needs a
+launcher and image definition from outside the checkout being tested.
 
 ## Prepare a pull request
 

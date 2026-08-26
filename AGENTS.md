@@ -27,8 +27,12 @@ several decisions below.
   owns a small typed fetch seam instead of casting around the SDK.
 - Tests: `npm test` (vitest, `tests/*.test.ts`, node environment, import with `.js`
   suffixes). `npm run typecheck` runs the client, server, and screenshot-tool tsconfigs.
+  Note it covers `client/`, `server/` and `scripts/` — **no tsconfig includes
+  `tests/*.test.ts`**, so a test file is checked only by vitest at run time.
   Playwright starts deterministic mock OpenCode and preview servers, so
-  `npm run test:e2e` needs no live stack or keys.
+  `npm run test:e2e` needs no live stack or keys. `npm run test:e2e:docker` runs the
+  same suite inside a disposable container (decision 27); `npm run test:e2e:host` is
+  the explicit host lane; `npm run test:contract:host` is the host-only contract lane.
 - **Playwright runs spec _files_ in parallel against one BFF _and one mock_.** Tests
   inside a file are serial; files are not, and `test.describe.serial` orders only the
   file it is written in. So any state that is not per-request — BFF memory *or* the mock
@@ -80,10 +84,12 @@ several decisions below.
 1. **Path B — custom UI on `opencode serve`.** Considered and declined: a plugins+cmux
    composition (cmux sidebars cannot render input controls, so a settings page is
    impossible there), and adopting OpenChamber. Research: `docs/research/`.
-2. **No Docker.** The OpenHands runner needed `agent-canvas` (agent runtime) and
-   Postgres (manager runs). Manager runs are dropped, so Postgres goes too. One
-   process to supervise. This also removes the fixed-port constraint that limited the
-   old repo to one running worktree at a time.
+2. **No Docker in the application runtime.** The OpenHands runner needed `agent-canvas`
+   (agent runtime) and Postgres (manager runs). Manager runs are dropped, so Postgres
+   goes too. One process to supervise. This also removes the fixed-port constraint that
+   limited the old repo to one running worktree at a time. Scope note: decision 27 adds
+   an *optional test-only* container. Nothing needed to run, develop or deploy the app
+   requires Docker, and no agent session ever executes inside one.
 3. **Permissions replace the container boundary.** See `opencode.json`. Honest framing:
    opencode TUI sessions already ran host-side on this machine (some with `--auto`),
    so this makes an existing posture deliberate rather than adding new risk.
@@ -492,6 +498,51 @@ several decisions below.
     because `normalizeRecord` is the only barrier against a hand-edited file and this is
     model-authored text on a durable record. Retention rose to 5,000 per capped
     category; unresolved *delivered* records remain exempt from every cap.
+27. **Docker is optional test infrastructure, one container per Playwright invocation.**
+    Worktrees isolate source and dependencies but not the machine-global fixtures the E2E
+    suite writes: `/tmp/mock-*`, their real `.git` directories, and ports 3410/4599/4600.
+    Distinct ports isolate listeners, not filesystems, so concurrent runs raced on one Git
+    index. `Dockerfile.e2e` + `scripts/e2e-docker.ts` give one invocation its own
+    filesystem/PID/network namespace, and the fixed paths and ports are deliberately
+    UNCHANGED inside it — which is why this lane migrated zero specs. Rejected: Compose
+    (a shared long-lived stack reintroduces the shared state) and per-spec containers
+    (cost without benefit, since one BFF already serves all spec files).
+    The runtime takes no mount of any kind: no Docker socket, host home, credentials,
+    host `/tmp`, writable source or writable artifact destination; plus `--network none`,
+    `--cap-drop ALL`, `no-new-privileges`, `--init`, private `--shm-size`, bounded pids,
+    non-root uid 1000, and no published ports. Source reaches the image only as a
+    `.dockerignore` **allowlist** snapshot, so `.git`, `.env*` and `.state/` are absent
+    rather than merely unreferenced — verified, not assumed. Artifacts are exported with
+    `docker cp` from the *stopped* container into a launcher-chosen unique directory, then
+    validated host-side: symlinks are refused rather than followed, and the bundle is
+    count/size-bounded. A writable artifact bind was rejected precisely because the
+    container could then delete host files. Cleanup names exactly one generated container
+    and, only when it built it, one generated image tag — never a path from test output.
+    `--read-only` root is deliberately NOT set: `/artifacts` must live in the container
+    layer for `docker cp` to reach it after exit, and a tmpfs or bind would defeat that.
+    The container layer is discarded on `rm`, so this costs no host isolation.
+    Two limits are permanent, not bugs to fix later. Docker does not touch same-run
+    cross-spec races — one container still hosts one BFF and one mock for every parallel
+    spec file, so `tests/e2e-shared-state-ownership.test.ts` stays. And it cannot prove
+    macOS behaviour, so `tests/host-contract.test.ts` keeps `/private/tmp`
+    canonicalization, real symlink containment, host `git check-ignore` and `0600` state
+    modes host-native. Honest framing, stated wherever the lane is documented: this is a
+    state-isolation boundary, not a hostile-code sandbox. A PR can edit `Dockerfile.e2e`,
+    the launcher and the npm script, so `test:e2e:docker` is a convenience command whose
+    security depends on the checkout; untrusted review needs a trusted launcher and image
+    definition from outside the tested tree. In CI the ephemeral read-only-token runner is
+    that boundary.
+    A preflight probes the daemon before building and, when Docker is absent, exits
+    **69** (`EX_UNAVAILABLE`) rather than 1, so "the lane never ran" is machine-
+    distinguishable from Playwright's "tests failed"; `summary.json` is written on that
+    path too, carrying `failureKind`. It never falls back to the host lane automatically:
+    free ports do not prove exclusivity, because a sibling worktree on a different `PORT`
+    still writes the same `/tmp` fixtures, so the launcher names `npm run test:e2e:host`
+    as an operator override instead of choosing it. A build failure after a successful
+    probe stays exit 1 — that is a real defect and must not be excused as an environment
+    problem. No per-PR image is published to GHCR: BuildKit `type=gha` cache scoped
+    by platform + schema (not commit SHA) keeps the `npm ci` and browser layers warm
+    without a registry, a write token or fork restrictions.
 
 ## Client conventions (inherited from the OpenHands runner, still enforced)
 

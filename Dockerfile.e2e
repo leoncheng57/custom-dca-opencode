@@ -1,0 +1,84 @@
+# syntax=docker/dockerfile:1
+#
+# Disposable Playwright E2E image (issue #204).
+#
+# This is TEST INFRASTRUCTURE ONLY. The application itself stays host-native and
+# has no Docker runtime requirement — see AGENTS.md decision 2 and 23. Nothing in
+# `npm run dev`, `npm start` or deploy/ reads this file.
+#
+# Why the image exists: separate agent worktrees isolate source and dependencies
+# but NOT the machine-global fixtures the E2E suite writes — /tmp/mock-project
+# and friends, their `.git` directories, and fixed ports 3410/4599/4600. A
+# container gives one Playwright invocation its own filesystem, PID and network
+# namespaces, so the fixed paths and ports below become private per run and two
+# runs stop corrupting each other's Git index.
+#
+# Base is pinned to the multi-architecture OCI *index* digest of
+# node:22-bookworm-slim, so `docker build` resolves the same content on arm64
+# (Apple Silicon) and amd64 (hosted CI) without a per-arch digest table.
+# To refresh: `docker buildx imagetools inspect node:22-bookworm-slim --format '{{.Manifest.Digest}}'`.
+FROM node:22-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5
+
+# git: tests/e2e/git-fixture.ts builds real repositories under /tmp, and
+#      server/paths.ts shells out to `git check-ignore` on every workspace read.
+# ca-certificates: needed by npm and by Playwright's browser download at BUILD
+#      time only. The runtime container is started with `--network none`.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates git \
+ && rm -rf /var/lib/apt/lists/*
+
+# Browsers live outside the per-user home so a non-root runtime user can read
+# them without a recursive chown of the whole install.
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+    NPM_CONFIG_UPDATE_NOTIFIER=false \
+    NPM_CONFIG_FUND=false \
+    NPM_CONFIG_AUDIT=false \
+    # playwright.config.ts keys `reuseExistingServer` off CI: inside a
+    # disposable container there is never a previous server worth reusing, and
+    # attaching to one would defeat the entire point of this image.
+    CI=true
+
+WORKDIR /workspace
+RUN chown node:node /workspace
+
+# --- dependencies (cached on package-lock.json alone) -------------------------
+# Installed as `node` so the ~400MB node_modules tree never needs a recursive
+# chown layer later.
+USER node
+COPY --chown=node:node package.json package-lock.json ./
+RUN npm ci
+
+# --- browser (cached on the lockfile-pinned @playwright/test) -----------------
+# `--with-deps` needs apt, so this one step runs as root. The Chromium revision
+# comes from the installed @playwright/test, i.e. from package-lock.json — this
+# image never names a browser version of its own.
+USER root
+RUN npx playwright install --with-deps chromium \
+ && chmod -R a+rX /ms-playwright
+
+# --- sanitized source snapshot ------------------------------------------------
+# `.dockerignore` is an allowlist; there is no source bind mount at runtime and
+# no `.git`, `.env*` or `.state/` in this layer.
+USER node
+COPY --chown=node:node . .
+
+# Build here rather than in Playwright's webServer so a broken build fails at
+# `docker build` with real compiler output instead of as a 120s webServer
+# timeout. playwright.docker.config.ts drops the rebuild from the app command
+# because of this line.
+RUN npm run build
+
+# --- fixed artifact tree ------------------------------------------------------
+# `/artifacts` is an ordinary directory in the container's own layer, NOT a bind
+# mount and NOT a tmpfs: the launcher exports it with `docker cp` after the
+# container has exited, and neither of those alternatives survives that. See
+# scripts/e2e-docker.ts for the containment + symlink validation applied on the
+# host side before anything is kept.
+USER root
+RUN mkdir -p /artifacts/test-results /artifacts/playwright-report /artifacts/logs \
+ && chown -R node:node /artifacts \
+ && chmod 0755 /workspace/scripts/docker-e2e-entrypoint.sh
+
+USER node
+ENV HOME=/home/node
+ENTRYPOINT ["/workspace/scripts/docker-e2e-entrypoint.sh"]
