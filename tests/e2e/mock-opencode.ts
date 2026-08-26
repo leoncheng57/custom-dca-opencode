@@ -17,10 +17,11 @@
 // Run standalone:  npx tsx tests/e2e/mock-opencode.ts [port]
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { mkdirSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+
+import { ensureGitFixture } from "./git-fixture.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const fixture = JSON.parse(
@@ -374,6 +375,8 @@ function policyProbe(session: Record<string, any>): Record<string, unknown> {
   };
 }
 
+// These fixed paths are shared across mock processes. The E2E lock prevents
+// concurrent runs; fixture repair intentionally does not provide run isolation.
 const MOCK_DIRECTORY_INPUT = "/tmp/mock-project";
 // A second project with its own sessions, so the cross-project recents panel
 // has something to merge. Kept separate from the auto-permissions fixture
@@ -433,12 +436,12 @@ export const SUBAGENT_DIRECTORY = realpathSync(SUBAGENT_DIRECTORY_INPUT);
 export const MANAGED_SUBAGENT_DIRECTORY = realpathSync(MANAGED_SUBAGENT_DIRECTORY_INPUT);
 export const WORKFLOW_DIRECTORY = realpathSync(WORKFLOW_DIRECTORY_INPUT);
 const SESSION_AGENT_DIRECTORY = realpathSync(SESSION_AGENT_DIRECTORY_INPUT);
-if (!existsSync(path.join(MOCK_DIRECTORY, ".git"))) {
-  execFileSync("git", ["init", "-q", MOCK_DIRECTORY]);
-  writeFileSync(path.join(MOCK_DIRECTORY, "README.md"), "# Mock project\n");
-  execFileSync("git", ["-C", MOCK_DIRECTORY, "add", "README.md"]);
-  execFileSync("git", ["-C", MOCK_DIRECTORY, "-c", "user.name=E2E", "-c", "user.email=e2e@example.test", "commit", "-qm", "fixture"]);
-}
+ensureGitFixture({
+  directory: MOCK_DIRECTORY,
+  files: { "README.md": "# Mock project\n" },
+  trackedFiles: ["README.md"],
+  commitSubject: "fixture",
+});
 
 // ── Workspace file viewer fixture ───────────────────────────────────────────
 //
@@ -479,37 +482,29 @@ const FIXTURE_GUIDE_MD = [
 
 mkdirSync(FILES_DIRECTORY_INPUT, { recursive: true });
 export const FILES_DIRECTORY = realpathSync(FILES_DIRECTORY_INPUT);
-mkdirSync(path.join(FILES_DIRECTORY, "src", "deep"), { recursive: true });
-mkdirSync(path.join(FILES_DIRECTORY, "docs"), { recursive: true });
-mkdirSync(path.join(FILES_DIRECTORY, "assets"), { recursive: true });
-writeFileSync(path.join(FILES_DIRECTORY, ".gitignore"), "generated.txt\n");
-writeFileSync(path.join(FILES_DIRECTORY, ".env"), "FIXTURE_SECRET=must-not-be-readable\n");
-writeFileSync(path.join(FILES_DIRECTORY, "generated.txt"), "generated output that git ignores\n");
-writeFileSync(path.join(FILES_DIRECTORY, "README.md"), "# Files fixture\n");
-writeFileSync(path.join(FILES_DIRECTORY, "src", "index.ts"), FIXTURE_INDEX_TS);
-writeFileSync(path.join(FILES_DIRECTORY, "src", "deep", "nested.ts"), "export const nested = true;\n");
-writeFileSync(path.join(FILES_DIRECTORY, "docs", "guide.md"), FIXTURE_GUIDE_MD);
-writeFileSync(path.join(FILES_DIRECTORY, "assets", "logo.bin"), Buffer.from([0, 1, 2, 3, 255, 254]));
-if (!existsSync(path.join(FILES_DIRECTORY, ".git"))) {
-  execFileSync("git", ["init", "-q", FILES_DIRECTORY]);
-}
-// A repository with no commits is not a working fixture: `git log` exits
-// non-zero on an unborn branch, and the Changes tab asks for commits and diffs
-// together, so the whole panel would report an error. Keyed on HEAD rather than
-// on .git so a directory left behind by an earlier run is repaired too.
-try {
-  execFileSync("git", ["-C", FILES_DIRECTORY, "rev-parse", "--verify", "-q", "HEAD"], { stdio: "ignore" });
-} catch {
-  // `.env` is deliberately left untracked: it exists to prove the BFF withholds
-  // it, and committing a file named like a secret into a fixture is a bad habit.
-  execFileSync("git", ["-C", FILES_DIRECTORY, "add", "--", ".gitignore", "README.md", "src", "docs", "assets"]);
-  execFileSync("git", [
-    "-C", FILES_DIRECTORY,
-    "-c", "user.name=E2E",
-    "-c", "user.email=e2e@example.test",
-    "commit", "-qm", "workspace file viewer fixture",
-  ]);
-}
+ensureGitFixture({
+  directory: FILES_DIRECTORY,
+  files: {
+    ".gitignore": "generated.txt\n",
+    ".env": "FIXTURE_SECRET=must-not-be-readable\n",
+    "generated.txt": "generated output that git ignores\n",
+    "README.md": "# Files fixture\n",
+    "src/index.ts": FIXTURE_INDEX_TS,
+    "src/deep/nested.ts": "export const nested = true;\n",
+    "docs/guide.md": FIXTURE_GUIDE_MD,
+    "assets/logo.bin": Buffer.from([0, 1, 2, 3, 255, 254]),
+  },
+  // `.env` remains untracked to prove the BFF withholds secret-like files.
+  trackedFiles: [
+    ".gitignore",
+    "README.md",
+    "src/index.ts",
+    "src/deep/nested.ts",
+    "docs/guide.md",
+    "assets/logo.bin",
+  ],
+  commitSubject: "workspace file viewer fixture",
+});
 // Registered here rather than in the map literal: the transcript embeds the
 // realpath'd fixture directory, which is only known once it exists.
 messages.set("ses_mock_files", filesMessages(FILES_DIRECTORY));
