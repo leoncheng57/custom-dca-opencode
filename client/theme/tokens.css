@@ -97,6 +97,24 @@
   /* ── App-local aliases (historically "hh-" in the predecessor) */
   --hh-border: var(--color-border-default);
   --hh-row-hover: #f9fafb;
+
+  /* ── Playbooks
+   * The catalog is deliberately its own visual reading surface: reusable agent
+   * procedures benefit from a quieter, document-like field and a terminal
+   * hierarchy. Components consume these semantic aliases only. */
+  --playbooks-paper: #f7f4ea;
+  --playbooks-surface: #fffdf6;
+  --playbooks-ink: #123d32;
+  --playbooks-muted: #587064;
+  --playbooks-line: #164d3d;
+  --playbooks-accent: #087851;
+  --playbooks-accent-soft: #d8f1e1;
+  --playbooks-shadow: #164d3d;
+  --playbooks-terminal: #062e24;
+  --playbooks-terminal-ink: #e9fff3;
+  --playbooks-terminal-muted: #a0c9b3;
+  --playbooks-terminal-line: #16835f;
+  --playbooks-overlay: rgb(18 61 50 / 28%);
 }
 
 .dark {
@@ -154,6 +172,20 @@
 
   --hh-border: var(--color-border-default);
   --hh-row-hover: #1c1f25;
+
+  --playbooks-paper: #101815;
+  --playbooks-surface: #16221d;
+  --playbooks-ink: #e5f4e9;
+  --playbooks-muted: #abc4b2;
+  --playbooks-line: #9cd6b3;
+  --playbooks-accent: #52d88f;
+  --playbooks-accent-soft: #173d2c;
+  --playbooks-shadow: #9cd6b3;
+  --playbooks-terminal: #071c15;
+  --playbooks-terminal-ink: #eafff0;
+  --playbooks-terminal-muted: #93c5aa;
+  --playbooks-terminal-line: #44c881;
+  --playbooks-overlay: rgb(0 0 0 / 62%);
 }
 
 /* Utility referenced by ds/card.tsx. */

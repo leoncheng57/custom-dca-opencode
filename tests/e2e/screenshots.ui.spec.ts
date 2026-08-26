@@ -37,9 +37,11 @@ test.describe("requested PR screenshots", () => {
                   ? "opencode-planning"
                 : pathname === "/docs"
                   ? "opencode-docs"
-                  : pathname.startsWith("/docs/")
-                    ? "opencode-doc"
-                    : "opencode-hub";
+                : pathname.startsWith("/docs/")
+                  ? "opencode-doc"
+                    : pathname.startsWith("/playbooks")
+                      ? "opencode-playbooks"
+                      : "opencode-hub";
         await expect(page.getByTestId(stableRoot)).toBeVisible();
         if (pathname === "/planning") {
           await expect(page.getByTestId("opencode-planning-list")).toBeVisible();
