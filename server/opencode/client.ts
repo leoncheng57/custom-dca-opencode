@@ -34,7 +34,7 @@
 // treat the live `GET /doc` as the source of truth.
 
 /** Pinned server version these types were written against. */
-export const EXPECTED_SERVER_VERSION = "1.18.22";
+export const EXPECTED_SERVER_VERSION = "1.18.23";
 
 export interface OpencodeConfig {
   /** Base URL of the running `opencode serve` / `opencode web` instance. */

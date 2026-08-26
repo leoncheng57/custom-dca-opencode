@@ -75,7 +75,7 @@ test.describe("hub", () => {
 
   test("reports the upstream agent version", async ({ page }) => {
     await page.goto(hub);
-    await expect(page.getByTestId("opencode-upstream-badge")).toContainText("1.18.22");
+  await expect(page.getByTestId("opencode-upstream-badge")).toContainText("1.18.23");
   });
 
   test("shows compact directory-wide auto permissions controls", async ({ page }) => {
