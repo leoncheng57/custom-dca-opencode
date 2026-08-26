@@ -136,6 +136,10 @@ Pull requests run the full verification sequence and a full-history Gitleaks sca
 not commit \`.env\`, credentials, local state, generated build output, Playwright reports,
 or screenshot output.
 
+Every same-repository pull request also receives a credential-free interactive simulator
+that refreshes on each commit. See [Pull request previews](docs/pr-previews.md) for the
+deployment flow, diagrams, BFF stub contract, trust boundaries, and troubleshooting.
+
 ### Request deterministic UI screenshots
 
 For a UI change, add one fenced \`screenshots\` block to the pull request body with one
