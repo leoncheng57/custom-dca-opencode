@@ -246,6 +246,23 @@ Keep the live probe disposable and version-scoped when changing this boundary. D
 requested mode is effective policy, and do not synthesize native hand-back behavior for managed
 children.
 
+## Model selection for delegated work
+
+Managed Children accept an explicit, validated model at launch, and the ledger shows the
+requested model as provenance. Native task children are different (issue #90): the task tool
+has **no per-delegation model parameter**. Upstream resolves the child model as the subagent's
+configured model when its agent definition pins one, otherwise the parent's current model at
+delegation time. The two levers that exist today:
+
+1. Pin a model on the agent definition (`opencode.json` `agent.<name>.model`) so every
+   delegation to that agent uses it.
+2. Switch the parent's model before delegating; children of agents without a pinned model
+   inherit it.
+
+The delegated-work panel shows the model each native child actually ran with, read from the
+task part's launch metadata. That display is provenance, not a control — per-delegation
+selection needs an upstream task-tool parameter that does not exist yet.
+
 ## Events, polling, and completion
 
 The BFF owns one upstream `GET /global/event` connection. Unlike directory-scoped `/event`, the
@@ -325,9 +342,14 @@ session into that directory. Relative edits, default shell CWD, LSP, VCS, snapsh
 and event envelopes remain scoped to the parent instance. A mutating child must therefore treat its
 assigned absolute worktree path as a hard boundary.
 
-Use a fresh Build-only parent for mutating children. During workflow validation, children launched
-from a parent that had previously activated Plan retained terminal Bash denies even after Build made
-the parent's own tools available again. Until child permission inheritance is fixed and verified,
+On a **stock** OpenCode build, use a fresh Build-only parent for mutating children. During
+workflow validation, children launched from a parent that had previously activated Plan retained
+terminal Bash denies even after Build made the parent's own tools available again: stock
+`deriveSubagentSessionPermission` copies every parent-session deny while discarding the later
+allows that superseded them. An upstream fix (anomalyco/opencode#45064) copies only denies that
+are still the parent's effective action for their exact permission and pattern; deployments
+running a build with that fix verified live (the reference deployment runs `v1.18.22-dca`,
+v1.18.22 plus that commit) no longer need the fresh-parent workaround. On a build without it,
 failed preflight means stop; do not weaken policy or silently replace the native child with an
 independent root session.
 
