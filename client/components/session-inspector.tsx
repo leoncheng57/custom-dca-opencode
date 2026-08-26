@@ -666,6 +666,7 @@ export function SessionInspector({ directory, sessionID, events, todos, todosLoa
       <ManagedChildDialog
         key={commandScope}
         open={managedChildOpen}
+        directory={directory}
         catalogue={modelCatalogue}
         defaultModel={defaultModel}
         submitting={subagents.launching}

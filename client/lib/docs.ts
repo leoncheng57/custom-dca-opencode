@@ -28,6 +28,14 @@ export const DOCS: DocDefinition[] = [
     load: () => import("../../docs/architecture.md?raw").then((module) => module.default),
   },
   {
+    slug: "subagents",
+    title: "Sub-agents and child sessions",
+    description: "Delegation lanes, the retained-agent capability matrix, derived child state, and safe parallelism.",
+    category: "architecture",
+    sourcePath: "docs/subagents.md",
+    load: () => import("../../docs/subagents.md?raw").then((module) => module.default),
+  },
+  {
     slug: "contributing",
     title: "Contributing",
     description: "Local setup, repository conventions, verification, pull requests, and security-sensitive changes.",

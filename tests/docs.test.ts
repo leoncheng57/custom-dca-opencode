@@ -1,7 +1,11 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 
 import { isSafeHref, linkAttributes } from "../client/ds/markdown.js";
 import { DOCS, getDoc, rewriteDocLinks } from "../client/lib/docs.js";
+import { MANAGED_CHILD_AGENT_IDS } from "../server/opencode/sessions.js";
 
 describe("documentation catalogue", () => {
   it("uses unique slugs and source paths", () => {
@@ -10,6 +14,24 @@ describe("documentation catalogue", () => {
     expect(getDoc("architecture")?.sourcePath).toBe("docs/architecture.md");
     expect(getDoc("pr-previews")?.sourcePath).toBe("docs/pr-previews.md");
     expect(getDoc("missing")).toBeUndefined();
+  });
+
+  it("catalogues the sub-agent guide under architecture", () => {
+    const doc = getDoc("subagents");
+    expect(doc?.sourcePath).toBe("docs/subagents.md");
+    expect(doc?.category).toBe("architecture");
+  });
+
+  it("keeps the capability matrix in step with the retained Managed Child agents", () => {
+    const markdown = readFileSync(
+      fileURLToPath(new URL("../docs/subagents.md", import.meta.url)),
+      "utf8",
+    );
+    const matrixRows = markdown
+      .split("\n")
+      .filter((line) => /^\|\s*`[a-z-]+`\s*\|/u.test(line))
+      .map((line) => /^\|\s*`([a-z-]+)`\s*\|/u.exec(line)?.[1]);
+    expect(matrixRows).toEqual([...MANAGED_CHILD_AGENT_IDS]);
   });
 
   it("routes catalogued relative links in-app and unknown files to GitHub", () => {

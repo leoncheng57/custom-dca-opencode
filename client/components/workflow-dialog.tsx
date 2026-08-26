@@ -135,21 +135,25 @@ export function WorkflowDialog({
     setError(null);
     try {
       if (workflow.id === PLAYWRIGHT_REVIEW_WORKFLOW_ID) {
-        await api.prompt(directory, sessionID, generatedPrompt, mode, undefined, undefined, undefined, workflow.id);
+        await api.prompt(directory, sessionID, generatedPrompt, { mode }, undefined, undefined, undefined, workflow.id);
         onSent();
         onClose();
         return;
       }
       if (workflow.id === SESSION_UPDATE_WORKFLOW_ID) {
         if (!targetSession) return;
-        await api.prompt(directory, targetSession.id, generatedPrompt, targetMode, undefined, undefined, undefined, workflow.id);
+        await api.prompt(directory, targetSession.id, generatedPrompt, { mode: targetMode }, undefined, undefined, undefined, workflow.id);
         setStage("done");
         return;
       }
       if (action === "launch") {
         const result = await api.createManagedChild(directory, sessionID, {
           prompt: generatedPrompt,
-          mode: childMode,
+          // This dialog offers the Plan/Build pair only; both are valid
+          // Managed Child agents. Build can modify, so it carries the explicit
+          // authorization the confirmation checkbox above already gates.
+          agent: childMode,
+          ...(childMode === "build" ? { authorization: "modify" as const } : {}),
           model: childModel,
           idempotencyKey,
           workflow: workflow.id,

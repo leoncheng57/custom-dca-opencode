@@ -138,6 +138,12 @@ export function createPublicSimulator(): typeof fetch {
       return response({ models: modelPins });
     }
     if (path === "/api/recent-sessions") return response({ sessions: sessions.slice().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 5), directories: [SIMULATOR_DIRECTORY, SECOND_DIRECTORY] });
+    if (path === "/api/session-agents") return response({ agents: [
+      { id: "plan", description: "Plan work without changing files." },
+      { id: "build", description: "Implement and verify changes." },
+      { id: "explore", description: "Inspect the codebase and report findings." },
+      { id: "general", description: "Handle multi-step delegated work." },
+    ] });
     if (path === "/api/sessions" && method === "POST") {
       const id = `ses_preview_created_${sessions.length}`;
       const session = summary({ id, title: body.title || String(body.prompt || "New simulated task").slice(0, 64), directory: body.directory || SIMULATOR_DIRECTORY, model: body.model || modelCatalogue.defaultModel });
@@ -176,7 +182,24 @@ export function createPublicSimulator(): typeof fetch {
       if (rest === "/share" && method === "DELETE") { delete session.shareUrl; return response({ session }); }
       if (rest === "/subagents") return response({ parentID: id, capabilities: { backgroundSubagents: true, managedChildren: true }, truncated: false, tasks: id === "ses_preview_done" ? [{ sessionID: "ses_preview_child", parentID: id, title: "Audit deployment safety", agent: "explore", origin: "native-task", description: "Check artifact and publication boundaries", state: "completed", evidence: "child-transcript", background: true, present: true, createdAt: "2026-08-25T18:00:00Z", updatedAt: "2026-08-25T18:15:00Z", cost: 0.006 }, { sessionID: "ses_preview_child_done", parentID: id, title: "Verify Pages routing", agent: "explore", origin: "native-task", description: "Exercise nested simulator routes", state: "completed", evidence: "child-transcript", background: false, present: true, createdAt: "2026-08-25T18:00:00Z", updatedAt: "2026-08-25T18:10:00Z", cost: 0.004 }] : [] });
       if (rest === "/managed-children" && method === "POST") {
-        const child = summary({ id: `ses_preview_managed_${sessions.length}`, title: "Managed simulated child", parentID: id, managed: { origin: "managed-human", requestedMode: body.mode || "plan", requestedModel: body.model, background: true, policySource: "creation-permission", effectivePolicyObserved: true } });
+        const requestedAgent = body.agent || "plan";
+        const authorization = body.authorization === "modify" ? "modify" : "read-only";
+        const child = summary({
+          id: `ses_preview_managed_${sessions.length}`,
+          title: "Managed simulated child",
+          parentID: id,
+          agent: requestedAgent,
+          managed: {
+            origin: "managed-human",
+            requestedAgent,
+            ...(requestedAgent === "plan" || requestedAgent === "build" ? { requestedMode: requestedAgent } : {}),
+            requestedModel: body.model,
+            background: true,
+            policySource: "creation-permission",
+            effectivePolicyObserved: true,
+            authorization,
+          },
+        });
         sessions.push(child); messages.set(child.id, []); return response({ session: child }, 201);
       }
       if (rest.startsWith("/subagents/") && rest.endsWith("/abort")) return response({ aborted: true });

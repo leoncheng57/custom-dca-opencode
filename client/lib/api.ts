@@ -7,6 +7,10 @@ import type { RawMessage } from "./events.js";
 import type { AgentMode } from "./agentMode.js";
 import type { ModelCatalogue, ModelSelection } from "./models.js";
 
+export type ManagedChildAgent = "plan" | "build" | "explore" | "general";
+export type ManagedChildAccess = "read-only" | "can-modify";
+export interface ManagedChildAgentSummary { id: ManagedChildAgent; description?: string; access: ManagedChildAccess }
+
 export interface SessionSummary {
   id: string;
   title: string;
@@ -19,12 +23,15 @@ export interface SessionSummary {
   model?: ModelSelection;
   managed?: {
     origin: "managed-human";
-    requestedMode: AgentMode;
+    requestedAgent: ManagedChildAgent;
+    requestedMode?: AgentMode;
     requestedModel?: ModelSelection;
     background: true;
     policySource: "creation-permission";
     effectivePolicyObserved: boolean;
+    authorization: "read-only" | "modify";
   };
+  managedConfigurationPresent?: true;
   cost: number;
   tokens: {
     input: number;
@@ -64,7 +71,10 @@ export interface SubagentTask {
   agent?: string;
   origin?: "native-task" | "managed-human";
   requestedMode?: AgentMode;
+  requestedAgent?: ManagedChildAgent;
   requestedModel?: ModelSelection;
+  /** Model the task tool resolved for a native child; provenance only. */
+  model?: { providerID: string; modelID: string };
   policySource?: "creation-permission";
   effectivePolicyObserved?: boolean;
   description?: string;
@@ -78,11 +88,31 @@ export interface SubagentTask {
   detail?: string;
 }
 
+/**
+ * A machine-authored instruction this app itself sent to a child session.
+ * Explicit send-time audit data — never inferred from transcript wording.
+ */
+export interface InstructionRecord {
+  id: string;
+  at: number;
+  source: "managed-child-launch" | "managed-child-prompt";
+  directory: string;
+  targetSessionID: string;
+  parentSessionID?: string;
+  targetAgent?: string;
+  text: string;
+  truncated?: true;
+  delivery: "acknowledged" | "rejected";
+  reason?: string;
+}
+
 export interface SubagentReport {
   parentID: string;
   tasks: SubagentTask[];
   capabilities: { backgroundSubagents: boolean; managedChildren: boolean };
   truncated: boolean;
+  /** Newest first; covers only instructions this app sent (issue #91). */
+  instructions: InstructionRecord[];
 }
 
 export interface HealthResponse {
@@ -312,7 +342,12 @@ export interface SessionTurnDiff extends VcsFileDiff {
  * The status is attached so callers can distinguish "this session is gone"
  * (404, stop polling) from "the agent server is down" (502, keep retrying).
  */
-export type ApiErrorCode = "SESSION_AGENT_UNKNOWN" | "SESSION_AGENT_UNSUPPORTED" | "TURN_DIFF_TOO_LARGE";
+export type ApiErrorCode =
+  | "SESSION_AGENT_UNKNOWN"
+  | "SESSION_AGENT_UNSUPPORTED"
+  | "SESSION_AGENT_MISMATCH"
+  | "SESSION_AGENT_UNAVAILABLE"
+  | "TURN_DIFF_TOO_LARGE";
 
 export class ApiError extends Error {
   constructor(
@@ -384,6 +419,8 @@ async function json<T>(res: Response): Promise<T> {
       if (
         body.code === "SESSION_AGENT_UNKNOWN" ||
         body.code === "SESSION_AGENT_UNSUPPORTED" ||
+        body.code === "SESSION_AGENT_MISMATCH" ||
+        body.code === "SESSION_AGENT_UNAVAILABLE" ||
         body.code === "TURN_DIFF_TOO_LARGE"
       ) code = body.code;
     } catch {
@@ -446,6 +483,11 @@ export const api = {
   models: (directory: string) =>
     fetch(scoped("/models", directory)).then((r) => json<ModelCatalogue>(r)),
 
+  managedChildAgents: (directory: string) =>
+    fetch(scoped("/managed-child-agents", directory)).then((r) =>
+      json<{ agents: ManagedChildAgentSummary[] }>(r),
+    ),
+
   session: (directory: string, id: string) =>
     fetch(scoped(`/sessions/${encodeURIComponent(id)}`, directory)).then((r) =>
       json<{ session: SessionSummary }>(r),
@@ -501,7 +543,9 @@ export const api = {
     directory: string,
     id: string,
     text: string,
-    mode: AgentMode,
+    // Plan/Build activate session policy; a foreign identity rides the
+    // exclusive `agent` contract instead (issue #52, narrowed).
+    identity: { mode: AgentMode } | { agent: string },
     model?: ModelSelection,
     attachments?: Array<{ filename: string; mime: string; url: string }>,
     reminder?: string,
@@ -512,13 +556,18 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         text,
-        mode,
+        ...identity,
         ...(model ? { model } : {}),
         ...(attachments?.length ? { attachments } : {}),
         ...(reminder ? { reminder } : {}),
         ...(workflow ? { workflow } : {}),
       }),
     }).then((r) => json<{ accepted: boolean }>(r)),
+
+  sessionAgents: (directory: string) =>
+    fetch(scoped("/session-agents", directory)).then(
+      (r) => json<{ agents: Array<{ id: string; description?: string }> }>(r),
+    ),
 
   abort: (directory: string, id: string) =>
     fetch(scoped(`/sessions/${encodeURIComponent(id)}/abort`, directory), { method: "POST" }).then(
@@ -532,8 +581,9 @@ export const api = {
 
   createManagedChild: (directory: string, id: string, input: {
     prompt: string;
-    mode: AgentMode;
+    agent: ManagedChildAgent;
     model?: ModelSelection;
+    authorization?: "modify";
     idempotencyKey: string;
     workflow?: string;
   }) =>
