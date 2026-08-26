@@ -61,14 +61,25 @@ export function StatusPill({ running }: { running: boolean }) {
  * so without this an unbroken list of similarly-named rows gives no clue which
  * ones a human actually started.
  */
-export function SubagentPill() {
+/**
+ * `managed` is the server-validated managed-human metadata (decision #19). A
+ * human authorized that child directly, so it reads as work someone started
+ * rather than another neutral `sub` in a wall of them; a child with no such
+ * metadata keeps the neutral pill instead of being relabelled on a guess.
+ */
+export function SubagentPill({ managed = false }: { managed?: boolean }) {
   return (
     <span
-      className="inline-flex shrink-0 items-center rounded-full bg-[var(--color-background-surface-neutral-muted)] px-2 py-0.5 text-[11px] font-medium text-[var(--color-text-muted)]"
-      title="Delegated by another session"
+      className={
+        managed
+          ? "inline-flex shrink-0 items-center rounded-full bg-[var(--color-background-surface-info-muted)] px-2 py-0.5 text-[11px] font-medium text-[var(--color-text-info)]"
+          : "inline-flex shrink-0 items-center rounded-full bg-[var(--color-background-surface-neutral-muted)] px-2 py-0.5 text-[11px] font-medium text-[var(--color-text-muted)]"
+      }
+      title={managed ? "Launched as a Managed Child by a human" : "Delegated by another session"}
       data-testid="opencode-subagent-pill"
+      data-managed={managed ? "true" : "false"}
     >
-      sub
+      {managed ? "Managed Child" : "sub"}
     </span>
   );
 }
@@ -123,7 +134,7 @@ function SessionTreeList({ sessions, selected, testId, projectLabel, showCost = 
           >
             <StatusPill running={session.running} />
             <span className="min-w-0 flex-1 truncate">{session.title}</span>
-            {isSubagentSession(session) && <SubagentPill />}
+            {isSubagentSession(session) && <SubagentPill managed={Boolean(session.managed)} />}
             {projectLabel && (
               <span
                 className="max-w-[30%] shrink-0 truncate text-[11px] text-[var(--color-text-muted)] sm:max-w-[40%]"

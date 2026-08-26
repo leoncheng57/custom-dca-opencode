@@ -7,6 +7,7 @@ const API_PARENT = "ses_mock_managed_api_parent";
 const UI_PARENT = "ses_mock_managed_ui_parent";
 const FAILURE_PARENT = "ses_mock_managed_failure_parent";
 const CLEANUP_FAILURE_PARENT = "ses_mock_managed_cleanup_failure_parent";
+const SEEDED_CHILD = "ses_mock_managed_seeded_child";
 const MOCK_URL = `http://127.0.0.1:${process.env.MOCK_OPENCODE_PORT || 4599}`;
 const scoped = (path: string) => `/api${path}?directory=${encodeURIComponent(DIR)}`;
 
@@ -121,6 +122,46 @@ test("records a redacted send-time instruction audit for managed sends", async (
   // Newest first, so the follow-up precedes its own launch record.
   const forChild = after.instructions.filter((item) => item.targetSessionID === childID);
   expect(forChild.map((item) => item.source)).toEqual(["managed-child-prompt", "managed-child-launch"]);
+});
+
+test("redacts the derived child title without altering the submitted prompt", async ({ request }) => {
+  // The token lives mid-assignment so the first line, the 80-char cap and the
+  // redaction all have to cooperate. Split so a secret scanner cannot read the
+  // literal as a credential.
+  const token = `ghp_${"abcdefghijklmnopqrstuvwx"}`;
+  const assignment = `Rotate the deploy key using ${token} and report back\nSecond line must not reach the title`;
+  const response = await request.post(scoped(`/sessions/${API_PARENT}/managed-children`), {
+    data: { prompt: assignment, agent: "plan", idempotencyKey: "managed-title-redaction" },
+  });
+  expect(response.status()).toBe(201);
+  const child = (await response.json() as { session: { id: string; title: string } }).session;
+
+  // 1. The API response the browser renders.
+  expect(child.title).toBe("Rotate the deploy key using [redacted-token] and report back");
+  expect(child.title).not.toContain(token);
+
+  // 2. The title OpenCode was actually asked to persist.
+  const creates = await (await fetch(`${MOCK_URL}/test/session-payloads`)).json() as Array<Record<string, unknown>>;
+  const create = creates.find((payload) => payload.title === child.title);
+  expect(create).toBeDefined();
+  expect(creates.some((payload) => String(payload.title ?? "").includes(token))).toBe(false);
+
+  // 3. The derived sub-agent row.
+  const report = await (await request.get(scoped(`/sessions/${API_PARENT}/subagents`))).json() as {
+    tasks: Array<{ sessionID: string; title: string }>;
+  };
+  const task = report.tasks.find((item) => item.sessionID === child.id);
+  expect(task?.title).toBe(child.title);
+  expect(task?.title).not.toContain(token);
+
+  // 4. But the child must receive the EXACT assignment: this is credential-shape
+  //    mitigation for derived metadata, not prompt rewriting.
+  const prompts = await (await fetch(`${MOCK_URL}/test/prompt-payloads`)).json() as Array<Record<string, unknown>>;
+  const prompt = prompts.find((payload) => payload.sessionID === child.id);
+  const text = (prompt?.parts as Array<{ type?: string; text?: string }> | undefined)
+    ?.find((part) => part.type === "text")?.text ?? "";
+  expect(text).toContain(assignment);
+  expect(text).toContain(token);
 });
 
 test("advertises only the retained Managed Child agents", async ({ request }) => {
@@ -248,6 +289,47 @@ test("fails closed before creating a child for invalid input or parent", async (
   expect(missing.status()).toBe(404);
 });
 
+test("rejects an unknown agent, an unearned authorization and an invalid model", async ({ request }) => {
+  // The four-agent catalogue is not an open enum, and a read-only agent must
+  // not be launchable with modify authorization attached — that would let a UI
+  // ask for write access it was never granted.
+  const unknownAgent = await request.post(scoped(`/sessions/${API_PARENT}/managed-children`), {
+    data: { prompt: "Try it", agent: "superuser", idempotencyKey: "managed-negative-agent" },
+  });
+  expect(unknownAgent.status()).toBe(400);
+  expect((await unknownAgent.json()).error).toContain("agent must be");
+
+  const unearned = await request.post(scoped(`/sessions/${API_PARENT}/managed-children`), {
+    data: { prompt: "Try it", agent: "plan", authorization: "modify", idempotencyKey: "managed-negative-auth" },
+  });
+  expect(unearned.status()).toBe(400);
+  expect((await unearned.json()).error).toContain("does not accept modify authorization");
+
+  const badModel = await request.post(scoped(`/sessions/${API_PARENT}/managed-children`), {
+    data: {
+      prompt: "Try it",
+      agent: "plan",
+      model: { providerID: "anthropic", modelID: "no-such-model" },
+      idempotencyKey: "managed-negative-model",
+    },
+  });
+  expect(badModel.status()).toBe(400);
+
+  const badVariant = await request.post(scoped(`/sessions/${API_PARENT}/managed-children`), {
+    data: {
+      prompt: "Try it",
+      agent: "plan",
+      model: { providerID: "anthropic", modelID: "claude-opus-5", variant: "no-such-variant" },
+      idempotencyKey: "managed-negative-variant",
+    },
+  });
+  expect(badVariant.status()).toBe(400);
+
+  // None of the four may have reached OpenCode as a session create.
+  const creates = await (await fetch(`${MOCK_URL}/test/session-payloads`)).json() as Array<Record<string, unknown>>;
+  expect(creates.some((payload) => String(payload.title ?? "") === "Try it")).toBe(false);
+});
+
 test("deletes a child when asynchronous prompt submission fails", async ({ request }) => {
   const response = await request.post(scoped(`/sessions/${FAILURE_PARENT}/managed-children`), {
     data: { prompt: "FAIL_MANAGED_PROMPT", agent: "plan", idempotencyKey: "managed-prompt-failure" },
@@ -323,6 +405,9 @@ test("launches a General Managed Child through explicit human confirmation", asy
 
   const row = page.getByTestId("opencode-subagent-row").filter({ hasText: "Run the independent General child" }).first();
   await expect(row).toBeVisible();
+  // Issue #182: a human-authorized child is visually distinct from a native
+  // task, and the provenance is a stable attribute rather than only a colour.
+  await expect(row).toHaveAttribute("data-origin", "managed-human");
   await expect(row.getByTestId("opencode-subagent-origin")).toHaveText("Managed Child");
   await expect(row.getByTestId("opencode-managed-child-requested-agent")).toHaveText("agent: general");
   await expect(row.getByTestId("opencode-subagent-requested-model")).toContainText("openai/gpt-5.6-sol");
@@ -341,6 +426,11 @@ test("launches a General Managed Child through explicit human confirmation", asy
     ?.some((part) => part.text === "Run the independent General child"));
   expect(payload).toMatchObject({ agent: "general", model: { providerID: "openai", modelID: "gpt-5.6-sol" } });
   await row.getByTestId("opencode-subagent-open").click();
+  // The child transcript header names its lane too, instead of the neutral
+  // `sub` badge every delegated session shares.
+  const badge = page.getByTestId("opencode-subagent-badge");
+  await expect(badge).toHaveText("Managed Child");
+  await expect(badge).toHaveAttribute("data-managed", "true");
   await expect(page.getByTestId("opencode-parent-link")).toContainText("Managed UI parent");
   await expect(page.getByTestId("opencode-managed-child-agent-fixed")).toContainText("General");
   await page.getByTestId("opencode-composer").fill("Continue the Managed Child conversation");
@@ -351,6 +441,31 @@ test("launches a General Managed Child through explicit human confirmation", asy
     return followups.find((item) => (item.parts as Array<{ text?: string }> | undefined)
       ?.some((part) => part.text === "Continue the Managed Child conversation"));
   }).toMatchObject({ agent: "general" });
+});
+
+test("distinguishes a pre-existing managed child from a native task on load", async ({ page }) => {
+  await page.goto(`/sessions/${UI_PARENT}?directory=${encodeURIComponent(DIR)}&panel=subagents`);
+  const row = page.locator(`[data-testid="opencode-subagent-row"][data-session="${SEEDED_CHILD}"]`);
+  await expect(row).toBeVisible();
+  await expect(row).toHaveAttribute("data-origin", "managed-human");
+  await expect(row.getByTestId("opencode-subagent-origin")).toHaveText("Managed Child");
+  await expect(row.getByTestId("opencode-managed-child-requested-agent")).toHaveText("agent: plan");
+  await expect(row.getByTestId("opencode-subagent-policy-status")).toHaveText("policy: verified at launch");
+  // The accent is a real surface, not only a badge: a native row has none.
+  expect(await row.evaluate((element) => getComputedStyle(element).backgroundColor))
+    .not.toBe("rgba(0, 0, 0, 0)");
+
+  // And the Hub says the same thing about the same child.
+  await page.goto(`/?directory=${encodeURIComponent(DIR)}`);
+  const list = page.getByTestId("opencode-session-list");
+  // Earlier tests in this file add children to the other parents, so the
+  // disclosure has to be named rather than picked by position.
+  await list.getByRole("button", { name: /child sessions? for Managed UI parent$/ }).click();
+  const pill = list.getByTestId("opencode-session-list-row")
+    .filter({ hasText: "Summarize the release checklist" })
+    .getByTestId("opencode-subagent-pill");
+  await expect(pill).toHaveText("Managed Child");
+  await expect(pill).toHaveAttribute("data-managed", "true");
 });
 
 test("keeps the launch dialog usable on mobile", async ({ page }) => {
