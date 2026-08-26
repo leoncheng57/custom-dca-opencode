@@ -39,7 +39,11 @@ echo "  ✓ ${health}"
 
 # Warn early on version skew — it is the first thing to suspect when a
 # response shape looks wrong.
-expected=$(grep -oE 'EXPECTED_SERVER_VERSION = "[^"]+"' server/opencode/client.ts | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || true)
+# Capture the pin verbatim, including any SemVer build metadata (`+dca.<n>`).
+# A bare MAJOR.MINOR.PATCH match would drop that suffix and then disagree with
+# the server's full string on every start — a warning that always fires is
+# worse than none.
+expected=$(grep -oE 'EXPECTED_SERVER_VERSION = "[^"]+"' server/opencode/client.ts | sed -E 's/.*"([^"]+)"/\1/' || true)
 actual=$(printf '%s' "$health" | grep -oE '"version":"[^"]+"' | cut -d'"' -f4 || true)
 if [ -n "$expected" ] && [ -n "$actual" ] && [ "$expected" != "$actual" ]; then
   echo "  ! version skew: server ${actual}, client pinned to ${expected}" >&2

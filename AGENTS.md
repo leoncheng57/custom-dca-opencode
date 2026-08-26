@@ -358,8 +358,9 @@ several decisions below.
     The reference deployment's `ai.opencode.serve` LaunchAgent runs a binary built from
     `fix/subagent-effective-deny-inheritance` in the local opencode checkout (source version
     1.18.23; `dev` is an ancestor ~4,145 commits behind at 1.4.7 and is not a rebuild source).
-    `~/.opencode/bin/opencode-1.18.23-dca-taskmodel` is the currently pinned binary; the old
-    `opencode-1.18.22-dca` filename is the rollback artifact, never a branch or rebuild source.
+    `~/.opencode/bin/opencode-1.18.23-dca.2` is the currently pinned binary; the earlier
+    `opencode-1.18.23-dca-taskmodel` and `opencode-1.18.22-dca` files are rollback artifacts,
+    never a branch or rebuild source.
     Verified live: a parent with appended `[bash deny, bash allow]` spawned a task child with no
     inherited bash deny that ran bash successfully. Session-level Plan enforcement is still
     required regardless — the resolved Plan agent is not read-only after project merges.
@@ -370,6 +371,23 @@ several decisions below.
     silently move work to an expensive model; earlier ungated attempts (#26535, #29447) were
     closed as superseded. This fork has no such gate, so adopting that binary accepts unbounded
     agent-chosen model cost. Do not propose the fork's version upstream as a competing PR.
+    **A fork build must say so in its version string.** Build it as
+    `OPENCODE_VERSION=<upstream package version>+dca.<n> OPENCODE_CHANNEL=prod`, where `<n>` counts
+    the fork patch set — today `1.18.23+dca.2` (1: the deny fix; 2: the task `model` parameter).
+    That string is what `/global/health`, `--version`, the LLM `User-Agent`, MCP `clientInfo` and
+    the durable per-session `version` field all report, so a plain `1.18.23` would attribute
+    fork-only behaviour — a `task.model` parameter stock 1.18.23 does not have — to upstream.
+    Use SemVer **build metadata (`+`), never a prerelease (`-`)**: OpenCode gates plugin loading on
+    `semver.satisfies`, and a prerelease sorts *below* `1.18.23` and fails ordinary ranges like
+    `>=1.18.0`, while build metadata is stripped before comparison and behaves as the release does.
+    Both env vars are mandatory: without `OPENCODE_VERSION` the build stamps `0.0.0-<branch>-<ts>`,
+    whose major of 0 silently disables the plugin engine check, and without `OPENCODE_CHANNEL=prod`
+    the channel is inferred and can change database and websocket behaviour. Name the executable
+    after the version with `+`→`-`; the filename is a convenience label, never the source of truth.
+    `EXPECTED_SERVER_VERSION` pins the full string including `+dca.<n>` and is compared exactly, so
+    an accidental fallback to a stock binary — which reintroduces the #75 bug — is visible rather
+    than tolerated. Bumping `<n>` means updating this list, the pin, and the deterministic fixtures
+    together.
 20. **A file reference is data the server verified, never a URL the client trusted.**
     The client contract is `WorkspaceTarget { path, startLine?, endLine? }`, not a route:
     following a reference must not change the browser location, because the drawer is a

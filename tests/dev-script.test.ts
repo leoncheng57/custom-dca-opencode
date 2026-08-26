@@ -26,14 +26,30 @@ async function availablePort(): Promise<number> {
   return address.port;
 }
 
-async function runPreflight(password?: string): Promise<{ authorization?: string; requests: number; stdout: string; stderr: string }> {
+interface PreflightOptions {
+  password?: string;
+  /** Value written into the fake `EXPECTED_SERVER_VERSION` pin. */
+  pinVersion?: string;
+  /** Value the fake OpenCode health endpoint reports. */
+  serverVersion?: string;
+  /** Set when the run is expected to warn on stderr. */
+  allowStderr?: boolean;
+}
+
+async function runPreflight(
+  passwordOrOptions?: string | PreflightOptions,
+): Promise<{ authorization?: string; requests: number; stdout: string; stderr: string }> {
+  const options: PreflightOptions = typeof passwordOrOptions === "string"
+    ? { password: passwordOrOptions }
+    : passwordOrOptions ?? {};
+  const { password, pinVersion = "1.18.21", serverVersion = "1.18.21", allowStderr = false } = options;
   let authorization: string | undefined;
   let requests = 0;
   const server = createServer((req, res) => {
     requests += 1;
     authorization = req.headers.authorization;
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ healthy: true, version: "1.18.21" }));
+    res.end(JSON.stringify({ healthy: true, version: serverVersion }));
   });
   servers.push(server);
   server.listen(0, "127.0.0.1");
@@ -46,7 +62,7 @@ async function runPreflight(password?: string): Promise<{ authorization?: string
   await mkdir(path.join(tempRoot, "scripts"));
   await mkdir(path.join(tempRoot, "server", "opencode"), { recursive: true });
   await copyFile(path.join(root, "scripts", "dev.sh"), path.join(tempRoot, "scripts", "dev.sh"));
-  await writeFile(path.join(tempRoot, "server", "opencode", "client.ts"), 'const EXPECTED_SERVER_VERSION = "1.18.21";\n');
+  await writeFile(path.join(tempRoot, "server", "opencode", "client.ts"), `const EXPECTED_SERVER_VERSION = "${pinVersion}";\n`);
   await writeFile(path.join(tempRoot, ".env"), "OPENCODE_URL=http://127.0.0.1:1\nOPENCODE_SERVER_PASSWORD=conflicting\n");
 
   const env = { ...process.env };
@@ -67,7 +83,7 @@ async function runPreflight(password?: string): Promise<{ authorization?: string
   child.stdout.setEncoding("utf8").on("data", (chunk) => { stdout += chunk; });
   child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; });
   const [code] = await once(child, "close") as [number | null];
-  expect({ code, stderr }).toEqual({ code: 0, stderr: "" });
+  expect(allowStderr ? { code } : { code, stderr }).toEqual(allowStderr ? { code: 0 } : { code: 0, stderr: "" });
   return { authorization, requests, stdout, stderr };
 }
 
@@ -83,5 +99,21 @@ describe("scripts/dev.sh health preflight", () => {
     const result = await runPreflight("s3cret");
     expect(result.requests).toBe(1);
     expect(result.authorization).toBe(`Basic ${Buffer.from("tester:s3cret").toString("base64")}`);
+  });
+
+  // The fork binary reports SemVer build metadata. Comparing only
+  // MAJOR.MINOR.PATCH would drop `+dca.<n>` from the pin and warn on every
+  // start, training the reader to ignore the one signal that catches an
+  // accidental fallback to a stock binary.
+  it("does not report skew when the pin and server agree on build metadata", async () => {
+    const result = await runPreflight({ pinVersion: "1.18.23+dca.2", serverVersion: "1.18.23+dca.2" });
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain('"version":"1.18.23+dca.2"');
+  });
+
+  it("still reports skew when only the build metadata differs", async () => {
+    const result = await runPreflight({ pinVersion: "1.18.23+dca.2", serverVersion: "1.18.23", allowStderr: true });
+    expect(result.stderr).toContain("version skew");
+    expect(result.stderr).toContain("1.18.23+dca.2");
   });
 });
