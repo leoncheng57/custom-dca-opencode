@@ -27,6 +27,9 @@ export interface DshConfig {
   bridgeScript: string;
   sessionRoot: string;
   ledgerFile: string;
+  trajectoryRoot: string;
+  trajectorySensitiveEnabled: boolean;
+  trajectoryFullExportEnabled: boolean;
   sdkVersion: string;
   sandbox: "seatbelt" | "test-unsafe";
   presets: DshPreset[];
@@ -151,6 +154,9 @@ export function readDshConfig(env: NodeJS.ProcessEnv = process.env): DshConfig {
     bridgeScript,
     sessionRoot: path.join(root, "sessions"),
     ledgerFile: path.resolve(env.DSH_EXPERIMENT_LEDGER || path.join(root, "experiment-ledger.json")),
+    trajectoryRoot: path.join(root, "trajectory"),
+    trajectorySensitiveEnabled: env.DSH_TRAJECTORY_SENSITIVE_ENABLED === "true",
+    trajectoryFullExportEnabled: env.DSH_TRAJECTORY_SENSITIVE_ENABLED === "true" && env.DSH_TRAJECTORY_FULL_EXPORT_ENABLED === "true",
     sdkVersion,
     sandbox,
     presets,

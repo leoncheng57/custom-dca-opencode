@@ -348,6 +348,25 @@ are not forwarded. DSH remains local behind the BFF; do not expose or reverse-pr
 native Web UI. The full dual-runtime decision and phased estimate are tracked in
 [issue #225](https://github.com/leoncheng57/custom-dca-opencode/issues/225).
 
+Each DSH conversation also has a mobile-first **DSH Trajectory** inspector. It renders
+the pinned `dsh-v0.1.1-rc.2` `session.event` vocabulary (turns, steps, request metadata,
+messages, tool pairs, compaction, child lineage, timing, usage, failures, and surface
+replacement) without embedding or proxying DSH Web. The Python SDK has no supported
+session list/read/replay API, so DCA does not parse DSH's native JSONL. Instead it keeps
+a bounded, explicitly incomplete **DCA-captured projection** from the moment the bridge
+observes an event. Every response states that it may contain gaps and is not canonical
+DSH persistence.
+
+Safe rows and safe export contain metadata-only projections; they never derive prompt,
+command, path, tool input/output, reasoning, or context text. Sensitive one-event detail
+is `POST`-only and disabled unless `DSH_TRAJECTORY_SENSITIVE_ENABLED=true`. Full captured
+detail export additionally requires `DSH_TRAJECTORY_FULL_EXPORT_ENABLED=true` and an
+in-UI confirmation. Captured detail is bounded and credential-shaped values are redacted
+before persistence. Projection directories use mode `0700`, files use `0600`, and age,
+event-count, file-count, per-file-byte, and global-byte limits apply. DCA still has no
+application-level authentication, so private Tailscale reachability remains a deployment
+requirement rather than a substitute for these content controls.
+
 See [`docs/architecture.md`](docs/architecture.md) for conversation and event flows, state
 ownership, safety boundaries, and the extension map. See
 [`docs/subagents.md`](docs/subagents.md) for child-session lifecycles, permissions, and safe

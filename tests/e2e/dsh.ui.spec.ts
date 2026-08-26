@@ -33,6 +33,31 @@ test.describe("experimental DSH workspace", () => {
     await expect(page.getByTestId("dsh-preview")).toHaveCSS("width", "390px");
   });
 
+  test("renders the DSH-native captured trajectory without exposing sensitive payloads", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 740 });
+    await createSession(page);
+    await page.getByTestId("dsh-prompt").fill("Inspect this fixture");
+    await page.getByTestId("dsh-send").click();
+    await expect(page.getByTestId("opencode-agent-message-body")).toContainText("Hello from mock DSH");
+    await page.getByTestId("dsh-open-trajectory").click();
+    const inspector = page.getByTestId("dsh-trajectory-inspector");
+    await expect(inspector).toBeVisible();
+    await expect(inspector).toHaveCSS("width", "390px");
+    await expect(inspector.getByText(/Turn 1/).first()).toBeVisible();
+    await expect(inspector.getByText("Tool called", { exact: true })).toBeVisible();
+    await expect(inspector.getByText("Tool result committed", { exact: true })).toBeVisible();
+    await expect(inspector.getByText("Compaction summary committed", { exact: true })).toBeVisible();
+    await expect(inspector.getByText("Child descriptor committed", { exact: true })).toBeVisible();
+    await expect(inspector.getByText("Surface replace 6-9", { exact: true })).toBeVisible();
+    await expect(inspector).not.toContainText("PRIVATE MOCK SYSTEM");
+    await expect(inspector).not.toContainText("/private/mock-secret");
+    await expect(inspector).not.toContainText("PRIVATE TOOL OUTPUT");
+    await expect(page.getByTestId("dsh-trajectory-detail-toggle")).toHaveCount(0);
+    await expect(page.getByTestId("dsh-trajectory-export-full")).toHaveCount(0);
+    await page.getByTestId("dsh-trajectory-filter-tools").click();
+    await expect(page.getByTestId("dsh-trajectory-entry")).toHaveCount(2);
+  });
+
   test("cancels a running DSH turn and reopens the composer", async ({ page }) => {
     await createSession(page);
     await page.getByTestId("dsh-prompt").fill("stay running until cancelled");

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { PlanningSnapshot } from "../client/lib/api.js";
+import type { DshTrajectoryPage, PlanningSnapshot } from "../client/lib/api.js";
 import { createPublicSimulator } from "../client/simulator/publicSimulator.js";
 
 describe("public simulator planning fixtures", () => {
@@ -33,6 +33,12 @@ describe("public simulator DSH fixtures", () => {
     });
     const transcript = await (await simulator(`https://preview.invalid/api/dsh/sessions/${created.session.id}`)).json() as { events: Array<{ kind: string; text?: string }> };
     expect(transcript.events).toContainEqual(expect.objectContaining({ kind: "agent", text: expect.stringContaining("No DSH runtime") }));
+    const trajectory = await (await simulator(`https://preview.invalid/api/dsh/sessions/${created.session.id}/trajectory`)).json() as DshTrajectoryPage;
+    expect(trajectory.coverage).toMatchObject({ source: "dca-captured-projection", complete: false, mayContainGaps: true });
+    expect(trajectory.events).toContainEqual(expect.objectContaining({ type: "tool/call", metadata: expect.objectContaining({ callId: "id:callpreview" }) }));
+    expect(JSON.stringify(trajectory)).not.toContain("PRIVATE");
+    const detail = await simulator(`https://preview.invalid/api/dsh/sessions/${created.session.id}/trajectory/${created.session.id}%3A3/detail`, { method: "POST" });
+    expect(detail.status).toBe(403);
 
     const freshSimulator = createPublicSimulator();
     const freshSessions = await (await freshSimulator("https://preview.invalid/api/dsh/sessions")).json() as { sessions: Array<{ id: string }> };

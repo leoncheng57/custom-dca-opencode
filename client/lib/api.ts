@@ -146,8 +146,77 @@ export interface DshConfigResponse {
   readOnly: true;
   sdkVersion: string;
   sandbox: "seatbelt" | "test-unsafe";
+  trajectory: { sensitiveDetailEnabled: boolean; fullExportEnabled: boolean };
   presets: DshPresetSummary[];
   workspaces: DshWorkspaceSummary[];
+}
+export type DshTrajectoryCategory = "turn" | "request" | "message" | "tool" | "compaction" | "child" | "status" | "error";
+export interface DshTrajectoryUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  reasoningTokens?: number;
+}
+export interface DshTrajectoryMetadata {
+  turn?: number;
+  step?: number;
+  phase?: "start" | "end" | "chunk" | "committed";
+  reason?: string;
+  provider?: string;
+  model?: string;
+  contextWindow?: number;
+  callId?: string;
+  resultIsError?: boolean;
+  compactionId?: string;
+  shadowedEventCount?: number;
+  shadowedTokenCount?: number;
+  childSessionId?: string;
+  parentSessionId?: string;
+  localChild?: boolean;
+  standalone?: boolean;
+  usage?: DshTrajectoryUsage;
+}
+export interface DshTrajectoryEvent {
+  id: string;
+  observationSeq: number;
+  sessionId: string;
+  observedAt: string;
+  type: string;
+  nativeSessionId?: string;
+  nativeSeq?: number;
+  nativeTime?: string;
+  ignorable?: true;
+  sourceEventSeqs?: number[];
+  sourceEventSeqsTruncated?: true;
+  surfaceOp?: "append" | { op: "replace"; start: number; end: number };
+  category: DshTrajectoryCategory;
+  title: string;
+  summary?: string;
+  metadata?: DshTrajectoryMetadata;
+  source: "dsh-native-notification" | "dca-lifecycle";
+  hasDetail: boolean;
+  sensitive: boolean;
+}
+export interface DshTrajectoryPage {
+  events: DshTrajectoryEvent[];
+  nextBefore: number | null;
+  capturePending: boolean;
+  coverage: {
+    source: "dca-captured-projection";
+    complete: false;
+    mayContainGaps: true;
+    capturedFrom: string | null;
+    capturedThrough: string | null;
+    nativeStreams: Array<{ session: string; first: number; last: number; gaps: number }>;
+    note: string;
+  };
+}
+export interface DshTrajectoryDetail {
+  eventId: string;
+  detail: unknown;
+  truncated: boolean;
+  warning: string;
 }
 
 export interface AppSettings {
@@ -534,6 +603,25 @@ export const api = {
   cancelDsh: (id: string) => fetch(`/api/dsh/sessions/${encodeURIComponent(id)}/cancel`, { method: "POST" }).then((r) =>
     json<{ cancelled: boolean }>(r)),
   dshEventsUrl: (id: string) => `/api/dsh/events?${new URLSearchParams({ sessionId: id })}`,
+  dshTrajectory: (id: string, options: { limit?: number; before?: number } = {}) => {
+    const query = new URLSearchParams({ limit: String(options.limit ?? 200) });
+    if (options.before !== undefined) query.set("before", String(options.before));
+    return fetch(`/api/dsh/sessions/${encodeURIComponent(id)}/trajectory?${query}`).then((r) => json<DshTrajectoryPage>(r));
+  },
+  dshTrajectoryDetail: (id: string, eventId: string, signal?: AbortSignal) =>
+    fetch(`/api/dsh/sessions/${encodeURIComponent(id)}/trajectory/${encodeURIComponent(eventId)}/detail`, { method: "POST", signal }).then((r) =>
+      json<{ detail: DshTrajectoryDetail }>(r)),
+  dshTrajectoryExportUrl: (id: string) => `/api/dsh/sessions/${encodeURIComponent(id)}/trajectory/export`,
+  dshTrajectoryFullExport: (id: string, signal?: AbortSignal) =>
+    fetch(`/api/dsh/sessions/${encodeURIComponent(id)}/trajectory/export-full`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirmation: "export-sensitive-dsh-trajectory" }),
+      signal,
+    }).then(async (response) => {
+      if (!response.ok) await json<never>(response);
+      return response.blob();
+    }),
 
   models: (directory: string) =>
     fetch(scoped("/models", directory)).then((r) => json<ModelCatalogue>(r)),

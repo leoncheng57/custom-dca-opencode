@@ -40,6 +40,8 @@ describe("DSH experiment configuration", () => {
       DSH_BRIDGE_SCRIPT: item.bridge,
       DSH_PRESETS_JSON: JSON.stringify([{ id: "flash-readonly", label: "Flash", provider: "deepseek-official", model: "deepseek-v4-flash", mode: "read-only", cordis: item.cordis, sha256: item.sha256 }]),
       DSH_WORKSPACES_JSON: JSON.stringify([{ id: "fixture", label: "Fixture", directory: item.workspace }]),
+      DSH_TRAJECTORY_SENSITIVE_ENABLED: "true",
+      DSH_TRAJECTORY_FULL_EXPORT_ENABLED: "true",
     });
     expect(config.configured).toBe(true);
     expect(config.presets[0]).toMatchObject({ id: "flash-readonly" });
@@ -47,6 +49,24 @@ describe("DSH experiment configuration", () => {
     expect(config.presets[0].fingerprint).toMatch(/^[a-f0-9]{64}$/);
     expect(config.workspaces[0]).toMatchObject({ id: "fixture" });
     expect(config.workspaces[0].directory).toMatch(/workspace$/);
+    expect(config.trajectorySensitiveEnabled).toBe(true);
+    expect(config.trajectoryFullExportEnabled).toBe(true);
+  });
+
+  it("keeps sensitive capture and full export disabled unless each flag is explicit", async () => {
+    const item = await fixture();
+    const base = {
+      DSH_EXPERIMENT_ENABLED: "true",
+      DSH_TEST_UNSAFE_BRIDGE: "true",
+      DSH_SDK_VERSION: "0.1.1rc2",
+      DSH_STATE_DIR: path.join(item.root, "state"),
+      DSH_BRIDGE_SCRIPT: item.bridge,
+      DSH_PRESETS_JSON: JSON.stringify([{ id: "safe", label: "Safe", provider: "deepseek", model: "model", mode: "read-only", cordis: item.cordis, sha256: item.sha256 }]),
+      DSH_WORKSPACES_JSON: JSON.stringify([{ id: "fixture", label: "Fixture", directory: item.workspace }]),
+    };
+    expect(readDshConfig(base).trajectorySensitiveEnabled).toBe(false);
+    expect(readDshConfig({ ...base, DSH_TRAJECTORY_FULL_EXPORT_ENABLED: "true" }).trajectoryFullExportEnabled).toBe(false);
+    expect(readDshConfig({ ...base, DSH_TRAJECTORY_SENSITIVE_ENABLED: "true" }).trajectoryFullExportEnabled).toBe(false);
   });
 
   it("fails closed on missing composition paths", async () => {

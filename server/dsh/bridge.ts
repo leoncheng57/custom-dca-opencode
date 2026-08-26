@@ -1,8 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { createInterface } from "node:readline";
-import { randomUUID } from "node:crypto";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 
@@ -15,6 +13,8 @@ export interface BridgeNotification {
   finalResponse?: string;
   finishReason?: string | null;
   error?: string;
+  bridgePresetId?: string;
+  bridgeWorkspaceId?: string;
 }
 
 interface Pending {
@@ -24,6 +24,7 @@ interface Pending {
 }
 
 const SAFE_ENV = ["PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL"] as const;
+export const DSH_BRIDGE_MAX_LINE_BYTES = 1024 * 1024;
 
 function seatbeltLiteral(value: string): string {
   return value.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
@@ -48,6 +49,7 @@ export class DshBridge extends EventEmitter {
   private child: ChildProcessWithoutNullStreams | null = null;
   private readonly pending = new Map<string, Pending>();
   private ready: Promise<void> | null = null;
+  private stdoutFrame = Buffer.alloc(0);
 
   constructor(
     private readonly config: DshConfig,
@@ -119,8 +121,7 @@ export class DshBridge extends EventEmitter {
         clearTimeout(readyTimer);
         resolve();
       };
-      const lines = createInterface({ input: child.stdout });
-      lines.on("line", (line) => this.receive(line, resolveReady));
+      child.stdout.on("data", (chunk: Buffer) => this.receiveChunk(chunk, resolveReady));
       child.stderr.on("data", (chunk: Buffer) => this.emit("diagnostic", chunk.toString("utf8").slice(0, 2_000)));
       child.once("error", (error) => {
         clearTimeout(readyTimer);
@@ -138,6 +139,27 @@ export class DshBridge extends EventEmitter {
       });
     });
     return this.ready;
+  }
+
+  private receiveChunk(chunk: Buffer, ready: () => void): void {
+    let offset = 0;
+    while (offset < chunk.length) {
+      const newline = chunk.indexOf(0x0a, offset);
+      const end = newline === -1 ? chunk.length : newline;
+      const segment = chunk.subarray(offset, end);
+      if (this.stdoutFrame.length + segment.length > DSH_BRIDGE_MAX_LINE_BYTES) {
+        this.stdoutFrame = Buffer.alloc(0);
+        this.emit("diagnostic", "DSH bridge frame exceeded the 1 MiB limit");
+        this.child?.kill("SIGTERM");
+        return;
+      }
+      if (segment.length) this.stdoutFrame = Buffer.concat([this.stdoutFrame, segment]);
+      if (newline === -1) return;
+      const frame = this.stdoutFrame.at(-1) === 0x0d ? this.stdoutFrame.subarray(0, -1) : this.stdoutFrame;
+      this.stdoutFrame = Buffer.alloc(0);
+      this.receive(frame.toString("utf8"), ready);
+      offset = newline + 1;
+    }
   }
 
   private receive(line: string, ready: () => void): void {
@@ -211,7 +233,7 @@ export class DshBridgePool extends EventEmitter {
     let bridge = this.bridges.get(key);
     if (!bridge) {
       bridge = new DshBridge(this.config, preset, workspace);
-      bridge.on("notification", (event: BridgeNotification) => this.emit("notification", event));
+      bridge.on("notification", (event: BridgeNotification) => this.emit("notification", { ...event, bridgePresetId: preset.id, bridgeWorkspaceId: workspace.id }));
       bridge.on("diagnostic", () => this.emit("diagnostic", { preset: preset.id, workspace: workspace.id, message: "bridge diagnostic available locally" }));
       bridge.on("exit", (error: Error) => {
         this.emit("bridgeExit", { presetId: preset.id, workspaceId: workspace.id });

@@ -2,6 +2,8 @@ import type {
   AppSettings,
   DshConfigResponse,
   DshSessionSummary,
+  DshTrajectoryEvent,
+  DshTrajectoryPage,
   NotificationPreferences,
   NotificationRecord,
   PlanningItem,
@@ -95,8 +97,9 @@ const dshConfig: DshConfigResponse = {
   configured: true,
   protocol: 1,
   readOnly: true,
-  sdkVersion: "0.1.0",
+  sdkVersion: "0.1.1rc2",
   sandbox: "seatbelt",
+  trajectory: { sensitiveDetailEnabled: false, fullExportEnabled: false },
   presets: [{ id: DSH_PRESET_ID, label: "Preview preset", provider: "simulator", model: "sim-preview-v1", fingerprint: "0".repeat(64) }],
   workspaces: [{ id: DSH_WORKSPACE_ID, label: "Preview workspace" }],
 };
@@ -107,6 +110,59 @@ interface DshFixtureSession extends DshSessionSummary {
 
 function dshSummary(session: DshFixtureSession): DshSessionSummary {
   return { id: session.id, title: session.title, presetId: session.presetId, workspaceId: session.workspaceId, createdAt: session.createdAt, updatedAt: session.updatedAt, running: session.running };
+}
+
+function dshTrajectory(sessionId: string): DshTrajectoryPage {
+  const time = "2026-08-25T18:00:00.000Z";
+  const nativeSessionId = "id:simulatorroot";
+  const native = (nativeSeq: number, type: string, category: DshTrajectoryEvent["category"], title: string, metadata?: DshTrajectoryEvent["metadata"], extra: Partial<DshTrajectoryEvent> = {}): DshTrajectoryEvent => ({
+    id: `${sessionId}:${nativeSeq}`,
+    observationSeq: nativeSeq + 2,
+    sessionId,
+    observedAt: time,
+    type,
+    nativeSessionId,
+    nativeSeq,
+    nativeTime: time,
+    category,
+    title,
+    source: "dsh-native-notification",
+    hasDetail: false,
+    sensitive: category === "request" || category === "message" || category === "tool" || category === "compaction",
+    ...(metadata ? { metadata } : {}),
+    ...extra,
+  });
+  const events: DshTrajectoryEvent[] = [
+    { id: `${sessionId}-capture`, observationSeq: 1, sessionId, observedAt: time, type: "dca/session-created", category: "status", title: "DCA capture started", source: "dca-lifecycle", hasDetail: false, sensitive: false },
+    native(0, "turn/start", "turn", "Turn 1 started", { turn: 1, phase: "start" }),
+    native(1, "step/start", "turn", "Step 1 started", { turn: 1, step: 1, phase: "start" }),
+    native(2, "request/header", "request", "Request header captured", { provider: "simulator", model: "sim-preview-v1" }),
+    native(3, "tool/call", "tool", "Tool called", { turn: 1, step: 1, phase: "start", callId: "id:callpreview" }),
+    native(4, "tool/result", "tool", "Tool result committed", { turn: 1, step: 1, phase: "end", callId: "id:callpreview", resultIsError: false }, { sourceEventSeqs: [3], surfaceOp: "append" }),
+    native(5, "assistant/message", "message", "Assistant message committed", { turn: 1, step: 1, phase: "committed", usage: { inputTokens: 120, outputTokens: 24 } }, { sourceEventSeqs: [2], surfaceOp: "append" }),
+    native(6, "step/end", "turn", "Step 1 ended", { turn: 1, step: 1, phase: "end" }),
+    native(7, "turn/end", "turn", "Turn 1 completed", { turn: 1, phase: "end", reason: "completed" }),
+    native(8, "compaction/start", "compaction", "Standalone compaction started", { phase: "start", compactionId: "id:compactpreview", standalone: true }),
+    native(9, "compaction/summary", "compaction", "Compaction summary committed", { compactionId: "id:compactpreview", shadowedEventCount: 3, shadowedTokenCount: 90, usage: { inputTokens: 40, outputTokens: 8 } }),
+    native(10, "user/message", "compaction", "Compaction surface replacement", { phase: "committed", compactionId: "id:compactpreview" }, { sourceEventSeqs: [8, 9, 3, 4, 5], surfaceOp: { op: "replace", start: 3, end: 5 } }),
+    native(11, "compaction/end", "compaction", "Standalone compaction ended", { phase: "end", compactionId: "id:compactpreview", standalone: true }),
+    { id: `${sessionId}-child-start`, observationSeq: 14, sessionId, observedAt: time, type: "subagent.started", category: "child", title: "Child agent started", metadata: { parentSessionId: nativeSessionId, childSessionId: "id:simulatorchild" }, source: "dsh-native-notification", hasDetail: false, sensitive: true },
+    { id: `${sessionId}-child-finish`, observationSeq: 15, sessionId, observedAt: time, type: "subagent.finished", category: "child", title: "Child agent finished", metadata: { parentSessionId: nativeSessionId, childSessionId: "id:simulatorchild", reason: "completed" }, source: "dsh-native-notification", hasDetail: false, sensitive: true },
+  ];
+  return {
+    events,
+    nextBefore: null,
+    capturePending: false,
+    coverage: {
+      source: "dca-captured-projection",
+      complete: false,
+      mayContainGaps: true,
+      capturedFrom: time,
+      capturedThrough: time,
+      nativeStreams: [{ session: nativeSessionId, first: 0, last: 11, gaps: 0 }],
+      note: "DCA-captured projection only. It is not canonical DSH persistence, starts when the bridge observes events, and may contain gaps.",
+    },
+  };
 }
 
 function makeDshSeedSession(): DshFixtureSession {
@@ -419,6 +475,18 @@ export function createPublicSimulator(): typeof fetch {
           dshSession.updatedAt = now;
         }
         return response({ cancelled: wasCancelled });
+      }
+
+      if (dshRest === "/trajectory" && method === "GET") return response(dshTrajectory(dshId));
+      if (dshRest === "/trajectory/export" && method === "GET") {
+        const trajectory = dshTrajectory(dshId);
+        return response({ version: 1, coverage: trajectory.coverage, events: trajectory.events });
+      }
+      if (dshRest.startsWith("/trajectory/") && dshRest.endsWith("/detail") && method === "POST") {
+        return response({ error: "Sensitive trajectory detail is disabled" }, 403);
+      }
+      if (dshRest === "/trajectory/export-full" && method === "POST") {
+        return response({ error: "Full trajectory export is disabled" }, 403);
       }
 
       // GET /api/dsh/sessions/:id — session + normalized events

@@ -27,4 +27,11 @@ test("runs the DSH fixture flow under the nested public preview path", async ({ 
   await expect(preview).toHaveAttribute("srcdoc", /public fixture never contacts localhost/u);
   await expect(preview.contentFrame().getByRole("heading")).toHaveText("Simulated DSH preview");
   await expect(preview.contentFrame().getByText("Fixture action")).toBeVisible();
+  await page.getByTestId("dsh-preview-close").click();
+  await page.getByTestId("dsh-open-trajectory").click();
+  await expect(page.getByTestId("dsh-trajectory-inspector")).toBeVisible();
+  await expect(page.getByText("Tool called", { exact: true })).toBeVisible();
+  await expect(page.getByText("Compaction surface replacement", { exact: true })).toBeVisible();
+  await expect(page.getByText("Child agent started", { exact: true })).toBeVisible();
+  await expect(page.getByText("DCA-captured projection only", { exact: false })).toBeVisible();
 });

@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { Eye, FlaskConical, OctagonX, RefreshCw, Send, X } from "lucide-react";
+import { Eye, FlaskConical, ListTree, OctagonX, RefreshCw, Send, X } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 
 import { Alert } from "../ds/alert.js";
 import { Badge } from "../ds/badge.js";
 import { Button } from "../ds/button.js";
 import { RunningIndicator, Transcript } from "../components/transcript.js";
+import { DshTrajectoryInspector } from "../components/dsh-trajectory-inspector.js";
 import { api, type DshSessionSummary } from "../lib/api.js";
 import { collapseActionGroups } from "../lib/derive.js";
 import { PUBLIC_SIMULATOR } from "../lib/runtime.js";
@@ -48,6 +49,7 @@ export function DshConversationPage() {
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
   const [preview, setPreview] = useState(false);
+  const [trajectoryOpen, setTrajectoryOpen] = useState(false);
   const bottom = useRef<HTMLDivElement | null>(null);
   const refreshInFlight = useRef(false);
   const refreshQueued = useRef<string | null>(null);
@@ -144,7 +146,10 @@ export function DshConversationPage() {
         <strong className="min-w-0 truncate text-sm">{session?.title ?? "Conversation"}</strong>
         <Badge variant="neutral">Read only</Badge>
         <Badge variant="neutral">{session?.presetId ?? "Loading"}</Badge>
-        <Button className="ml-auto" size="sm" variant="secondary" onClick={() => setPreview(true)} data-testid="dsh-open-preview"><Eye aria-hidden="true" className="mr-1" size={14} /> Preview</Button>
+        <div className="ml-auto flex gap-1">
+          <Button size="sm" variant="secondary" onClick={() => setTrajectoryOpen(true)} data-testid="dsh-open-trajectory"><ListTree aria-hidden="true" className="mr-1" size={14} /> Trajectory</Button>
+          <Button size="sm" variant="secondary" onClick={() => setPreview(true)} data-testid="dsh-open-preview"><Eye aria-hidden="true" className="mr-1" size={14} /> Preview</Button>
+        </div>
       </header>
       {error && <div className="shrink-0 p-3"><Alert variant="danger">{error}</Alert></div>}
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-8" data-testid="dsh-transcript">
@@ -162,6 +167,7 @@ export function DshConversationPage() {
         </div>
       </form>
       {preview && <PreviewDrawer onClose={() => setPreview(false)} />}
+      {trajectoryOpen && <DshTrajectoryInspector key={id} sessionId={id} open running={session?.running === true} onClose={() => setTrajectoryOpen(false)} />}
     </main>
   );
 }

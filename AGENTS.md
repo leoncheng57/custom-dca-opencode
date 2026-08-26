@@ -587,6 +587,31 @@ several decisions below.
     problem. No per-PR image is published to GHCR: BuildKit `type=gha` cache scoped
     by platform + schema (not commit SHA) keeps the `npm ci` and browser layers warm
     without a registry, a write token or fork restrictions.
+28. **DSH Trajectory is a bounded DCA-captured projection, not DSH persistence.**
+    The pinned contract is DeepSeek Harness `dsh-v0.1.1-rc.2` at `b150a551`:
+    `session.event` carries `type`, native `seq`, epoch-millisecond `time`, `data`, and
+    optional `ignorable`, `sourceEventSeqs`, and `surfaceOp`. The Python SDK exposes no
+    supported session list/read/replay API, so DCA never parses native or compressed DSH
+    JSONL. The bridge captures events only while it is running, deduplicates native seq,
+    and assigns a separate DCA observation sequence. List/export responses always report
+    `complete: false`, `mayContainGaps: true`, capture bounds, and observed native gaps.
+    OpenCode Run Log remains a separate transcript-derived feature and is unchanged.
+    Safe trajectory rows are an event-type-specific metadata projection. They never
+    inspect arbitrary payload text and never derive prompt, system/context text,
+    commands, paths, tool arguments/results, reasoning, compaction summaries, or model
+    output. Raw captured detail is sanitized before persistence with depth/node/string/
+    array/object/byte caps and credential-shape redaction. A bridge stdout frame larger
+    than 1 MiB is rejected before `JSON.parse` and the bridge is terminated so the run
+    cannot continue across an invisible observation gap.
+    There is no app-level authentication yet; the deployment still depends on private
+    Tailscale reachability. Therefore sensitive one-event detail defaults off and requires
+    `DSH_TRAJECTORY_SENSITIVE_ENABLED=true`, an explicit UI reveal, and a `POST` response
+    marked `private, no-store, nosniff`. Full captured-detail export needs that flag plus
+    `DSH_TRAJECTORY_FULL_EXPORT_ENABLED=true` and a separate confirmation. Sensitive UI
+    state is cleared on drawer close, document backgrounding, and session change. No
+    trajectory payload enters notifications, analytics, URLs, browser storage, or the
+    service worker. Projection directories/files are forced to `0700`/`0600`, with age,
+    event-count, session-file-count, per-file-byte, and total-byte retention caps.
 
 ## Client conventions (inherited from the OpenHands runner, still enforced)
 
