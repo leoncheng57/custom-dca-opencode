@@ -82,6 +82,25 @@ but they create no native task part and inject no completion hand-back into the 
 therefore comes from the existing child transcript/status ledger. `origin`, requested agent and
 requested model are provenance only; they do not prove effective capability.
 
+```mermaid
+flowchart TD
+    Human[Human selects Managed Child] --> Form[Workflow or panel form]
+    Form --> Preview[Preview exact prompt and trusted injector]
+    Preview --> Consent{Can selected agent modify?}
+    Consent -->|Yes| Confirm[Explicit modify confirmation]
+    Consent -->|No| Validate
+    Confirm --> Validate[Validate agent catalogue and model]
+    Validate -->|Rejected| NoLaunch[No session is created]
+    Validate -->|Accepted| Create[Create parent-linked child with fixed rules]
+    Create --> Verify[Re-read and verify persisted config]
+    Verify -->|Mismatch| Cleanup[Delete partial child]
+    Verify -->|Exact| Prompt[Submit child prompt asynchronously]
+    Prompt --> Ledger[Derived child ledger]
+```
+
+*Figure 2. Managed-child creation is a human-authorized, fail-closed lane. It does not create a
+native task card or automatic hand-back.*
+
 ### Retained agents and the capability matrix
 
 The launchable roster is fixed to four retained agents. The catalogue
@@ -173,7 +192,7 @@ flowchart TD
     Notice --> ParentContinues
 ```
 
-*Figure 2. Supported foreground/background lifecycle. Background launch completion and child
+*Figure 3. Supported foreground/background lifecycle. Background launch completion and child
 completion are different events.*
 
 The derived sub-agent ledger combines four imperfect sources:
@@ -235,7 +254,7 @@ flowchart TD
     Child --> Risk
 ```
 
-*Figure 3. Plan/Build activation is fail-closed and suffix-idempotent. Child policy behavior is
+*Figure 4. Plan/Build activation is fail-closed and suffix-idempotent. Child policy behavior is
 kept outside the verified contract.*
 
 The activation rules are:
@@ -306,6 +325,26 @@ Upstream tracking is explicit:
 The deployed fork exposes the raw parameter because the operator chose immediate model control
 over a deny-by-default cost gate. Revisit that choice when adopting an upstream implementation;
 do not claim that the fork's model parameter has landed in a stock release.
+
+```mermaid
+flowchart TD
+    Task[Native task call] --> Requested{Explicit model supplied?}
+    Requested -->|Yes| Parse[Parse provider/model]
+    Parse --> Validate{Configured model exists?}
+    Validate -->|No| Fail[Fail before child creation]
+    Validate -->|Yes| Explicit[Use explicit model]
+    Requested -->|No| Agent{Subagent has pinned model?}
+    Agent -->|Yes| Pinned[Use agent model]
+    Agent -->|No| Parent[Use invoking parent model]
+    Explicit --> Dispatch[Foreground or background child dispatch]
+    Pinned --> Dispatch
+    Parent --> Dispatch
+    Dispatch --> Provenance[Emit normalized task metadata.model]
+    Provenance --> Ledger[Render resolved model as provenance]
+```
+
+*Figure 5. The deployed fork's native-task model resolution. This is fork-only: no
+`model_override` permission or budget gate limits an agent's explicit selection.*
 
 ## Events, polling, and completion
 
@@ -410,6 +449,20 @@ This patch is **not upstream**. anomalyco/opencode#45064 was closed unmerged on 
 `upstream/dev` still ships the stale-deny filter, so every stock OpenCode build — including any
 future release — reproduces the bug until that changes. Treat the local pin as permanent
 maintenance, not a temporary bridge, and re-apply the patch on every rebuild.
+
+```mermaid
+flowchart LR
+    ParentRules[Append-only parent rules] --> Effective[Last-match-wins effective permissions]
+    Effective --> ForkPatch[Fork: copy only effective denies]
+    Effective --> Stock[Stock: copy every historical deny]
+    ForkPatch --> ChildOK[Build child can use later-restored Bash]
+    Stock --> ChildBlocked[Stale deny blocks the child]
+    Upstream45064[anomalyco #45064] --> Closed[Closed unmerged]
+    Upstream34947[anomalyco #34947] --> Open[Open upstream model-override work]
+```
+
+*Figure 6. Upstream status is split: the deny-inheritance correction remains fork-only because
+#45064 closed unmerged; #34947 is an open, separate upstream task-model implementation.*
 
 Before launching parallel mutating workers:
 
