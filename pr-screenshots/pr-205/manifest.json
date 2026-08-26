@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 2,
+  "prNumber": 205,
+  "sourceSha": "58eae772018bde69e4e64068954b9abb3642a852",
+  "capturedAt": "2026-08-26T04:54:01.204Z",
+  "screenshots": [
+    {
+      "requestedRoute": "/docs/architecture",
+      "fullPage": true,
+      "captures": {
+        "desktop": {
+          "filename": "01-docs-architecture-c93972b6--desktop--full.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 800
+          },
+          "bytes": 47554,
+          "sha256": "e4bd7320480df9a1b58aa46b0ebc3358b5e51d728083f7432500256a325513a9"
+        },
+        "mobile": {
+          "filename": "01-docs-architecture-fcb6d548--mobile--full.png",
+          "dimensions": {
+            "width": 390,
+            "height": 740
+          },
+          "bytes": 38544,
+          "sha256": "155662a6f0a7b7d28b8854bce3923babd3c18ca24d33214bc4aee845a2b7c723"
+        }
+      }
+    },
+    {
+      "requestedRoute": "/docs/pr-previews",
+      "fullPage": true,
+      "captures": {
+        "desktop": {
+          "filename": "02-docs-pr-previews-2b4258c1--desktop--full.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 950
+          },
+          "bytes": 75332,
+          "sha256": "2841b957212eec7f77f3371fe8ef6765bc4488487389bf1a7798b7b43948bf7a"
+        },
+        "mobile": {
+          "filename": "02-docs-pr-previews-df02c2ed--mobile--full.png",
+          "dimensions": {
+            "width": 390,
+            "height": 890
+          },
+          "bytes": 60109,
+          "sha256": "c16c4a3d61552047d67e4aa260f4f8174edc4f81867a7731580aaa0e85d906dc"
+        }
+      }
+    }
+  ]
+}
