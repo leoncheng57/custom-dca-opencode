@@ -1,4 +1,6 @@
 import { defineConfig } from "@playwright/test";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 
 import { e2eStateFiles, prepareE2EStateFiles } from "./tests/e2e/state-files.js";
 
@@ -12,6 +14,8 @@ import { e2eStateFiles, prepareE2EStateFiles } from "./tests/e2e/state-files.js"
 const PORT = Number(process.env.PORT || 3410);
 const MOCK_PORT = Number(process.env.MOCK_OPENCODE_PORT || 4599);
 const PREVIEW_PORT = Number(process.env.MOCK_PREVIEW_PORT || 4600);
+const DSH_CORDIS = `${process.cwd()}/tests/fixtures/dsh-readonly.yml`;
+const DSH_CORDIS_SHA256 = createHash("sha256").update(readFileSync(DSH_CORDIS)).digest("hex");
 
 // The BFF persists notification preferences, notification history, project pins,
 // model pins and the instruction audit to JSON files named by the env vars
@@ -77,6 +81,23 @@ export default defineConfig({
         PUBLIC_APP_URL: "https://ide.e2e.example.test:8443",
         GITHUB_API_URL: `http://127.0.0.1:${PREVIEW_PORT}`,
         GITHUB_TOKEN: "e2e-planning-token",
+        DSH_EXPERIMENT_ENABLED: "true",
+        DSH_BRIDGE_SCRIPT: `${process.cwd()}/tests/e2e/mock-dsh-bridge.py`,
+        DSH_PRESETS_JSON: JSON.stringify([{
+          id: "e2e-readonly",
+          label: "E2E read-only",
+          provider: "fixture",
+          model: "mock-dsh",
+          mode: "read-only",
+          cordis: DSH_CORDIS,
+          sha256: DSH_CORDIS_SHA256,
+        }]),
+        DSH_WORKSPACES_JSON: JSON.stringify([{
+          id: "dsh-e2e-workspace",
+          label: "DSH E2E workspace",
+          directory: process.cwd(),
+        }]),
+        DSH_EXPERIMENT_LEDGER: `/tmp/custom-dca-opencode-dsh-ledger-${PORT}.json`,
       },
     },
   ],

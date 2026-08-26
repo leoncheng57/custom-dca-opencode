@@ -34,6 +34,8 @@ function documentTitle(pathname: string): string {
   if (pathname === "/docs") return `Docs | ${APP_NAME}`;
   if (pathname.startsWith("/docs/")) return `${getDoc(pathname.slice("/docs/".length))?.title ?? "Document"} | ${APP_NAME}`;
   if (pathname === "/planning") return `Planning | ${APP_NAME}`;
+  if (pathname === "/dsh") return `DSH Lab | ${APP_NAME}`;
+  if (pathname.startsWith("/dsh/sessions/")) return `DSH Session | ${APP_NAME}`;
   return APP_NAME;
 }
 
@@ -49,6 +51,7 @@ export function AppShell() {
   const [paletteSessions, setPaletteSessions] = useState<SessionSummary[]>([]);
   const [paletteStatus, setPaletteStatus] = useState<string | undefined>();
   const [refreshing, setRefreshing] = useState(false);
+  const [dshEnabled, setDshEnabled] = useState(false);
   const paletteRequest = useRef(0);
 
   useEffect(() => {
@@ -58,6 +61,10 @@ export function AppShell() {
   const directory = resolvePaletteDirectory(location.search, localStorage.getItem(DIRECTORY_STORAGE_KEY));
   const scopedPath = (path: string) =>
     directory ? `${path}?${new URLSearchParams({ directory })}` : path;
+
+  useEffect(() => {
+    void api.appConfig().then((config) => setDshEnabled(config.dshEnabled)).catch(() => undefined);
+  }, []);
 
   const openPhoneTransfer = async () => {
     let configuredUrl: string | null = null;
@@ -133,6 +140,7 @@ export function AppShell() {
       },
       { id: "settings", title: "Settings", to: scopedPath("/settings") },
       { id: "planning", title: "Planning", to: "/planning", keywords: ["issues", "pull requests", "roadmap", "github"] },
+      ...(dshEnabled ? [{ id: "dsh", title: "DSH lab", to: "/dsh", keywords: ["deepseek", "harness", "experiment"] }] : []),
     ],
     actions: [
       {
@@ -216,7 +224,7 @@ export function AppShell() {
             {resolvedTheme === "dark" ? <Sun aria-hidden="true" size={16} /> : <Moon aria-hidden="true" size={16} />}
           </Button>
           <NotificationPopover scopedPath={scopedPath} />
-          <NavOverflowMenu scopedPath={scopedPath} onOpenPhoneTransfer={() => void openPhoneTransfer()} />
+          <NavOverflowMenu scopedPath={scopedPath} dshEnabled={dshEnabled} onOpenPhoneTransfer={() => void openPhoneTransfer()} />
         </nav>
         {PUBLIC_SIMULATOR && (
           <div

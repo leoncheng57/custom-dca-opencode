@@ -1,0 +1,199 @@
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { EventEmitter } from "node:events";
+
+import type { BridgeNotification } from "./bridge.js";
+
+export type DshTranscriptEvent =
+  | { id: string; messageId: string; timestamp: string; kind: "user"; text: string; reminders: []; workflows: []; attachments: [] }
+  | { id: string; messageId: string; timestamp: string; kind: "agent"; text: string }
+  | { id: string; messageId: string; timestamp: string; kind: "status"; label: string; detail?: string }
+  | { id: string; messageId: string; timestamp: string; kind: "error"; message: string };
+
+export interface DshSession {
+  id: string;
+  title: string;
+  presetId: string;
+  workspaceId: string;
+  createdAt: string;
+  updatedAt: string;
+  running: boolean;
+  events: DshTranscriptEvent[];
+  runStartedAt?: number;
+}
+
+export interface ExperimentRecord {
+  id: string;
+  sessionId: string;
+  presetId: string;
+  workspaceId: string;
+  taskClass: "conversation";
+  startedAt: number;
+  endedAt?: number;
+  outcome: "running" | "completed" | "cancelled" | "failed";
+  interventions: number;
+  testResult: "not-recorded";
+}
+
+interface Ledger { version: 1; records: ExperimentRecord[] }
+
+function textFrom(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map(textFrom).join("");
+  if (!value || typeof value !== "object") return "";
+  const item = value as Record<string, unknown>;
+  for (const key of ["text", "delta", "chunk", "content", "message"]) {
+    const text = textFrom(item[key]);
+    if (text) return text;
+  }
+  return "";
+}
+
+export class DshSessionStore extends EventEmitter {
+  private readonly sessions = new Map<string, DshSession>();
+  private ledger: Ledger = { version: 1, records: [] };
+  private loaded = false;
+  private writeChain = Promise.resolve();
+
+  constructor(private readonly ledgerFile: string) {
+    super();
+  }
+
+  async load(): Promise<void> {
+    if (this.loaded) return;
+    this.loaded = true;
+    try {
+      const parsed = JSON.parse(await readFile(this.ledgerFile, "utf8")) as Partial<Ledger>;
+      if (parsed.version === 1 && Array.isArray(parsed.records)) this.ledger = { version: 1, records: parsed.records.slice(-1_000) };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+
+  create(input: { presetId: string; workspaceId: string; title?: string }): DshSession {
+    const now = new Date().toISOString();
+    const session: DshSession = {
+      id: `dsh-${randomUUID()}`,
+      title: input.title?.trim().slice(0, 120) || "New DSH conversation",
+      presetId: input.presetId,
+      workspaceId: input.workspaceId,
+      createdAt: now,
+      updatedAt: now,
+      running: false,
+      events: [],
+    };
+    this.sessions.set(session.id, session);
+    return session;
+  }
+
+  list(): DshSession[] {
+    return [...this.sessions.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  get(id: string): DshSession | undefined {
+    return this.sessions.get(id);
+  }
+
+  /** Test/shutdown seam: wait until the atomic metrics write has settled. */
+  async flush(): Promise<void> {
+    await this.writeChain;
+  }
+
+  startRun(session: DshSession, text: string): ExperimentRecord {
+    const now = Date.now();
+    const messageId = `user-${randomUUID()}`;
+    session.running = true;
+    session.runStartedAt = now;
+    session.updatedAt = new Date(now).toISOString();
+    session.events.push({
+      id: messageId, messageId, timestamp: session.updatedAt, kind: "user", text,
+      reminders: [], workflows: [], attachments: [],
+    });
+    const record: ExperimentRecord = {
+      id: randomUUID(), sessionId: session.id, presetId: session.presetId, workspaceId: session.workspaceId,
+      taskClass: "conversation", startedAt: now, outcome: "running", interventions: 0, testResult: "not-recorded",
+    };
+    this.ledger.records.push(record);
+    this.ledger.records = this.ledger.records.slice(-1_000);
+    this.persist();
+    this.emit("update", session.id);
+    return record;
+  }
+
+  applyBridge(event: BridgeNotification): void {
+    const session = this.sessions.get(event.sessionId);
+    if (!session) return;
+    const now = new Date().toISOString();
+    const raw = event.notification?.payload as Record<string, unknown> | undefined;
+    const rawEvent = raw?.event as Record<string, unknown> | undefined;
+    const rawType = typeof rawEvent?.type === "string" ? rawEvent.type : String(event.notification?.method || "event");
+    if (event.type === "notification") {
+      if (rawType === "assistant/chunk") {
+        const text = textFrom(rawEvent?.data);
+        if (text) {
+          const id = `agent-live-${session.id}`;
+          const existing = session.events.find((item) => item.id === id && item.kind === "agent");
+          if (existing?.kind === "agent") existing.text += text;
+          else session.events.push({ id, messageId: id, timestamp: now, kind: "agent", text });
+        }
+      } else if (rawType === "assistant/message") {
+        const text = textFrom(rawEvent?.data);
+        if (text) {
+          session.events = session.events.filter((item) => item.id !== `agent-live-${session.id}`);
+          const id = `agent-${randomUUID()}`;
+          session.events.push({ id, messageId: id, timestamp: now, kind: "agent", text });
+        }
+      } else if (/tool|compaction|subagent/i.test(rawType)) {
+        const id = `status-${randomUUID()}`;
+        session.events.push({ id, messageId: id, timestamp: now, kind: "status", label: rawType });
+      }
+    } else if (event.type === "finished") {
+      const hasAssistant = session.events.some((item) => item.kind === "agent");
+      if (!hasAssistant && event.finalResponse) {
+        const id = `agent-${randomUUID()}`;
+        session.events.push({ id, messageId: id, timestamp: now, kind: "agent", text: event.finalResponse });
+      }
+      this.finish(session, "completed");
+    } else {
+      const id = `error-${randomUUID()}`;
+      session.events.push({ id, messageId: id, timestamp: now, kind: "error", message: event.error || "DSH run failed" });
+      this.finish(session, "failed");
+    }
+    session.events = session.events.slice(-1_000);
+    session.updatedAt = now;
+    this.emit("update", session.id);
+  }
+
+  cancel(session: DshSession): void {
+    this.finish(session, "cancelled");
+    const id = `status-${randomUUID()}`;
+    session.events.push({ id, messageId: id, timestamp: new Date().toISOString(), kind: "status", label: "Cancelled by user" });
+    this.emit("update", session.id);
+  }
+
+  private finish(session: DshSession, outcome: ExperimentRecord["outcome"]): void {
+    session.running = false;
+    session.runStartedAt = undefined;
+    const record = [...this.ledger.records].reverse().find((item) => item.sessionId === session.id && item.outcome === "running");
+    if (record) {
+      record.outcome = outcome;
+      record.endedAt = Date.now();
+      if (outcome === "cancelled") record.interventions += 1;
+    }
+    this.persist();
+  }
+
+  private persist(): void {
+    const payload = `${JSON.stringify(this.ledger, null, 2)}\n`;
+    const target = this.ledgerFile;
+    this.writeChain = this.writeChain.then(async () => {
+      await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
+      const temporary = `${target}.${process.pid}.tmp`;
+      await writeFile(temporary, payload, { encoding: "utf8", mode: 0o600 });
+      await rename(temporary, target);
+    }).catch((error) => {
+      this.emit("error", error);
+    });
+  }
+}

@@ -1,0 +1,2 @@
+# E2E-only marker. The fake bridge never executes this composition.
+readOnly: true

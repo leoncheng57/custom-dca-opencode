@@ -39,6 +39,8 @@ import { projectRoutes } from "./routes/projects.js";
 import { modelPinRoutes } from "./routes/modelPins.js";
 import { recentRoutes } from "./routes/recents.js";
 import { parsePublicAppUrl } from "./publicAppUrl.js";
+import { readDshConfig } from "./dsh/config.js";
+import { dshRoutes } from "./routes/dsh.js";
 
 dotenv.config();
 
@@ -46,6 +48,7 @@ const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const opencode = readOpencodeConfig();
 const publicAppUrl = parsePublicAppUrl(process.env.PUBLIC_APP_URL);
+const dsh = readDshConfig();
 
 app.use(express.json({ limit: "20mb" }));
 
@@ -83,10 +86,11 @@ app.use("/api", forgeRoutes());
 app.use("/api", planningRoutes());
 app.use("/api", reminderRoutes());
 app.use("/api", workflowRoutes());
-app.use("/api", appConfigRoutes(publicAppUrl));
+app.use("/api", appConfigRoutes(publicAppUrl, dsh.enabled));
 app.use("/api", projectRoutes());
 app.use("/api", modelPinRoutes());
 app.use("/api", recentRoutes(opencode));
+app.use("/api", dshRoutes(dsh));
 const opencodePort = Number(new URL(opencode.baseUrl).port || 80);
 app.use("/api", previewRoutes(parseAllowedPorts(process.env.PREVIEW_ALLOWED_PORTS, [PORT, opencodePort])));
 

@@ -74,10 +74,10 @@ test.describe("health", () => {
 });
 
 test.describe("public app config", () => {
-  test("exposes only the configured phone origin", async ({ request }) => {
+  test("exposes the configured phone origin and server feature gates", async ({ request }) => {
     const response = await request.get("/api/app-config");
     expect(response.ok()).toBe(true);
-    expect(await response.json()).toEqual({ publicAppUrl: "https://ide.e2e.example.test:8443" });
+    expect(await response.json()).toEqual({ publicAppUrl: "https://ide.e2e.example.test:8443", dshEnabled: true });
   });
 });
 

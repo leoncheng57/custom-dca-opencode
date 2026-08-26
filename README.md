@@ -252,6 +252,21 @@ The BFF exists because: it holds the server credential, fans one upstream SSE st
 to many browser clients, threads `?directory=` per project, and runs the things the
 OpenCode API doesn't expose (git history, forge APIs, notification transport).
 
+### Experimental DeepSeek Harness workspace
+
+DSH can run beside OpenCode behind a separate `/dsh` UI and `/api/dsh/*` bridge. It is
+off by default and does not alter OpenCode sessions, events, permissions, or URLs. V1 is
+read-only: install `deepseek-harness-sdk` in a dedicated Python environment, provide an
+explicit read-only Cordis composition, and configure allowlisted presets and workspaces as
+shown in `.env.example`. The BFF verifies and exposes the canonical entry-composition
+file fingerprint for diagnostics; it never falls back to the SDK's writable default composition.
+
+The DSH subprocess inherits only a small environment allowlist (`PATH`, basic locale/temp
+state, and the DeepSeek endpoint/key). GitHub, OpenCode, notification, and DCA credentials
+are not forwarded. DSH remains local behind the BFF; do not expose or reverse-proxy its
+native Web UI. The full dual-runtime decision and phased estimate are tracked in
+[issue #225](https://github.com/leoncheng57/custom-dca-opencode/issues/225).
+
 See [`docs/architecture.md`](docs/architecture.md) for conversation and event flows, state
 ownership, safety boundaries, and the extension map. See
 [`docs/subagents.md`](docs/subagents.md) for child-session lifecycles, permissions, and safe

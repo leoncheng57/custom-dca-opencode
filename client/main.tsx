@@ -11,6 +11,8 @@ import { ToolsPage } from "./pages/Tools.js";
 import { DocsPage } from "./pages/Docs.js";
 import { DocPage } from "./pages/DocPage.js";
 import { PlanningPage } from "./pages/Planning.js";
+import { DshPage } from "./pages/Dsh.js";
+import { DshConversationPage } from "./pages/DshConversation.js";
 import { AppShell } from "./components/app-shell.js";
 import { ThemeEffects } from "./components/theme-effects.js";
 import { NotificationCenterProvider } from "./lib/useNotificationCenter.js";
@@ -42,6 +44,8 @@ async function start(): Promise<void> {
                 <Route path="/docs" element={<DocsPage />} />
                 <Route path="/docs/:slug" element={<DocPage />} />
                 <Route path="/planning" element={<PlanningPage />} />
+                <Route path="/dsh" element={<DshPage />} />
+                <Route path="/dsh/sessions/:id" element={<DshConversationPage />} />
               </Route>
             </Routes>
           </NotificationCenterProvider>
