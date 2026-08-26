@@ -134,7 +134,7 @@ test.describe("notification sound and speech", () => {
       await route.fulfill({ json: { sent: 1, failed: 0 } });
     });
 
-    await page.goto("/settings");
+    await page.goto("/settings/notifications");
     await page.getByTestId("opencode-web-push-enabled").check();
     await page.getByTestId("opencode-notifications-save").click();
     await expect(page.getByTestId("opencode-web-push-status")).toHaveText("This device is subscribed.");
@@ -153,11 +153,11 @@ test.describe("notification sound and speech", () => {
 
   test("disabled media makes no calls and previews unlock after a click", async ({ page }) => {
     await installMediaStubs(page, DEVICE_DEFAULT);
-    await page.goto("/settings");
+    await page.goto("/settings/notifications");
     await expect(page.getByTestId("opencode-browser-sound")).not.toBeChecked();
     await expect(page.getByTestId("opencode-speech-enabled")).not.toBeChecked();
 
-    await fetch(`${MOCK_URL}/test/mobile/idle`, { method: "POST" });
+    await fetch(`${MOCK_URL}/test/mobile/idle?sessionID=ses_media_tone`, { method: "POST" });
     await page.waitForTimeout(100);
     expect(await page.evaluate(() => (window as unknown as { __mediaCalls: { starts: number; speech: string[] } }).__mediaCalls)).toMatchObject({ starts: 0, speech: [] });
 
@@ -171,7 +171,7 @@ test.describe("notification sound and speech", () => {
 
   test("event kinds use distinct tones and safe phrases after saving", async ({ page }) => {
     await installMediaStubs(page, DEVICE_DEFAULT);
-    await page.goto("/settings");
+    await page.goto("/settings/notifications");
     await page.getByTestId("opencode-browser-sound").check();
     await page.getByTestId("opencode-speech-enabled").check();
     await page.getByTestId("opencode-notifications-save").click();
@@ -183,7 +183,7 @@ test.describe("notification sound and speech", () => {
       calls.starts = 0;
       calls.speech.length = 0;
     });
-    await fetch(`${MOCK_URL}/test/mobile/idle`, { method: "POST" });
+    await fetch(`${MOCK_URL}/test/mobile/idle?sessionID=ses_media_phrase`, { method: "POST" });
     await expect.poll(() => page.evaluate(() => (window as unknown as { __mediaCalls: { speech: string[] } }).__mediaCalls.speech)).toContain("Session finished");
     const idleFrequencies = await page.evaluate(() => (window as unknown as { __mediaCalls: { frequencies: number[] } }).__mediaCalls.frequencies.splice(0));
 
@@ -205,7 +205,7 @@ test.describe("notification sound and speech", () => {
     await page.setViewportSize({ width: 390, height: 740 });
     await stubLegacySound(page, true, 0.9);
     await installMediaStubs(page, "{bad-json");
-    await page.goto("/settings");
+    await page.goto("/settings/notifications");
     await expect(page.getByTestId("opencode-sound-profile")).toHaveValue("distinct");
     await expect(page.getByTestId("opencode-browser-sound")).not.toBeChecked();
     const recovered = await page.evaluate(() => JSON.parse(localStorage.getItem("opencode-notification-media-v1") ?? "null"));
@@ -216,7 +216,7 @@ test.describe("notification sound and speech", () => {
   test("migrates legacy sound when the device key is absent", async ({ page }) => {
     await stubLegacySound(page, true, 0.8);
     await installMediaStubs(page);
-    await page.goto("/settings");
+    await page.goto("/settings/notifications");
 
     await expect(page.getByTestId("opencode-browser-sound")).toBeChecked();
     await expect(page.getByTestId("opencode-browser-volume")).toHaveValue("0.8");
@@ -231,7 +231,7 @@ test.describe("notification sound and speech", () => {
     });
     await stubLegacySound(page, true, 0.9);
     await installMediaStubs(page, existing);
-    await page.goto("/settings");
+    await page.goto("/settings/notifications");
 
     await expect(page.getByTestId("opencode-browser-sound")).not.toBeChecked();
     await expect(page.getByTestId("opencode-browser-volume")).toHaveValue("0.25");

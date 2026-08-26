@@ -76,8 +76,8 @@ const defaultPreferences: NotificationPreferences = {
 };
 
 const notificationRecords: NotificationRecord[] = [
-  { id: "note-preview-permission", kind: "permission", at: 1_787_000_020_000, directory: SIMULATOR_DIRECTORY, sessionID: "ses_preview_done", sessionTitle: "Build the PR preview pipeline", requestID: "perm_preview", title: "Permission requested", body: "Open the IDE to review the session.", displayBody: "Run npm test", delivery: { ntfy: "off", desktop: "allowed", webPush: "off" } },
-  { id: "note-preview-idle", kind: "idle", at: 1_787_000_010_000, directory: SIMULATOR_DIRECTORY, sessionID: "ses_preview_done", sessionTitle: "Build the PR preview pipeline", title: "Session finished", body: "Open the IDE to review the session.", resolvedAt: 1_787_000_015_000, resolvedBy: "checked", delivery: { ntfy: "off", desktop: "allowed", webPush: "off" } },
+  { id: "note-preview-permission", kind: "permission", at: 1_787_000_020_000, directory: SIMULATOR_DIRECTORY, sessionID: "ses_preview_done", sessionTitle: "Build the PR preview pipeline", requestID: "perm_preview", title: "Permission requested", body: "Open the IDE to review the session.", displayBody: "Run npm test", detail: "Ready to run the preview build once you approve the command.", delivery: { ntfy: "off", desktop: "allowed", webPush: "off" } },
+  { id: "note-preview-idle", kind: "idle", at: 1_787_000_010_000, directory: SIMULATOR_DIRECTORY, sessionID: "ses_preview_done", sessionTitle: "Build the PR preview pipeline", title: "Session finished", body: "Open the IDE to review the session.", detail: "Published the preview bundle to gh-pages and updated the sticky PR comment.", resolvedAt: 1_787_000_015_000, resolvedBy: "checked", delivery: { ntfy: "off", desktop: "allowed", webPush: "off" } },
 ];
 
 function response(body: unknown, status = 200): Response {
@@ -97,10 +97,31 @@ function routeMatch(pathname: string, pattern: RegExp): RegExpExecArray | null {
 export function createPublicSimulator(): typeof fetch {
   const nativeFetch = globalThis.fetch.bind(globalThis);
   let sessions: SessionSummary[] = [
-    summary({ id: "ses_preview_done", title: "Build the PR preview pipeline", childCount: 2 }),
+    summary({ id: "ses_preview_done", title: "Build the PR preview pipeline", childCount: 3 }),
     summary({ id: "ses_preview_running", title: "Review mobile navigation", running: true, cost: 0.12, updatedAt: "2026-08-25T19:15:00.000Z" }),
     summary({ id: "ses_preview_child", title: "Audit deployment safety", parentID: "ses_preview_done", cost: 0.006, updatedAt: "2026-08-25T18:15:00.000Z" }),
     summary({ id: "ses_preview_child_done", title: "Verify Pages routing", parentID: "ses_preview_done", cost: 0.004, updatedAt: "2026-08-25T18:10:00.000Z" }),
+    // A human-authorized Managed Child (decision #19) beside the two native
+    // task children, so a preview actually shows the managed/native
+    // distinction rather than a wall of identical `sub` rows.
+    summary({
+      id: "ses_preview_managed",
+      title: "Draft the release notes",
+      parentID: "ses_preview_done",
+      agent: "plan",
+      cost: 0.002,
+      updatedAt: "2026-08-25T18:05:00.000Z",
+      managed: {
+        origin: "managed-human",
+        requestedAgent: "plan",
+        requestedMode: "plan",
+        requestedModel: { providerID: "anthropic", modelID: "claude-opus-5" },
+        background: true,
+        policySource: "creation-permission",
+        effectivePolicyObserved: true,
+        authorization: "read-only",
+      },
+    }),
     summary({ id: "ses_preview_second", title: "Document release operations", directory: SECOND_DIRECTORY, cost: 0.01, updatedAt: "2026-08-25T17:30:00.000Z" }),
   ];
   const messages = new Map<string, RawMessage[]>([
@@ -108,6 +129,7 @@ export function createPublicSimulator(): typeof fetch {
     ["ses_preview_running", [{ info: { id: "msg_running", role: "assistant", agent: "build", time: { created: 1_787_000_020_000 } }, parts: [{ id: "prt_running", messageID: "msg_running", type: "text", text: "Checking the compact navigation at phone width." }] }]],
     ["ses_preview_child", [{ info: { id: "msg_child", role: "assistant", agent: "explore", mode: "build", time: { created: 1_787_000_015_000, completed: 1_787_000_016_000 } }, parts: [{ id: "prt_child", messageID: "msg_child", type: "text", text: "The publisher validates every file hash and writes only the PR-owned directory." }] }]],
     ["ses_preview_child_done", [{ info: { id: "msg_child_done", role: "assistant", agent: "explore", mode: "build", time: { created: 1_787_000_014_000, completed: 1_787_000_014_500 } }, parts: [{ id: "prt_child_done", messageID: "msg_child_done", type: "text", text: "Hash routing keeps every simulator page reload-safe on GitHub Pages." }] }]],
+    ["ses_preview_managed", [{ info: { id: "msg_managed", role: "assistant", agent: "plan", mode: "plan", time: { created: 1_787_000_013_000, completed: 1_787_000_013_500 } }, parts: [{ id: "prt_managed", messageID: "msg_managed", type: "text", text: "Drafted the release notes without touching any file: this child was launched read-only." }] }]],
   ]);
   let settings: AppSettings = { model: "anthropic/claude-opus-5", subagent_depth: 3, compaction: { auto: true, prune: true, reserved: 8_192 } };
   let preferences = structuredClone(defaultPreferences);
@@ -143,6 +165,15 @@ export function createPublicSimulator(): typeof fetch {
       { id: "build", description: "Implement and verify changes." },
       { id: "explore", description: "Inspect the codebase and report findings." },
       { id: "general", description: "Handle multi-step delegated work." },
+    ] });
+    // The Managed Child launcher and the composer workflow both read this
+    // catalogue to decide which agents exist and which of them can modify
+    // files, so a preview without it would offer no agent at all.
+    if (path === "/api/managed-child-agents") return response({ agents: [
+      { id: "plan", description: "Plan work without changing files.", access: "read-only" },
+      { id: "build", description: "Implement and verify changes.", access: "can-modify" },
+      { id: "explore", description: "Inspect the codebase and report findings.", access: "read-only" },
+      { id: "general", description: "Handle multi-step delegated work.", access: "can-modify" },
     ] });
     if (path === "/api/sessions" && method === "POST") {
       const id = `ses_preview_created_${sessions.length}`;
@@ -180,7 +211,7 @@ export function createPublicSimulator(): typeof fetch {
       if (rest === "/abort" && method === "POST") { session.running = false; return response({ aborted: true }); }
       if (rest === "/share" && method === "POST") { session.shareUrl = "https://example.test/simulated-share"; return response({ session }); }
       if (rest === "/share" && method === "DELETE") { delete session.shareUrl; return response({ session }); }
-      if (rest === "/subagents") return response({ parentID: id, capabilities: { backgroundSubagents: true, managedChildren: true }, truncated: false, tasks: id === "ses_preview_done" ? [{ sessionID: "ses_preview_child", parentID: id, title: "Audit deployment safety", agent: "explore", origin: "native-task", description: "Check artifact and publication boundaries", state: "completed", evidence: "child-transcript", background: true, present: true, createdAt: "2026-08-25T18:00:00Z", updatedAt: "2026-08-25T18:15:00Z", cost: 0.006 }, { sessionID: "ses_preview_child_done", parentID: id, title: "Verify Pages routing", agent: "explore", origin: "native-task", description: "Exercise nested simulator routes", state: "completed", evidence: "child-transcript", background: false, present: true, createdAt: "2026-08-25T18:00:00Z", updatedAt: "2026-08-25T18:10:00Z", cost: 0.004 }] : [] });
+      if (rest === "/subagents") return response({ parentID: id, capabilities: { backgroundSubagents: true, managedChildren: true }, truncated: false, tasks: id === "ses_preview_done" ? [{ sessionID: "ses_preview_child", parentID: id, title: "Audit deployment safety", agent: "explore", origin: "native-task", description: "Check artifact and publication boundaries", state: "completed", evidence: "child-transcript", background: true, present: true, createdAt: "2026-08-25T18:00:00Z", updatedAt: "2026-08-25T18:15:00Z", cost: 0.006 }, { sessionID: "ses_preview_child_done", parentID: id, title: "Verify Pages routing", agent: "explore", origin: "native-task", description: "Exercise nested simulator routes", state: "completed", evidence: "child-transcript", background: false, present: true, createdAt: "2026-08-25T18:00:00Z", updatedAt: "2026-08-25T18:10:00Z", cost: 0.004 }, { sessionID: "ses_preview_managed", parentID: id, title: "Draft the release notes", origin: "managed-human", requestedAgent: "plan", requestedMode: "plan", requestedModel: { providerID: "anthropic", modelID: "claude-opus-5" }, policySource: "creation-permission", effectivePolicyObserved: true, state: "completed", evidence: "child-transcript", background: true, present: true, createdAt: "2026-08-25T18:00:00Z", updatedAt: "2026-08-25T18:05:00Z", cost: 0.002 }] : [] });
       if (rest === "/managed-children" && method === "POST") {
         const requestedAgent = body.agent || "plan";
         const authorization = body.authorization === "modify" ? "modify" : "read-only";
@@ -220,7 +251,13 @@ export function createPublicSimulator(): typeof fetch {
     if (path === "/api/catalog") return response({ servers: mcpServers, skills: [{ name: "browser-check", description: "Check a page in the browser.", location: "browser-check/SKILL.md" }], commands: [{ name: "verify", description: "Run project verification.", source: "command", agent: "build", model: "mock/model", subtask: false }], refreshedAt: new Date().toISOString() });
     if (path === "/api/permissions") return response({ permissions: { "*": "ask", read: "allow", edit: { "*": "allow", "**/.env": "deny" }, bash: { "git *": "allow", "rm -rf *": "deny" } } });
     if (path === "/api/lsp") return response({ servers: { typescript: { status: "connected", root: SIMULATOR_DIRECTORY }, eslint: { status: "disabled" } } });
-    if (path === "/api/notifications/history") return response({ records: notificationRecords, activeCount: notificationRecords.filter((item) => !item.resolvedAt).length, appBadgeCount: 1, appBadgeRevision: 1, suppressedActive: { "auto-permissions": 0, subagent: 0 } });
+    if (path === "/api/notifications/history") return response({ records: notificationRecords, activeCount: notificationRecords.filter((item) => !item.resolvedAt).length, appBadgeCount: 1, appBadgeRevision: 1, suppressedActive: { "auto-permissions": 0, subagent: 0, "preference-off": 0 } });
+    if (path === "/api/notifications/resolve" && method === "POST") {
+      const ids = new Set(Array.isArray(body.ids) ? body.ids : []);
+      const records = notificationRecords.filter((item) => ids.has(item.id) && !item.resolvedAt);
+      for (const record of records) { record.resolvedAt = Date.now(); record.resolvedBy = "checked"; }
+      return response({ records, activeCount: notificationRecords.filter((item) => !item.resolvedAt).length, appBadgeCount: 0, appBadgeRevision: 2 });
+    }
     const notificationRoute = routeMatch(path, /^\/api\/notifications\/([^/]+)$/u);
     if (notificationRoute && method === "PATCH") {
       const record = notificationRecords.find((item) => item.id === decodeURIComponent(notificationRoute[1]));

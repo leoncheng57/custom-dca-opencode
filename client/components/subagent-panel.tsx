@@ -100,16 +100,34 @@ function TaskRow({
   // Only work the connected server reports as busy can be stopped by it.
   // Offering Stop for an `unknown` row would promise control we do not have.
   const stoppable = task.state === "running";
+  // A human authorized this child directly (decision #19), so it is a
+  // different privilege lane from agent-initiated `task` delegation and gets
+  // its own accent. `origin` is server-derived from validated metadata; a child
+  // with neither managed metadata nor a task launch stays undefined and
+  // deliberately gets neither treatment rather than being guessed at.
+  const managed = task.origin === "managed-human";
   return (
     <li
-      className="min-w-0 rounded border border-[var(--color-border-default)] p-2.5"
+      className={`min-w-0 rounded border p-2.5 ${
+        managed
+          ? "border-[var(--color-border-info)] bg-[var(--color-background-surface-info-muted)]"
+          : "border-[var(--color-border-default)]"
+      }`}
       data-testid="opencode-subagent-row"
       data-state={task.state}
       data-session={task.sessionID}
+      data-origin={task.origin}
     >
-      <div className="flex min-w-0 items-start gap-2">
-        <span className="min-w-0 flex-1 break-words text-sm font-medium">{task.title}</span>
-        <StateBadge task={task} />
+      {/* The badge group sits beside the title when the panel is wide enough and
+          drops to its own right-aligned line when it is not. The title keeps a
+          floor width: without one, two nowrap badges squeeze it into a
+          one-character column in the narrow desktop inspector. */}
+      <div className="flex min-w-0 flex-wrap items-start justify-between gap-x-2 gap-y-1">
+        <span className="min-w-32 flex-1 break-words text-sm font-medium">{task.title}</span>
+        <span className="flex shrink-0 items-center gap-1">
+          {managed && <Badge variant="info" data-testid="opencode-subagent-origin">Managed Child</Badge>}
+          <StateBadge task={task} />
+        </span>
       </div>
 
       {task.description && task.description !== task.title && (
@@ -117,13 +135,12 @@ function TaskRow({
       )}
 
       <div className="mt-1.5 flex flex-wrap gap-x-2 gap-y-1 text-[10px] text-[var(--color-text-muted)]">
-        {task.origin === "managed-human" && <Badge variant="info" className="text-[9px]" data-testid="opencode-subagent-origin">Managed Child</Badge>}
         {task.origin === "native-task" && <Badge variant="neutral" className="text-[9px]" data-testid="opencode-subagent-origin">Native task</Badge>}
-        {task.agent && task.origin !== "managed-human" && <span data-testid="opencode-subagent-agent">agent: {task.agent}</span>}
+        {task.agent && !managed && <span data-testid="opencode-subagent-agent">agent: {task.agent}</span>}
         {task.requestedAgent && <span data-testid="opencode-managed-child-requested-agent">agent: {task.requestedAgent}</span>}
         {task.requestedModel && <span data-testid="opencode-subagent-requested-model">{task.requestedModel.providerID}/{task.requestedModel.modelID}{task.requestedModel.variant ? ` · ${task.requestedModel.variant}` : ""}</span>}
         {!task.requestedModel && task.model && <span className="break-all" data-testid="opencode-subagent-model">{task.model.providerID}/{task.model.modelID}</span>}
-        {task.origin === "managed-human" && <span data-testid="opencode-subagent-policy-status">policy: {task.effectivePolicyObserved ? "verified at launch" : "unknown"}</span>}
+        {managed && <span data-testid="opencode-subagent-policy-status">policy: {task.effectivePolicyObserved ? "verified at launch" : "unknown"}</span>}
         {task.background && <span data-testid="opencode-subagent-background">background</span>}
         {task.cost > 0 && <span className="tabular-nums">{formatCost(task.cost)}</span>}
         <span>{formatRelative(task.updatedAt)}</span>

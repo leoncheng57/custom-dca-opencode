@@ -32,4 +32,34 @@ test("serves an interactive, credential-free PR simulator", async ({ page }) => 
   await page.getByTestId("opencode-nav-planning").click();
   await expect(page).toHaveURL(/#\/planning/u);
   await expect(page.getByTestId("opencode-planning-list")).toContainText("Use GitHub's deployment infra");
+
+  // A notification has to reach its session here too. The deep link used to be
+  // record.click, which the server only fills in when PUBLIC_APP_URL is set and
+  // which no fixture carries — so every notification in this simulator rendered
+  // as plain text, and the preview could not demonstrate the one interaction
+  // the notification centre exists for.
+  await page.getByTestId("opencode-nav-notifications").click();
+  const group = page.getByTestId("opencode-notification-group").first();
+  await expect(group).toHaveAttribute("data-expanded", "false");
+  await group.getByTestId("opencode-notification-group-link").click();
+  await expect(page).toHaveURL(/#\/sessions\/ses_preview_done/u);
+
+  await page.getByTestId("opencode-nav-notifications").click();
+  await page.getByTestId("opencode-notification-group").first()
+    .getByTestId("opencode-notification-group-toggle")
+    .click();
+  await page.getByTestId("opencode-notification-record").first()
+    .getByTestId("opencode-notification-link")
+    .click();
+  await expect(page).toHaveURL(/#\/sessions\/ses_preview_done/u);
+  await expect(page.getByTestId("opencode-notification-popover")).toHaveCount(0);
+
+  // Session resolution works in the public simulator too, so the PR preview
+  // demonstrates the real interaction rather than stopping at a dead fixture
+  // route.
+  await page.getByTestId("opencode-nav-notifications").click();
+  page.on("dialog", (dialog) => dialog.accept());
+  await page.getByTestId("opencode-notification-group-resolve").click();
+  await expect(page.getByTestId("opencode-notification-popover-active-count")).toHaveText("0");
+  expect(pageErrors).toEqual([]);
 });

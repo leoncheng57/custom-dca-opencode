@@ -132,12 +132,17 @@ self.addEventListener("push", (event) => {
   const badge = badgeCount === null || badgeRevision === null
     ? Promise.resolve()
     : queueBadge(badgeCount, badgeRevision);
+  // Tagged so an installed PWA that is open in the foreground — and therefore
+  // also showing this record via the page's own Notification — collapses the
+  // two into one popup instead of buzzing the device twice for one event.
+  const tag = typeof payload.tag === "string" && payload.tag ? payload.tag : null;
   event.waitUntil(Promise.all([
     self.registration.showNotification(title, {
       body,
       icon: "/icon.svg",
       badge: "/icon.svg",
       data: { click },
+      ...(tag ? { tag, renotify: false } : {}),
     }),
     badge.catch(() => undefined),
   ]));

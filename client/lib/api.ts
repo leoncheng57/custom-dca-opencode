@@ -174,7 +174,7 @@ export type NotificationHistoryState = "all" | "active" | "resolved";
  * Why a record was never delivered, and the axis the noise filters act on.
  * Mirrors server/notifications/history.ts.
  */
-export type NotificationSuppression = "auto-permissions" | "subagent";
+export type NotificationSuppression = "auto-permissions" | "subagent" | "preference-off";
 
 /** Unresolved rows each filter is responsible for hiding, filter on or off. */
 export type SuppressedActiveCounts = Record<NotificationSuppression, number>;
@@ -192,6 +192,8 @@ export interface NotificationRecord {
   body: string;
   /** Safe event copy for authenticated in-app notification rows. */
   displayBody?: string;
+  /** Bounded excerpt of the agent's own output; in-app only, never outbound. */
+  detail?: string;
   click?: string;
   resolvedAt?: number;
   resolvedBy?: "checked" | "replied" | "reconciled" | "dismissed" | "suppressed";
@@ -680,6 +682,7 @@ export const api = {
       directory?: string;
       hideAutoApproved?: boolean;
       hideSubagent?: boolean;
+      hidePreferenceOff?: boolean;
     } = {},
   ) => {
     const query = new URLSearchParams();
@@ -689,6 +692,7 @@ export const api = {
     if (options.directory) query.set("directory", options.directory);
     if (options.hideAutoApproved) query.set("hideAutoApproved", "1");
     if (options.hideSubagent) query.set("hideSubagent", "1");
+    if (options.hidePreferenceOff) query.set("hidePreferenceOff", "1");
     const suffix = query.size ? `?${query}` : "";
     return fetch(`/api/notifications/history${suffix}`).then((r) =>
       json<{
@@ -710,6 +714,13 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ resolved }),
     }).then((r) => json<{ record: NotificationRecord; activeCount: number; appBadgeCount: number; appBadgeRevision: number }>(r)),
+
+  resolveNotifications: (ids: string[], directory?: string) =>
+    fetch(`/api/notifications/resolve${directory ? `?${new URLSearchParams({ directory })}` : ""}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids }),
+    }).then((r) => json<{ records: NotificationRecord[]; activeCount: number; appBadgeCount: number; appBadgeRevision: number }>(r)),
 
   autoPermissions: (directory: string) =>
     fetch(scoped("/auto-approve", directory)).then((r) => json<AutoPermissionStatus>(r)),

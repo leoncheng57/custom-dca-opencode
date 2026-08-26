@@ -40,7 +40,7 @@ import { fileURLToPath } from "node:url";
 // running an untrusted PR through `npm run test:e2e:docker` on a developer Mac
 // is protected only by whatever that PR left in place. Reviewing untrusted code
 // requires a launcher and image definition from outside the tested checkout.
-// See docs/architecture.md and AGENTS.md decision 23.
+// See docs/architecture.md and AGENTS.md decision 27.
 
 /** Container name, image tag and artifact directory all embed the run id. */
 export const RUN_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;

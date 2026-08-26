@@ -31,7 +31,7 @@ several decisions below.
   `tests/*.test.ts`**, so a test file is checked only by vitest at run time.
   Playwright starts deterministic mock OpenCode and preview servers, so
   `npm run test:e2e` needs no live stack or keys. `npm run test:e2e:docker` runs the
-  same suite inside a disposable container (decision 23); `npm run test:e2e:host` is
+  same suite inside a disposable container (decision 27); `npm run test:e2e:host` is
   the explicit host lane; `npm run test:contract:host` is the host-only contract lane.
 - **Playwright runs spec _files_ in parallel against one BFF _and one mock_.** Tests
   inside a file are serial; files are not, and `test.describe.serial` orders only the
@@ -53,6 +53,10 @@ several decisions below.
 - `reminders/<id>/SKILL.md` is read at runtime, not emitted by `tsc`. Keep the root
   catalogue beside `dist/` in deployments. Per-message injection accepts an ID only;
   the BFF resolves the body and appends the `<reminder name="id">` sentinel.
+- `agent-skills/` holds portable skill, command, and simulation Markdown migrated from
+  `leoncheng57/agent-skills`; it is content, not a second app. The Runner renders it
+  natively under `/playbooks`. This remains separate from runtime reminders and the
+  installed-skill `/api/catalog`, which reports what the connected OpenCode loaded.
 
 ## Non-obvious API contracts (each one cost real debugging)
 
@@ -83,7 +87,7 @@ several decisions below.
 2. **No Docker in the application runtime.** The OpenHands runner needed `agent-canvas`
    (agent runtime) and Postgres (manager runs). Manager runs are dropped, so Postgres
    goes too. One process to supervise. This also removes the fixed-port constraint that
-   limited the old repo to one running worktree at a time. Scope note: decision 23 adds
+   limited the old repo to one running worktree at a time. Scope note: decision 27 adds
    an *optional test-only* container. Nothing needed to run, develop or deploy the app
    requires Docker, and no agent session ever executes inside one.
 3. **Permissions replace the container boundary.** See `opencode.json`. Honest framing:
@@ -309,16 +313,34 @@ several decisions below.
     browser never authors raw rules, and this route must never be registered as an agent tool.
     Managed children appear in the normal hierarchy but create no parent task part or synthetic
     hand-back; their lifecycle is derived from their own status/transcript and may remain
-    `unknown`. Live 1.18.22 probes confirmed direct creation and also confirmed #75's asymmetry:
+    `unknown`. They are also **visually distinct** from native tasks wherever both appear (#182):
+    the sub-agent row carries an info accent, a `Managed Child` badge beside its title and a stable
+    `data-origin`, and the Hub pill and child-transcript badge say `Managed Child` rather than the
+    neutral `sub`. The label is driven by the server-derived `origin`, never by the absence of a
+    task part — a child with neither validated managed metadata nor a launch stays unlabelled,
+    because relabelling an `unknown` child as either lane would print a confident falsehood about
+    who authorized it.
+    The child's persisted **title** is derived metadata and is redacted with the audit log's
+    `redactInstructionText` **before** the first line is taken and before the 80-char cap; cutting
+    first leaves an unmatchable token prefix in the title. The title is the widest leak surface
+    derived from an assignment — it is copied into session summaries, sub-agent rows, Hub titles,
+    breadcrumbs and persisted notification history — so it is redacted at the source rather than at
+    render time in five places. The **submitted prompt and the child transcript are never
+    redacted**: the child must receive the exact text its human wrote. Consequence to state
+    plainly: this mitigates credential *shapes* in derived metadata and is not a safe channel for
+    secrets, because the assignment retains them verbatim. Live 1.18.22 probes confirmed direct creation and also confirmed #75's asymmetry:
     native derivation copies a historical parent deny but discards its later Build allow. The
     resolved Plan agent alone is not read-only after project policy merges, so session-level Plan
     enforcement remains required.
     #75's asymmetry is fixed upstream in anomalyco/opencode#45064 (drop a copied deny when a
     later rule supersedes it for the exact permission+pattern), and the reference deployment's
-    `ai.opencode.serve` LaunchAgent runs a patched binary
-    (`~/.opencode/bin/opencode-1.18.22-dca`, branch `v1.18.22-dca` in the local opencode
-    checkout = v1.18.22 + that commit; stock plist preserved as
-    `.state/launchd/ai.opencode.serve.plist.bak-stock-binary`). Verified live: a parent with
+    `ai.opencode.serve` LaunchAgent runs a patched binary built from
+    `fix/subagent-effective-deny-inheritance` in the local opencode checkout (tip `f35ae140ed`,
+    source version 1.18.23; `dev` is an ancestor ~4,129 commits behind at 1.4.7 and is not a
+    rebuild source). `~/.opencode/bin/opencode-1.18.22-dca` is that binary's filename and
+    self-reported version, **not** a branch — rebuild from the branch, never from that string.
+    Stock plist preserved as
+    `.state/launchd/ai.opencode.serve.plist.bak-stock-binary`. Verified live: a parent with
     appended `[bash deny, bash allow]` spawned a task child with no inherited bash deny that ran
     bash successfully. When the upstream fix ships in a release, bump the pin, point the plist
     back at the stock binary, and re-run the probes. Session-level Plan enforcement is still
@@ -356,8 +378,21 @@ several decisions below.
     back out of the user bubble. Session updates send in the TARGET session's own mode
     (a hardcoded Build would restore write access to a session left in Plan), and the
     dialog states that prompt_async 204/202 means accepted, not completed. The
-    managed-child form reuses decision #19's route with the same Build authorization
-    checkbox and creates no task card and no automatic hand-back.
+    managed-child form reuses decision #19's route and creates no task card and no
+    automatic hand-back.
+    That form has **no agent roster of its own**: it reads `GET /api/managed-child-agents`,
+    the same catalogue the dedicated launcher reads, and derives the authorization
+    requirement from each agent's `access === "can-modify"`. It shipped with a hardcoded
+    `["plan","build"]` pair, which hid `explore` and `general` and — worse — decided
+    "needs consent" by comparing an id to `"build"`, so a fourth can-modify agent would
+    have launched unauthorized. Only the catalogue knows which agents survived the
+    server-side filter and which can modify files. The default is a read-only agent so
+    the pre-selected choice is never the one still missing consent, the consent resets on
+    **every** agent change (an authorization for one agent is not one for the next), and
+    an unreadable catalogue disables launch with a visible reason rather than presenting a
+    dead button. Its `ModelPicker` must pass `portalLayer="nested"`: the default `z-[90]`
+    portal renders *behind* this `z-[95]` dialog, and "nested" is also what inerts and
+    `aria-hidden`s the parent so focus cannot land underneath the open picker.
 22. **PR previews are static simulators, never public agent servers.** GitHub Pages cannot
     host the Express BFF or `opencode serve`, and putting either on a public endpoint would
     require credentials and expose host-level agent authority. `VITE_PUBLIC_SIMULATOR=true`
@@ -372,7 +407,89 @@ several decisions below.
     `pr-screenshot-publication` concurrency group. Close cleanup removes only that PR's
     preview and screenshot directories, deletes their marker-owned comments, and marks the
     preview deployments inactive.
-23. **Docker is optional test infrastructure, one container per Playwright invocation.**
+23. **Notifications group by session, and a folded group must still say what is
+    waiting.** A session that needs three things wrote three rows repeating its title,
+    which was the clutter. Grouping is device-local presentation and, unlike the two
+    noise filters, is **never sent to the server**: it hides no record and changes no
+    count, so no badge can disagree with it. Identity is the **`sessionID`** — never
+    `sessionTitle`, which is snapshotted at append time (decision 10b), so one session
+    contributes several titles as it is renamed and two unrelated sessions can share
+    one; keying on it would both split a session and merge strangers. Records with no
+    session fall into one bucket that always sorts last. Groups ship **on and folded**,
+    which is only safe because the header carries a kind chip strip ordered
+    blocking-first: with a bare count, a default-collapsed group would hide an
+    unanswered permission behind a number, and that hiding is the exact failure the
+    "outside this view" notices exist to prevent. Expansion state is **one persisted
+    boolean plus in-memory per-group toggles** — session ids are unbounded and outlive
+    their sessions, so a persisted set of them would grow forever and accumulate ids of
+    deleted work. Grouping happens **inside** the Active/Resolved split, never across
+    it: that split is the action axis and stays outermost. A group header counts the
+    rows it renders, not the session's lifetime total, because the window is bounded and
+    the section's existing outside-window notice is the only honest claim about the
+    unwindowed log; the client window and server `MAX_PAGE` were raised to 1000 together
+    so that count is rarely a lie, while retention is 5,000 per capped category.
+    Resolution stays reversible per decision 10: every row can still be reopened.
+    **Resolve all (N)** on a session header is a deliberate, bounded exception to
+    one-at-a-time action: it accepts only that group's currently loaded unresolved ids,
+    states that exact count, requires confirmation, and never affects another session
+    or older records outside the window. It persists the batch in one write rather than
+    firing N requests, then returns every changed record to the ordinary Resolved list.
+    Every row keeps its own link to the session, and a
+    folded header carries one too so a group is reachable without being opened first;
+    grouping moved the repeated *title* out of the rows, never their ability to
+    navigate. That link is built client-side from `sessionID` + `directory` rather than
+    from `record.click`, which is the **outbound** ntfy/Web Push URL: it is absolute,
+    cross-origin, and `undefined` whenever `PUBLIC_APP_URL` is unset, so reusing it
+    made an outbound-delivery setting decide whether the in-app UI could navigate at
+    all — and made every notification inert in the fixture-backed PR simulator.
+    The Active/Resolved split lives in the **URL** (`?state=active`), not component
+    state: "what still needs me" is the view worth bookmarking. `all` is the absence of
+    the parameter so the canonical link stays bare, an unrecognized value degrades to
+    `all` rather than erroring, and the pills `replace` rather than push so Back keeps
+    meaning "the page I came from". Resolution is a **button with `aria-pressed`**, not
+    a checkbox: it is the row's only action and a 13px target was wrong for it,
+    especially in a thumb-driven popover. It stays reversible.
+24. **The server decides who gets pinged; the browser is not allowed a second opinion.**
+    `useNotifyWatcher` used to re-derive notification kind from raw upstream events, so
+    it had no view of session lineage: every delegated child's turn produced a desktop
+    popup, a sound and speech in every open tab while the server filed the same event
+    as `suppressed: "subagent"` and hid it from the inbox and the badge. Being pinged
+    for things the notification list denies ever happened is the loudest half of the
+    over-notification report (#180). The browser now reacts **only** to
+    `notification.recorded`, which carries the server's post-append verdict, and skips
+    anything `suppressed`. Raw events are still forwarded untouched for the transcript
+    and the sub-agent ledger. Consequences: the record id becomes an exact dedupe
+    identity instead of a heuristic, and it doubles as the OS notification `tag` in both
+    `new Notification` and the service worker, so N open tabs — and a foreground PWA
+    that also receives the push — collapse to one popup instead of stacking.
+25. **A kind switched off in every channel is suppressed, not silently badged.**
+    Preferences used to gate delivery only, so turning a kind off silenced the ping but
+    still wrote a permanent unresolved record — and `abort` ships disabled, so every
+    Stop press added an item nobody opted into. Those records now carry
+    `suppressed: "preference-off"`, the third category in `SUPPRESSION_REASONS`, with
+    the full decision 10a treatment: recorded so "why was I never told?" stays
+    answerable, never delivered, prune-capped, filtered out of both `list()` and
+    `activeCount()` by a default-on checkbox that states its own cost. A channel merely
+    being *unconfigured* does not count — "I never set up ntfy" is not the instruction
+    "do not tell me about this", and only the second may suppress. Relatedly, the parked
+    escalation now only arms when a parked alert could actually reach someone, and the
+    5-second echo dedupe runs *before* the lineage lookup rather than after, so upstream
+    echoes stop burning the 4-slot concurrency budget that the sub-agent gate depends
+    on — it used to fail open during exactly the bursts it exists for.
+26. **Notification records carry a bounded excerpt of what the agent actually said.**
+    "Finished its turn and is waiting for you" is identical every time, so three of them
+    from one session said nothing about which was which — the complaint in #186, made
+    obvious by grouping them under one header. `detail` is fetched only for a delivered
+    `idle` (a permission already names its tool, a question carries its preview, an error
+    its reason) and costs one upstream read that borrows the session lookup's exact
+    discipline: hard timeout, shared concurrency budget, fail open to `undefined`. A
+    missing excerpt costs the row specificity; a stalled one would cost the user the
+    ping. It is **in-app only** — never copied into the outbound ntfy/Web Push body,
+    which stays deliberately lock-screen-safe — and bounded on both write and read,
+    because `normalizeRecord` is the only barrier against a hand-edited file and this is
+    model-authored text on a durable record. Retention rose to 5,000 per capped
+    category; unresolved *delivered* records remain exempt from every cap.
+27. **Docker is optional test infrastructure, one container per Playwright invocation.**
     Worktrees isolate source and dependencies but not the machine-global fixtures the E2E
     suite writes: `/tmp/mock-*`, their real `.git` directories, and ports 3410/4599/4600.
     Distinct ports isolate listeners, not filesystems, so concurrent runs raced on one Git

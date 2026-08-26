@@ -4,7 +4,13 @@ import { Link } from "react-router-dom";
 
 import { Alert } from "../ds/alert.js";
 import { Button } from "../ds/button.js";
-import { api, type SessionSummary, type WorkflowSummary } from "../lib/api.js";
+import {
+  api,
+  type ManagedChildAgent,
+  type ManagedChildAgentSummary,
+  type SessionSummary,
+  type WorkflowSummary,
+} from "../lib/api.js";
 import type { AgentMode } from "../lib/agentMode.js";
 import { catalogueDefault, type ModelCatalogue, type ModelSelection } from "../lib/models.js";
 import {
@@ -66,9 +72,13 @@ export function WorkflowDialog({
   const [targetID, setTargetID] = useState("");
   const [message, setMessage] = useState("");
 
-  // Managed child fields.
+  // Managed child fields. The agent comes from the server catalogue, never a
+  // hardcoded pair: `explore` and `general` are equally valid Managed Child
+  // agents, and only the catalogue knows which of them can modify files.
   const [objective, setObjective] = useState("");
-  const [childMode, setChildMode] = useState<AgentMode>("plan");
+  const [childAgent, setChildAgent] = useState<ManagedChildAgent>("plan");
+  const [childAgents, setChildAgents] = useState<ManagedChildAgentSummary[]>([]);
+  const [childAgentError, setChildAgentError] = useState<string | null>(null);
   const [childModel, setChildModel] = useState<ModelSelection | undefined>(
     () => defaultModel ?? (modelCatalogue ? catalogueDefault(modelCatalogue) : undefined),
   );
@@ -105,6 +115,27 @@ export function WorkflowDialog({
   }, [directory, sessionID, workflow.id]);
 
   useEffect(() => {
+    if (workflow.id !== MANAGED_CHILD_WORKFLOW_ID) return;
+    let cancelled = false;
+    setChildAgents([]);
+    setChildAgentError(null);
+    api.managedChildAgents(directory)
+      .then(({ agents }) => {
+        if (cancelled) return;
+        setChildAgents(agents);
+        // Default to a read-only agent so the safe choice is never the one
+        // that needs an authorization the human has not given yet.
+        setChildAgent((current) => agents.some((agent) => agent.id === current)
+          ? current
+          : agents.find((agent) => agent.access === "read-only")?.id ?? agents[0]?.id ?? current);
+      })
+      .catch((cause: unknown) => {
+        if (!cancelled) setChildAgentError(cause instanceof Error ? cause.message : String(cause));
+      });
+    return () => { cancelled = true; };
+  }, [directory, workflow.id]);
+
+  useEffect(() => {
     if (!childModel && modelCatalogue) setChildModel(defaultModel ?? catalogueDefault(modelCatalogue));
   }, [childModel, defaultModel, modelCatalogue]);
 
@@ -113,6 +144,14 @@ export function WorkflowDialog({
   // write access to a session its owner left in Plan. A target whose agent is
   // neither plan nor build still 409s server-side, and that error is shown.
   const targetMode: AgentMode = targetSession?.agent === "plan" ? "plan" : "build";
+
+  const selectedChildAgent = childAgents.find((agent) => agent.id === childAgent);
+  // Authorization is derived from the catalogue's access, not from an agent id
+  // spelled into this file: `general` can modify too, and a fourth agent added
+  // upstream must not silently arrive unauthorized.
+  const requiresChildAuthorization = selectedChildAgent?.access === "can-modify";
+  const childAgentLabel = (agent: ManagedChildAgentSummary) =>
+    `${agent.id[0].toUpperCase()}${agent.id.slice(1)} · ${agent.access}`;
 
   const generatedPrompt =
     workflow.id === PLAYWRIGHT_REVIEW_WORKFLOW_ID
@@ -126,9 +165,11 @@ export function WorkflowDialog({
       ? Boolean(route.trim() && target.trim())
       : workflow.id === SESSION_UPDATE_WORKFLOW_ID
         ? Boolean(targetSession && message.trim())
-        : Boolean(objective.trim() && objective.length <= 100_000 && childModel);
+        // No catalogue means no verified agent, so there is nothing safe to launch.
+        : Boolean(objective.trim() && objective.length <= 100_000 && childModel && selectedChildAgent);
 
-  const confirmReady = formValid && !busy && (workflow.id !== MANAGED_CHILD_WORKFLOW_ID || childMode !== "build" || confirmedBuild);
+  const confirmReady = formValid && !busy
+    && (workflow.id !== MANAGED_CHILD_WORKFLOW_ID || !requiresChildAuthorization || confirmedBuild);
 
   const submit = async (action: "send" | "launch") => {
     setBusy(true);
@@ -147,13 +188,14 @@ export function WorkflowDialog({
         return;
       }
       if (action === "launch") {
+        if (!selectedChildAgent) return;
         const result = await api.createManagedChild(directory, sessionID, {
           prompt: generatedPrompt,
-          // This dialog offers the Plan/Build pair only; both are valid
-          // Managed Child agents. Build can modify, so it carries the explicit
+          // The agent and its authorization both come from the server
+          // catalogue, so every can-modify agent carries the explicit
           // authorization the confirmation checkbox above already gates.
-          agent: childMode,
-          ...(childMode === "build" ? { authorization: "modify" as const } : {}),
+          agent: selectedChildAgent.id,
+          ...(requiresChildAuthorization ? { authorization: "modify" as const } : {}),
           model: childModel,
           idempotencyKey,
           workflow: workflow.id,
@@ -284,26 +326,35 @@ export function WorkflowDialog({
                 />
               </label>
               <fieldset>
-                <legend className="text-sm font-medium">Execution mode <span className="font-normal text-[var(--color-text-muted)]">(default: Plan)</span></legend>
+                <legend className="text-sm font-medium">Agent <span className="font-normal text-[var(--color-text-muted)]">(default: a read-only agent)</span></legend>
                 <div className="mt-1.5 grid grid-cols-2 gap-2">
-                  {(["plan", "build"] as const).map((value) => (
+                  {childAgents.map((agent) => (
                     <button
-                      key={value}
+                      key={agent.id}
                       type="button"
-                      aria-pressed={childMode === value}
+                      aria-pressed={childAgent === agent.id}
                       className={`min-h-11 rounded-md border px-3 text-sm font-semibold ${
-                        childMode === value
+                        childAgent === agent.id
                           ? "border-[var(--color-border-info)] bg-[var(--color-background-surface-info-muted)] text-[var(--color-text-info)]"
                           : "border-[var(--color-border-default)] text-[var(--color-text-muted)]"
                       }`}
-                      onClick={() => { setChildMode(value); if (value === "plan") setConfirmedBuild(false); }}
-                      data-testid={`composer-workflow-mode-${value}`}
+                      // Changing the agent always clears the consent: an
+                      // authorization given for one agent is not an
+                      // authorization for the next one.
+                      onClick={() => { setChildAgent(agent.id); setConfirmedBuild(false); }}
+                      data-testid={`composer-workflow-mode-${agent.id}`}
                     >
-                      {value === "plan" ? "Plan · read-only" : "Build · can modify"}
+                      {childAgentLabel(agent)}
                     </button>
                   ))}
                 </div>
+                {selectedChildAgent?.description && (
+                  <p className="mt-2 text-xs text-[var(--color-text-muted)]" data-testid="composer-workflow-agent-description">{selectedChildAgent.description}</p>
+                )}
               </fieldset>
+              {childAgentError && (
+                <Alert variant="danger" data-testid="composer-workflow-agent-error">Agent catalogue unavailable: {childAgentError}</Alert>
+              )}
               <div>
                 <p className="mb-1.5 text-sm font-medium">Model <span className="font-normal text-[var(--color-text-muted)]">(optional)</span></p>
                 <ModelPicker
@@ -313,6 +364,9 @@ export function WorkflowDialog({
                   testId="composer-workflow-model"
                   label="Child model"
                   disabled={busy}
+                  // Without this the picker portals to z-[90] and renders
+                  // BEHIND this z-[95] dialog; "nested" also inerts the parent.
+                  portalLayer="nested"
                 />
               </div>
               <ul className="list-disc space-y-1 pl-5 text-xs text-[var(--color-text-muted)]" data-testid="composer-workflow-managed-notes">
@@ -341,7 +395,7 @@ export function WorkflowDialog({
             )}
             {workflow.id === MANAGED_CHILD_WORKFLOW_ID && (
               <div className="rounded-md border border-[var(--color-border-default)] p-3 text-xs text-[var(--color-text-muted)]">
-                <p><span className="font-medium text-[var(--color-text-default)]">Mode:</span> {childMode === "plan" ? "Plan · read-only" : "Build · can modify"} (fixed at creation)</p>
+                <p data-testid="composer-workflow-agent-summary"><span className="font-medium text-[var(--color-text-default)]">Agent:</span> {selectedChildAgent ? childAgentLabel(selectedChildAgent) : "unavailable"} (fixed at creation)</p>
                 <p className="mt-1"><span className="font-medium text-[var(--color-text-default)]">Model:</span> {childModel ? `${childModel.providerID}/${childModel.modelID}${childModel.variant ? `/${childModel.variant}` : ""}` : "project default"}</p>
                 <p className="mt-1">Independent transcript · no native task card · no automatic hand-back.</p>
               </div>
@@ -361,7 +415,7 @@ export function WorkflowDialog({
             {workflow.id === SESSION_UPDATE_WORKFLOW_ID && (
               <p className="text-xs text-[var(--color-text-muted)]" data-testid="composer-workflow-accepted-note">Delivery is asynchronous: POST /session/{"{target}"}/prompt_async answers 204 for <strong>accepted</strong>, not completed.</p>
             )}
-            {workflow.id === MANAGED_CHILD_WORKFLOW_ID && childMode === "build" && (
+            {workflow.id === MANAGED_CHILD_WORKFLOW_ID && requiresChildAuthorization && (
               <label className="flex min-h-11 items-start gap-3 rounded-md border border-[var(--color-border-default)] bg-[var(--color-background-surface-warning-muted)] p-3 text-sm" data-testid="composer-workflow-build-confirmation">
                 <input
                   type="checkbox"
@@ -370,7 +424,7 @@ export function WorkflowDialog({
                   className="mt-0.5 h-5 w-5 shrink-0"
                   data-testid="composer-workflow-build-confirm"
                 />
-                <span>This child may modify files even when this session is in Plan. I am authorizing that independent Build access.</span>
+                <span>This child may modify files even when this session is in Plan. I am authorizing that independent {selectedChildAgent ? childAgentLabel(selectedChildAgent) : "modify"} access.</span>
               </label>
             )}
             {error && <Alert variant="danger" data-testid="composer-workflow-error">{error}</Alert>}

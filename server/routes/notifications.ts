@@ -132,6 +132,7 @@ export function notificationRoutes(
         const filters = {
           hideAutoApproved: queryFlag(req.query.hideAutoApproved),
           hideSubagent: queryFlag(req.query.hideSubagent),
+          hidePreferenceOff: queryFlag(req.query.hidePreferenceOff),
         };
         const [records, activeCount, appBadge, suppressedActive] = await Promise.all([
           history.list({
@@ -147,6 +148,29 @@ export function notificationRoutes(
           history.suppressedActiveCounts(directory),
         ]);
         res.json({ records, activeCount, appBadgeCount: appBadge.count, appBadgeRevision: appBadge.revision, suppressedActive });
+      })
+      .catch((error: unknown) =>
+        res.status(500).json({ error: error instanceof Error ? error.message : String(error) }),
+      );
+  });
+
+  router.post("/notifications/resolve", (req, res) => {
+    const ids = req.body?.ids;
+    const directory = queryString(req.query.directory);
+    if (
+      !Array.isArray(ids)
+      || ids.length === 0
+      || ids.length > 1_000
+      || ids.some((id) => typeof id !== "string" || !id)
+    ) {
+      res.status(400).json({ error: "body must contain 1 to 1000 notification ids" });
+      return;
+    }
+    history
+      .resolveMany([...new Set(ids)])
+      .then(async (records) => {
+        const appBadge = await history.appBadgeSnapshot();
+        res.json({ records, activeCount: await history.activeCount(directory), appBadgeCount: appBadge.count, appBadgeRevision: appBadge.revision });
       })
       .catch((error: unknown) =>
         res.status(500).json({ error: error instanceof Error ? error.message : String(error) }),

@@ -2,9 +2,19 @@ import type { OpencodeConfig } from "../opencode/client.js";
 import type { EventBus, OpencodeEvent } from "../opencode/events.js";
 import { listPermissions, parsePermissionRequest, type PermissionRequest } from "../opencode/permissions.js";
 import { parseQuestionRequests } from "../opencode/questions.js";
-import { getSessionMetadata, parseSessionMetadata, type SessionMetadata } from "../opencode/sessions.js";
+import {
+  getSessionMetadata,
+  latestAssistantExcerpt,
+  parseSessionMetadata,
+  type SessionMetadata,
+} from "../opencode/sessions.js";
 import { sendNtfy, type NotificationMessage } from "./ntfy.js";
-import { HistoryStore, type NotificationDelivery } from "./history.js";
+import {
+  HistoryStore,
+  type NotificationDelivery,
+  type NotificationRecord,
+  type SuppressionReason,
+} from "./history.js";
 import { PreferenceStore, type NotificationPreferences, type NotifyEvent } from "./preferences.js";
 import { PushSubscriptionStore, sendWebPush } from "./webpush.js";
 import { eventClickUrl } from "../publicAppUrl.js";
@@ -39,6 +49,13 @@ type SessionMetadataLookup = (
 ) => Promise<SessionMetadata | null>;
 
 type SessionKind = "root" | "child" | "unknown";
+
+/** Injected so tests can drive the excerpt without a live transcript. */
+type SessionExcerptLookup = (
+  directory: string,
+  sessionID: string,
+  signal: AbortSignal,
+) => Promise<string | undefined>;
 
 const SESSION_CACHE_LIMIT = 500;
 const SESSION_CACHE_MS = 5 * 60_000;
@@ -180,6 +197,7 @@ export class NotificationService {
   private activeSessionLookups = 0;
   private readonly onEvent = (event: OpencodeEvent) => void this.handle(event);
   private readonly lookupSessionMetadata: SessionMetadataLookup;
+  private readonly lookupSessionExcerpt: SessionExcerptLookup;
 
   constructor(
     private readonly config: OpencodeConfig,
@@ -187,12 +205,49 @@ export class NotificationService {
     private readonly store: PreferenceStore,
     private readonly history: HistoryStore,
     private readonly publicAppUrl: string | null = null,
-    private readonly autoPermissionsEnabled: (directory: string | undefined) => boolean = () => false,
+    private readonly autoPermissionsEnabled: (directory: string | undefined) => boolean | Promise<boolean> = () => false,
     lookupSessionMetadata?: SessionMetadataLookup,
     private readonly pushSubscriptions = new PushSubscriptionStore(),
+    lookupSessionExcerpt?: SessionExcerptLookup,
   ) {
     this.lookupSessionMetadata = lookupSessionMetadata
       ?? ((directory, sessionID, signal) => getSessionMetadata(this.config, directory, sessionID, signal));
+    this.lookupSessionExcerpt = lookupSessionExcerpt
+      ?? ((directory, sessionID, signal) => latestAssistantExcerpt(this.config, directory, sessionID, signal));
+  }
+
+  /**
+   * Bounded excerpt of the agent's final answer, for kinds whose copy is
+   * otherwise identical every single time.
+   *
+   * Only `idle` asks for it. A permission already names its tool, a question
+   * carries its own preview, and an error carries its reason — those rows are
+   * already distinguishable. "Finished its turn and is waiting for you" is not,
+   * which is the whole complaint: three of them from one session say nothing
+   * about which is which.
+   *
+   * Costs one upstream read on the delivery path, so it borrows the session
+   * lookup's discipline exactly: a hard timeout, the shared concurrency budget,
+   * and fail-open to `undefined` rather than delaying or dropping the
+   * notification. A missing excerpt costs the row some specificity; a stalled
+   * notification costs the user the ping.
+   */
+  private async excerptFor(directory: string | undefined, sessionID: string): Promise<string | undefined> {
+    if (!directory || !sessionID) return undefined;
+    if (this.activeSessionLookups >= SESSION_LOOKUP_CONCURRENCY) return undefined;
+    this.activeSessionLookups += 1;
+    try {
+      return await this.lookupSessionExcerpt(
+        directory,
+        sessionID,
+        AbortSignal.timeout(SESSION_LOOKUP_TIMEOUT_MS),
+      );
+    } catch (error) {
+      console.warn("[notification-excerpt]", error instanceof Error ? error.message : String(error));
+      return undefined;
+    } finally {
+      this.activeSessionLookups -= 1;
+    }
   }
 
   start(): void {
@@ -209,8 +264,12 @@ export class NotificationService {
     this.observeSessionMetadata(event);
 
     if (event.type === "permission.replied") {
-      const id = String(event.properties.requestID ?? "");
-      const key = `${event.directory ?? ""}:${id}`;
+      // requestIdOf, not properties.requestID: upstream is inconsistent about
+      // which key carries the id, and reading only one of them collapses the
+      // key to "<dir>:" and cancels nothing — leaving a parked escalation
+      // armed for a permission the user already answered.
+      const id = requestIdOf(event.properties);
+      const key = `${event.directory ?? ""}:${id ?? ""}`;
       const timer = this.timers.get(key);
       if (timer) clearTimeout(timer);
       this.timers.delete(key);
@@ -221,14 +280,18 @@ export class NotificationService {
     if (!kind) return;
 
     const sessionID = String(event.properties.sessionID ?? "");
-    // Sub-agent activity is recorded but never delivered. It used to be
-    // dropped outright, which made "did my delegated child ever finish?"
-    // unanswerable; recording it keeps the audit trail while the default
-    // filter keeps it out of the inbox.
-    const subagent = (await this.sessionKind(event.directory, sessionID)) === "child";
 
-    // Deduplicate before recording: a repeat inside 5s is an upstream echo,
-    // not a second notification, and logging it would inflate the badge.
+    // Deduplicate FIRST, before the session-kind lookup below.
+    //
+    // This used to sit after the lookup, so every upstream echo paid a
+    // round trip and consumed one of only SESSION_LOOKUP_CONCURRENCY slots
+    // before being discarded. That made the sub-agent gate fail open under
+    // exactly the bursts it exists for: a fan-out of children saturated the
+    // budget, the lookup shed to "unknown", and the child's notification was
+    // delivered as though it came from a root session.
+    //
+    // A repeat inside 5s is an upstream echo, not a second notification, and
+    // logging it would inflate the badge.
     const identity = String(event.properties.id ?? event.properties.requestID ?? event.properties.sessionID ?? "");
     const dedupeKey = `${event.directory ?? ""}:${event.type}:${identity}`;
     const now = Date.now();
@@ -240,6 +303,12 @@ export class NotificationService {
       }
     }
 
+    // Sub-agent activity is recorded but never delivered. It used to be
+    // dropped outright, which made "did my delegated child ever finish?"
+    // unanswerable; recording it keeps the audit trail while the default
+    // filter keeps it out of the inbox.
+    const subagent = (await this.sessionKind(event.directory, sessionID)) === "child";
+
     const preferences = await this.store.read();
     const details = kind === "permission" ? permission(event) : null;
     const requestID = requestIdOf(event.properties);
@@ -248,6 +317,9 @@ export class NotificationService {
     // intentionally session-first and lock-screen-safe.
     const historyTitle = genericTitle(kind);
     const historyBody = details ? `${details.permission} requires review` : `Session ${sessionID || "updated"}`;
+    // Suppressed records are never read as an inbox row, so they do not earn an
+    // upstream read; only a delivered `idle` does.
+    const detail = kind === "idle" && !subagent ? await this.excerptFor(event.directory, sessionID) : undefined;
     const message = {
       ...outboundMessage(event, kind, sessionTitle),
       ...(eventClickUrl(this.publicAppUrl, event) ? { click: eventClickUrl(this.publicAppUrl, event) } : {}),
@@ -261,6 +333,10 @@ export class NotificationService {
       title: historyTitle,
       body: historyBody,
       displayBody: inAppMessage(event, kind),
+      // Deliberately absent from `message`/`outboundMessage`: the excerpt is
+      // agent-authored prose for an authenticated in-app row, not something to
+      // push to a third-party relay or a phone lock screen.
+      ...(detail ? { detail } : {}),
       ...(message.click ? { click: message.click } : {}),
     };
 
@@ -269,7 +345,7 @@ export class NotificationService {
         ...common,
         delivery: { ntfy: "off", desktop: "off", webPush: "off", suppressed: "subagent" },
       });
-      this.emitRecorded(record.id, event.directory, sessionID);
+      this.emitRecorded(record, "subagent");
       return;
     }
 
@@ -277,12 +353,12 @@ export class NotificationService {
     // asked?" is exactly the question it should answer — but they are not a
     // decision the user owes anyone, so they are suppressed and, by default,
     // filtered out of the inbox and the badge.
-    if (event.type === "permission.asked" && this.autoPermissionsEnabled(event.directory)) {
+    if (event.type === "permission.asked" && await this.autoPermissionsEnabled(event.directory)) {
       const record = await this.history.append({
         ...common,
         delivery: { ntfy: "off", desktop: "off", webPush: "off", suppressed: "auto-permissions" },
       });
-      this.emitRecorded(record.id, event.directory, sessionID);
+      this.emitRecorded(record, "auto-permissions");
       return;
     }
 
@@ -295,11 +371,21 @@ export class NotificationService {
       ...message,
       badgeCount: badge.count,
       badgeRevision: badge.revision,
+      tag: record.id,
     });
     await this.history.setDelivery(record.id, delivery);
-    this.emitRecorded(record.id, event.directory, sessionID);
+    this.emitRecorded(record, delivery.suppressed);
 
-    if (kind === "permission" && details && event.directory) {
+    // Only arm the escalation if a parked alert could actually reach the user.
+    // It used to arm unconditionally, so switching `parked` off silenced the
+    // ping but still produced a second unresolved record per slow permission —
+    // doubling the badge for anyone who stepped away for 30 seconds.
+    if (
+      kind === "permission"
+      && details
+      && event.directory
+      && !this.preferenceOff(preferences, "parked")
+    ) {
       this.scheduleParked(event.directory, details, preferences.parkedPermissionSeconds);
     }
   }
@@ -411,13 +497,48 @@ export class NotificationService {
     }
   }
 
-  /** Browser nudge emitted only after the durable append completes. */
-  private emitRecorded(id: string, directory: string | undefined, sessionID: string): void {
+  /**
+   * Browser nudge emitted only after the durable append completes.
+   *
+   * Carries the delivery verdict, not just the id, because this is now the
+   * ONLY event the browser is allowed to ring a bell for. The client used to
+   * re-derive the notification kind from raw upstream events, which gave it no
+   * knowledge of session lineage: every delegated child's turn produced a
+   * desktop popup, a sound and speech, while the server filed the same event as
+   * `suppressed: "subagent"` and hid it from the inbox. "I got pinged but
+   * nothing is in my list" was the result, and it is the loudest half of the
+   * over-notification report. The server already decides who gets told; this
+   * hands the browser that decision instead of a second opinion.
+   */
+  private emitRecorded(record: NotificationRecord, suppressed?: SuppressionReason): void {
     this.bus.emit("event", {
       type: "notification.recorded",
-      properties: { id, ...(sessionID ? { sessionID } : {}) },
-      ...(directory ? { directory } : {}),
+      properties: {
+        id: record.id,
+        kind: record.kind,
+        ...(record.sessionID ? { sessionID: record.sessionID } : {}),
+        ...(suppressed ? { suppressed } : {}),
+        ...(record.sessionTitle ? { sessionTitle: record.sessionTitle } : {}),
+        ...(record.displayBody ? { displayBody: record.displayBody } : {}),
+        ...(record.click ? { click: record.click } : {}),
+      },
+      ...(record.directory ? { directory: record.directory } : {}),
     } satisfies OpencodeEvent);
+  }
+
+  /**
+   * True when the user has switched this event kind off in every channel's
+   * event matrix.
+   *
+   * Distinguished from a channel merely being unconfigured: "I never set up
+   * ntfy" is not the same statement as "do not tell me about idle sessions".
+   * Only the second is an instruction, and only the second should keep the
+   * record out of the badge.
+   */
+  private preferenceOff(preferences: NotificationPreferences, event: NotifyEvent): boolean {
+    return !preferences.ntfy.events[event]
+      && !preferences.browser.events[event]
+      && !preferences.webPush.events[event];
   }
 
   /** Send over every enabled channel and report what actually happened. */
@@ -431,6 +552,11 @@ export class NotificationService {
         : "off",
       desktop: preferences.browser.desktop && preferences.browser.events[message.event] ? "allowed" : "off",
       webPush: preferences.webPush.enabled && preferences.webPush.events[message.event] ? "pending" : "off",
+      // Recorded, never delivered, and filtered out of the inbox and the badge
+      // by default — the same bounded-audit-trail treatment the other two
+      // suppression categories get. The record still exists to answer "why was
+      // I never told?".
+      ...(this.preferenceOff(preferences, message.event) ? { suppressed: "preference-off" as const } : {}),
     };
   }
 
@@ -482,6 +608,7 @@ export class NotificationService {
       desktop,
       webPush: webPush.state,
       ...(webPush.state === "failed" || webPush.state === "partial" ? { webPushError: webPush.error } : {}),
+      ...(this.preferenceOff(preferences, message.event) ? { suppressed: "preference-off" as const } : {}),
     };
   }
 
@@ -493,10 +620,10 @@ export class NotificationService {
       key,
       setTimeout(() => {
         this.timers.delete(key);
-        if (this.autoPermissionsEnabled(directory)) return;
-        void this.sessionKind(directory, pending.sessionID)
-          .then((kind) => kind === "child" ? [] : listPermissions(this.config, directory))
-          .then(async (requests) => {
+        void Promise.resolve(this.autoPermissionsEnabled(directory))
+          .then(async (enabled) => {
+            if (enabled || await this.sessionKind(directory, pending.sessionID) === "child") return;
+            const requests = await listPermissions(this.config, directory);
             if (!requests.some((item) => item.id === pending.id)) return;
             const preferences = await this.store.read();
             const parkedEvent: OpencodeEvent = {
@@ -526,11 +653,12 @@ export class NotificationService {
               ...message,
               badgeCount: badge.count,
               badgeRevision: badge.revision,
+              tag: record.id,
             });
             await this.history.setDelivery(record.id, delivery);
             // The parked alert is a separately delivered notification and also
             // stamps its parent permission for the in-app escalation marker.
-            this.emitRecorded(record.id, directory, pending.sessionID);
+            this.emitRecorded(record, delivery.suppressed);
             await this.history.markParked(directory, pending.id);
             this.bus.emit("event", {
               type: "notification.parked",

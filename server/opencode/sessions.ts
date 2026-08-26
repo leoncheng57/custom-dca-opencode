@@ -17,7 +17,7 @@ import { createHash } from "node:crypto";
 import { withReminderTag, type ReminderPreset } from "../reminders/reminders.js";
 import { withWorkflowTag, type WorkflowPreset } from "../workflows/workflows.js";
 import { isSensitiveWorkspacePath } from "../paths.js";
-import { recordInstruction } from "./instruction-audit.js";
+import { recordInstruction, redactInstructionText } from "./instruction-audit.js";
 import { request, requestWithResponse, type OpencodeConfig } from "./client.js";
 import type { VcsFileDiff } from "./workspace.js";
 
@@ -991,8 +991,22 @@ export class ManagedChildConfigurationError extends Error {
   }
 }
 
-function managedChildTitle(text: string): string {
-  const firstLine = text.split(/\r?\n/u, 1)[0]?.replace(/\s+/gu, " ").trim() || "Managed Child";
+/**
+ * The child's persisted session title, derived from its assignment.
+ *
+ * Redacts BEFORE the first line is taken and before the 80-character cap:
+ * truncating first can cut a token into a shape no pattern still matches, and
+ * a title is the single widest leak surface derived from an assignment — it
+ * flows into session summaries, sub-agent rows, Hub titles, breadcrumbs and
+ * persisted notification history, so filtering at render time would have to be
+ * correct in every one of those places. The prompt actually submitted to
+ * OpenCode is never redacted: the child must receive the exact text its human
+ * wrote. This mitigates credential SHAPES in derived metadata; it is not a
+ * licence to carry secrets in an assignment.
+ */
+export function managedChildTitle(text: string): string {
+  const redacted = redactInstructionText(text);
+  const firstLine = redacted.split(/\r?\n/u, 1)[0]?.replace(/\s+/gu, " ").trim() || "Managed Child";
   return firstLine.length > 80 ? `${firstLine.slice(0, 79)}…` : firstLine;
 }
 
@@ -1266,6 +1280,58 @@ export async function listMessages(
     messages: response.data ?? [],
     nextCursor: messagePageCursor(response.headers),
   };
+}
+
+/**
+ * Cap on the agent-output excerpt stored on a notification record.
+ *
+ * Model-authored text on a durable record, so it is bounded before it is
+ * persisted — the same rule as SESSION_TITLE_LIMIT. Longer than a title
+ * because this line exists to tell two notifications from the same session
+ * apart, and the first few words of an agent's answer are often boilerplate.
+ */
+export const SESSION_EXCERPT_LIMIT = 240;
+
+/**
+ * Last thing the agent actually said in a session, for notification copy.
+ *
+ * Reads only the newest page and scans backwards for the newest assistant
+ * turn, joining its text parts. Tool calls, reasoning and user messages are
+ * skipped: the excerpt should read like the answer the user is coming back to.
+ *
+ * Returns undefined rather than a placeholder whenever the transcript does not
+ * clearly supply one — a notification that invents a summary is worse than one
+ * that stays generic.
+ */
+export async function latestAssistantExcerpt(
+  config: OpencodeConfig,
+  directory: string,
+  sessionID: string,
+  signal?: AbortSignal,
+): Promise<string | undefined> {
+  const response = await requestWithResponse<unknown[]>(
+    config,
+    `/session/${encodeURIComponent(sessionID)}/message`,
+    { directory, query: { limit: 1 }, ...(signal ? { signal } : {}) },
+  );
+  const messages = response.data ?? [];
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const entry = messages[index];
+    if (!entry || typeof entry !== "object") continue;
+    const { info, parts } = entry as { info?: { role?: unknown }; parts?: unknown };
+    if (!info || typeof info !== "object" || (info as { role?: unknown }).role !== "assistant") continue;
+    const text = (Array.isArray(parts) ? parts : [])
+      .filter((part): part is { type?: unknown; text?: unknown } => Boolean(part) && typeof part === "object")
+      .filter((part) => part.type === "text" && typeof part.text === "string")
+      .map((part) => part.text as string)
+      .join(" ");
+    const flat = text.replace(/\s+/gu, " ").trim();
+    if (!flat) continue;
+    return flat.length > SESSION_EXCERPT_LIMIT
+      ? `${flat.slice(0, SESSION_EXCERPT_LIMIT - 1)}\u2026`
+      : flat;
+  }
+  return undefined;
 }
 
 export interface Todo {
