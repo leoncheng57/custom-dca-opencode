@@ -1,0 +1,407 @@
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+import {
+  RESOURCE_PREFIX,
+  containerName,
+  createRunID,
+  dockerCreateArgs,
+  exportArtifacts,
+  imageTag,
+  resolveArtifactRoot,
+} from "./e2e-docker.js";
+
+// Two-container isolation proof for the Docker E2E lane (issue #204).
+//
+// The single-container lane only demonstrates that the suite RUNS in a
+// container. The claim that actually justifies the lane is stronger and needs
+// evidence: two simultaneous runs, using byte-identical internal paths, ports,
+// fixture names and session ids, cannot see or damage each other — and neither
+// can reach the host.
+//
+// So this harness does not test a path helper. It starts two real full-suite
+// containers and then attacks one of them:
+//
+//   1. identity      distinct container ids, hostnames and PID/network/mount
+//                    namespace inodes
+//   2. ports         both bind 3410/4599/4600 at the same time, and nothing is
+//                    published to the host
+//   3. fixtures      both own a private /tmp/mock-project with its own .git
+//   4. corruption    container A's fixture is destroyed mid-run; B's index and
+//                    HEAD must be bit-identical afterwards
+//   5. host safety   the host worktree and any host-side /tmp/mock-project must
+//                    be unchanged across the whole exercise
+//   6. survival      A is killed outright; B must still finish and exit 0
+//   7. artifacts     each run exports only into its own directory
+//
+// Every check prints PASS or FAIL and the script exits non-zero if any failed,
+// because a proof that reports success on a partial result is worse than no
+// proof. Deliberately NOT claimed here: that one favourable pair licenses
+// removing the external serialization lock. That needs repeated runs; see the
+// pull request body.
+
+// The acceptance criterion is two FULL suites concurrently, so the lanes take no
+// spec filter. It also gives the attack phase below a comfortable window: a
+// single-spec run can finish before the harness has finished inspecting it.
+const PROOF_ARGS: string[] = [];
+const FIXTURE = "/tmp/mock-project";
+const INTERNAL_PORTS = [3410, 4599, 4600];
+const FIXTURE_WAIT_MS = 240_000;
+
+interface Check {
+  name: string;
+  passed: boolean;
+  detail: string;
+}
+
+const checks: Check[] = [];
+
+function record(name: string, passed: boolean, detail: string): void {
+  checks.push({ name, passed, detail });
+  console.log(`${passed ? "PASS" : "FAIL"}  ${name}\n      ${detail}`);
+}
+
+function docker(args: readonly string[]): { status: number; stdout: string; stderr: string } {
+  const result = spawnSync("docker", args, { encoding: "utf8" });
+  return { status: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
+}
+
+function inside(container: string, script: string): { status: number; stdout: string } {
+  // `sh -c` with a FIXED script authored in this file. No caller-supplied or
+  // container-supplied value is ever interpolated here.
+  const result = docker(["exec", container, "sh", "-c", script]);
+  return { status: result.status, stdout: result.stdout.trim() };
+}
+
+function attempt(args: readonly string[]): void {
+  spawnSync("docker", args, { stdio: "ignore" });
+}
+
+/** Index + HEAD of a fixture repository: changes if any tracked content moves. */
+function fixtureState(container: string): string {
+  const result = inside(
+    container,
+    `cd ${FIXTURE} && git rev-parse HEAD && git ls-files -s && git status --porcelain=v1 --untracked-files=all`,
+  );
+  return result.status === 0 ? result.stdout : `unavailable:${String(result.status)}`;
+}
+
+function digest(value: string): string {
+  return createHash("sha256").update(value).digest("hex").slice(0, 16);
+}
+
+/** Host-side snapshot: the worktree's own commit and dirty set. */
+function hostState(repoRoot: string): string {
+  const head = spawnSync("git", ["-C", repoRoot, "rev-parse", "HEAD"], { encoding: "utf8" });
+  const status = spawnSync("git", ["-C", repoRoot, "status", "--porcelain=v1"], { encoding: "utf8" });
+  const fixture = spawnSync("git", ["-C", FIXTURE, "rev-parse", "HEAD"], { encoding: "utf8" });
+  return [
+    `head=${(head.stdout || "").trim()}`,
+    `status=${digest(status.stdout || "")}`,
+    // Absent on a machine that has never run the host lane; that is fine, the
+    // point is only that this value does not CHANGE.
+    `hostFixtureHead=${(fixture.stdout || "").trim() || "absent"}`,
+  ].join("\n");
+}
+
+/** Synchronous sleep with no subprocess, so the poll loop stays cheap. */
+function sleep(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * Wait until every lane has produced its own Git fixture.
+ *
+ * Three states have to be told apart, and conflating them is what made the first
+ * version of this harness report a false failure: `created` means `docker start`
+ * has not taken effect yet and we must keep waiting, `running` means we can
+ * inspect, and `exited` means the suite finished before we looked — which is a
+ * real setup failure for this harness, not evidence about isolation.
+ *
+ * Lanes are polled together rather than one after the other so a fast lane is
+ * not fully drained before the other is even examined.
+ */
+function waitForFixtures(containers: readonly string[], deadline: number): Record<string, string> {
+  const ready: Record<string, string> = {};
+  while (Date.now() < deadline && Object.keys(ready).length < containers.length) {
+    for (const container of containers) {
+      if (container in ready) continue;
+      const status = docker(["inspect", "-f", "{{.State.Status}}", container]).stdout.trim();
+      if (status === "created") continue;
+      if (status !== "running") {
+        ready[container] = `container reached "${status}" before a fixture was observed`;
+        continue;
+      }
+      const head = inside(container, `test -d ${FIXTURE}/.git && git -C ${FIXTURE} rev-parse HEAD`);
+      if (head.status === 0) ready[container] = `ok:${head.stdout.slice(0, 12)}`;
+    }
+    if (Object.keys(ready).length < containers.length) sleep(500);
+  }
+  for (const container of containers) {
+    ready[container] ??= "timed out waiting for a fixture";
+  }
+  return ready;
+}
+
+function main(): void {
+  const repoRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
+  const proofID = createRunID();
+  const tag = imageTag(proofID);
+  const artifactRoot = resolveArtifactRoot(undefined, repoRoot);
+  const lanes = ["a", "b"].map((suffix) => {
+    const runID = createRunID(new Date(), `proof${suffix}00`);
+    return {
+      label: suffix.toUpperCase(),
+      runID,
+      container: containerName(runID),
+      destination: path.join(artifactRoot, runID),
+      staging: path.join(artifactRoot, `${runID}.staging`),
+      logs: path.join(artifactRoot, `${runID}.stdout.log`),
+    };
+  });
+  const [laneA, laneB] = lanes as [(typeof lanes)[0], (typeof lanes)[0]];
+
+  console.log(`[proof] image ${tag}`);
+  console.log(`[proof] lane A ${laneA.container}`);
+  console.log(`[proof] lane B ${laneB.container}`);
+
+  const timings: Record<string, number> = {};
+  const hostBefore = hostState(repoRoot);
+  let failures = 0;
+
+  try {
+    const buildStarted = Date.now();
+    const build = docker(["build", "-f", path.join(repoRoot, "Dockerfile.e2e"), "-t", tag, repoRoot]);
+    if (build.status !== 0) {
+      console.error(build.stderr);
+      throw new Error("docker build failed");
+    }
+    timings.buildMs = Date.now() - buildStarted;
+
+    // Identical create arguments except the generated name/label: same image,
+    // same command, same internal ports, same fixture paths.
+    for (const lane of lanes) {
+      const create = docker(
+        dockerCreateArgs({
+          runID: lane.runID,
+          tag,
+          sourceSHA: "proof",
+          playwrightArgs: PROOF_ARGS,
+        }),
+      );
+      if (create.status !== 0) {
+        console.error(create.stderr);
+        throw new Error(`docker create failed for lane ${lane.label}`);
+      }
+    }
+
+    // Detached `docker start` rather than `start --attach`: the harness body is
+    // synchronous, so a piped attach would buffer output that never gets read
+    // until the event loop turns. Container output is recovered with
+    // `docker logs` below, which is also the only copy that survives if this
+    // process is interrupted.
+    const makespanStarted = Date.now();
+    for (const lane of lanes) {
+      const started = docker(["start", lane.container]);
+      if (started.status !== 0) {
+        console.error(started.stderr);
+        throw new Error(`docker start failed for lane ${lane.label}`);
+      }
+    }
+
+    // --- 1. namespace and container identity ---------------------------------
+    const ready = waitForFixtures(
+      lanes.map((lane) => lane.container),
+      Date.now() + FIXTURE_WAIT_MS,
+    );
+    const bothReady = lanes.every((lane) => ready[lane.container]?.startsWith("ok:"));
+    record(
+      "both containers reach a private Git fixture",
+      bothReady,
+      lanes.map((lane) => `${lane.label}=${ready[lane.container] ?? "?"}`).join(" "),
+    );
+    if (!bothReady) throw new Error("containers never produced a fixture; cannot prove isolation");
+
+    const idA = docker(["inspect", "-f", "{{.Id}}", laneA.container]).stdout.trim();
+    const idB = docker(["inspect", "-f", "{{.Id}}", laneB.container]).stdout.trim();
+    record("distinct container identities", idA !== "" && idA !== idB, `A=${idA.slice(0, 12)} B=${idB.slice(0, 12)}`);
+
+    const hostnameA = inside(laneA.container, "hostname").stdout;
+    const hostnameB = inside(laneB.container, "hostname").stdout;
+    record("distinct UTS namespaces", hostnameA !== hostnameB, `A=${hostnameA} B=${hostnameB}`);
+
+    for (const namespace of ["pid", "net", "mnt"]) {
+      const nsA = inside(laneA.container, `readlink /proc/self/ns/${namespace}`).stdout;
+      const nsB = inside(laneB.container, `readlink /proc/self/ns/${namespace}`).stdout;
+      record(
+        `distinct ${namespace} namespace`,
+        nsA !== "" && nsA !== nsB,
+        `A=${nsA || "unreadable"} B=${nsB || "unreadable"}`,
+      );
+    }
+
+    // --- 2. identical internal ports, nothing published ----------------------
+    // /proc/net/tcp writes the local port as FOUR upper-case hex digits, so 3410
+    // is `0D52`, not `D52`. Getting that padding wrong is what made the first
+    // run of this harness report two false failures.
+    const portProbe =
+      `${INTERNAL_PORTS.map(
+        (port) => `grep -q ":${port.toString(16).toUpperCase().padStart(4, "0")} " /proc/net/tcp`,
+      ).join(" && ")} && echo all-bound`;
+
+    // Playwright brings the services up in order and the BFF on 3410 is last,
+    // so this waits instead of sampling once.
+    const portDeadline = Date.now() + 120_000;
+    const bound: Record<string, string> = {};
+    while (Date.now() < portDeadline && Object.keys(bound).length < lanes.length) {
+      for (const lane of lanes) {
+        if (lane.container in bound) continue;
+        if (inside(lane.container, portProbe).stdout === "all-bound") bound[lane.container] = "all-bound";
+      }
+      if (Object.keys(bound).length < lanes.length) sleep(500);
+    }
+    for (const lane of lanes) {
+      record(
+        `lane ${lane.label} binds ${INTERNAL_PORTS.join("/")} internally`,
+        bound[lane.container] === "all-bound",
+        bound[lane.container] ?? "not all listeners present before the deadline",
+      );
+    }
+    record(
+      "both lanes hold the same three ports simultaneously",
+      lanes.every((lane) => bound[lane.container] === "all-bound"),
+      `ports ${INTERNAL_PORTS.join("/")} bound inside both namespaces at once`,
+    );
+    for (const lane of lanes) {
+      const ports = docker(["inspect", "-f", "{{json .NetworkSettings.Ports}}", lane.container]).stdout.trim();
+      const published = docker(["port", lane.container]).stdout.trim();
+      record(
+        `lane ${lane.label} publishes no host port`,
+        (ports === "{}" || ports === "null") && published === "",
+        `Ports=${ports} docker-port=${JSON.stringify(published)}`,
+      );
+      const route = inside(lane.container, "ip route show default || echo none").stdout;
+      record(`lane ${lane.label} has no default route`, route === "" || route === "none", `route=${route || "none"}`);
+    }
+
+    // --- 3/4. corruption containment -----------------------------------------
+    const beforeA = fixtureState(laneA.container);
+    const beforeB = fixtureState(laneB.container);
+    record(
+      "each lane owns a separate fixture instance",
+      beforeA !== "" && beforeB !== "",
+      `A=${digest(beforeA)} B=${digest(beforeB)}`,
+    );
+
+    // Destroy A's repository as violently as the runtime user can: remove the
+    // whole .git directory AND a tracked working file.
+    const damage = inside(
+      laneA.container,
+      `rm -rf ${FIXTURE}/.git && rm -f ${FIXTURE}/README.md && echo corrupted && ls -a ${FIXTURE} | head -20`,
+    );
+    record("lane A fixture was really destroyed", damage.stdout.includes("corrupted"), damage.stdout.split("\n")[0] ?? "");
+
+    const afterA = fixtureState(laneA.container);
+    record(
+      "lane A now reports a broken repository",
+      afterA !== beforeA,
+      `before=${digest(beforeA)} after=${digest(afterA)}`,
+    );
+
+    const afterB = fixtureState(laneB.container);
+    record(
+      "lane B fixture is bit-identical after lane A was destroyed",
+      afterB === beforeB,
+      `before=${digest(beforeB)} after=${digest(afterB)}`,
+    );
+
+    const hostAfterDamage = hostState(repoRoot);
+    record(
+      "host worktree and host fixture unchanged by container damage",
+      hostAfterDamage === hostBefore,
+      hostAfterDamage === hostBefore ? "identical" : `before=${digest(hostBefore)} after=${digest(hostAfterDamage)}`,
+    );
+
+    // --- 6. sibling survives a kill ------------------------------------------
+    attempt(["kill", laneA.container]);
+    const stateA = docker(["inspect", "-f", "{{.State.Running}}", laneA.container]).stdout.trim();
+    record("lane A is dead", stateA !== "true", `Running=${stateA}`);
+
+    const runningB = docker(["inspect", "-f", "{{.State.Running}}", laneB.container]).stdout.trim();
+    record("lane B still running immediately after the kill", runningB === "true", `Running=${runningB}`);
+
+    // Wait for B on its own terms.
+    const waitB = docker(["wait", laneB.container]);
+    const exitB = Number(waitB.stdout.trim());
+    timings.makespanMs = Date.now() - makespanStarted;
+    record("lane B completed its suite with exit 0 after its sibling was killed", exitB === 0, `exit=${String(exitB)}`);
+
+    // `docker logs` is read before the containers are removed; it is the only
+    // copy of the runner's own output, including the worker count.
+    let workerDetail = "unknown";
+    for (const lane of lanes) {
+      const logs = docker(["logs", lane.container]);
+      writeFileSync(lane.logs, `${logs.stdout}\n${logs.stderr}`);
+      const workers = /using (\d+) worker/u.exec(`${logs.stdout}\n${logs.stderr}`);
+      if (lane.label === "B") workerDetail = workers?.[1] ?? "unknown";
+    }
+    record(
+      "lane B worker count recorded",
+      workerDetail !== "unknown",
+      `workers=${workerDetail} shm=1g pids-limit=4096 network=none`,
+    );
+
+    const hostFinal = hostState(repoRoot);
+    record(
+      "host state unchanged across the whole exercise",
+      hostFinal === hostBefore,
+      hostFinal === hostBefore ? "identical" : "CHANGED",
+    );
+
+    // --- 7. disjoint artifacts ------------------------------------------------
+    for (const lane of lanes) {
+      mkdirSync(lane.staging, { recursive: true });
+      attempt(["cp", `${lane.container}:/artifacts/.`, lane.staging]);
+      const report = exportArtifacts(lane.staging, lane.destination);
+      rmSync(lane.staging, { recursive: true, force: true });
+      record(
+        `lane ${lane.label} exported into its own directory`,
+        report.files.length > 0 && report.rejected.length === 0,
+        `${String(report.files.length)} files, ${String(report.totalBytes)} bytes -> ${lane.destination}`,
+      );
+    }
+    const disjoint =
+      laneA.destination !== laneB.destination &&
+      !laneA.destination.startsWith(`${laneB.destination}${path.sep}`) &&
+      !laneB.destination.startsWith(`${laneA.destination}${path.sep}`);
+    record("artifact destinations are disjoint", disjoint, `${laneA.destination} vs ${laneB.destination}`);
+  } catch (error) {
+    record("harness completed without an internal error", false, String(error));
+  } finally {
+    for (const lane of lanes) attempt(["rm", "-f", lane.container]);
+    attempt(["rmi", tag]);
+
+    failures = checks.filter((check) => !check.passed).length;
+    const summary = {
+      proofID,
+      spec: PROOF_ARGS.length === 0 ? "full suite" : PROOF_ARGS.join(" "),
+      internalPorts: INTERNAL_PORTS,
+      timings,
+      checks,
+      failures,
+    };
+    writeFileSync(path.join(artifactRoot, `proof-${proofID}.json`), `${JSON.stringify(summary, null, 2)}\n`);
+    console.log(`\n[proof] ${String(checks.length - failures)}/${String(checks.length)} checks passed`);
+    console.log(`[proof] timings ${JSON.stringify(timings)}`);
+    console.log(`[proof] summary ${path.join(artifactRoot, `proof-${proofID}.json`)}`);
+    // Stray-resource sweep is by exact generated name only, never by prefix glob.
+    console.log(`[proof] resource prefix ${RESOURCE_PREFIX}`);
+  }
+
+  process.exit(failures === 0 ? 0 : 1);
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) main();
