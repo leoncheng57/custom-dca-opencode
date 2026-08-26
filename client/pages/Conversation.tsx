@@ -18,7 +18,7 @@ import { ShareExportDialog } from "../components/share-export-dialog.js";
 import { WorkflowDialog } from "../components/workflow-dialog.js";
 import { WorkflowPicker } from "../components/workflow-picker.js";
 import { api, ApiError, formatCost, type ReminderSummary, type SessionSummary, type WorkflowSummary } from "../lib/api.js";
-import { latestModeMessageID, modeFromSession, type AgentMode } from "../lib/agentMode.js";
+import { foreignAgentFromSession, latestModeMessageID, modeFromSession, type AgentMode } from "../lib/agentMode.js";
 import { MAX_IMAGE_ATTACHMENTS, readImageAttachment, selectImageFiles, type ImageAttachment } from "../lib/attachments.js";
 import { createComposerCollapseGuard } from "../lib/composerCollapse.js";
 import { composerEnterAction } from "../lib/composerKeys.js";
@@ -78,6 +78,11 @@ export function ConversationPage() {
   const [activeWorkflow, setActiveWorkflow] = useState<WorkflowSummary | null>(null);
   const [mode, setMode] = useState<AgentMode>("build");
   const [agentIdentityKnown, setAgentIdentityKnown] = useState(false);
+  // A session driven by an arbitrary roster agent (issue #52, narrowed):
+  // identity is preserved and displayed, never remapped to Plan/Build.
+  const [foreignAgent, setForeignAgent] = useState<string | null>(null);
+  // null = unchecked, true/false = live roster verdict. Only true enables send.
+  const [foreignAgentAvailable, setForeignAgentAvailable] = useState<boolean | null>(null);
   const derivedModeMessage = useRef<string | undefined>(undefined);
   const modeSelectionDirty = useRef(false);
   const [replyingPermission, setReplyingPermission] = useState<string | null>(null);
@@ -156,16 +161,46 @@ export function ConversationPage() {
     if (managedAgent) {
       modeSelectionDirty.current = false;
       setAgentIdentityKnown(true);
+      setForeignAgent(null);
       setMode(managedAgent === "plan" || managedAgent === "explore" ? "plan" : "build");
       return;
     }
     const persistedMode = modeFromSession(session?.agent, stream.messages as RawMessage[]);
-    setAgentIdentityKnown(persistedMode !== undefined);
-    if (!persistedMode) return;
-    if (modeSelectionDirty.current && persistedMode !== mode) return;
-    modeSelectionDirty.current = false;
-    setMode(persistedMode);
+    if (persistedMode) {
+      setForeignAgent(null);
+      setAgentIdentityKnown(true);
+      if (modeSelectionDirty.current && persistedMode !== mode) return;
+      modeSelectionDirty.current = false;
+      setMode(persistedMode);
+      return;
+    }
+    // Not Plan/Build: a consistent foreign identity is promptable with its own
+    // agent once the live roster confirms the agent still exists.
+    const foreign = foreignAgentFromSession(session?.agent, stream.messages as RawMessage[]) ?? null;
+    setForeignAgent(foreign);
+    setAgentIdentityKnown(false);
   }, [mode, session?.agent, session?.managed?.requestedAgent, stream.loaded, stream.messages]);
+
+  useEffect(() => {
+    if (!foreignAgent || !directory) {
+      setForeignAgentAvailable(null);
+      return;
+    }
+    let cancelled = false;
+    setForeignAgentAvailable(null);
+    void api.sessionAgents(directory)
+      .then((result) => {
+        if (cancelled) return;
+        setForeignAgentAvailable(result.agents.some((agent) => agent.id === foreignAgent));
+      })
+      .catch(() => {
+        // Roster unavailable = agent unverifiable = keep the composer closed.
+        if (!cancelled) setForeignAgentAvailable(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [directory, foreignAgent]);
 
   const selectMode = (nextMode: AgentMode) => {
     modeSelectionDirty.current = true;
@@ -425,6 +460,9 @@ export function ConversationPage() {
     textarea.style.height = `${textarea.scrollHeight}px`;
   }, [draft]);
 
+  const foreignReady = foreignAgent !== null && foreignAgentAvailable === true;
+  const canPrompt = agentIdentityKnown || foreignReady;
+
   const send = async () => {
     const text = draft.trim();
     if (!text) return;
@@ -436,7 +474,7 @@ export function ConversationPage() {
         directory,
         id,
         text,
-        mode,
+        foreignReady && foreignAgent ? { agent: foreignAgent } : { mode },
         modelOverride,
         attachments,
         selectedReminder || undefined,
@@ -455,7 +493,8 @@ export function ConversationPage() {
       stream.refresh();
     } catch (error) {
       if (error instanceof ApiError &&
-          (error.code === "SESSION_AGENT_UNKNOWN" || error.code === "SESSION_AGENT_UNSUPPORTED")) {
+          (error.code === "SESSION_AGENT_UNKNOWN" || error.code === "SESSION_AGENT_UNSUPPORTED" ||
+            error.code === "SESSION_AGENT_MISMATCH" || error.code === "SESSION_AGENT_UNAVAILABLE")) {
         setComposerError(error.message);
       } else {
         setComposerError(`Could not send the prompt: ${error instanceof Error ? error.message : String(error)}`);
@@ -481,7 +520,7 @@ export function ConversationPage() {
         coarsePointer: window.matchMedia("(pointer: coarse)").matches,
         // `send()` has no re-entry guard and prompt_async returns as soon as
         // the turn is queued, so a fast double Enter would post two turns.
-        canSubmit: agentIdentityKnown && !sending && draft.trim().length > 0,
+        canSubmit: canPrompt && !sending && draft.trim().length > 0,
       },
     );
     if (action.preventDefault) event.preventDefault();
@@ -820,6 +859,12 @@ export function ConversationPage() {
               <div className="flex min-h-10 items-center rounded-md border border-[var(--color-border-default)] bg-[var(--color-background-surface-neutral-muted)] px-3 text-sm" data-testid="opencode-managed-child-agent-fixed">
                 Managed Child · <span className="ml-1 font-semibold">{session.managed.requestedAgent[0].toUpperCase() + session.managed.requestedAgent.slice(1)}</span>
               </div>
+            ) : foreignAgent ? (
+              // Identity is preserved, never remapped: the session's own agent
+              // is the only prompt identity offered here (issue #52, narrowed).
+              <div className="flex min-h-10 items-center rounded-md border border-[var(--color-border-default)] bg-[var(--color-background-surface-neutral-muted)] px-3 text-sm" data-testid="opencode-session-agent-fixed" data-available={foreignAgentAvailable === null ? "checking" : String(foreignAgentAvailable)}>
+                Agent · <span className="ml-1 font-semibold">{foreignAgent}</span>
+              </div>
             ) : (
               <AgentModeToggle mode={agentIdentityKnown ? mode : undefined} onChange={selectMode} disabled={!agentIdentityKnown} testId="opencode-composer-mode" />
             )}
@@ -840,8 +885,14 @@ export function ConversationPage() {
             >
               <ChevronDown aria-hidden="true" className="h-4 w-4" />
             </button>
-            <span className={`${!agentIdentityKnown || selectedModel && !sameModel(selectedModel, currentModel) ? "block" : "hidden"} basis-full text-[11px] text-[var(--color-text-muted)]`} data-testid="opencode-current-model">
-              {!agentIdentityKnown ? "Agent identity unavailable; continue in the TUI or create a web session" : "switches next message"}
+            <span className={`${!canPrompt || selectedModel && !sameModel(selectedModel, currentModel) ? "block" : "hidden"} basis-full text-[11px] text-[var(--color-text-muted)]`} data-testid="opencode-current-model">
+              {canPrompt
+                ? "switches next message"
+                : foreignAgent && foreignAgentAvailable === false
+                  ? `Agent "${foreignAgent}" is not available on the connected server; the session cannot be prompted from here.`
+                  : foreignAgent
+                    ? `Verifying agent "${foreignAgent}" against the live roster…`
+                    : "Agent identity unavailable; continue in the TUI or create a web session"}
             </span>
           </div>
           {attachments.length > 0 && <div className="mb-2 flex flex-wrap gap-2">{attachments.map((attachment, index) => <button key={`${attachment.filename}-${index}`} type="button" onClick={() => setAttachments((items) => items.filter((_, itemIndex) => itemIndex !== index))} className="rounded border border-[var(--color-border-default)] px-2 py-1 text-xs" data-testid="opencode-attachment-chip">{attachment.filename} x</button>)}</div>}
@@ -926,7 +977,7 @@ export function ConversationPage() {
                 />
               )}
               <span className="flex-1" aria-hidden="true" />
-              <Button size="sm" className="min-h-11 shrink-0 sm:min-h-8" onClick={() => void send()} disabled={!agentIdentityKnown || sending || !draft.trim()} data-testid="opencode-send">
+              <Button size="sm" className="min-h-11 shrink-0 sm:min-h-8" onClick={() => void send()} disabled={!canPrompt || sending || !draft.trim()} data-testid="opencode-send">
                 {sending ? "Sending…" : "Send"}
               </Button>
             </div>

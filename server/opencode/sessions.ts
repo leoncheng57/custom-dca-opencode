@@ -110,17 +110,30 @@ export class ModePolicyActivationError extends Error {
   }
 }
 
-export type SessionAgentIdentityErrorCode = "SESSION_AGENT_UNKNOWN" | "SESSION_AGENT_UNSUPPORTED";
+export type SessionAgentIdentityErrorCode =
+  | "SESSION_AGENT_UNKNOWN"
+  | "SESSION_AGENT_UNSUPPORTED"
+  | "SESSION_AGENT_MISMATCH";
 
 export class SessionAgentIdentityError extends Error {
   constructor(
     readonly code: SessionAgentIdentityErrorCode,
     readonly agent?: string,
   ) {
-    super(agent
-      ? `This session uses OpenCode agent "${agent}". The web UI can only prompt Plan or Build sessions; continue it in the TUI or create a web session.`
-      : "This session's OpenCode agent could not be established. Continue it in the TUI or create a web Plan or Build session.");
+    super(code === "SESSION_AGENT_MISMATCH"
+      ? `This session is driven by OpenCode agent "${agent}". Prompt it with that agent; switching a session to a different agent is not supported.`
+      : agent
+        ? `This session uses OpenCode agent "${agent}". Prompt it with that agent explicitly, or continue it in the TUI.`
+        : "This session's OpenCode agent could not be established. Continue it in the TUI or create a web Plan or Build session.");
     this.name = "SessionAgentIdentityError";
+  }
+}
+
+/** The connected server's live roster no longer offers the requested agent. */
+export class SessionAgentUnavailableError extends Error {
+  constructor(readonly agent: string) {
+    super(`OpenCode agent "${agent}" is not available on the connected server; the prompt was not sent.`);
+    this.name = "SessionAgentUnavailableError";
   }
 }
 
@@ -174,9 +187,13 @@ function hasPlanDenial(rules: PermissionRuleset, toolIDs: string[]): boolean {
   });
 }
 
-function assertModeAgentIdentity(session: RawSession, messages: RawMessage[]): void {
-  // User messages persist the selected/session-driving agent. Assistant agents
-  // include internal execution identities such as the automatic compactor.
+/**
+ * The agents a session's identity is composed of: the session record's agent
+ * plus the latest user message's agent. User messages persist the
+ * selected/session-driving agent; assistant agents include internal execution
+ * identities such as the automatic compactor and are not identity.
+ */
+function drivingAgents(session: RawSession, messages: RawMessage[]): string[] {
   let messageAgent: string | undefined;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const info = messages[index].info;
@@ -184,8 +201,12 @@ function assertModeAgentIdentity(session: RawSession, messages: RawMessage[]): v
     messageAgent = info.agent;
     break;
   }
-  const agents = [session.agent, messageAgent]
+  return [session.agent, messageAgent]
     .filter((agent): agent is string => typeof agent === "string" && agent.length > 0);
+}
+
+function assertModeAgentIdentity(session: RawSession, messages: RawMessage[]): void {
+  const agents = drivingAgents(session, messages);
   const unsupported = agents.find((agent) => agent !== "plan" && agent !== "build");
   if (unsupported) throw new SessionAgentIdentityError("SESSION_AGENT_UNSUPPORTED", unsupported);
   if (agents.length === 0) throw new SessionAgentIdentityError("SESSION_AGENT_UNKNOWN");
@@ -843,6 +864,76 @@ export async function prompt(
   await withSessionPromptLock(directory, sessionID, async () => {
     await activateModePolicy(config, directory, sessionID, input.mode);
     await submitPromptAsync(config, directory, sessionID, input);
+  });
+}
+
+export interface SessionAgentSummary {
+  id: string;
+  description?: string;
+}
+
+/**
+ * Agents a session prompt may name (issue #52, narrowed): the live roster
+ * minus hidden internals and delegation-only subagents. Plan and Build stay in
+ * the list — they remain the only agents whose prompts activate session
+ * policy — so the catalogue is the single source for the composer's choices.
+ */
+export async function listSessionAgents(
+  config: OpencodeConfig,
+  directory: string,
+): Promise<SessionAgentSummary[]> {
+  const agents = await managedAgentCatalogue(config, directory);
+  return agents
+    .filter((agent): agent is RawAgent & { name: string } =>
+      typeof agent?.name === "string" && agent.name.length > 0 && agent.hidden !== true && agent.mode !== "subagent")
+    .map((agent) => ({
+      id: agent.name,
+      ...(typeof agent.description === "string" && agent.description ? { description: agent.description } : {}),
+    }));
+}
+
+/**
+ * Prompt a session with the arbitrary agent identity it already has.
+ *
+ * The narrowed #52 contract:
+ * - identity is preserved, never remapped — the named agent must equal the
+ *   session's own driving agent, so this can never switch a session's agent;
+ * - no Plan/Build session permission rules are applied or patched; the
+ *   agent's own configured policy (plus any existing session ceiling) governs
+ *   the turn;
+ * - the agent must still exist, visible and session-capable, on the live
+ *   roster — a vanished agent fails loudly before anything is sent.
+ * Plan and Build are excluded here because their prompts must keep flowing
+ * through the policy-activating path.
+ */
+export async function promptSessionAgent(
+  config: OpencodeConfig,
+  directory: string,
+  sessionID: string,
+  input: Omit<PromptInput, "mode"> & { agent: string },
+): Promise<void> {
+  await withSessionPromptLock(directory, sessionID, async () => {
+    const [session, messages, roster] = await Promise.all([
+      request<RawSession>(config, `/session/${encodeURIComponent(sessionID)}`, { directory }),
+      request<RawMessage[]>(config, `/session/${encodeURIComponent(sessionID)}/message`, {
+        directory,
+        query: { limit: 100 },
+      }),
+      listSessionAgents(config, directory),
+    ]);
+    const identity = drivingAgents(session, messages ?? []);
+    if (identity.length === 0) throw new SessionAgentIdentityError("SESSION_AGENT_UNKNOWN");
+    const mismatch = identity.find((agent) => agent !== input.agent);
+    if (mismatch) throw new SessionAgentIdentityError("SESSION_AGENT_MISMATCH", mismatch);
+    if (!roster.some((agent) => agent.id === input.agent)) {
+      throw new SessionAgentUnavailableError(input.agent);
+    }
+    await submitPromptAsync(config, directory, sessionID, {
+      ...input,
+      // `mode` is unused when `agent` is present; submit sends agent verbatim.
+      mode: "build",
+      agent: input.agent,
+    });
   });
 }
 

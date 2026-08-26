@@ -36,7 +36,10 @@ import {
   isManagedChildAgent,
   managedChildAccess,
   listManagedChildAgents,
+  listSessionAgents,
+  promptSessionAgent,
   SessionAgentIdentityError,
+  SessionAgentUnavailableError,
   type AgentMode,
 } from "../opencode/sessions.js";
 import { listSubagents, promoteSubagentToBackground } from "../opencode/subagents.js";
@@ -130,6 +133,22 @@ function promptMode(value: unknown): AgentMode {
   return value;
 }
 
+/**
+ * Optional explicit agent identity for a prompt (issue #52, narrowed).
+ * Exclusive with `mode`: Plan/Build keep the policy-activating path, so a
+ * request must pick one contract or the other rather than blending them.
+ */
+function promptAgent(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || !/^[a-z0-9][a-z0-9_-]{0,63}$/iu.test(value)) {
+    throw new HttpError(400, "agent must be a short agent identifier");
+  }
+  if (value === "plan" || value === "build") {
+    throw new HttpError(400, "prompt Plan or Build through 'mode', which activates session policy");
+  }
+  return value;
+}
+
 async function selectedModel(
   config: OpencodeConfig,
   directory: string,
@@ -203,6 +222,10 @@ function fail(res: Response, error: unknown, options: { notFoundOn5xx?: boolean 
     res.status(409).json({ error: error.message, code: error.code, agent: error.agent });
     return;
   }
+  if (error instanceof SessionAgentUnavailableError) {
+    res.status(409).json({ error: error.message, code: "SESSION_AGENT_UNAVAILABLE", agent: error.agent });
+    return;
+  }
   if (error instanceof ModelCatalogueError) {
     res.status(502).json({ error: error.message });
     return;
@@ -256,6 +279,14 @@ export function sessionRoutes(
     asyncRoute(async (req, res) => {
       const directory = await directoryOf(req);
       res.json(await getModelCatalogue(config, directory));
+    }),
+  );
+
+  router.get(
+    "/session-agents",
+    asyncRoute(async (req, res) => {
+      const directory = await directoryOf(req);
+      res.json({ agents: await listSessionAgents(config, directory) });
     }),
   );
 
@@ -436,6 +467,10 @@ export function sessionRoutes(
         throw new HttpError(400, "'text' is required");
       }
       const sessionID = paramOf(req, "id");
+      const agent = promptAgent(req.body?.agent);
+      if (agent !== undefined && req.body?.mode !== undefined) {
+        throw new HttpError(400, "'agent' and 'mode' are exclusive");
+      }
       const input = {
         text,
         mode: promptMode(req.body?.mode),
@@ -463,6 +498,7 @@ export function sessionRoutes(
         }
         await promptManagedChild(config, directory, sessionID, input);
       }
+      else if (agent !== undefined) await promptSessionAgent(config, directory, sessionID, { ...input, agent });
       else await prompt(config, directory, sessionID, input);
       // 202: accepted, running server-side. Progress arrives over SSE.
       res.status(202).json({ accepted: true });

@@ -33,6 +33,27 @@ export function modeFromMessages(messages: RawMessage[]): AgentMode | undefined 
   return modeFromSession(undefined, messages);
 }
 
+/**
+ * The single foreign agent identity driving a session, when there is one.
+ *
+ * Mirrors the server's identity rule: session agent and the latest user
+ * message agent must agree (or one be absent). Plan/Build sessions return
+ * undefined here — they are the mode toggle's domain — as do sessions with
+ * conflicting or missing identity, which stay unpromptable.
+ */
+export function foreignAgentFromSession(
+  sessionAgent: string | undefined,
+  messages: RawMessage[],
+): string | undefined {
+  const messageAgent = latestUserAgent(messages);
+  const agents = [...new Set(
+    [sessionAgent, messageAgent]
+      .filter((agent): agent is string => typeof agent === "string" && agent.length > 0),
+  )];
+  if (agents.length !== 1) return undefined;
+  return agents[0] === "plan" || agents[0] === "build" ? undefined : agents[0];
+}
+
 export function latestModeMessageID(messages: RawMessage[]): string | undefined {
   return latestModeMessage(messages)?.info?.id;
 }
