@@ -285,6 +285,15 @@ const messages = new Map<string, unknown[]>([
   ["ses_mock_foreign_agent", [
     { info: { id: "msg_foreign", role: "user", agent: "explore", time: { created: 1787300000000 } }, parts: [], },
   ]],
+  ["ses_mock_agent_reviewer", [
+    {
+      info: { id: "msg_reviewer", role: "user", agent: "reviewer", time: { created: 1787420000000 } },
+      parts: [{ id: "prt_reviewer", messageID: "msg_reviewer", type: "text", text: "Review the diff." }],
+    },
+  ]],
+  ["ses_mock_agent_departed", [
+    { info: { id: "msg_departed", role: "user", agent: "departed", time: { created: 1787420001000 } }, parts: [] },
+  ]],
   ["ses_mock_identity_mismatch", [
     { info: { id: "msg_mismatch", role: "user", agent: "explore", time: { created: 1787300050000 } }, parts: [], },
   ]],
@@ -329,6 +338,11 @@ const agents = [
     ...buildPermission,
     { permission: "todowrite", pattern: "*", action: "deny" as const },
   ] },
+  // Session-capable foreign agent for the narrowed #52 path: promptable with
+  // its own identity, never remapped to Plan/Build.
+  { name: "reviewer", mode: "primary", description: "Code review specialist", options: {}, permission: buildPermission },
+  // Hidden internals must never appear in the session-agent catalogue.
+  { name: "secretive", mode: "primary", hidden: true, description: "Internal agent", options: {}, permission: buildPermission },
 ];
 
 function globMatches(pattern: string, value: string): boolean {
@@ -392,9 +406,12 @@ const MANAGED_SUBAGENT_DIRECTORY_INPUT = "/tmp/mock-managed-subagent-project";
 // managed child under ses_mock_workflow_main, so the fixtures live in a
 // directory only workflows.ui.spec.ts uses.
 const WORKFLOW_DIRECTORY_INPUT = "/tmp/mock-workflow-project";
+// Owned by session-agents.spec.ts: foreign-identity prompting fixtures.
+const SESSION_AGENT_DIRECTORY_INPUT = "/tmp/mock-session-agents-project";
 mkdirSync(SUBAGENT_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(MANAGED_SUBAGENT_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(WORKFLOW_DIRECTORY_INPUT, { recursive: true });
+mkdirSync(SESSION_AGENT_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(MOCK_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(SECOND_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(AUTO_DIRECTORY_INPUT, { recursive: true });
@@ -415,6 +432,7 @@ const POLICY_FAILURE_DIRECTORY = realpathSync(POLICY_FAILURE_DIRECTORY_INPUT);
 export const SUBAGENT_DIRECTORY = realpathSync(SUBAGENT_DIRECTORY_INPUT);
 export const MANAGED_SUBAGENT_DIRECTORY = realpathSync(MANAGED_SUBAGENT_DIRECTORY_INPUT);
 export const WORKFLOW_DIRECTORY = realpathSync(WORKFLOW_DIRECTORY_INPUT);
+const SESSION_AGENT_DIRECTORY = realpathSync(SESSION_AGENT_DIRECTORY_INPUT);
 if (!existsSync(path.join(MOCK_DIRECTORY, ".git"))) {
   execFileSync("git", ["init", "-q", MOCK_DIRECTORY]);
   writeFileSync(path.join(MOCK_DIRECTORY, "README.md"), "# Mock project\n");
@@ -790,6 +808,27 @@ const SESSIONS: Array<Record<string, any>> = [
     cost: 0,
     tokens: {},
     time: { created: 1787410000000, updated: 1787410000000 },
+  },
+  {
+    id: "ses_mock_agent_reviewer",
+    title: "Review session driven by a foreign agent",
+    directory: SESSION_AGENT_DIRECTORY,
+    agent: "reviewer",
+    model: { providerID: "anthropic", id: "claude-opus-5" },
+    permission: [],
+    cost: 0,
+    tokens: {},
+    time: { created: 1787420000000, updated: 1787420000000 },
+  },
+  {
+    id: "ses_mock_agent_departed",
+    title: "Session whose agent left the roster",
+    directory: SESSION_AGENT_DIRECTORY,
+    agent: "departed",
+    permission: [],
+    cost: 0,
+    tokens: {},
+    time: { created: 1787420001000, updated: 1787420001000 },
   },
   {
     id: MANAGED_UI_PARENT,

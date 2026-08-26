@@ -20,6 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api, ApiError, type PermissionRequest, type QuestionRequest } from "./api.js";
 import type { RawMessage } from "./events.js";
+import { PUBLIC_SIMULATOR } from "./runtime.js";
 import {
   appendOlderPage,
   emptyTranscriptPages,
@@ -204,6 +205,7 @@ export function useSessionStream(directory: string, sessionId: string): SessionS
 
   // SSE nudge channel.
   useEffect(() => {
+    if (PUBLIC_SIMULATOR) return;
     let source: EventSource | null = null;
     let retries = 0;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;

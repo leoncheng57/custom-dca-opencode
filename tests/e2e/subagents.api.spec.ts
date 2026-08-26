@@ -25,6 +25,8 @@ interface Task {
   present: boolean;
   agent?: string;
   description?: string;
+  origin?: string;
+  model?: { providerID: string; modelID: string };
 }
 
 test.describe("GET /api/sessions/:id/subagents", () => {
@@ -37,6 +39,11 @@ test.describe("GET /api/sessions/:id/subagents", () => {
     expect(byId.size).toBe(6);
     expect(byId.get(CHILD_RUNNING)).toMatchObject({ state: "running", evidence: "session-status" });
     expect(byId.get(CHILD_DONE)).toMatchObject({ state: "completed", evidence: "child-transcript" });
+    // Native rows carry the model the task tool resolved, as provenance (#90).
+    expect(byId.get(CHILD_DONE)).toMatchObject({
+      origin: "native-task",
+      model: { providerID: "anthropic", modelID: "claude-opus-5" },
+    });
     // Its own last turn never finished; only the parent's hand-back settles it.
     expect(byId.get(CHILD_REPORTED)).toMatchObject({ state: "completed", evidence: "parent-completion" });
     // The parent's task part reports "completed" for this one, but it was a

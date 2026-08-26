@@ -128,6 +128,43 @@ npm run typecheck
 npm test
 npm run build
 npm run test:e2e
+npm run test:preview
+```
+
+### Interactive PR previews
+
+Every same-repository pull request receives a public, interactive simulator at
+`https://leoncheng.dev/custom-dca-opencode/pr-previews/pr-<number>/`. The **PR preview**
+workflow runs on `opened`, `reopened`, and every `synchronize` event, so each pushed commit
+rebuilds the preview. It tests the production bundle in Chromium, publishes only that PR's
+directory on `gh-pages`, creates a transient GitHub Deployment, and updates one
+`<!-- pr-preview -->` comment with the current commit and URL. Closing the PR removes the
+directory and comment and marks its deployment environment inactive.
+
+The preview is the actual PR client bundle with an in-browser BFF simulator. It includes
+projects, sessions, transcripts, Plan/Build controls, models, tasks, sub-agents, workspace
+files and changes, tools, settings, notifications, docs, and planning fixtures. Mutating
+controls update tab-local memory so reviewers can exercise flows without an OpenCode
+process. Reloading restores the deterministic fixture. The simulator uses hash routing so
+all client routes remain reload-safe below the PR-specific Pages path.
+
+No `.env` file, OpenCode password, AI provider key, GitHub token, repository secret, host
+filesystem, or live conversation enters the bundle. The simulator does not register the
+production service worker or publish a PWA manifest. Forks still run the read-only build
+and retain the 30-day artifact, but are not published: executing a fork's JavaScript on the
+repository's Pages origin is not an acceptable convenience tradeoff.
+
+The artifact carries a full SHA/size inventory bound to the PR number, source commit, and
+base path. Publication revalidates that inventory, rejects links and unsafe paths, caps the
+file count and total bytes, and writes through the same non-force `gh-pages` concurrency
+lock as screenshots and the public website. GitHub Pages must remain configured to deploy
+the `gh-pages` branch from `/(root)`.
+
+Run the same simulator smoke test locally with:
+
+```bash
+npx playwright install chromium
+npm run test:preview
 ```
 
 ### PR screenshots

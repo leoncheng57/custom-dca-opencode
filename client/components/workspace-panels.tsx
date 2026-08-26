@@ -5,6 +5,7 @@ import { Button } from "../ds/button.js";
 import { WorkspaceFiles } from "./workspace-files.js";
 import { api, type GitCommit, type VcsFileDiff } from "../lib/api.js";
 import type { WorkspaceTarget } from "../lib/fileReferences.js";
+import { PUBLIC_SIMULATOR } from "../lib/runtime.js";
 
 type Tab = "files" | "changes" | "preview";
 
@@ -13,14 +14,17 @@ export function WorkspacePanels({
   onClose,
   target,
   onTargetConsumed,
+  initialTab = "files",
 }: {
   directory: string;
   onClose: () => void;
   /** Set when the drawer was opened by following a transcript reference. */
   target?: WorkspaceTarget | null;
   onTargetConsumed?: () => void;
+  /** Tab the opener asked for; a file reference still wins (see below). */
+  initialTab?: Tab;
 }) {
-  const [tab, setTab] = useState<Tab>("files");
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [changes, setChanges] = useState<VcsFileDiff[]>([]);
   const [selectedChange, setSelectedChange] = useState(0);
   const [mode, setMode] = useState<"git" | "branch">("git");
@@ -86,8 +90,18 @@ export function WorkspacePanels({
             <label className="flex items-center gap-2 text-sm">Port <input value={port} onChange={(event) => setPort(event.target.value.replace(/\D/g, ""))} className="w-24 rounded-md border border-[var(--color-border-default)] bg-transparent p-2" data-testid="opencode-preview-port" /></label>
             <Button variant="secondary" onClick={() => setPreviewKey((key) => key + 1)} data-testid="opencode-preview-reload">Load / Reload</Button>
           </div>
-          <iframe key={previewKey} src={`/api/preview/${port}/`} title="Application preview" sandbox="allow-forms allow-modals allow-popups allow-scripts" className="min-h-0 flex-1 rounded border border-[var(--color-border-default)] bg-white" data-testid="opencode-preview-frame" />
-          <p className="mt-2 text-xs text-[var(--color-text-muted)]">Read-only proxy only. Start the app separately and configure its base path for this URL.</p>
+          <iframe
+            key={previewKey}
+            src={PUBLIC_SIMULATOR ? undefined : `/api/preview/${port}/`}
+            srcDoc={PUBLIC_SIMULATOR ? "<!doctype html><html><body><main><h1>Simulated application preview</h1><p>This frame demonstrates the preview panel without contacting a local port.</p><button type='button'>Example action</button></main></body></html>" : undefined}
+            title="Application preview"
+            sandbox="allow-forms allow-modals allow-popups allow-scripts"
+            className="min-h-0 flex-1 rounded border border-[var(--color-border-default)] bg-white"
+            data-testid="opencode-preview-frame"
+          />
+          <p className="mt-2 text-xs text-[var(--color-text-muted)]">
+            {PUBLIC_SIMULATOR ? "Fixture frame only. Public previews cannot reach localhost." : "Read-only proxy only. Start the app separately and configure its base path for this URL."}
+          </p>
         </div>
       )}
     </section>
