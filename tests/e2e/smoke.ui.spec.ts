@@ -1407,6 +1407,10 @@ test.describe("settings and tools UI", () => {
     });
 
     await page.goto("/settings/notifications");
+    // Grouping ships on and folded, so the rows sit behind their session
+    // header. Opening them writes the persisted default, which is what keeps
+    // them open across the reloads below.
+    await page.getByTestId("opencode-notification-groups-expand-all").click();
     const badge = page.getByTestId("opencode-nav-notifications-badge");
     const bell = page.getByTestId("opencode-nav-notifications");
     // The exact count lives on the bell's accessible label, which is the real

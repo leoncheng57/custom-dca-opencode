@@ -624,6 +624,22 @@ describe("notification history", () => {
     expect(await history.activeCount()).toBe(4);
   });
 
+  it("serves a page wide enough to group a full retained log", async () => {
+    // Grouping counts the rows it renders, so a page that stops at the old 200
+    // would make every group header understate a busy session. Unresolved
+    // delivered records are never pruned, so the log itself can exceed the
+    // 500-per-category retention cap.
+    const history = historyStore();
+    const delivery = { ntfy: "off", desktop: "allowed" } as const;
+    for (let index = 0; index < 260; index += 1) {
+      await history.append({ kind: "idle", title: `idle ${index}`, body: "", delivery });
+    }
+
+    expect(await history.list({ limit: 1000 })).toHaveLength(260);
+    // The clamp is still a clamp; it just sits high enough to be irrelevant.
+    expect(await history.list({ limit: 50 })).toHaveLength(50);
+  });
+
   it("caps the ring buffer and round-trips through disk", async () => {
     const file = path.join(os.tmpdir(), `dca-history-cap-${Date.now()}.json`);
     const history = new HistoryStore(file, 3);

@@ -1,3 +1,4 @@
+import { Button } from "../ds/button.js";
 import { cn } from "../ds/utils.js";
 import type { SuppressedActiveCounts } from "../lib/api.js";
 import type { NotificationViewPreferences } from "../lib/notificationView.js";
@@ -15,16 +16,24 @@ import type { NotificationViewPreferences } from "../lib/notificationView.js";
  *
  * Each label carries the number of unresolved rows it is responsible for
  * hiding, so the filter states its own cost instead of quietly swallowing work.
+ *
+ * Grouping sits alongside them but is a different kind of control: it hides no
+ * record and is never sent to the server, so it carries no count. Its
+ * expand/collapse companion writes the persisted default rather than a
+ * transient view state, which is what lets a device settle on dense or open
+ * once instead of every visit.
  */
 export function NotificationFilters({
   view,
   onChange,
   suppressedActive,
+  onAllGroupsCollapsedChange,
   className,
 }: {
   view: NotificationViewPreferences;
   onChange: (patch: Partial<NotificationViewPreferences>) => void;
   suppressedActive: SuppressedActiveCounts;
+  onAllGroupsCollapsedChange?: (collapsed: boolean) => void;
   className?: string;
 }) {
   const options = [
@@ -70,6 +79,29 @@ export function NotificationFilters({
           )}
         </label>
       ))}
+      <label
+        className="flex cursor-pointer items-center gap-1.5 text-xs text-[var(--color-text-muted)]"
+        title="Collect each session's notifications under one collapsible header instead of repeating its title on every row."
+      >
+        <input
+          type="checkbox"
+          checked={view.groupBySession}
+          onChange={(event) => onChange({ groupBySession: event.target.checked })}
+          data-testid="opencode-notification-filter-group-session"
+        />
+        <span>Group by session</span>
+      </label>
+      {view.groupBySession && onAllGroupsCollapsedChange && (
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-auto px-1.5 py-0.5 text-xs"
+          onClick={() => onAllGroupsCollapsedChange(!view.groupsCollapsed)}
+          data-testid="opencode-notification-groups-expand-all"
+        >
+          {view.groupsCollapsed ? "Expand all" : "Collapse all"}
+        </Button>
+      )}
     </div>
   );
 }

@@ -134,7 +134,15 @@ export function isFilteredOut(record: NotificationRecord, filters: HistoryFilter
 }
 
 export const HISTORY_LIMIT = 500;
-const MAX_PAGE = 200;
+/**
+ * Ceiling on a single history page. Raised from 200 so the notification centre
+ * can group a meaningful window by session: a group header counts the rows it
+ * renders, so a window that stops at 200 makes every header understate a busy
+ * session. Retention is deliberately unchanged — HISTORY_LIMIT still caps
+ * resolved and suppressed records, so a 1000-row request returns at most 500
+ * resolved ones however large the page.
+ */
+const MAX_PAGE = 1000;
 function isNotifyEvent(value: unknown): value is NotifyEvent {
   return typeof value === "string" && (NOTIFY_EVENTS as readonly string[]).includes(value);
 }

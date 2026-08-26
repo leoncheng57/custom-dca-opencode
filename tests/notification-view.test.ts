@@ -34,14 +34,51 @@ describe("notification view preferences", () => {
     expect(DEFAULT_NOTIFICATION_VIEW.resolvedExpanded).toBe(false);
   });
 
+  it("groups by session and folds the groups by default", () => {
+    // Folding is only safe because a collapsed group still names the kinds
+    // waiting inside it; the chip strip is what stops this default hiding an
+    // unanswered permission behind a number.
+    expect(DEFAULT_NOTIFICATION_VIEW.groupBySession).toBe(true);
+    expect(DEFAULT_NOTIFICATION_VIEW.groupsCollapsed).toBe(true);
+  });
+
   it("round-trips through storage", () => {
     const storage = memoryStorage();
-    saveNotificationView({ version: 1, hideAutoApproved: false, hideSubagent: true, resolvedExpanded: true }, storage);
+    saveNotificationView(
+      {
+        version: 1,
+        hideAutoApproved: false,
+        hideSubagent: true,
+        resolvedExpanded: true,
+        groupBySession: false,
+        groupsCollapsed: false,
+      },
+      storage,
+    );
     expect(loadNotificationView(storage)).toEqual({
       version: 1,
       hideAutoApproved: false,
       hideSubagent: true,
       resolvedExpanded: true,
+      groupBySession: false,
+      groupsCollapsed: false,
+    });
+  });
+
+  it("upgrades a view stored before grouping existed without a version bump", () => {
+    // Deployed browsers already hold a v1 view with only the three original
+    // keys. Absent keys have to take the current default, or an existing
+    // device would silently opt out of the feature.
+    const legacy = memoryStorage(
+      JSON.stringify({ version: 1, hideAutoApproved: false, hideSubagent: false, resolvedExpanded: true }),
+    );
+    expect(loadNotificationView(legacy)).toEqual({
+      version: 1,
+      hideAutoApproved: false,
+      hideSubagent: false,
+      resolvedExpanded: true,
+      groupBySession: true,
+      groupsCollapsed: true,
     });
   });
 

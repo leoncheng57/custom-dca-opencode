@@ -175,9 +175,39 @@ function overflowRecords(count: number): StubRecord[] {
   }));
 }
 
+const VIEW_KEY = "opencode-notification-view-v1";
+
+/**
+ * Seed this device's view preferences before the app boots.
+ *
+ * Only seeds when the key is absent, because several tests below change a
+ * preference and then reload to prove it stuck — re-seeding on every
+ * navigation would overwrite exactly what they are asserting.
+ */
+async function seedNotificationView(page: Page, patch: Record<string, unknown>) {
+  await page.addInitScript(
+    ([key, value]) => {
+      if (!window.localStorage.getItem(key)) window.localStorage.setItem(key, value);
+    },
+    [
+      VIEW_KEY,
+      JSON.stringify({
+        version: 1,
+        hideAutoApproved: true,
+        hideSubagent: true,
+        resolvedExpanded: false,
+        groupBySession: true,
+        groupsCollapsed: true,
+        ...patch,
+      }),
+    ] as const,
+  );
+}
+
 const bell = (page: Page) => page.getByTestId("opencode-nav-notifications");
 const popover = (page: Page) => page.getByTestId("opencode-notification-popover");
 const resolvedToggle = (page: Page) => page.getByTestId("opencode-notification-popover-resolved-toggle");
+const groups = (page: Page) => popover(page).getByTestId("opencode-notification-group");
 
 /** Resolved is an archive and starts collapsed, so most assertions open it first. */
 async function expandResolved(page: Page) {
@@ -189,6 +219,11 @@ for (const viewport of VIEWPORTS) {
   test.describe(`nav notification centre (${viewport.name})`, () => {
     test.beforeEach(async ({ page }) => {
       await page.setViewportSize(viewport.size);
+      // These assertions are about sections, filters, resolution and badges —
+      // all orthogonal to grouping — so they run against the flat list rather
+      // than threading a group expansion through every one. The grouped
+      // default has its own block below.
+      await seedNotificationView(page, { groupBySession: false });
       await stubHistory(page);
     });
 
@@ -576,6 +611,130 @@ for (const viewport of VIEWPORTS) {
       }
       expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth))
         .toBeLessThanOrEqual(1);
+    });
+  });
+
+  test.describe(`notification session grouping (${viewport.name})`, () => {
+    test.beforeEach(async ({ page }) => {
+      await page.setViewportSize(viewport.size);
+      // No seeded view: these run against the shipped defaults, which are
+      // grouped and folded.
+      await stubHistory(page);
+    });
+
+    test("folds each session behind a header that still says what is waiting", async ({ page }) => {
+      await page.goto(hub);
+      await bell(page).click();
+
+      // Folded means folded: no rows at all until asked.
+      await expect(popover(page).getByTestId("opencode-notification-record")).toHaveCount(0);
+
+      // One session produced every unresolved record in this fixture, so the
+      // eight repeated titles collapse to a single header.
+      await expect(groups(page)).toHaveCount(1);
+      const group = groups(page).first();
+      await expect(group).toHaveAttribute("data-expanded", "false");
+      await expect(group).toHaveAttribute("data-group-key", "ses_mock_done");
+      await expect(group.getByTestId("opencode-notification-group-count")).toHaveText(String(ACTIVE_COUNT));
+
+      // The chip strip is the only thing a folded group says about its
+      // contents, so without it this default would hide unanswered permissions
+      // behind a number.
+      await expect(group.getByTestId("opencode-notification-group-chip-permission")).toContainText("permission");
+      await expect(group.getByTestId("opencode-notification-group-chip-permission")).toContainText(
+        String(ACTIVE_COUNT),
+      );
+
+      // The header names the session, truncated, with the whole title kept in
+      // the tooltip.
+      const label = group.getByTestId("opencode-notification-group-label");
+      await expect(label).toHaveAttribute("title", SESSION_TITLE);
+      const shown = (await label.textContent()) ?? "";
+      expect(shown.length).toBeLessThan(SESSION_TITLE.length);
+      expect(shown.endsWith("\u2026")).toBe(true);
+
+      await group.getByTestId("opencode-notification-group-toggle").click();
+      await expect(group).toHaveAttribute("data-expanded", "true");
+      await expect(popover(page).getByTestId("opencode-notification-record")).toHaveCount(ACTIVE_COUNT);
+    });
+
+    test("lifts the repeated session title and link out of the rows", async ({ page }) => {
+      await page.goto(hub);
+      await bell(page).click();
+      await groups(page).first().getByTestId("opencode-notification-group-toggle").click();
+
+      // The title and the session link belonged to the session, not to each of
+      // its eight notifications; the header owns both now.
+      const row = popover(page).getByTestId("opencode-notification-record").first();
+      await expect(row.getByTestId("opencode-notification-session")).toHaveCount(0);
+      await expect(row.getByTestId("opencode-notification-link")).toHaveCount(0);
+      // What is left is what actually distinguishes one row from its siblings.
+      await expect(row.getByTestId("opencode-notification-action")).toHaveText("Needs approval to run bash 0");
+    });
+
+    test("expands every group at once and remembers that choice", async ({ page }) => {
+      await page.goto(hub);
+      await bell(page).click();
+
+      const expandAll = page.getByTestId("opencode-notification-groups-expand-all");
+      await expect(expandAll).toHaveText("Expand all");
+      await expandAll.click();
+      await expect(popover(page).getByTestId("opencode-notification-record")).toHaveCount(ACTIVE_COUNT);
+      await expect(expandAll).toHaveText("Collapse all");
+
+      // The default is persisted per device, so a reader who prefers the open
+      // view sets it once rather than every visit.
+      await page.reload();
+      await bell(page).click();
+      await expect(page.getByTestId("opencode-notification-groups-expand-all")).toHaveText("Collapse all");
+      await expect(popover(page).getByTestId("opencode-notification-record")).toHaveCount(ACTIVE_COUNT);
+    });
+
+    test("orders groups by their newest notification", async ({ page }) => {
+      await page.goto(hub);
+      await bell(page).click();
+      // Unfolding sub-agent noise brings a second session into the list.
+      await page.getByTestId("opencode-notification-filter-subagent").uncheck();
+
+      await expect(groups(page)).toHaveCount(2);
+      await expect(groups(page).nth(0)).toHaveAttribute("data-group-key", "ses_mock_done");
+      await expect(groups(page).nth(1)).toHaveAttribute("data-group-key", "ses_mock_child");
+      await expect(groups(page).nth(1).getByTestId("opencode-notification-group-count")).toHaveText(
+        String(SUBAGENT_COUNT),
+      );
+    });
+
+    test("returns to a flat list when grouping is switched off", async ({ page }) => {
+      await page.goto(hub);
+      await bell(page).click();
+      await page.getByTestId("opencode-notification-filter-group-session").uncheck();
+
+      await expect(groups(page)).toHaveCount(0);
+      await expect(popover(page).getByTestId("opencode-notification-record")).toHaveCount(ACTIVE_COUNT);
+      // The row goes back to naming its own session once no header does.
+      await expect(popover(page).getByTestId("opencode-notification-session").first()).toHaveAttribute(
+        "title",
+        SESSION_TITLE,
+      );
+      // Expand/Collapse all is meaningless without groups and goes away.
+      await expect(page.getByTestId("opencode-notification-groups-expand-all")).toHaveCount(0);
+    });
+
+    test("groups the full history page the same way", async ({ page }) => {
+      await page.goto(`/settings/notifications?directory=${encodeURIComponent(DIR)}`);
+
+      // Both surfaces share the component and the preference, so a session
+      // folded in one is folded in the other.
+      const pageGroups = page.getByTestId("opencode-notification-group");
+      await expect(pageGroups).toHaveCount(1);
+      await expect(page.getByTestId("opencode-notification-record")).toHaveCount(0);
+
+      await pageGroups.first().getByTestId("opencode-notification-group-toggle").click();
+      await expect(page.getByTestId("opencode-notification-record")).toHaveCount(
+        ACTIVE_COUNT + RESOLVED_COUNT,
+      );
+      // Full-width rows keep their delivery detail; only the session title moved.
+      await expect(page.getByTestId("opencode-notification-record").first()).toContainText("ntfy");
     });
   });
 }

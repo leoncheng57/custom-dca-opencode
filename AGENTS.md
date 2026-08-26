@@ -366,6 +366,30 @@ several decisions below.
     `pr-screenshot-publication` concurrency group. Close cleanup removes only that PR's
     preview and screenshot directories, deletes their marker-owned comments, and marks the
     preview deployments inactive.
+23. **Notifications group by session, and a folded group must still say what is
+    waiting.** A session that needs three things wrote three rows repeating its title,
+    which was the clutter. Grouping is device-local presentation and, unlike the two
+    noise filters, is **never sent to the server**: it hides no record and changes no
+    count, so no badge can disagree with it. Identity is the **`sessionID`** — never
+    `sessionTitle`, which is snapshotted at append time (decision 10b), so one session
+    contributes several titles as it is renamed and two unrelated sessions can share
+    one; keying on it would both split a session and merge strangers. Records with no
+    session fall into one bucket that always sorts last. Groups ship **on and folded**,
+    which is only safe because the header carries a kind chip strip ordered
+    blocking-first: with a bare count, a default-collapsed group would hide an
+    unanswered permission behind a number, and that hiding is the exact failure the
+    "outside this view" notices exist to prevent. Expansion state is **one persisted
+    boolean plus in-memory per-group toggles** — session ids are unbounded and outlive
+    their sessions, so a persisted set of them would grow forever and accumulate ids of
+    deleted work. Grouping happens **inside** the Active/Resolved split, never across
+    it: that split is the action axis and stays outermost. A group header counts the
+    rows it renders, not the session's lifetime total, because the window is bounded and
+    the section's existing outside-window notice is the only honest claim about the
+    unwindowed log; the client window and server `MAX_PAGE` were raised to 1000 together
+    so that count is rarely a lie, while retention stays at 500 per capped category
+    (the remainder of issue #135). Resolution is untouched by all of this: it stays
+    per-record, manual and reversible per decision 10, and there is deliberately **no
+    bulk resolve** on a group.
 
 ## Client conventions (inherited from the OpenHands runner, still enforced)
 

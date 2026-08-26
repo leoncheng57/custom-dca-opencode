@@ -81,15 +81,22 @@ export function notificationAction(record: NotificationRecord): string {
  * One history row, shared by the full history page and the nav popover so both
  * surfaces stay consistent. `compact` folds the fixed timestamp column into the
  * metadata line, which is what makes the row survive a ~360px popover column.
+ *
+ * `grouped` marks a row rendered under a session header that already names the
+ * session and links to it. Repeating the title there was the clutter grouping
+ * exists to remove, so the row spends its first line on what actually
+ * distinguishes it from its siblings.
  */
 export function NotificationRecordRow({
   record,
   onResolvedChange,
   compact = false,
+  grouped = false,
 }: {
   record: NotificationRecord;
   onResolvedChange: (id: string, resolved: boolean) => void;
   compact?: boolean;
+  grouped?: boolean;
 }) {
   const timestamp = new Date(record.at).toISOString();
   const active = record.resolvedAt === undefined;
@@ -101,8 +108,8 @@ export function NotificationRecordRow({
   const sessionLabel = record.sessionTitle
     ? truncateSessionTitle(record.sessionTitle, compact ? 40 : 64)
     : undefined;
-  const primary = sessionLabel ?? record.title;
   const action = notificationAction(record);
+  const heading = grouped ? action : (sessionLabel ?? record.title);
   return (
     <li
       className={cn(
@@ -130,14 +137,18 @@ export function NotificationRecordRow({
         <p className="flex items-center gap-1.5 text-sm">
           <span
             className="min-w-0 truncate"
-            {...(sessionLabel ? { title: record.sessionTitle, "data-testid": "opencode-notification-session" } : {})}
+            {...(grouped
+              ? { "data-testid": "opencode-notification-action" }
+              : sessionLabel
+                ? { title: record.sessionTitle, "data-testid": "opencode-notification-session" }
+                : {})}
           >
-            {record.click ? (
+            {!grouped && record.click ? (
               <a className="underline underline-offset-2" href={record.click} data-testid="opencode-notification-link">
-                {primary}
+                {heading}
               </a>
             ) : (
-              primary
+              heading
             )}
           </span>
           {/* Names why a suppressed row is on screen at all — without it, an
@@ -149,7 +160,9 @@ export function NotificationRecordRow({
             </Badge>
           )}
         </p>
-        <p className="truncate text-xs text-[var(--color-text-muted)]" data-testid="opencode-notification-action">{action}</p>
+        {!grouped && (
+          <p className="truncate text-xs text-[var(--color-text-muted)]" data-testid="opencode-notification-action">{action}</p>
+        )}
         <p className="mt-0.5 truncate text-[11px] text-[var(--color-text-muted)]">
           {compact && (
             <>
