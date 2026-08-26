@@ -1,4 +1,4 @@
-name: Cleanup PR screenshots
+name: Cleanup PR artifacts
 
 on:
   pull_request_target:
@@ -12,17 +12,18 @@ concurrency:
 # executes pull request code.
 permissions:
   contents: write
+  deployments: write
   pull-requests: write
 
 jobs:
   cleanup:
     runs-on: ubuntu-latest
     steps:
-      - name: Remove only this PR publication
+      - name: Remove only this PR's published artifacts
         uses: actions/github-script@v7
         with:
           script: |
-            const target = `pr-screenshots/pr-${context.issue.number}`;
+            const targets = [`pr-screenshots/pr-${context.issue.number}`, `pr-previews/pr-${context.issue.number}`];
             let ref;
             try {
               ref = await github.rest.git.getRef({ ...context.repo, ref: 'heads/gh-pages' });
@@ -32,26 +33,42 @@ jobs:
             }
             const commit = await github.rest.git.getCommit({ ...context.repo, commit_sha: ref.data.object.sha });
             const tree = await github.rest.git.getTree({ ...context.repo, tree_sha: commit.data.tree.sha, recursive: 'true' });
-            if (!tree.data.tree.some((entry) => entry.path === target || entry.path?.startsWith(`${target}/`))) return;
+            const present = targets.filter((target) => tree.data.tree.some((entry) => entry.path === target || entry.path?.startsWith(`${target}/`)));
+            if (present.length === 0) return;
             const nextTree = await github.rest.git.createTree({
               ...context.repo,
               base_tree: commit.data.tree.sha,
-              tree: [{ path: target, mode: '040000', type: 'tree', sha: null }],
+              tree: present.map((path) => ({ path, mode: '040000', type: 'tree', sha: null })),
             });
             const nextCommit = await github.rest.git.createCommit({
               ...context.repo,
-              message: `Remove screenshots for closed PR #${context.issue.number}`,
+              message: `Remove published artifacts for closed PR #${context.issue.number}`,
               tree: nextTree.data.sha,
               parents: [ref.data.object.sha],
             });
             await github.rest.git.updateRef({ ...context.repo, ref: 'heads/gh-pages', sha: nextCommit.data.sha });
 
-      - name: Remove only the screenshot bot comment
+      - name: Remove only artifact bot comments
         uses: actions/github-script@v7
         with:
           script: |
-            const marker = '<!-- pr-screenshots -->';
+            const markers = ['<!-- pr-screenshots -->', '<!-- pr-preview -->'];
             const comments = await github.paginate(github.rest.issues.listComments, { ...context.repo, issue_number: context.issue.number, per_page: 100 });
-            for (const comment of comments.filter((item) => item.user?.login === 'github-actions[bot]' && item.body?.includes(marker))) {
+            for (const comment of comments.filter((item) => item.user?.login === 'github-actions[bot]' && markers.some((marker) => item.body?.includes(marker)))) {
               await github.rest.issues.deleteComment({ ...context.repo, comment_id: comment.id });
+            }
+
+      - name: Mark the preview environment inactive
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const environment = `pr-preview-${context.issue.number}`;
+            const deployments = await github.rest.repos.listDeployments({ ...context.repo, environment, per_page: 100 });
+            for (const deployment of deployments.data) {
+              await github.rest.repos.createDeploymentStatus({
+                ...context.repo,
+                deployment_id: deployment.id,
+                state: 'inactive',
+                description: `PR #${context.issue.number} closed`,
+              });
             }

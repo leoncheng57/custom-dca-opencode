@@ -341,6 +341,20 @@ several decisions below.
     dialog states that prompt_async 204/202 means accepted, not completed. The
     managed-child form reuses decision #19's route with the same Build authorization
     checkbox and creates no task card and no automatic hand-back.
+22. **PR previews are static simulators, never public agent servers.** GitHub Pages cannot
+    host the Express BFF or `opencode serve`, and putting either on a public endpoint would
+    require credentials and expose host-level agent authority. `VITE_PUBLIC_SIMULATOR=true`
+    therefore builds the real client with a browser-local `/api` fixture adapter, hash
+    routing, a visible simulator banner, and no service worker or PWA manifest. Mutations
+    are tab-local and reset on reload. Same-repository PRs build on every commit, publish
+    only `gh-pages:pr-previews/pr-<number>/`, create a transient GitHub Deployment, and
+    maintain one `<!-- pr-preview -->` comment; forks build an artifact but never publish
+    JavaScript on the repository's Pages origin. The artifact manifest is bound to PR,
+    full SHA, base path, file sizes, and SHA-256 digests and is revalidated before the
+    shared non-force Pages write. Preview, screenshot, and public-site writers all use the
+    `pr-screenshot-publication` concurrency group. Close cleanup removes only that PR's
+    preview and screenshot directories, deletes their marker-owned comments, and marks the
+    preview deployments inactive.
 
 ## Client conventions (inherited from the OpenHands runner, still enforced)
 

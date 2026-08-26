@@ -16,6 +16,7 @@ import {
 } from "../lib/palette.js";
 import { selectPhoneUrl } from "../lib/phoneTransfer.js";
 import { refreshApp } from "../lib/appRefresh.js";
+import { PUBLIC_SIMULATOR } from "../lib/runtime.js";
 import { useNotifyWatcher } from "../lib/useNotifyWatcher.js";
 import { getDoc } from "../lib/docs.js";
 import { NavOverflowMenu } from "./nav-overflow-menu.js";
@@ -217,6 +218,15 @@ export function AppShell() {
           <NotificationPopover scopedPath={scopedPath} />
           <NavOverflowMenu scopedPath={scopedPath} onOpenPhoneTransfer={() => void openPhoneTransfer()} />
         </nav>
+        {PUBLIC_SIMULATOR && (
+          <div
+            className="shrink-0 border-b border-[var(--color-border-default)] bg-[var(--color-background-surface-info-muted)] px-3 py-1.5 text-center text-xs text-[var(--color-text-info)]"
+            data-testid="opencode-public-simulator-banner"
+            role="status"
+          >
+            PR simulator: fixture data only. Actions stay in this tab, use no credentials, and reset on reload.
+          </div>
+        )}
         <div className="min-h-0 flex-1">
           <Outlet />
         </div>

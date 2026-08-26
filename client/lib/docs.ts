@@ -44,6 +44,14 @@ export const DOCS: DocDefinition[] = [
     load: () => import("../../CONTRIBUTING.md?raw").then((module) => module.default),
   },
   {
+    slug: "pr-previews",
+    title: "Pull request previews",
+    description: "Per-commit simulator deployment, BFF stubs, artifact trust boundaries, diagrams, and cleanup.",
+    category: "start",
+    sourcePath: "docs/pr-previews.md",
+    load: () => import("../../docs/pr-previews.md?raw").then((module) => module.default),
+  },
+  {
     slug: "project-readme",
     title: "Project orientation",
     description: "Purpose, features, requirements, deployment entry points, and the public safety model.",
