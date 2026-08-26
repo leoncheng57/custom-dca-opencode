@@ -8,6 +8,7 @@ test.describe("Playbooks", () => {
 
     await expect(page).toHaveURL("/playbooks");
     await expect(page).toHaveTitle("Playbooks | DCA");
+    await expect(page.getByTestId("opencode-playbooks-wip-warning")).toHaveText("Playbooks is still work in progress and its UI/UX may contain bugs.");
     await expect(page.getByRole("heading", { name: "Repeatable ways to work with an agent." })).toBeVisible();
     await expect(page.getByTestId("opencode-playbook-skill-card")).toHaveCount(13);
     await expect(page.getByTestId("opencode-playbook-command-card")).toHaveCount(15);
@@ -22,6 +23,7 @@ test.describe("Playbooks", () => {
     await expect(page).toHaveURL("/playbooks/skills/grill-me");
     await expect(page).toHaveTitle("Skill | Playbooks | DCA");
     await expect(page.getByTestId("opencode-playbook-dialog")).toBeVisible();
+    await expect(page.getByTestId("opencode-playbook-dialog").getByTestId("opencode-playbooks-wip-warning")).toHaveText("Playbooks is still work in progress and its UI/UX may contain bugs.");
     await expect(page.getByTestId("opencode-playbooks")).toBeVisible();
     await expect(page.getByTestId("opencode-playbook-simulation")).toBeVisible();
     await page.getByText("Install grill-me", { exact: true }).click();
@@ -29,9 +31,14 @@ test.describe("Playbooks", () => {
   });
 
   test("closes a direct detail URL back to the all-playbooks catalogue", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto("/playbooks/skills/ascii-diagrams");
     const dialog = page.getByTestId("opencode-playbook-dialog");
     await expect(dialog).toBeVisible();
+    const box = await dialog.boundingBox();
+    expect(box).not.toBeNull();
+    expect(Math.abs((box!.x + box!.width / 2) - 640)).toBeLessThanOrEqual(2);
+    expect(Math.abs((box!.y + box!.height / 2) - 400)).toBeLessThanOrEqual(2);
     await dialog.getByRole("button", { name: "Close playbook" }).click();
     await expect(page).toHaveURL("/playbooks");
     await expect(dialog).toHaveCount(0);

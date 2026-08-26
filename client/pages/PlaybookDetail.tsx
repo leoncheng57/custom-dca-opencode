@@ -7,6 +7,7 @@ import { invocation } from "../../agent-skills/src/lib/commands.js";
 import { installMethods } from "../../agent-skills/src/lib/install.js";
 import { PlaybookCopyButton } from "../components/playbook-copy-button.js";
 import { PlaybookSimulation } from "../components/playbook-simulation.js";
+import { Alert } from "../ds/alert.js";
 import { Markdown } from "../ds/markdown.js";
 import { commandForSkill, findCommand, findSkill, playbookSource } from "../lib/playbooks.js";
 import { PlaybooksPage } from "./Playbooks.js";
@@ -20,9 +21,21 @@ function InstallMethods({ methods, subject }: { methods: Method[]; subject: stri
 
 function Modal({ children, title }: { children: ReactNode; title: string }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
   const navigate = useNavigate();
-  useEffect(() => { const dialog = dialogRef.current; if (dialog && !dialog.open) dialog.showModal(); return () => dialog?.close(); }, []);
-  return <dialog aria-label={title} className={styles.dialog} data-testid="opencode-playbook-dialog" onCancel={(event) => { event.preventDefault(); navigate("/playbooks"); }} ref={dialogRef}><div className={styles.dialogBody}><button aria-label="Close playbook" className={styles.close} onClick={() => navigate("/playbooks")} type="button"><X aria-hidden="true" size={18} /></button>{children}</div></dialog>;
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (dialog && !dialog.open) dialog.showModal();
+    closeButtonRef.current?.focus();
+    return () => {
+      if (dialog?.open) dialog.close();
+      previousFocusRef.current?.focus();
+    };
+  }, []);
+  const closeToCatalog = () => navigate("/playbooks");
+  return <dialog aria-label={title} className={styles.dialog} data-testid="opencode-playbook-dialog" onCancel={(event) => { event.preventDefault(); closeToCatalog(); }} onClick={(event) => { if (event.target === event.currentTarget) closeToCatalog(); }} ref={dialogRef}><div className={styles.dialogBody}><button aria-label="Close playbook" className={styles.close} onClick={closeToCatalog} ref={closeButtonRef} type="button"><X aria-hidden="true" size={18} /></button><Alert className={styles.wipWarning} data-testid="opencode-playbooks-wip-warning" variant="warning">Playbooks is still work in progress and its UI/UX may contain bugs.</Alert>{children}</div></dialog>;
 }
 
 function Disclosure({ children, defaultOpen = false, meta, title }: { children: ReactNode; defaultOpen?: boolean; meta?: ReactNode; title: ReactNode }) {

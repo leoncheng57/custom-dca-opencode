@@ -8,6 +8,7 @@ import { COMMAND_SCOPES } from "../../agent-skills/src/lib/commandInstall.js";
 import { INSTALL_SCOPES } from "../../agent-skills/src/lib/install.js";
 import { allTags, filterSkills } from "../../agent-skills/src/lib/skills.js";
 import { commands, skills, type Command, type Skill } from "../lib/playbooks.js";
+import { Alert } from "../ds/alert.js";
 import styles from "./playbooks.module.css";
 
 export type CatalogKind = "all" | "skills" | "commands";
@@ -66,6 +67,7 @@ export function PlaybooksPage({ kind = "all", detail }: { kind?: CatalogKind; de
   return (
     <main className={styles.page} data-testid="opencode-playbooks">
       <div className={styles.content}>
+        <Alert className={styles.wipWarning} data-testid="opencode-playbooks-wip-warning" variant="warning">Playbooks is still work in progress and its UI/UX may contain bugs.</Alert>
         <header className={styles.hero}>
           <div><div className={styles.eyebrow}>Repository-owned agent procedures</div><h1>Repeatable ways to work with an agent.</h1><p className={styles.lede}>Skills are selected by the model. Commands are invoked by a human. Guided workflows can join them here later without turning one content type into the whole product.</p></div>
           <aside className={styles.typeStats} aria-label="Playbook types"><div className={styles.typeStat}><strong>{skills.length}</strong><span>Skills</span></div><div className={styles.typeStat}><strong>{commands.length}</strong><span>Commands</span></div><div className={styles.typeStat}><strong>Next</strong><span>Workflows</span></div></aside>
