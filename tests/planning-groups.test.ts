@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { PlanningItem } from "../client/lib/api.js";
-import { groupPlanningItems, planningPriorities } from "../client/lib/planningGroups.js";
+import { filterPlanningItems, groupPlanningItems, planningPriorities } from "../client/lib/planningGroups.js";
 
 function item(number: number, labels: string[], extra: Partial<PlanningItem> = {}): PlanningItem {
   return {
@@ -70,6 +70,26 @@ describe("planning groups", () => {
 });
 
 describe("planning epic hierarchy", () => {
+  it("keeps every child as progress evidence when its parent matches the filters", () => {
+    const parent = epic(10, ["priority:high"], 2);
+    const openChild = child(11, [], 10);
+    const closedChild = child(12, [], 10);
+    closedChild.state = "closed";
+
+    expect(filterPlanningItems([parent, openChild, closedChild], "all", "open").map((entry) => entry.number))
+      .toEqual([10, 11, 12]);
+  });
+
+  it("keeps a matching child without its filtered parent so grouping can show a breadcrumb", () => {
+    const parent = epic(10, [], 1);
+    const closedChild = child(11, ["priority:low"], 10);
+    closedChild.state = "closed";
+
+    const filtered = filterPlanningItems([parent, closedChild], "all", "closed");
+    expect(filtered.map((entry) => entry.number)).toEqual([11]);
+    expect(groupPlanningItems(filtered)[0].groups[0].nodes[0].orphanedParentNumber).toBe(10);
+  });
+
   it("folds a child into its parent and never gives it a top-level row", () => {
     const sections = groupPlanningItems([
       epic(10, ["priority:high"], 2),

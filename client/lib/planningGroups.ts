@@ -1,4 +1,4 @@
-import type { PlanningItem } from "./api.js";
+import type { PlanningItem, PlanningItemState, PlanningItemType } from "./api.js";
 
 export type PlanningPriority = "high" | "medium" | "low";
 export type PlanningSectionId = "conflict" | PlanningPriority | "none";
@@ -62,6 +62,34 @@ function normalizedLabel(label: string): string {
 export function planningPriorities(item: PlanningItem): PlanningPriority[] {
   const labels = new Set(item.labels.map(normalizedLabel));
   return PRIORITY_ORDER.filter((priority) => labels.has(PRIORITY_LABELS[priority]));
+}
+
+/**
+ * Applies the page filters without destroying a visible epic's progress evidence.
+ * Children of a matching parent stay in the input regardless of their own state;
+ * a matching child with a filtered-out parent stays alone and becomes a breadcrumb
+ * node in `groupPlanningItems`.
+ */
+export function filterPlanningItems(
+  items: PlanningItem[],
+  type: "all" | PlanningItemType,
+  state: "all" | PlanningItemState,
+): PlanningItem[] {
+  const included = new Set<number>();
+  const childrenByParent = new Map<number, PlanningItem[]>();
+  for (const item of items) {
+    if (item.parentNumber !== null) {
+      childrenByParent.set(item.parentNumber, [...(childrenByParent.get(item.parentNumber) ?? []), item]);
+    }
+    if ((type === "all" || item.type === type) && (state === "all" || item.state === state)) {
+      included.add(item.number);
+    }
+  }
+  for (const item of items) {
+    if (!included.has(item.number) || item.childCount === 0) continue;
+    for (const child of childrenByParent.get(item.number) ?? []) included.add(child.number);
+  }
+  return items.filter((item) => included.has(item.number));
 }
 
 /** Computed from the parent alone — children never rename the group. */

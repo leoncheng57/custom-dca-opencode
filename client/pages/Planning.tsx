@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { AlertTriangle, ChevronRight, ExternalLink, GitPullRequest, MessageSquare, Plus, RefreshCw } from "lucide-react";
+import { Fragment, useEffect, useState } from "react";
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Circle, ExternalLink, GitPullRequest, Layers3, MessageSquare, Plus, RefreshCw } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 
 import { Alert } from "../ds/alert.js";
@@ -15,7 +15,8 @@ import {
   type PlanningItemType,
   type PlanningSnapshot,
 } from "../lib/api.js";
-import { groupPlanningItems, type PlanningSection } from "../lib/planningGroups.js";
+import { filterPlanningItems, groupPlanningItems, type PlanningNode, type PlanningSection } from "../lib/planningGroups.js";
+import { loadPlanningView, savePlanningView } from "../lib/planningView.js";
 
 type TypeFilter = "all" | PlanningItemType;
 type StateFilter = "all" | PlanningItemState;
@@ -126,30 +127,51 @@ function labelBadge(label: string): BadgeVariant {
   }
 }
 
-function PlanningRow({ item, density, conflict, onOpen }: {
-  item: PlanningItem;
+function PlanningRow({ node, density, conflict, expanded, onOpen, onToggle }: {
+  node: PlanningNode;
   density: PlanningDensity;
   conflict: boolean;
+  expanded: boolean;
   onOpen: (item: PlanningItem) => void;
+  onToggle: (number: number) => void;
 }) {
+  const item = node.item;
   const status = stateBadge(item);
   const classes = DENSITY_CLASSES[density];
+  const expandable = node.children.length > 0;
+  const epic = item.childCount > 0;
   const badgeClass = density === "densest"
     ? "px-1.5 py-0 text-[10px]"
     : density === "denser"
       ? "px-2 py-0 text-[10px]"
       : "";
   return (
-    <li className={classes.row} data-testid="opencode-planning-row">
+    <li className={classes.row} data-testid="opencode-planning-row" data-planning-number={item.number}>
       <div className="flex min-w-0 items-start gap-3">
-        <span
-          aria-hidden="true"
-          className="mt-0.5 shrink-0 text-[var(--color-text-muted)]"
-        >
-          {item.type === "pull_request" ? <GitPullRequest size={18} /> : <span className="text-base font-bold">#</span>}
-        </span>
+        {expandable ? (
+          <button
+            aria-expanded={expanded}
+            aria-label={`${expanded ? "Collapse" : "Expand"} epic #${item.number}`}
+            className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-[var(--color-text-muted)] hover:bg-[var(--color-background-base)] hover:text-[var(--color-text-default)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]"
+            data-testid={`opencode-planning-epic-${item.number}-toggle`}
+            onClick={() => onToggle(item.number)}
+            type="button"
+          >
+            {expanded ? <ChevronDown aria-hidden="true" size={17} /> : <ChevronRight aria-hidden="true" size={17} />}
+          </button>
+        ) : (
+          <span aria-hidden="true" className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center text-[var(--color-text-muted)]">
+            {item.type === "pull_request" ? <GitPullRequest size={18} /> : <span className="text-base font-bold">#</span>}
+          </span>
+        )}
         <div className={`min-w-0 flex-1 ${classes.content}`}>
           <div className="flex flex-wrap items-center gap-2">
+            {epic && (
+              <Badge className={`${badgeClass} gap-1`} variant="info">
+                <Layers3 aria-hidden="true" size={11} />
+                Epic
+              </Badge>
+            )}
             <Badge className={badgeClass} variant={item.type === "pull_request" ? "info" : "neutral"}>
               {item.type === "pull_request" ? "Pull request" : "Issue"}
             </Badge>
@@ -193,6 +215,9 @@ function PlanningRow({ item, density, conflict, onOpen }: {
           </div>
 
           <div className={`flex flex-wrap gap-x-4 gap-y-1 text-[var(--color-text-muted)] ${classes.metadata}`}>
+            {node.orphanedParentNumber !== null && (
+              <span data-testid={`opencode-planning-item-${item.number}-parent`}>Child of #{node.orphanedParentNumber}</span>
+            )}
             <span>Created {formatDate(item.createdAt)}</span>
             <span>Last activity {formatDate(item.updatedAt)}</span>
             {item.author && <span>by {item.author}</span>}
@@ -203,16 +228,90 @@ function PlanningRow({ item, density, conflict, onOpen }: {
               </span>
             )}
           </div>
+          {epic && (
+            <div className="flex min-w-0 items-center gap-2 text-xs text-[var(--color-text-muted)]">
+              <span className="shrink-0 tabular-nums">{item.completedChildCount}/{item.childCount} closed</span>
+              <span
+                aria-label={`${item.completedChildCount} of ${item.childCount} children closed`}
+                aria-valuemax={item.childCount}
+                aria-valuemin={0}
+                aria-valuenow={item.completedChildCount}
+                className="h-1.5 min-w-12 max-w-32 flex-1 overflow-hidden rounded-full bg-[var(--color-background-base)]"
+                data-testid={`opencode-planning-epic-${item.number}-progress`}
+                role="progressbar"
+              >
+                <span
+                  className="block h-full rounded-full bg-[var(--color-background-action-info)]"
+                  style={{ width: `${item.childCount === 0 ? 0 : (item.completedChildCount / item.childCount) * 100}%` }}
+                />
+              </span>
+              {node.unresolvedChildCount > 0 && <span className="truncate">{node.unresolvedChildCount} not loaded</span>}
+            </div>
+          )}
         </div>
       </div>
     </li>
   );
 }
 
-function PlanningGroupSection({ section, density, onOpen }: {
-  section: PlanningSection;
+function PlanningChildRow({ item, density, onOpen }: {
+  item: PlanningItem;
   density: PlanningDensity;
   onOpen: (item: PlanningItem) => void;
+}) {
+  const badgeClass = density === "densest" || density === "denser" ? "px-1.5 py-0 text-[10px]" : "";
+  const spacing = density === "comfortable" ? "py-3" : density === "compact" ? "py-2.5" : "py-2";
+  return (
+    <li
+      className={`bg-[var(--color-background-base)] px-3 pl-10 sm:pl-14 ${spacing}`}
+      data-testid="opencode-planning-child-row"
+      data-planning-number={item.number}
+    >
+      <div className="flex min-w-0 items-start gap-2">
+        <span className={`mt-0.5 shrink-0 ${item.state === "closed" ? "text-[var(--color-text-success)]" : "text-[var(--color-text-muted)]"}`}>
+          {item.state === "closed" ? <CheckCircle2 aria-hidden="true" size={15} /> : <Circle aria-hidden="true" size={15} />}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-start gap-1.5">
+            <span className="shrink-0 text-xs font-medium tabular-nums text-[var(--color-text-muted)]">#{item.number}</span>
+            <button
+              aria-haspopup="dialog"
+              className="min-w-0 break-words text-left text-xs font-medium leading-4 text-[var(--color-text-default)] hover:text-[var(--color-text-info)] focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)] sm:text-sm"
+              data-testid={`opencode-planning-item-${item.number}`}
+              onClick={() => onOpen(item)}
+              type="button"
+            >
+              {item.title || "Untitled"}
+            </button>
+            <a
+              aria-label={`Open ${item.type === "pull_request" ? "pull request" : "issue"} #${item.number} on GitHub`}
+              className="shrink-0 rounded text-[var(--color-text-muted)] hover:text-[var(--color-text-info)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]"
+              data-testid={`opencode-planning-item-${item.number}-external`}
+              href={item.url}
+              rel="noopener noreferrer"
+              target="_blank"
+            >
+              <ExternalLink aria-hidden="true" size={13} />
+            </a>
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+            <Badge className={badgeClass} variant={item.state === "closed" ? "neutral" : "success"}>{item.state === "closed" ? "Closed" : "Open"}</Badge>
+            {item.labels.map((label) => (
+              <Badge className={`${badgeClass} normal-case`} key={label} variant={labelBadge(label)}>{label}</Badge>
+            ))}
+          </div>
+        </div>
+      </div>
+    </li>
+  );
+}
+
+function PlanningGroupSection({ section, density, expandedEpics, onOpen, onToggleEpic }: {
+  section: PlanningSection;
+  density: PlanningDensity;
+  expandedEpics: Set<number>;
+  onOpen: (item: PlanningItem) => void;
+  onToggleEpic: (number: number) => void;
 }) {
   const [open, setOpen] = useState(section.defaultOpen);
   const isConflict = section.id === "conflict";
@@ -237,33 +336,42 @@ function PlanningGroupSection({ section, density, onOpen }: {
             <p className="truncate text-xs text-[var(--color-text-muted)]">{section.subtitle}</p>
           </div>
         </div>
-        <Badge variant={isConflict ? "danger" : section.id === "high" ? "warning" : "neutral"}>
-          {section.count} {section.count === 1 ? "item" : "items"}
-        </Badge>
+        <div className="flex shrink-0 flex-col items-end gap-1 sm:flex-row sm:items-center">
+          {section.epicCount > 0 && <Badge variant="info">{section.epicCount} {section.epicCount === 1 ? "epic" : "epics"}</Badge>}
+          <Badge variant={isConflict ? "danger" : section.id === "high" ? "warning" : "neutral"}>
+            {section.count} {section.count === 1 ? "item" : "items"}
+          </Badge>
+        </div>
       </summary>
 
       <div className="border-t border-[var(--color-border-default)]">
         {section.groups.map((tagGroup) => {
-          // Wave 1 ships the hierarchy in the data layer only; until the epic UI
-          // lands, a node renders as its parent row followed by its children so
-          // no row is lost.
-          const rows = tagGroup.nodes.flatMap((node) => [node.item, ...node.children]);
+          const count = tagGroup.nodes.reduce((total, node) => total + 1 + node.children.length, 0);
           return (
           <section data-testid={`opencode-planning-group-${section.id}-${tagGroup.label.toLocaleLowerCase()}`} key={tagGroup.label}>
             <header className="flex items-center justify-between gap-3 border-b border-[var(--color-border-default)] bg-[var(--color-background-base)] px-4 py-2">
               <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">{tagGroup.label}</h3>
-              <span className="text-xs tabular-nums text-[var(--color-text-muted)]">{rows.length}</span>
+              <span className="text-xs tabular-nums text-[var(--color-text-muted)]">{count}</span>
             </header>
             <ul className="divide-y divide-[var(--color-border-default)]">
-              {rows.map((item) => (
-                <PlanningRow
-                  conflict={isConflict}
-                  density={density}
-                  item={item}
-                  key={`${item.type}-${item.id}`}
-                  onOpen={onOpen}
-                />
-              ))}
+              {tagGroup.nodes.map((node) => {
+                const expanded = expandedEpics.has(node.item.number);
+                return (
+                  <Fragment key={`${node.item.type}-${node.item.id}`}>
+                    <PlanningRow
+                      conflict={isConflict}
+                      density={density}
+                      expanded={expanded}
+                      node={node}
+                      onOpen={onOpen}
+                      onToggle={onToggleEpic}
+                    />
+                    {expanded && node.children.map((child) => (
+                      <PlanningChildRow density={density} item={child} key={`${child.type}-${child.id}`} onOpen={onOpen} />
+                    ))}
+                  </Fragment>
+                );
+              })}
             </ul>
           </section>
           );
@@ -281,6 +389,7 @@ export function PlanningPage() {
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [stateFilter, setStateFilter] = useState<StateFilter>("open");
   const [density, setDensity] = useState<PlanningDensity>(initialDensity);
+  const [expandedEpicNumbers, setExpandedEpicNumbers] = useState(() => loadPlanningView().expandedEpics);
   const [createOpen, setCreateOpen] = useState(() => params.get("create") === "1");
   const [created, setCreated] = useState<PlanningItem | null>(null);
 
@@ -312,11 +421,13 @@ export function PlanningPage() {
     };
   }, []);
 
-  const items = (snapshot?.items ?? []).filter((item) =>
-    (typeFilter === "all" || item.type === typeFilter)
-    && (stateFilter === "all" || item.state === stateFilter),
-  );
+  const items = filterPlanningItems(snapshot?.items ?? [], typeFilter, stateFilter);
   const sections = groupPlanningItems(items);
+  const expandedEpics = new Set(expandedEpicNumbers);
+  const visibleEpicNumbers = sections.flatMap((section) => section.groups.flatMap((group) =>
+    group.nodes.filter((node) => node.children.length > 0).map((node) => node.item.number)));
+  const everyVisibleEpicExpanded = visibleEpicNumbers.length > 0
+    && visibleEpicNumbers.every((number) => expandedEpics.has(number));
   const itemParam = params.get("item");
   const selectedItemNumber = itemParam && /^[1-9]\d*$/u.test(itemParam) && Number.isSafeInteger(Number(itemParam))
     ? Number(itemParam)
@@ -329,6 +440,18 @@ export function PlanningPage() {
     } catch {
       // The visual preference still applies for this page lifetime.
     }
+  };
+
+  const updateExpandedEpics = (next: number[]) => {
+    const saved = savePlanningView({ expandedEpics: next });
+    setExpandedEpicNumbers(saved.expandedEpics);
+  };
+
+  const toggleEpic = (number: number) => {
+    const next = new Set(expandedEpicNumbers);
+    if (next.has(number)) next.delete(number);
+    else next.add(number);
+    updateExpandedEpics([...next]);
   };
 
   return (
@@ -445,6 +568,24 @@ export function PlanningPage() {
             </Button>
           ))}
           </div>
+          {visibleEpicNumbers.length > 0 && (
+            <Button
+              className="ml-auto gap-1.5"
+              data-testid="opencode-planning-epics-toggle-all"
+              onClick={() => {
+                const next = new Set(expandedEpicNumbers);
+                if (everyVisibleEpicExpanded) visibleEpicNumbers.forEach((number) => next.delete(number));
+                else visibleEpicNumbers.forEach((number) => next.add(number));
+                updateExpandedEpics([...next]);
+              }}
+              size="sm"
+              type="button"
+              variant="ghost"
+            >
+              {everyVisibleEpicExpanded ? <ChevronDown aria-hidden="true" size={14} /> : <ChevronRight aria-hidden="true" size={14} />}
+              {everyVisibleEpicExpanded ? "Collapse all" : "Expand all"}
+            </Button>
+          )}
         </div>
       </section>
 
@@ -458,6 +599,11 @@ export function PlanningPage() {
       {snapshot?.truncated && (
         <Alert variant="warning">
           GitHub returned more than 500 items. This list shows the 500 most recently active records.
+        </Alert>
+      )}
+      {snapshot?.epicsTruncated && (
+        <Alert data-testid="opencode-planning-epics-truncated" variant="warning">
+          Some epic relationships were not loaded because the repository has more parent issues than this view resolves at once. Unresolved items remain visible at top level.
         </Alert>
       )}
 
@@ -482,8 +628,10 @@ export function PlanningPage() {
           {sections.map((section) => (
             <PlanningGroupSection
               density={density}
+              expandedEpics={expandedEpics}
               key={section.id}
               onOpen={(item) => setParams({ item: String(item.number) })}
+              onToggleEpic={toggleEpic}
               section={section}
             />
           ))}

@@ -15,8 +15,14 @@ createServer((req, res) => {
     res.end(JSON.stringify({ detailRequests, mergeBody }));
     return;
   }
-  const planningDetail = req.url?.match(/^\/repos\/leoncheng57\/custom-dca-opencode\/issues\/(101|102)$/u);
-  const planningComments = req.url?.match(/^\/repos\/leoncheng57\/custom-dca-opencode\/issues\/(101|102)\/comments\?/u);
+  const planningDetail = req.url?.match(/^\/repos\/leoncheng57\/custom-dca-opencode\/issues\/(101|102|106|107)$/u);
+  const planningComments = req.url?.match(/^\/repos\/leoncheng57\/custom-dca-opencode\/issues\/(101|102|106|107)\/comments\?/u);
+  const planningSubIssues = req.url?.match(/^\/repos\/leoncheng57\/custom-dca-opencode\/issues\/(101)\/sub_issues\?/u);
+  if (planningSubIssues && req.method === "GET") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify([{ number: 106 }, { number: 107 }]));
+    return;
+  }
   if (planningComments && req.method === "GET") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(planningComments[1] === "101" ? [
@@ -32,16 +38,22 @@ createServer((req, res) => {
         user: { login: "maintainer" },
         created_at: "2026-08-23T11:00:00Z",
       },
-    ] : [{ id: 2001, body: "PR conversation comment.", user: { login: "reviewer" }, created_at: "2026-08-23T12:00:00Z" }]));
+    ] : planningComments[1] === "102" ? [{ id: 2001, body: "PR conversation comment.", user: { login: "reviewer" }, created_at: "2026-08-23T12:00:00Z" }] : []));
     return;
   }
   if (planningDetail && req.method === "GET") {
-    const isPull = planningDetail[1] === "102";
+    const number = Number(planningDetail[1]);
+    const isPull = number === 102;
+    const title = number === 106
+      ? "Polish compact planning controls"
+      : number === 107
+        ? "Document the mobile planning layout"
+        : isPull ? "Add the project planning feed" : "Improve the mobile planning view";
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({
-      id: Number(planningDetail[1]),
-      number: Number(planningDetail[1]),
-      title: isPull ? "Add the project planning feed" : "Improve the mobile planning view",
+      id: number,
+      number,
+      title,
       body: isPull ? "## Pull request description\n\nReady for review." : "## Planning context\n\nMake the roadmap easier to scan.\n\n<div data-unsafe-description>unsafe</div>",
       state: "open",
       labels: isPull
@@ -52,6 +64,7 @@ createServer((req, res) => {
       created_at: isPull ? "2026-08-15T10:00:00Z" : "2026-08-12T09:00:00Z",
       updated_at: isPull ? "2026-08-22T08:15:00Z" : "2026-08-21T16:30:00Z",
       comments: isPull ? 1 : 4,
+      ...(number === 101 ? { sub_issues_summary: { total: 2, completed: 1, percent_completed: 50 } } : {}),
       ...(isPull ? { pull_request: { merged_at: null } } : {}),
     }));
     return;
@@ -61,11 +74,12 @@ createServer((req, res) => {
     req.on("data", (chunk) => (raw += chunk));
     req.on("end", () => {
       const input = JSON.parse(raw) as { labels: string[] };
-      const isPull = planningDetail[1] === "102";
+      const number = Number(planningDetail[1]);
+      const isPull = number === 102;
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({
-        id: Number(planningDetail[1]),
-        number: Number(planningDetail[1]),
+        id: number,
+        number,
         title: isPull ? "Add the project planning feed" : "Improve the mobile planning view",
         state: "open",
         labels: input.labels.map((name) => ({ name })),
@@ -74,6 +88,7 @@ createServer((req, res) => {
         created_at: isPull ? "2026-08-15T10:00:00Z" : "2026-08-12T09:00:00Z",
         updated_at: "2026-08-25T12:00:00Z",
         comments: isPull ? 1 : 4,
+        ...(number === 101 ? { sub_issues_summary: { total: 2, completed: 1, percent_completed: 50 } } : {}),
         ...(isPull ? { pull_request: { merged_at: null } } : {}),
       }));
     });
@@ -94,6 +109,31 @@ createServer((req, res) => {
         created_at: "2026-08-12T09:00:00Z",
         updated_at: "2026-08-21T16:30:00Z",
         comments: 4,
+        sub_issues_summary: { total: 2, completed: 1, percent_completed: 50 },
+      },
+      {
+        id: 106,
+        number: 106,
+        title: "Polish compact planning controls",
+        state: "open",
+        labels: [{ name: "priority:high", color: "ff0000" }, { name: "frontend", color: "123456" }],
+        user: { login: "contributor" },
+        html_url: "https://github.com/leoncheng57/custom-dca-opencode/issues/106",
+        created_at: "2026-08-20T09:00:00Z",
+        updated_at: "2026-08-24T14:00:00Z",
+        comments: 0,
+      },
+      {
+        id: 107,
+        number: 107,
+        title: "Document the mobile planning layout",
+        state: "closed",
+        labels: [{ name: "priority:low", color: "cccccc" }, { name: "documentation", color: "123456" }],
+        user: { login: "maintainer" },
+        html_url: "https://github.com/leoncheng57/custom-dca-opencode/issues/107",
+        created_at: "2026-08-20T10:00:00Z",
+        updated_at: "2026-08-24T15:00:00Z",
+        comments: 1,
       },
       {
         id: 102,

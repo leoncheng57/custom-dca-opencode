@@ -269,6 +269,17 @@ several decisions below.
     are a device-local display preference in `localStorage`, not repository planning
     data; the densest treatment is the first-visit default, and row labels share the
     status line rather than consuming another vertical band.
+17b. **Planning epic hierarchy is bounded, read-only and device-local.** GitHub's
+    issue list exposes child counts but not parent links, so the BFF fans out only
+    across a bounded, concurrency-limited set of candidate parents and applies
+    results afterward in deterministic parent order. The UI promotes an epic to
+    the highest priority found on its parent or visible children, nests children
+    only beneath that parent, and shows closed children as progress evidence. It
+    never edits hierarchy. Expanded epic numbers persist in localStorage and
+    malformed or blocked storage falls back to all epics collapsed. If filtering
+    removes a parent while retaining its child, the child remains top-level with
+    a parent breadcrumb rather than disappearing; unresolved or truncated edges
+    are reported honestly instead of blanking the feed.
 18. **PWA push supplements rather than replaces ntfy.** Web Push is a third independent
     delivery channel with its own server-backed enabled flag and event matrix. Device
     subscriptions are persisted server-side with mode `0600`; VAPID private material is
