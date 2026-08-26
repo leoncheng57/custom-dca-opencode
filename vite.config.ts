@@ -6,10 +6,21 @@ import { resolve } from "path";
 export default defineConfig(() => {
   // The BFF port is configurable (PORT) since :3000 is commonly taken.
   const apiTarget = `http://localhost:${process.env.PORT || 3000}`;
+  const publicSimulator = process.env.VITE_PUBLIC_SIMULATOR === "true";
 
   return {
-    plugins: [react(), tailwindcss()],
+    plugins: [
+      react(),
+      tailwindcss(),
+      ...(publicSimulator ? [{
+        name: "public-simulator-html",
+        transformIndexHtml: (html: string) => html.replace(/^\s*<link rel="(?:manifest|icon|apple-touch-icon)".*\n/gmu, ""),
+      }] : []),
+    ],
     root: "client",
+    // A scoped PR preview must not install the production PWA or claim an app
+    // start URL. It receives only the compiled SPA and its hashed assets.
+    publicDir: publicSimulator ? false : "public",
     build: {
       // server/index.ts resolves dist/server/index.js -> ../client
       outDir: "../dist/client",
