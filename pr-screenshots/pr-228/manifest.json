@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 2,
+  "prNumber": 228,
+  "sourceSha": "8c61ee5f64bac058127866567cb2969d87dc538c",
+  "capturedAt": "2026-08-26T17:25:44.109Z",
+  "screenshots": [
+    {
+      "requestedRoute": "/playbooks",
+      "fullPage": false,
+      "captures": {
+        "desktop": {
+          "filename": "01-playbooks-03d0309b--desktop.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 800
+          },
+          "bytes": 104753,
+          "sha256": "7565cf2e18657dd7200dc4d69bb5a0b8a13a2c599bedf5750f8a32bfaaf312f8"
+        },
+        "mobile": {
+          "filename": "01-playbooks-f11cb8cf--mobile.png",
+          "dimensions": {
+            "width": 390,
+            "height": 740
+          },
+          "bytes": 61860,
+          "sha256": "980cc7e9ce1cbc0cfa032099550daa0a2cfae4884f5646f4311895adb9e1d1b3"
+        }
+      }
+    },
+    {
+      "requestedRoute": "/playbooks/skills/ascii-diagrams",
+      "fullPage": true,
+      "captures": {
+        "desktop": {
+          "filename": "02-playbooks-skills-ascii-diagrams-845f37d4--desktop--full.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 4141
+          },
+          "bytes": 511523,
+          "sha256": "ff1963619eb57437611d5922489153539009bbaf2cfb5c945c73a282a3a018cd"
+        },
+        "mobile": {
+          "filename": "02-playbooks-skills-ascii-diagrams-b876218e--mobile--full.png",
+          "dimensions": {
+            "width": 390,
+            "height": 8025
+          },
+          "bytes": 556058,
+          "sha256": "aa71e07ce00466b8ee6f6d88e0a4459ba0f5a362cc79cecbc4d5477486e1ea2a"
+        }
+      }
+    },
+    {
+      "requestedRoute": "/playbooks/commands/verify",
+      "fullPage": true,
+      "captures": {
+        "desktop": {
+          "filename": "03-playbooks-commands-verify-40bf6d8a--desktop--full.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 4141
+          },
+          "bytes": 461764,
+          "sha256": "ec570a071fd00ac75a29a96429d265af02e4984bb15324833d1a26cce0e138e5"
+        },
+        "mobile": {
+          "filename": "03-playbooks-commands-verify-cea959b7--mobile--full.png",
+          "dimensions": {
+            "width": 390,
+            "height": 8025
+          },
+          "bytes": 522064,
+          "sha256": "9513ed741f8343ee5900198aa0866c7c83cb671cca0c6b4caeae30fbe73b7b68"
+        }
+      }
+    }
+  ]
+}
