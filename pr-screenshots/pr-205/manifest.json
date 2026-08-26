@@ -1,8 +1,8 @@
 {
   "schemaVersion": 2,
   "prNumber": 205,
-  "sourceSha": "a5ed20c9a7cf30c658a0f5e8cd9832dc3f11b974",
-  "capturedAt": "2026-08-26T05:08:23.696Z",
+  "sourceSha": "8e9ee83fe38f5a3d4ae472c8e7ac6c606114f643",
+  "capturedAt": "2026-08-26T05:15:06.562Z",
   "screenshots": [
     {
       "requestedRoute": "/docs/architecture",
@@ -45,10 +45,10 @@
           "filename": "02-docs-pr-previews-df02c2ed--mobile--full.png",
           "dimensions": {
             "width": 390,
-            "height": 740
+            "height": 890
           },
-          "bytes": 59587,
-          "sha256": "876e8a40c9234b6ebb22c83725803896e0406b637fd48c7f3b1279a698dec69c"
+          "bytes": 60109,
+          "sha256": "c16c4a3d61552047d67e4aa260f4f8174edc4f81867a7731580aaa0e85d906dc"
         }
       }
     }
