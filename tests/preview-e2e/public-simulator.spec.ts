@@ -7,7 +7,7 @@ test("serves an interactive, credential-free PR simulator", async ({ page }) => 
   await page.waitForLoadState("networkidle");
   expect(pageErrors).toEqual([]);
   await expect(page.getByTestId("opencode-public-simulator-banner")).toContainText("fixture data only");
-  await expect(page.getByTestId("opencode-upstream-badge")).toContainText("1.18.22");
+  await expect(page.getByTestId("opencode-upstream-badge")).toContainText("1.18.23+dca.2");
   await expect(page.getByTestId("opencode-session-list")).toContainText("Build the PR preview pipeline");
 
   await page.getByTestId("opencode-session-list").getByText("Build the PR preview pipeline").click();

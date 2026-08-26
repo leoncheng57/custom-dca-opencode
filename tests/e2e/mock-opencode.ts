@@ -1087,7 +1087,7 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
   const directory = url.searchParams.get("directory");
 
   if (pathname === "/global/health") {
-    return json(res, 200, { healthy: true, version: "1.18.22" });
+    return json(res, 200, { healthy: true, version: "1.18.23+dca.2" });
   }
 
   if (pathname === "/global/event") {
@@ -1223,7 +1223,10 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     // session race: one of them silently loses its notification. Callers that
     // only need "an idle happened" pass their own id and stop colliding.
     const sessionID = url.searchParams.get("sessionID") || "ses_mock_mobile";
-    emit("session.idle", { sessionID });
+    // Directory matters for lineage: the BFF resolves parent/child through
+    // /session/{id}?directory=, so an idle for a sub-agent fixture must carry
+    // the directory that fixture actually lives in.
+    emit("session.idle", { sessionID }, url.searchParams.get("directory") || undefined);
     return json(res, 200, true);
   }
   if (pathname === "/test/mobile/grow" && req.method === "POST") {

@@ -1,58 +1,49 @@
-import { ArrowLeft, ExternalLink } from "lucide-react";
-import type { ReactNode } from "react";
-import { Link, useParams } from "react-router-dom";
+import { ExternalLink, X } from "lucide-react";
+import { useEffect, useRef, type ReactNode } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { commandInstallMethods } from "../../agent-skills/src/lib/commandInstall.js";
 import { invocation } from "../../agent-skills/src/lib/commands.js";
 import { installMethods } from "../../agent-skills/src/lib/install.js";
 import { PlaybookCopyButton } from "../components/playbook-copy-button.js";
 import { PlaybookSimulation } from "../components/playbook-simulation.js";
-import { Badge } from "../ds/badge.js";
-import { CollapsibleCard } from "../ds/card.js";
+import { Alert } from "../ds/alert.js";
 import { Markdown } from "../ds/markdown.js";
 import { commandForSkill, findCommand, findSkill, playbookSource } from "../lib/playbooks.js";
+import { PlaybooksPage } from "./Playbooks.js";
+import styles from "./playbooks.module.css";
 
-function NotFound({ kind, name }: { kind: "skill" | "command"; name: string }) {
-  return (
-    <main className="h-full overflow-y-auto" data-testid="opencode-playbook-not-found">
-      <div className="mx-auto max-w-4xl px-5 py-12 sm:px-8">
-        <Link className="flex items-center gap-2 text-sm text-[var(--color-text-info)] hover:underline" to="/playbooks"><ArrowLeft aria-hidden="true" size={14} /> All playbooks</Link>
-        <h1 className="mt-8 text-3xl font-bold">No {kind} called “{name}”</h1>
-        <p className="mt-3 text-sm text-[var(--color-text-muted)]">It may have been renamed. The catalogue is generated directly from the repository.</p>
-      </div>
-    </main>
-  );
+type Method = { id: string; label: string; scope: string; note: string; command: string };
+
+function InstallMethods({ methods, subject }: { methods: Method[]; subject: string }) {
+  return <ol>{methods.map((method) => <li className={styles.method} key={method.id}><div className={styles.methodHead}><h3>{method.label}</h3><span className={styles.methodScope}>{method.scope}</span><span className={styles.methodCopy}><PlaybookCopyButton label={`${method.label} command`} value={method.command} /></span></div><p>{method.note}</p><pre className={styles.command}><code>{method.command}</code></pre></li>)}<p className={styles.meta}>Restart OpenCode after installing {subject}; skills and commands are read at startup.</p></ol>;
 }
 
-function DescriptionPanel({ children, copy }: { children: ReactNode; copy: string }) {
-  return (
-    <section className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-background-surface-neutral-muted)]" aria-label="Retrieval description">
-      <div className="flex items-center justify-between border-b border-[var(--color-border-default)] px-4 py-2">
-        <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--color-text-muted)]">frontmatter / description</span>
-        <PlaybookCopyButton label="description" value={copy} />
-      </div>
-      <div className="p-5 text-sm leading-relaxed">{children}</div>
-    </section>
-  );
+function Modal({ children, title }: { children: ReactNode; title: string }) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const navigate = useNavigate();
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (dialog && !dialog.open) dialog.showModal();
+    closeButtonRef.current?.focus();
+    return () => {
+      if (dialog?.open) dialog.close();
+      previousFocusRef.current?.focus();
+    };
+  }, []);
+  const closeToCatalog = () => navigate("/playbooks");
+  return <dialog aria-label={title} className={styles.dialog} data-testid="opencode-playbook-dialog" onCancel={(event) => { event.preventDefault(); closeToCatalog(); }} onClick={(event) => { if (event.target === event.currentTarget) closeToCatalog(); }} ref={dialogRef}><div className={styles.dialogBody}><button aria-label="Close playbook" className={styles.close} onClick={closeToCatalog} ref={closeButtonRef} type="button"><X aria-hidden="true" size={18} /></button><Alert className={styles.wipWarning} data-testid="opencode-playbooks-wip-warning" variant="warning">Playbooks is still work in progress and its UI/UX may contain bugs.</Alert>{children}</div></dialog>;
 }
 
-function InstallMethods({ methods, subject }: { methods: Array<{ id: string; label: string; scope: string; note: string; command: string }>; subject: string }) {
-  return (
-    <ol className="space-y-4">
-      {methods.map((method) => (
-        <li className="min-w-0 rounded-lg border border-[var(--color-border-default)] p-4" key={method.id}>
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="font-semibold">{method.label}</h3>
-            <Badge variant="neutral">{method.scope}</Badge>
-            <span className="ml-auto"><PlaybookCopyButton label={`${method.label} command`} value={method.command} /></span>
-          </div>
-          <p className="mt-2 text-xs leading-relaxed text-[var(--color-text-muted)]">{method.note}</p>
-          <pre className="mt-3 max-w-full overflow-x-auto rounded-lg bg-[var(--color-background-surface-neutral-muted)] p-3 text-xs"><code>{method.command}</code></pre>
-        </li>
-      ))}
-      <p className="text-xs text-[var(--color-text-muted)]">Restart OpenCode after installing {subject}; skills and commands are read at startup.</p>
-    </ol>
-  );
+function Disclosure({ children, defaultOpen = false, meta, title }: { children: ReactNode; defaultOpen?: boolean; meta?: ReactNode; title: ReactNode }) {
+  return <details className={styles.disclosure} open={defaultOpen}><summary><h2>{title}</h2>{meta && <span className={styles.disclosureMeta}>{meta}</span>}</summary><div className={styles.disclosureBody}>{children}</div></details>;
+}
+
+function NotFound({ kind, name }: { kind: string; name: string }) {
+  return <PlaybooksPage detail={<Modal title="Playbook not found"><section className={styles.notFound}><div className={styles.eyebrow}>Not found</div><h1 className={styles.modalTitle}>No {kind} called “{name}”</h1><p className={styles.modalDescription}>It may have been renamed. The catalogue is generated directly from the repository.</p></section></Modal>} />;
 }
 
 export function SkillPlaybookPage() {
@@ -60,58 +51,12 @@ export function SkillPlaybookPage() {
   const skill = findSkill(name);
   if (!skill) return <NotFound kind="skill" name={name} />;
   const command = commandForSkill(skill.name);
-
-  return (
-    <main className="h-full overflow-y-auto" data-testid="opencode-skill-playbook">
-      <article className="mx-auto max-w-4xl space-y-6 px-5 py-8 sm:px-8 sm:py-12">
-        <Link className="flex items-center gap-2 text-sm text-[var(--color-text-info)] hover:underline" to="/playbooks/skills"><ArrowLeft aria-hidden="true" size={14} /> Skills</Link>
-        <header className="border-b border-[var(--color-border-default)] pb-8">
-          <div className="flex flex-wrap items-center gap-2"><Badge variant="info">Skill</Badge>{skill.tags.map((tag) => <Badge key={tag} variant="neutral">#{tag}</Badge>)}</div>
-          <h1 className="mt-5 text-4xl font-bold tracking-[-0.035em] sm:text-5xl">{skill.title}</h1>
-          <dl className="mt-5 flex flex-wrap gap-x-6 gap-y-2 text-xs text-[var(--color-text-muted)]">
-            <div><dt className="inline font-semibold text-[var(--color-text-default)]">Name </dt><dd className="inline font-mono">{skill.name}</dd></div>
-            <div><dt className="inline font-semibold text-[var(--color-text-default)]">Read </dt><dd className="inline">{skill.readingTimeMinutes} min</dd></div>
-            {skill.license && <div><dt className="inline font-semibold text-[var(--color-text-default)]">License </dt><dd className="inline">{skill.license}</dd></div>}
-            <div><dt className="sr-only">Source</dt><dd><a className="inline-flex items-center gap-1 text-[var(--color-text-info)] hover:underline" href={playbookSource.skill(skill.name)} rel="noreferrer" target="_blank">SKILL.md <ExternalLink aria-hidden="true" size={12} /></a></dd></div>
-          </dl>
-        </header>
-        {skill.description && <DescriptionPanel copy={skill.description}>{skill.description}</DescriptionPanel>}
-        {command && <p className="rounded-lg border-l-4 border-[var(--color-border-focus)] bg-[var(--color-background-surface-info-muted)] p-4 text-sm">Short form: <Link className="font-mono font-semibold text-[var(--color-text-info)] hover:underline" to={`/playbooks/commands/${command.name}`}>/{command.name}</Link> invokes the happy path and defers here for failure modes.</p>}
-        {skill.simulation && <CollapsibleCard defaultOpen headerRight={<span className="text-xs text-[var(--color-text-muted)]">{skill.simulation.title}</span>} title="Simulation example"><PlaybookSimulation simulation={skill.simulation} /></CollapsibleCard>}
-        <CollapsibleCard defaultOpen={false} headerRight={<span className="text-xs text-[var(--color-text-muted)]">{skill.readingTimeMinutes} min</span>} title="Full instructions"><Markdown internalLinksInSameTab source={skill.body} /></CollapsibleCard>
-        <CollapsibleCard defaultOpen={false} headerRight={<span className="text-xs text-[var(--color-text-muted)]">{installMethods(skill.name).length} methods</span>} title={`Install ${skill.name}`}><InstallMethods methods={installMethods(skill.name)} subject="the skill" /></CollapsibleCard>
-      </article>
-    </main>
-  );
+  return <PlaybooksPage detail={<Modal title={skill.title}><header className={styles.modalHead}><div className={styles.eyebrow}>Skill · visual explanation</div><h1 className={styles.modalTitle}>{skill.title}</h1><p className={styles.modalDescription}>{skill.description}</p><div className={styles.route}>/playbooks/skills/{skill.name}</div></header><div className={styles.detailGrid}><aside className={styles.side}><div><div className={styles.eyebrow}>When to use</div><h2>Make the path visible.</h2><p>{skill.summary}</p></div>{skill.simulation && <details className={styles.note} open><summary>Simulation disclosure</summary><p>{skill.simulation.caveat}</p></details>}</aside>{skill.simulation && <PlaybookSimulation simulation={skill.simulation} sourceHref={playbookSource.skillSimulation(skill.name)} sourcePath={`skills/${skill.name}/SIMULATION.md`} />}</div><section className={styles.descriptionPanel}><div className={styles.descriptionBar}><span>frontmatter / description</span><PlaybookCopyButton label="description" value={skill.description} /></div><div className={styles.descriptionBody}>{skill.description}</div></section>{command && <p className={styles.relation}>Short form: <Link to={`/playbooks/commands/${command.name}`}>/{command.name}</Link> invokes the happy path and defers here for failure modes.</p>}<section className={styles.disclosures}><Disclosure meta={`${skill.readingTimeMinutes} min`} title="Full instructions"><Markdown internalLinksInSameTab source={skill.body} /></Disclosure><Disclosure meta={`${installMethods(skill.name).length} methods`} title={`Install ${skill.name}`}><InstallMethods methods={installMethods(skill.name)} subject="the skill" /></Disclosure><a className={styles.source} href={playbookSource.skill(skill.name)} rel="noreferrer" target="_blank">View SKILL.md <ExternalLink aria-hidden="true" size={12} /></a></section></Modal>} />;
 }
 
 export function CommandPlaybookPage() {
   const { name = "" } = useParams();
   const command = findCommand(name);
   if (!command) return <NotFound kind="command" name={name} />;
-
-  return (
-    <main className="h-full overflow-y-auto" data-testid="opencode-command-playbook">
-      <article className="mx-auto max-w-4xl space-y-6 px-5 py-8 sm:px-8 sm:py-12">
-        <Link className="flex items-center gap-2 text-sm text-[var(--color-text-info)] hover:underline" to="/playbooks/commands"><ArrowLeft aria-hidden="true" size={14} /> Commands</Link>
-        <header className="border-b border-[var(--color-border-default)] pb-8">
-          <Badge variant="success">Command</Badge>
-          <h1 className="mt-5 font-mono text-3xl font-bold tracking-[-0.035em] sm:text-5xl">{invocation(command.name, command.takesArguments)}</h1>
-          <dl className="mt-5 flex flex-wrap gap-x-6 gap-y-2 text-xs text-[var(--color-text-muted)]">
-            <div><dt className="inline font-semibold text-[var(--color-text-default)]">Agent </dt><dd className="inline">{command.agent ?? "current"}</dd></div>
-            <div><dt className="inline font-semibold text-[var(--color-text-default)]">Context </dt><dd className="inline">{command.subtask ? "subagent" : "this session"}</dd></div>
-            {command.model && <div><dt className="inline font-semibold text-[var(--color-text-default)]">Model </dt><dd className="inline">{command.model}</dd></div>}
-            <div><dt className="sr-only">Source</dt><dd><a className="inline-flex items-center gap-1 text-[var(--color-text-info)] hover:underline" href={playbookSource.command(command.name)} rel="noreferrer" target="_blank">{command.name}.md <ExternalLink aria-hidden="true" size={12} /></a></dd></div>
-          </dl>
-        </header>
-        {command.description && <DescriptionPanel copy={command.description}>{command.description}</DescriptionPanel>}
-        <p className="rounded-lg border-l-4 border-[var(--color-border-focus)] bg-[var(--color-background-surface-info-muted)] p-4 text-sm">
-          {command.relatedSkills.length ? <>Builds on {command.relatedSkills.map((skill, index) => <span key={skill}>{index ? ", " : ""}<Link className="font-semibold text-[var(--color-text-info)] hover:underline" to={`/playbooks/skills/${skill}`}>{skill}</Link></span>)}.</> : <>Standalone: no skill behind it, so it consumes no permanent retrieval context.</>}
-        </p>
-        {command.simulation && <CollapsibleCard defaultOpen headerRight={<span className="text-xs text-[var(--color-text-muted)]">{command.simulation.title}</span>} title="Simulation example"><PlaybookSimulation simulation={command.simulation} /></CollapsibleCard>}
-        <CollapsibleCard defaultOpen={false} headerRight={<PlaybookCopyButton label="command template" value={command.body} />} title="Command template"><Markdown internalLinksInSameTab source={command.body} /></CollapsibleCard>
-        <CollapsibleCard defaultOpen={false} headerRight={<span className="text-xs text-[var(--color-text-muted)]">{commandInstallMethods(command.name).length} methods</span>} title={`Install /${command.name}`}><InstallMethods methods={commandInstallMethods(command.name)} subject="the command" /></CollapsibleCard>
-      </article>
-    </main>
-  );
+  return <PlaybooksPage detail={<Modal title={`/${command.name}`}><header className={styles.modalHead}><div className={styles.eyebrow}>Command · OpenCode only</div><h1 className={styles.modalTitle}>{invocation(command.name, command.takesArguments)}</h1><p className={styles.modalDescription}>{command.description}</p><div className={styles.route}>/playbooks/commands/{command.name}</div></header><section className={styles.descriptionPanel}><div className={styles.descriptionBar}><span>frontmatter / description</span><PlaybookCopyButton label="description" value={command.description} /></div><div className={styles.descriptionBody}>{command.description}</div></section><p className={styles.relation}>{command.relatedSkills.length ? <>Builds on {command.relatedSkills.map((skill, index) => <span key={skill}>{index ? ", " : ""}<Link to={`/playbooks/skills/${skill}`}>{skill}</Link></span>)}.</> : "Standalone: no skill behind it, so it consumes no permanent retrieval context."}</p>{command.simulation && <section className={styles.detailGrid}><aside className={styles.side}><div><div className={styles.eyebrow}>Context</div><h2>{command.subtask ? "Runs off-context." : "Runs in this session."}</h2><p>{command.runsShell ? "This command injects shell output before the model receives the template." : "This command injects its template only when a human invokes it."}</p></div><details className={styles.note} open><summary>Simulation disclosure</summary><p>{command.simulation.caveat}</p></details></aside><PlaybookSimulation simulation={command.simulation} sourceHref={playbookSource.commandSimulation(command.name)} sourcePath={`command-simulations/${command.name}.md`} /></section>}<section className={styles.disclosures}><Disclosure meta={<PlaybookCopyButton label="command template" value={command.body} />} title="Command template"><Markdown internalLinksInSameTab source={command.body} /></Disclosure><Disclosure meta={`${commandInstallMethods(command.name).length} methods`} title={`Install /${command.name}`}><InstallMethods methods={commandInstallMethods(command.name)} subject="the command" /></Disclosure><a className={styles.source} href={playbookSource.command(command.name)} rel="noreferrer" target="_blank">View {command.name}.md <ExternalLink aria-hidden="true" size={12} /></a></section></Modal>} />;
 }

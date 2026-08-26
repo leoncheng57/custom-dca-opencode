@@ -1,3 +1,6 @@
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import path from "node:path";
+
 import { OpencodeError, type OpencodeConfig } from "./client.js";
 import type { EventBus, OpencodeEvent } from "./events.js";
 import { listPermissions, parsePermissionRequest, replyPermission, type PermissionRequest } from "./permissions.js";
@@ -18,6 +21,9 @@ interface DirectoryState {
 
 export class AutoPermissionService {
   private readonly states = new Map<string, DirectoryState>();
+  /** Serializes state-file writes so a rapid toggle cannot interleave rewrites. */
+  private persistQueue = Promise.resolve();
+  private loaded: Promise<void> = Promise.resolve();
   private readonly onEvent = (event: OpencodeEvent) => {
     if (event.type === "permission.asked") void this.handleAsked(event);
     if (event.type === "permission.replied") void this.handleReplied(event);
@@ -28,14 +34,27 @@ export class AutoPermissionService {
     }
   };
 
+  /**
+   * `stateFile` makes the per-directory enabled flags survive a restart. The
+   * flag used to be memory-only, which read as a safety default but had the
+   * opposite effect in practice: every deploy silently flipped a directory the
+   * user had explicitly set to auto-approve back into ask mode, so the next
+   * agent turn fired a permission push per tool call at their phone until they
+   * noticed and re-toggled. Persisting an instruction the user already gave
+   * through the authenticated UI is not an escalation; forgetting it was noise.
+   * Pass no file to stay volatile (unit tests, and any caller that wants the
+   * old behaviour).
+   */
   constructor(
     private readonly config: OpencodeConfig,
     private readonly bus: EventBus,
+    private readonly stateFile: string | null = null,
   ) {}
 
   start(): void {
     this.bus.on("event", this.onEvent);
     this.bus.on("connected", this.onConnected);
+    if (this.stateFile) this.loaded = this.load();
   }
 
   stop(): void {
@@ -65,10 +84,13 @@ export class AutoPermissionService {
   }
 
   async setEnabled(directory: string, enabled: boolean): Promise<AutoPermissionStatus> {
+    // An explicit toggle must never lose to a concurrent startup load.
+    await this.loaded.catch(() => undefined);
     const state = this.state(directory);
     state.enabled = enabled;
     state.generation += 1;
     state.failures.clear();
+    await this.persist();
     if (enabled) {
       await this.reconcile(directory, state.generation);
     } else {
@@ -77,6 +99,57 @@ export class AutoPermissionService {
       await state.queue;
     }
     return this.status(directory);
+  }
+
+  /**
+   * Restore persisted flags without overriding anything toggled since boot.
+   * A directory that already has in-memory state was touched by an explicit
+   * request, and that request wins over the file it may itself have rewritten.
+   */
+  private async load(): Promise<void> {
+    if (!this.stateFile) return;
+    let enabled: string[];
+    try {
+      const parsed: unknown = JSON.parse(await readFile(this.stateFile, "utf8"));
+      const candidate = (parsed as { enabled?: unknown })?.enabled;
+      enabled = Array.isArray(candidate)
+        ? candidate.filter((item): item is string => typeof item === "string" && item.length > 0)
+        : [];
+    } catch (error) {
+      // A missing file is the first run; anything else fails closed to the old
+      // volatile default rather than guessing at a corrupt instruction list.
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        console.warn("[auto-permission]", `Could not restore state: ${this.message(error)}`);
+      }
+      return;
+    }
+    for (const directory of enabled) {
+      if (this.states.has(directory)) continue;
+      const state = this.state(directory);
+      state.enabled = true;
+      state.generation += 1;
+      void this.reconcile(directory, state.generation);
+    }
+  }
+
+  private persist(): Promise<void> {
+    if (!this.stateFile) return Promise.resolve();
+    const file = this.stateFile;
+    const enabled = [...this.states.entries()]
+      .filter(([, state]) => state.enabled)
+      .map(([directory]) => directory)
+      .sort();
+    this.persistQueue = this.persistQueue
+      .then(async () => {
+        await mkdir(path.dirname(file), { recursive: true });
+        const temporary = `${file}.tmp-${process.pid}`;
+        await writeFile(temporary, `${JSON.stringify({ version: 1, enabled }, null, 2)}\n`, { mode: 0o600 });
+        await rename(temporary, file);
+      })
+      .catch((error: unknown) => {
+        console.warn("[auto-permission]", `Could not persist state: ${this.message(error)}`);
+      });
+    return this.persistQueue;
   }
 
   private state(directory: string): DirectoryState {

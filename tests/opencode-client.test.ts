@@ -69,8 +69,8 @@ describe("eventStreamUrl", () => {
 });
 
 describe("version pin", () => {
-  it("matches the server this client was generated against", () => {
+  it("matches the deliberate deployed server pin", () => {
     // Bump deliberately after re-auditing the live GET /doc contract.
-    expect(EXPECTED_SERVER_VERSION).toBe("1.18.22");
+    expect(EXPECTED_SERVER_VERSION).toBe("1.18.23+dca.2");
   });
 });

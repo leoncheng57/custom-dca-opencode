@@ -64,6 +64,70 @@ export function notifyBrowser(
 }
 
 const ACTIVE_SET_DEBOUNCE_MS = 300;
+const RECORDED_DEDUPE_MS = 5_000;
+const RECORDED_DEDUPE_LIMIT = 500;
+const RECORDED_DEDUPE_TTL_MS = 60_000;
+
+export interface RecordedNotifyEvent {
+  type?: string;
+  properties?: Record<string, unknown>;
+  click?: string;
+}
+
+/**
+ * Everything the watcher decides for one SSE frame, minus the EventSource:
+ * ring only for the server's own verdict, drop a repeat of one already rung,
+ * and otherwise play this device's media.
+ *
+ * Extracted so the suppression rule above is reachable from a unit test.
+ * `recordedKind` returning null for a suppressed record is the entire fix for
+ * being pinged about sub-agent chatter and auto-approved permissions, and
+ * nothing exercised it end to end: a regression there is silent in every other
+ * test, and loud on the user's desk.
+ *
+ * Returns the kind that rang, or null.
+ */
+export function createRecordedMediaSink(): (
+  event: RecordedNotifyEvent,
+  preferences: NotificationPreferences,
+  devicePreferences: DeviceNotificationPreferences,
+  fallbackKey?: string,
+) => NotifyEvent | null {
+  const seen = new Map<string, number>();
+  return (event, preferences, devicePreferences, fallbackKey) => {
+    // Only the server's post-append verdict rings a bell. Raw upstream
+    // events are still forwarded for the transcript and the sub-agent
+    // ledger — this hook simply stops forming its own opinion about them.
+    if (event.type !== "notification.recorded") return null;
+    const properties = event.properties ?? {};
+    const kind = recordedKind(properties);
+    if (!kind) return null;
+    // The record id is an exact identity, so this is now a guard against a
+    // duplicate SSE frame rather than the heuristic it replaced.
+    const key = String(properties.id ?? fallbackKey);
+    const now = Date.now();
+    if (now - (seen.get(key) ?? 0) < RECORDED_DEDUPE_MS) return null;
+    seen.set(key, now);
+    if (seen.size > RECORDED_DEDUPE_LIMIT) {
+      for (const [seenKey, timestamp] of seen) {
+        if (now - timestamp > RECORDED_DEDUPE_TTL_MS) seen.delete(seenKey);
+      }
+    }
+    const title = typeof properties.sessionTitle === "string" && properties.sessionTitle
+      ? properties.sessionTitle
+      : undefined;
+    const click = typeof properties.click === "string" ? properties.click : event.click;
+    // The OS notification tag is the server's, computed once for both this tab
+    // and the push service worker so they can never disagree about identity.
+    // It is session-scoped (one replaceable slot per session, so a burst of
+    // asks does not pile up cards), while the dedupe key above stays the
+    // record id — collapsing popups is presentation, but skipping a distinct
+    // record's sound entirely would be a policy change.
+    const tag = typeof properties.tag === "string" && properties.tag ? properties.tag : key;
+    notifyBrowser(preferences, kind, title, click, devicePreferences, tag);
+    return kind;
+  };
+}
 
 /**
  * One app-level listener. SSE is a nudge; notification preferences stay
@@ -83,7 +147,7 @@ export function useNotifyWatcher(onActiveSetChanged?: () => void): void {
     if (PUBLIC_SIMULATOR) return;
     let preferences: NotificationPreferences | null = null;
     let devicePreferences: DeviceNotificationPreferences = loadDeviceNotificationPreferences().preferences;
-    const seen = new Map<string, number>();
+    const sink = createRecordedMediaSink();
     let activeSetTimer: ReturnType<typeof setTimeout> | undefined;
     const refreshPreferences = () => void api.notifications().then((result) => {
       preferences = result.preferences;
@@ -102,9 +166,9 @@ export function useNotifyWatcher(onActiveSetChanged?: () => void): void {
     window.addEventListener("keydown", unlockAudio, { once: true });
     const source = new EventSource(api.eventsUrl());
     source.onmessage = (message) => {
-      let event: { type?: string; properties?: Record<string, unknown>; click?: string };
+      let event: RecordedNotifyEvent;
       try {
-        event = JSON.parse(message.data) as typeof event;
+        event = JSON.parse(message.data) as RecordedNotifyEvent;
       } catch {
         return;
       }
@@ -117,29 +181,7 @@ export function useNotifyWatcher(onActiveSetChanged?: () => void): void {
         activeSetTimer = setTimeout(() => notifyActiveSet.current?.(), ACTIVE_SET_DEBOUNCE_MS);
       }
       if (!preferences) return;
-      // Only the server's post-append verdict rings a bell. Raw upstream
-      // events are still forwarded for the transcript and the sub-agent
-      // ledger — this hook simply stops forming its own opinion about them.
-      if (event.type !== "notification.recorded") return;
-      const properties = event.properties ?? {};
-      const kind = recordedKind(properties);
-      if (!kind) return;
-      // The record id is an exact identity, so this is now a guard against a
-      // duplicate SSE frame rather than the heuristic it replaced.
-      const key = String(properties.id ?? message.lastEventId);
-      const now = Date.now();
-      if (now - (seen.get(key) ?? 0) < 5_000) return;
-      seen.set(key, now);
-      if (seen.size > 500) {
-        for (const [seenKey, timestamp] of seen) {
-          if (now - timestamp > 60_000) seen.delete(seenKey);
-        }
-      }
-      const title = typeof properties.sessionTitle === "string" && properties.sessionTitle
-        ? properties.sessionTitle
-        : undefined;
-      const click = typeof properties.click === "string" ? properties.click : event.click;
-      notifyBrowser(preferences, kind, title, click, devicePreferences, key);
+      sink(event, preferences, devicePreferences, message.lastEventId);
     };
     return () => {
       if (activeSetTimer) clearTimeout(activeSetTimer);

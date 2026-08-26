@@ -33,8 +33,20 @@
 // defeats the point of types. We own a thin typed layer over fetch instead and
 // treat the live `GET /doc` as the source of truth.
 
-/** Pinned server version these types were written against. */
-export const EXPECTED_SERVER_VERSION = "1.18.22";
+/**
+ * Pinned server version these types were written against.
+ *
+ * The deployed server is a fork build, so this carries SemVer *build metadata*
+ * (`+dca.<n>`), never a prerelease tag. Build metadata compares equal to the
+ * upstream release for SemVer range checks, while a prerelease would sort BELOW
+ * it and fail `engines`-style ranges. `<n>` counts the fork patch set; see
+ * AGENTS.md decision 19 for what each one is.
+ *
+ * The comparison in `checkHealth` is deliberately exact: reverting to a stock
+ * binary silently reintroduces the #75 deny-inheritance bug, so that skew must
+ * be visible rather than tolerated.
+ */
+export const EXPECTED_SERVER_VERSION = "1.18.23+dca.2";
 
 export interface OpencodeConfig {
   /** Base URL of the running `opencode serve` / `opencode web` instance. */

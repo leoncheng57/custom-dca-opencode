@@ -27,8 +27,12 @@ several decisions below.
   owns a small typed fetch seam instead of casting around the SDK.
 - Tests: `npm test` (vitest, `tests/*.test.ts`, node environment, import with `.js`
   suffixes). `npm run typecheck` runs the client, server, and screenshot-tool tsconfigs.
+  Note it covers `client/`, `server/` and `scripts/` — **no tsconfig includes
+  `tests/*.test.ts`**, so a test file is checked only by vitest at run time.
   Playwright starts deterministic mock OpenCode and preview servers, so
-  `npm run test:e2e` needs no live stack or keys.
+  `npm run test:e2e` needs no live stack or keys. `npm run test:e2e:docker` runs the
+  same suite inside a disposable container (decision 27); `npm run test:e2e:host` is
+  the explicit host lane; `npm run test:contract:host` is the host-only contract lane.
 - **Playwright runs spec _files_ in parallel against one BFF _and one mock_.** Tests
   inside a file are serial; files are not, and `test.describe.serial` orders only the
   file it is written in. So any state that is not per-request — BFF memory *or* the mock
@@ -80,10 +84,12 @@ several decisions below.
 1. **Path B — custom UI on `opencode serve`.** Considered and declined: a plugins+cmux
    composition (cmux sidebars cannot render input controls, so a settings page is
    impossible there), and adopting OpenChamber. Research: `docs/research/`.
-2. **No Docker.** The OpenHands runner needed `agent-canvas` (agent runtime) and
-   Postgres (manager runs). Manager runs are dropped, so Postgres goes too. One
-   process to supervise. This also removes the fixed-port constraint that limited the
-   old repo to one running worktree at a time.
+2. **No Docker in the application runtime.** The OpenHands runner needed `agent-canvas`
+   (agent runtime) and Postgres (manager runs). Manager runs are dropped, so Postgres
+   goes too. One process to supervise. This also removes the fixed-port constraint that
+   limited the old repo to one running worktree at a time. Scope note: decision 27 adds
+   an *optional test-only* container. Nothing needed to run, develop or deploy the app
+   requires Docker, and no agent session ever executes inside one.
 3. **Permissions replace the container boundary.** See `opencode.json`. Honest framing:
    opencode TUI sessions already ran host-side on this machine (some with `--auto`),
    so this makes an existing posture deliberate rather than adding new risk.
@@ -146,7 +152,14 @@ several decisions below.
     asked?" and "did my delegated child ever finish?" stay answerable — sub-agent events
     used to be dropped at ingest, which made the second question unanswerable — but they
     are noise in an inbox, so the UI hides both by **default** behind checkboxes rather
-    than excluding them in code. Because they were never delivered they are not a
+    than excluding them in code. One child event is exempt from the subagent category:
+    a **permission ask** takes the delivery path regardless of lineage, because a child
+    stopped on an unanswered ask is stalled work nobody else can unblock, and suppressing
+    it meant a delegated task sat frozen while the inbox swore nothing needed anyone. Its
+    parked escalation follows the same policy. A child ask in an auto-approved directory
+    is still suppressed — as `auto-permissions`, since it was answered before anyone was
+    blocked. A child that merely finishes stays recorded-only: it hands back to its
+    parent, so telling the human is noise. Because they were never delivered they are not a
     checklist, so unlike delivered unresolved records they are capped by `prune()`; a busy
     auto-permissions project would otherwise grow the log without limit. The filters are
     applied in `HistoryStore.list()` **and** `activeCount()` together and driven by query
@@ -159,14 +172,23 @@ several decisions below.
     `session.created`/`session.updated` or its parent/child lookups — it never issues a
     request of its own, and omits the field rather than inventing a placeholder. Sessions
     get renamed and deleted, so resolving later would misattribute or lose the record.
-11. **Auto permissions is volatile and directory-scoped.** The BFF keeps it in memory,
-    defaults it off after every restart, and replies `once` to `permission.asked` for
-    every session in an enabled directory. It never mutates policy, replies `always`,
-    or answers questions; it can only approve requests that upstream emits as asked.
-    It does not change the Plan/Build session-policy activation above. Permission and
-    parked-permission notifications are recorded with `suppressed: "auto-permissions"`
-    while enabled — never delivered, and hidden from the inbox and the badge by the
-    default filter — because those asks were answered before the user saw them.
+11. **Auto permissions is directory-scoped and persisted.** The BFF replies `once` to
+    `permission.asked` for every session in an enabled directory. It never mutates
+    policy, replies `always`, or answers questions; it can only approve requests that
+    upstream emits as asked. It does not change the Plan/Build session-policy activation
+    above. Permission and parked-permission notifications are recorded with
+    `suppressed: "auto-permissions"` while enabled — never delivered, and hidden from
+    the inbox and the badge by the default filter — because those asks were answered
+    before the user saw them. The enabled flags live in
+    `.state/auto-approve.json` (`AUTO_APPROVE_STATE_FILE`, mode 0600) and are restored
+    on boot: the flag was memory-only at first, which read as a safety default but had
+    the opposite effect — every deploy silently flipped an auto-approved directory back
+    to ask mode, and the next agent turn pushed one permission ask per tool call at
+    every configured phone until the user noticed and re-toggled. Persisting an
+    instruction the user already gave through the authenticated UI is not an
+    escalation. A corrupt state file fails closed to everything-off; an explicit toggle
+    always wins over the startup load; on restore the service reconciles pending asks,
+    so requests that arrived while the BFF was down are answered too.
 12. **Recents are cross-project; they are the one non-directory-scoped route.**
     The Hub shows recent work before a project is chosen, so `GET /api/recent-sessions`
     takes a *set* of directories instead of `?directory=`. There is no global session
@@ -326,19 +348,46 @@ several decisions below.
     native derivation copies a historical parent deny but discards its later Build allow. The
     resolved Plan agent alone is not read-only after project policy merges, so session-level Plan
     enforcement remains required.
-    #75's asymmetry is fixed upstream in anomalyco/opencode#45064 (drop a copied deny when a
-    later rule supersedes it for the exact permission+pattern), and the reference deployment's
-    `ai.opencode.serve` LaunchAgent runs a patched binary built from
-    `fix/subagent-effective-deny-inheritance` in the local opencode checkout (tip `f35ae140ed`,
-    source version 1.18.23; `dev` is an ancestor ~4,129 commits behind at 1.4.7 and is not a
-    rebuild source). `~/.opencode/bin/opencode-1.18.22-dca` is that binary's filename and
-    self-reported version, **not** a branch — rebuild from the branch, never from that string.
-    Stock plist preserved as
-    `.state/launchd/ai.opencode.serve.plist.bak-stock-binary`. Verified live: a parent with
-    appended `[bash deny, bash allow]` spawned a task child with no inherited bash deny that ran
-    bash successfully. When the upstream fix ships in a release, bump the pin, point the plist
-    back at the stock binary, and re-run the probes. Session-level Plan enforcement is still
+    #75's asymmetry is **not** fixed upstream. anomalyco/opencode#45064 (drop a copied deny when
+    a later rule supersedes it for the exact permission+pattern) was **closed unmerged** on
+    2026-08-26, and `upstream/dev` still ships the stale-deny filter in
+    `packages/opencode/src/agent/subagent-permissions.ts`. The patch exists only in this fork, so
+    the pin is **indefinite, not a wait for an upstream release**: there is nothing pending to
+    bump to, and every rebuild must re-apply it. Returning the plist to
+    `.state/launchd/ai.opencode.serve.plist.bak-stock-binary` reintroduces the bug.
+    The reference deployment's `ai.opencode.serve` LaunchAgent runs a binary built from
+    `fix/subagent-effective-deny-inheritance` in the local opencode checkout (source version
+    1.18.23; `dev` is an ancestor ~4,145 commits behind at 1.4.7 and is not a rebuild source).
+    `~/.opencode/bin/opencode-1.18.23-dca.2` is the currently pinned binary; the earlier
+    `opencode-1.18.23-dca-taskmodel` and `opencode-1.18.22-dca` files are rollback artifacts,
+    never a branch or rebuild source.
+    Verified live: a parent with appended `[bash deny, bash allow]` spawned a task child with no
+    inherited bash deny that ran bash successfully. Session-level Plan enforcement is still
     required regardless — the resolved Plan agent is not read-only after project merges.
+    That branch now carries a **second** fork-only patch: an optional `model` parameter on the
+    `task` tool (leoncheng57/opencode#4), giving explicit model > subagent model > parent model.
+    Upstream's active implementation of the same feature, anomalyco/opencode#34947, additionally
+    gates it behind a `model_override` permission defaulting to **deny**, so an agent cannot
+    silently move work to an expensive model; earlier ungated attempts (#26535, #29447) were
+    closed as superseded. This fork has no such gate, so adopting that binary accepts unbounded
+    agent-chosen model cost. Do not propose the fork's version upstream as a competing PR.
+    **A fork build must say so in its version string.** Build it as
+    `OPENCODE_VERSION=<upstream package version>+dca.<n> OPENCODE_CHANNEL=prod`, where `<n>` counts
+    the fork patch set — today `1.18.23+dca.2` (1: the deny fix; 2: the task `model` parameter).
+    That string is what `/global/health`, `--version`, the LLM `User-Agent`, MCP `clientInfo` and
+    the durable per-session `version` field all report, so a plain `1.18.23` would attribute
+    fork-only behaviour — a `task.model` parameter stock 1.18.23 does not have — to upstream.
+    Use SemVer **build metadata (`+`), never a prerelease (`-`)**: OpenCode gates plugin loading on
+    `semver.satisfies`, and a prerelease sorts *below* `1.18.23` and fails ordinary ranges like
+    `>=1.18.0`, while build metadata is stripped before comparison and behaves as the release does.
+    Both env vars are mandatory: without `OPENCODE_VERSION` the build stamps `0.0.0-<branch>-<ts>`,
+    whose major of 0 silently disables the plugin engine check, and without `OPENCODE_CHANNEL=prod`
+    the channel is inferred and can change database and websocket behaviour. Name the executable
+    after the version with `+`→`-`; the filename is a convenience label, never the source of truth.
+    `EXPECTED_SERVER_VERSION` pins the full string including `+dca.<n>` and is compared exactly, so
+    an accidental fallback to a stock binary — which reintroduces the #75 bug — is visible rather
+    than tolerated. Bumping `<n>` means updating this list, the pin, and the deterministic fixtures
+    together.
 20. **A file reference is data the server verified, never a URL the client trusted.**
     The client contract is `WorkspaceTarget { path, startLine?, endLine? }`, not a route:
     following a reference must not change the browser location, because the drawer is a
@@ -453,9 +502,19 @@ several decisions below.
     `notification.recorded`, which carries the server's post-append verdict, and skips
     anything `suppressed`. Raw events are still forwarded untouched for the transcript
     and the sub-agent ledger. Consequences: the record id becomes an exact dedupe
-    identity instead of a heuristic, and it doubles as the OS notification `tag` in both
-    `new Notification` and the service worker, so N open tabs — and a foreground PWA
-    that also receives the push — collapse to one popup instead of stacking.
+    identity instead of a heuristic, and the server stamps one OS notification `tag`
+    onto both the push payload and `notification.recorded`, used by `new Notification`
+    and the service worker alike, so N open tabs — and a foreground PWA that also
+    receives the push — collapse to one popup instead of stacking. The tag is
+    **session-scoped** (record-id only for sessionless records), because Web Push
+    cannot retract a shown notification and replacement via a shared tag is its only
+    correction: with per-record tags, a session that asked for bash seven times left
+    seven stale "Needs approval" cards piled in the OS notification center, most of
+    them already answered in the app. One replaceable slot per session means a later
+    ask overwrites the stale one, the parked escalation overwrites the ask it
+    escalates, and the eventual idle overwrites whatever was left. Collapsing is
+    presentation only: the per-record dedupe still governs sound and speech, so a
+    distinct record is never silently skipped.
 25. **A kind switched off in every channel is suppressed, not silently badged.**
     Preferences used to gate delivery only, so turning a kind off silenced the ping but
     still wrote a permanent unresolved record — and `abort` ships disabled, so every
@@ -483,6 +542,51 @@ several decisions below.
     because `normalizeRecord` is the only barrier against a hand-edited file and this is
     model-authored text on a durable record. Retention rose to 5,000 per capped
     category; unresolved *delivered* records remain exempt from every cap.
+27. **Docker is optional test infrastructure, one container per Playwright invocation.**
+    Worktrees isolate source and dependencies but not the machine-global fixtures the E2E
+    suite writes: `/tmp/mock-*`, their real `.git` directories, and ports 3410/4599/4600.
+    Distinct ports isolate listeners, not filesystems, so concurrent runs raced on one Git
+    index. `Dockerfile.e2e` + `scripts/e2e-docker.ts` give one invocation its own
+    filesystem/PID/network namespace, and the fixed paths and ports are deliberately
+    UNCHANGED inside it — which is why this lane migrated zero specs. Rejected: Compose
+    (a shared long-lived stack reintroduces the shared state) and per-spec containers
+    (cost without benefit, since one BFF already serves all spec files).
+    The runtime takes no mount of any kind: no Docker socket, host home, credentials,
+    host `/tmp`, writable source or writable artifact destination; plus `--network none`,
+    `--cap-drop ALL`, `no-new-privileges`, `--init`, private `--shm-size`, bounded pids,
+    non-root uid 1000, and no published ports. Source reaches the image only as a
+    `.dockerignore` **allowlist** snapshot, so `.git`, `.env*` and `.state/` are absent
+    rather than merely unreferenced — verified, not assumed. Artifacts are exported with
+    `docker cp` from the *stopped* container into a launcher-chosen unique directory, then
+    validated host-side: symlinks are refused rather than followed, and the bundle is
+    count/size-bounded. A writable artifact bind was rejected precisely because the
+    container could then delete host files. Cleanup names exactly one generated container
+    and, only when it built it, one generated image tag — never a path from test output.
+    `--read-only` root is deliberately NOT set: `/artifacts` must live in the container
+    layer for `docker cp` to reach it after exit, and a tmpfs or bind would defeat that.
+    The container layer is discarded on `rm`, so this costs no host isolation.
+    Two limits are permanent, not bugs to fix later. Docker does not touch same-run
+    cross-spec races — one container still hosts one BFF and one mock for every parallel
+    spec file, so `tests/e2e-shared-state-ownership.test.ts` stays. And it cannot prove
+    macOS behaviour, so `tests/host-contract.test.ts` keeps `/private/tmp`
+    canonicalization, real symlink containment, host `git check-ignore` and `0600` state
+    modes host-native. Honest framing, stated wherever the lane is documented: this is a
+    state-isolation boundary, not a hostile-code sandbox. A PR can edit `Dockerfile.e2e`,
+    the launcher and the npm script, so `test:e2e:docker` is a convenience command whose
+    security depends on the checkout; untrusted review needs a trusted launcher and image
+    definition from outside the tested tree. In CI the ephemeral read-only-token runner is
+    that boundary.
+    A preflight probes the daemon before building and, when Docker is absent, exits
+    **69** (`EX_UNAVAILABLE`) rather than 1, so "the lane never ran" is machine-
+    distinguishable from Playwright's "tests failed"; `summary.json` is written on that
+    path too, carrying `failureKind`. It never falls back to the host lane automatically:
+    free ports do not prove exclusivity, because a sibling worktree on a different `PORT`
+    still writes the same `/tmp` fixtures, so the launcher names `npm run test:e2e:host`
+    as an operator override instead of choosing it. A build failure after a successful
+    probe stays exit 1 — that is a real defect and must not be excused as an environment
+    problem. No per-PR image is published to GHCR: BuildKit `type=gha` cache scoped
+    by platform + schema (not commit SHA) keeps the `npm ci` and browser layers warm
+    without a registry, a write token or fork restrictions.
 
 ## Client conventions (inherited from the OpenHands runner, still enforced)
 

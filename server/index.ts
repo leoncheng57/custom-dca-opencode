@@ -57,7 +57,14 @@ const bus = new EventBus(opencode);
 bus.on("error", (error: unknown) => {
   console.warn("[bus]", error instanceof Error ? error.message : error);
 });
-const autoPermissions = new AutoPermissionService(opencode, bus);
+const autoPermissions = new AutoPermissionService(
+  opencode,
+  bus,
+  // Persisted so a BFF restart does not silently flip an auto-approved
+  // directory back to ask mode — which pushed one permission ask per tool
+  // call at every configured phone until the user noticed and re-toggled.
+  process.env.AUTO_APPROVE_STATE_FILE || path.resolve(process.cwd(), ".state/auto-approve.json"),
+);
 autoPermissions.start();
 const notificationStore = new PreferenceStore();
 const notificationHistory = new HistoryStore();

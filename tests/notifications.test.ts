@@ -10,6 +10,7 @@ import {
   NTFY_TITLE_LIMIT,
   NotificationService,
   inAppMessage,
+  notificationTag,
   outboundMessage,
 } from "../server/notifications/service.js";
 import type { EventBus } from "../server/opencode/events.js";
@@ -514,6 +515,144 @@ describe("auto permission notification suppression", () => {
     // from the badge the moment the default filter is applied.
     expect(await history.activeCount(undefined, { hideAutoApproved: true })).toBe(0);
     expect(await history.list({ hideAutoApproved: true })).toEqual([]);
+    service.stop();
+  });
+});
+
+/**
+ * A child that finishes hands back to its parent — telling the human is noise.
+ * A child stopped on an unanswered permission ask is stalled work nobody else
+ * can unblock, and suppressing it meant a delegated task sat frozen while the
+ * inbox swore nothing needed anyone. Permission is therefore the one child
+ * event that takes the delivery path.
+ */
+describe("sub-agent permission delivery", () => {
+  const childLookup = async (_directory: string, sessionID: string): Promise<SessionMetadata> =>
+    ({ id: sessionID, parentID: "ses_parent" });
+
+  const childAsked = {
+    type: "permission.asked",
+    directory: "/tmp/project",
+    properties: {
+      id: "perm_child",
+      sessionID: "ses_child",
+      permission: "bash",
+      patterns: ["npm test"],
+      metadata: {},
+      always: [],
+    },
+  };
+
+  function startService(autoPermissions?: (directory: string | undefined) => boolean) {
+    const bus = new EventEmitter() as EventBus;
+    const history = historyStore();
+    const service = new NotificationService(
+      { baseUrl: "http://opencode.test" },
+      bus,
+      ntfyPreferences(),
+      history,
+      null,
+      autoPermissions,
+      childLookup,
+    );
+    service.start();
+    const recorded: Array<Record<string, unknown>> = [];
+    bus.on("event", (event: { type: string; properties: Record<string, unknown> }) => {
+      if (event.type === "notification.recorded") recorded.push(event.properties);
+    });
+    return { bus, history, service, recorded };
+  }
+
+  it("delivers a blocked sub-agent permission ask", async () => {
+    const fetchMock = vi.fn(async () => new Response("ok", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { bus, history, service, recorded } = startService();
+
+    bus.emit("event", childAsked);
+
+    await vi.waitFor(async () => expect(await history.list()).toHaveLength(1));
+    const [record] = await history.list();
+    expect(record.delivery.suppressed).toBeUndefined();
+    expect(record.delivery.ntfy).toBe("sent");
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(recorded[0]).toMatchObject({ kind: "permission", sessionID: "ses_child" });
+    expect(recorded[0].suppressed).toBeUndefined();
+    service.stop();
+  });
+
+  it("still answers a sub-agent ask silently in an auto-approved directory", async () => {
+    // Auto-approve replies to every session in its directory, children
+    // included, so an auto-approved child ask was answered before anyone was
+    // blocked — that is an auto-permissions suppression, not a delivery.
+    const fetchMock = vi.fn(async () => new Response("ok", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { bus, history, service, recorded } = startService(() => true);
+
+    bus.emit("event", childAsked);
+
+    await vi.waitFor(async () => expect(await history.list()).toHaveLength(1));
+    expect((await history.list())[0].delivery.suppressed).toBe("auto-permissions");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(recorded[0].suppressed).toBe("auto-permissions");
+    service.stop();
+  });
+
+  it("keeps every other child event suppressed as before", async () => {
+    const fetchMock = vi.fn(async () => new Response("ok", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { bus, history, service, recorded } = startService();
+
+    bus.emit("event", { type: "session.idle", directory: "/tmp/project", properties: { sessionID: "ses_child" } });
+    bus.emit("event", { type: "question.asked", directory: "/tmp/project", properties: { id: "que_child", sessionID: "ses_child" } });
+    bus.emit("event", { type: "session.error", directory: "/tmp/project", properties: { sessionID: "ses_child", error: { name: "ProviderError" } } });
+
+    await vi.waitFor(async () => expect(await history.list()).toHaveLength(3));
+    expect((await history.list()).map((item) => item.delivery.suppressed)).toEqual(["subagent", "subagent", "subagent"]);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(recorded.every((item) => item.suppressed === "subagent")).toBe(true);
+    service.stop();
+  });
+});
+
+/**
+ * One replaceable OS notification slot per session. Web Push cannot retract a
+ * shown notification, so replacement via a shared tag is the only correction:
+ * without it, a session that asked for bash seven times left seven stale
+ * "Needs approval" cards piled in the notification center.
+ */
+describe("session-scoped notification tags", () => {
+  it("keys the tag by session and falls back to the record id", () => {
+    expect(notificationTag({ id: "ntf_1", sessionID: "ses_a" })).toBe("ses_a");
+    expect(notificationTag({ id: "ntf_2", sessionID: "ses_a" })).toBe("ses_a");
+    expect(notificationTag({ id: "ntf_3" })).toBe("ntf_3");
+    expect(notificationTag({ id: "ntf_4", sessionID: "" })).toBe("ntf_4");
+  });
+
+  it("stamps the session tag onto the recorded event for the open tab", async () => {
+    const fetchMock = vi.fn(async () => new Response("ok", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const bus = new EventEmitter() as EventBus;
+    const history = historyStore();
+    const service = new NotificationService(
+      { baseUrl: "http://opencode.test" },
+      bus,
+      ntfyPreferences(),
+      history,
+      null,
+      undefined,
+      rootSession,
+    );
+    service.start();
+    const recorded: Array<Record<string, unknown>> = [];
+    bus.on("event", (event: { type: string; properties: Record<string, unknown> }) => {
+      if (event.type === "notification.recorded") recorded.push(event.properties);
+    });
+
+    bus.emit("event", { type: "session.idle", directory: "/tmp/root", properties: { sessionID: "ses_root" } });
+
+    await vi.waitFor(async () => expect(await history.list()).toHaveLength(1));
+    await vi.waitFor(() => expect(recorded).toHaveLength(1));
+    expect(recorded[0]).toMatchObject({ tag: "ses_root", sessionID: "ses_root" });
     service.stop();
   });
 });
@@ -1023,13 +1162,21 @@ describe("notification resolution", () => {
     service.stop();
   });
 
-  it("revalidates lineage before delivering a parked permission", async () => {
+  it("escalates a still-blocked sub-agent permission as parked", async () => {
+    // A stalled delegate is the one child event that needs a human, so its
+    // 30-second escalation follows the same policy as the ask it escalates.
+    // This inverts the old lineage recheck, which skipped parked for children
+    // back when their asks were never delivered in the first place.
     vi.useFakeTimers();
-    const fetchMock = vi.fn(async () => new Response("ok", { status: 200 }));
+    const fetchMock = vi.fn(async (url: unknown) => new Response(
+      String(url).includes("/permission")
+        ? JSON.stringify([{ id: "perm_1", sessionID: "ses_1", permission: "bash" }])
+        : "ok",
+      { status: 200 },
+    ));
     vi.stubGlobal("fetch", fetchMock);
     const bus = new EventEmitter() as EventBus;
     const history = historyStore();
-    let lookupCount = 0;
     const service = new NotificationService(
       { baseUrl: "http://opencode.test" },
       bus,
@@ -1042,10 +1189,7 @@ describe("notification resolution", () => {
       history,
       null,
       undefined,
-      async (_directory, sessionID) => {
-        lookupCount += 1;
-        return lookupCount === 1 ? null : { id: sessionID, parentID: "ses_parent" };
-      },
+      async (_directory, sessionID) => ({ id: sessionID, parentID: "ses_parent" }),
     );
     service.start();
     const recorded = new Promise<void>((resolve) => {
@@ -1060,9 +1204,9 @@ describe("notification resolution", () => {
     await recorded;
 
     await vi.advanceTimersByTimeAsync(5_001);
-    expect((await history.list()).map((item) => item.kind)).toEqual(["permission"]);
-    expect(fetchMock).toHaveBeenCalledOnce();
-    expect(lookupCount).toBe(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect((await history.list()).map((item) => item.kind).sort()).toEqual(["parked", "permission"]);
+    expect((await history.list()).every((item) => item.delivery.suppressed === undefined)).toBe(true);
     service.stop();
   });
 });
