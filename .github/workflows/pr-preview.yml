@@ -70,6 +70,11 @@ jobs:
     env:
       PREVIEW_URL: https://leoncheng.dev/custom-dca-opencode/pr-previews/pr-${{ github.event.pull_request.number }}/
     steps:
+      - name: Check out trusted base for the Pages writer
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
       - name: Download exact preview artifact
         uses: actions/download-artifact@v4
         with:
