@@ -1,7 +1,10 @@
+import { Link } from "react-router-dom";
+
 import { Badge, type BadgeVariant } from "../ds/badge.js";
 import { cn } from "../ds/utils.js";
 import type { NotificationRecord, NotifyEvent } from "../lib/api.js";
 import { formatClockTime, formatRelative } from "../lib/derive.js";
+import { sessionRoute } from "../lib/notificationGroups.js";
 
 export const KIND_VARIANT: Record<NotifyEvent, BadgeVariant> = {
   idle: "neutral",
@@ -92,11 +95,14 @@ export function NotificationRecordRow({
   onResolvedChange,
   compact = false,
   grouped = false,
+  onNavigate,
 }: {
   record: NotificationRecord;
   onResolvedChange: (id: string, resolved: boolean) => void;
   compact?: boolean;
   grouped?: boolean;
+  /** Fired when the row navigates, so a host overlay can dismiss itself. */
+  onNavigate?: () => void;
 }) {
   const timestamp = new Date(record.at).toISOString();
   const active = record.resolvedAt === undefined;
@@ -110,6 +116,10 @@ export function NotificationRecordRow({
     : undefined;
   const action = notificationAction(record);
   const heading = grouped ? action : (sessionLabel ?? record.title);
+  // Grouped or not, the row's first line is what the reader aims at to reach
+  // the work. Grouping moved the session title into the header; it must not
+  // also have taken the row's ability to navigate.
+  const route = sessionRoute(record);
   return (
     <li
       className={cn(
@@ -143,10 +153,15 @@ export function NotificationRecordRow({
                 ? { title: record.sessionTitle, "data-testid": "opencode-notification-session" }
                 : {})}
           >
-            {!grouped && record.click ? (
-              <a className="underline underline-offset-2" href={record.click} data-testid="opencode-notification-link">
+            {route ? (
+              <Link
+                className="underline underline-offset-2"
+                to={route}
+                onClick={onNavigate}
+                data-testid="opencode-notification-link"
+              >
                 {heading}
-              </a>
+              </Link>
             ) : (
               heading
             )}

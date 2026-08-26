@@ -6,6 +6,7 @@ import {
   NO_SESSION_LABEL,
   UNTITLED_SESSION_LABEL,
   groupBySession,
+  sessionRoute,
 } from "../client/lib/notificationGroups.js";
 import type { NotificationRecord, NotifyEvent } from "../client/lib/api.js";
 
@@ -115,13 +116,42 @@ describe("notification session grouping", () => {
     expect(groups[0]?.chips).toHaveLength(CHIP_ORDER.length);
   });
 
-  it("hoists the session link onto the group so rows stop repeating it", () => {
+  it("hoists an in-app session route onto the group so rows stop repeating it", () => {
     const groups = groupBySession([
-      record({ id: "a", at: 30, sessionID: "ses_1" }),
-      record({ id: "b", at: 20, sessionID: "ses_1", click: "https://app.test/sessions/ses_1" }),
+      record({ id: "a", at: 30, sessionID: "ses_1", directory: "/srv/work" }),
+      record({ id: "b", at: 20, sessionID: "ses_1", directory: "/srv/work" }),
     ]);
 
-    expect(groups[0]?.click).toBe("https://app.test/sessions/ses_1");
+    expect(groups[0]?.route).toBe("/sessions/ses_1?directory=%2Fsrv%2Fwork");
+  });
+
+  it("gives a sessionless group no route rather than a dead link", () => {
+    expect(groupBySession([record({ id: "orphan", at: 10 })])[0]?.route).toBeUndefined();
+  });
+});
+
+describe("notification session route", () => {
+  it("targets the in-app conversation route, directory included", () => {
+    expect(sessionRoute({ sessionID: "ses_1", directory: "/srv/my project" })).toBe(
+      "/sessions/ses_1?directory=%2Fsrv%2Fmy+project",
+    );
+  });
+
+  it("still links a record whose directory was never recorded", () => {
+    expect(sessionRoute({ sessionID: "ses_1" })).toBe("/sessions/ses_1");
+  });
+
+  it("does not depend on the outbound click URL, which needs PUBLIC_APP_URL", () => {
+    // record.click is the ntfy/Web Push link and is undefined whenever
+    // PUBLIC_APP_URL is unset. Deriving the route from the session id instead
+    // is what keeps in-app rows clickable on a deployment that never
+    // configured outbound delivery.
+    expect(sessionRoute({ sessionID: "ses_1", directory: "/srv/work" })).toBeDefined();
+  });
+
+  it("has nothing to link when the record names no session", () => {
+    expect(sessionRoute({})).toBeUndefined();
+    expect(sessionRoute({ directory: "/srv/work" })).toBeUndefined();
   });
 
   it("returns nothing for an empty history rather than an empty bucket", () => {

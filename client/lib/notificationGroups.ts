@@ -1,6 +1,7 @@
 // client/lib/notificationGroups.ts
 //
-// Groups notification records by the session that produced them.
+// Groups notification records by the session that produced them, and resolves
+// the in-app route a row or header links to.
 //
 // This is presentation only. Unlike the two noise filters it is never sent to
 // the server: it changes neither which records exist nor the unresolved count,
@@ -37,6 +38,24 @@ export const CHIP_ORDER: readonly NotifyEvent[] = [
   "idle",
 ];
 
+/**
+ * The in-app route for the session a record came from.
+ *
+ * Deliberately built here rather than reusing `record.click`. That field is the
+ * link posted to ntfy and Web Push, so it is an absolute URL to PUBLIC_APP_URL
+ * and is `undefined` whenever that variable is unset (server/publicAppUrl.ts) —
+ * which would leave every in-app row unclickable on a deployment that never
+ * configured outbound delivery. The route is the same one `conversationUrl`
+ * builds, so this changes the destination for nobody; it only stops an
+ * outbound-delivery setting from deciding whether the UI can navigate, and
+ * keeps the click inside the SPA instead of forcing a cross-origin reload.
+ */
+export function sessionRoute(record: Pick<NotificationRecord, "sessionID" | "directory">): string | undefined {
+  if (!record.sessionID) return undefined;
+  const query = record.directory ? `?${new URLSearchParams({ directory: record.directory })}` : "";
+  return `/sessions/${encodeURIComponent(record.sessionID)}${query}`;
+}
+
 export interface SessionGroupChip {
   kind: NotifyEvent;
   count: number;
@@ -49,10 +68,9 @@ export interface SessionGroup {
   label: string;
   /** Untruncated session title for the tooltip, when one was ever snapshotted. */
   title?: string;
-  /** Session deep link, from the newest record carrying one. Every record in a
-   *  group points at the same session, so the header owns the link the rows
-   *  used to repeat. */
-  click?: string;
+  /** In-app route to the session. Present whenever the group has a session id,
+   *  so a folded group is still one click from the work it describes. */
+  route?: string;
   /** Newest first. */
   records: NotificationRecord[];
   chips: SessionGroupChip[];
@@ -106,12 +124,12 @@ export function groupBySession(records: NotificationRecord[]): SessionGroup[] {
       key === NO_SESSION_KEY
         ? NO_SESSION_LABEL
         : (titled?.sessionTitle || newest?.title || UNTITLED_SESSION_LABEL);
-    const click = ordered.find((record) => record.click !== undefined)?.click;
+    const route = newest ? sessionRoute(newest) : undefined;
     return {
       key,
       label,
       ...(key !== NO_SESSION_KEY && titled?.sessionTitle ? { title: titled.sessionTitle } : {}),
-      ...(click ? { click } : {}),
+      ...(route ? { route } : {}),
       records: ordered,
       chips: chipsFor(ordered),
       latest: newest?.at ?? 0,

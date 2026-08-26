@@ -389,7 +389,14 @@ several decisions below.
     so that count is rarely a lie, while retention stays at 500 per capped category
     (the remainder of issue #135). Resolution is untouched by all of this: it stays
     per-record, manual and reversible per decision 10, and there is deliberately **no
-    bulk resolve** on a group.
+    bulk resolve** on a group. Every row keeps its own link to the session, and a
+    folded header carries one too so a group is reachable without being opened first;
+    grouping moved the repeated *title* out of the rows, never their ability to
+    navigate. That link is built client-side from `sessionID` + `directory` rather than
+    from `record.click`, which is the **outbound** ntfy/Web Push URL: it is absolute,
+    cross-origin, and `undefined` whenever `PUBLIC_APP_URL` is unset, so reusing it
+    made an outbound-delivery setting decide whether the in-app UI could navigate at
+    all — and made every notification inert in the fixture-backed PR simulator.
 
 ## Client conventions (inherited from the OpenHands runner, still enforced)
 

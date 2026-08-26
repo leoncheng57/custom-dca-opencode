@@ -1,4 +1,5 @@
 import { ChevronDown, ChevronRight } from "lucide-react";
+import { Link } from "react-router-dom";
 
 import { Badge } from "../ds/badge.js";
 import { cn } from "../ds/utils.js";
@@ -25,12 +26,15 @@ export function NotificationGroup({
   onToggle,
   onResolvedChange,
   compact = false,
+  onNavigate,
 }: {
   group: SessionGroup;
   expanded: boolean;
   onToggle: () => void;
   onResolvedChange: (id: string, resolved: boolean) => void;
   compact?: boolean;
+  /** Fired when the header or a row navigates, so an overlay can dismiss. */
+  onNavigate?: () => void;
 }) {
   const bodyId = `opencode-notification-group-body-${group.key}`;
   const label = truncateSessionTitle(group.label, compact ? 38 : 64);
@@ -85,15 +89,19 @@ export function NotificationGroup({
           </span>
         </button>
         {/* Every record in a group points at the same session, so the link the
-            rows used to repeat lives here once. */}
-        {group.click && (
-          <a
+            rows used to repeat lives here once — and a folded group stays one
+            click from the work, without being expanded first. It sits outside
+            the disclosure button because a link cannot nest inside one. */}
+        {group.route && (
+          <Link
             className="shrink-0 pt-0.5 text-xs underline underline-offset-2"
-            href={group.click}
+            to={group.route}
+            onClick={onNavigate}
+            aria-label={`Open session ${group.label}`}
             data-testid="opencode-notification-group-link"
           >
             Open
-          </a>
+          </Link>
         )}
       </div>
       {expanded && (
@@ -109,6 +117,7 @@ export function NotificationGroup({
               onResolvedChange={onResolvedChange}
               compact={compact}
               grouped
+              onNavigate={onNavigate}
             />
           ))}
         </ul>

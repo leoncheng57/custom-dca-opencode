@@ -38,6 +38,7 @@ function RecordSection({
   grouped = false,
   isGroupExpanded,
   toggleGroup,
+  onNavigate,
 }: {
   title: string;
   records: NotificationRecord[];
@@ -54,6 +55,7 @@ function RecordSection({
   grouped?: boolean;
   isGroupExpanded?: (key: string) => boolean;
   toggleGroup?: (key: string) => void;
+  onNavigate?: () => void;
 }) {
   const headingId = `${testId}-heading`;
   const bodyId = `${testId}-body`;
@@ -116,10 +118,17 @@ function RecordSection({
                       onToggle={() => toggleGroup?.(group.key)}
                       onResolvedChange={onResolvedChange}
                       compact
+                      onNavigate={onNavigate}
                     />
                   ))
                 : records.map((record) => (
-                    <NotificationRecordRow key={record.id} record={record} onResolvedChange={onResolvedChange} compact />
+                    <NotificationRecordRow
+                      key={record.id}
+                      record={record}
+                      onResolvedChange={onResolvedChange}
+                      compact
+                      onNavigate={onNavigate}
+                    />
                   ))}
             </ul>
           )}
@@ -293,6 +302,7 @@ export function NotificationPopover({ scopedPath }: { scopedPath: (path: string)
                 grouped={view.groupBySession}
                 isGroupExpanded={isGroupExpanded}
                 toggleGroup={toggleGroup}
+                onNavigate={() => close(false)}
                 footer={
                   hiddenActive > 0 ? (
                     <p
@@ -313,6 +323,7 @@ export function NotificationPopover({ scopedPath }: { scopedPath: (path: string)
                 grouped={view.groupBySession}
                 isGroupExpanded={isGroupExpanded}
                 toggleGroup={toggleGroup}
+                onNavigate={() => close(false)}
                 maxHeight="max-h-48"
                 collapsed={!view.resolvedExpanded}
                 onToggle={() => setView({ resolvedExpanded: !view.resolvedExpanded })}

@@ -658,18 +658,61 @@ for (const viewport of VIEWPORTS) {
       await expect(popover(page).getByTestId("opencode-notification-record")).toHaveCount(ACTIVE_COUNT);
     });
 
-    test("lifts the repeated session title and link out of the rows", async ({ page }) => {
+    test("lifts the repeated session title out of the rows without taking their link", async ({ page }) => {
       await page.goto(hub);
       await bell(page).click();
       await groups(page).first().getByTestId("opencode-notification-group-toggle").click();
 
-      // The title and the session link belonged to the session, not to each of
-      // its eight notifications; the header owns both now.
+      // The title belonged to the session, not to each of its eight
+      // notifications, so the header owns it now.
       const row = popover(page).getByTestId("opencode-notification-record").first();
       await expect(row.getByTestId("opencode-notification-session")).toHaveCount(0);
-      await expect(row.getByTestId("opencode-notification-link")).toHaveCount(0);
       // What is left is what actually distinguishes one row from its siblings.
       await expect(row.getByTestId("opencode-notification-action")).toHaveText("Needs approval to run bash 0");
+      // Moving the title must not have cost the row its way to the work: the
+      // first line is still what the reader aims at to reach the session.
+      await expect(row.getByTestId("opencode-notification-link")).toHaveAttribute(
+        "href",
+        `/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`,
+      );
+    });
+
+    test("opens the session from a row, and gets out of the way", async ({ page }) => {
+      await page.goto(hub);
+      await bell(page).click();
+      await groups(page).first().getByTestId("opencode-notification-group-toggle").click();
+      await popover(page).getByTestId("opencode-notification-record").first()
+        .getByTestId("opencode-notification-link")
+        .click();
+
+      // A real client-side navigation, not a reload to some other origin.
+      await expect(page).toHaveURL(new RegExp(`/sessions/ses_mock_done\\?directory=${encodeURIComponent(DIR)}`));
+      // An overlay that stayed open would cover the session it just opened.
+      await expect(popover(page)).toHaveCount(0);
+    });
+
+    test("opens the session from a folded group without expanding it first", async ({ page }) => {
+      await page.goto(hub);
+      await bell(page).click();
+
+      const group = groups(page).first();
+      await expect(group).toHaveAttribute("data-expanded", "false");
+      const open = group.getByTestId("opencode-notification-group-link");
+      await expect(open).toHaveAttribute("aria-label", new RegExp("^Open session "));
+      await open.click();
+
+      await expect(page).toHaveURL(new RegExp(`/sessions/ses_mock_done\\?directory=${encodeURIComponent(DIR)}`));
+      await expect(popover(page)).toHaveCount(0);
+    });
+
+    test("keeps rows clickable with grouping switched off", async ({ page }) => {
+      // The deep link is a property of the record, not of the grouping mode.
+      await page.goto(hub);
+      await bell(page).click();
+      await page.getByTestId("opencode-notification-filter-group-session").uncheck();
+
+      await popover(page).getByTestId("opencode-notification-link").first().click();
+      await expect(page).toHaveURL(new RegExp(`/sessions/ses_mock_done\\?directory=${encodeURIComponent(DIR)}`));
     });
 
     test("expands every group at once and remembers that choice", async ({ page }) => {
