@@ -25,9 +25,9 @@ async function render(source: string): Promise<string> {
       startOnLoad: false,
       securityLevel: "strict",
       secure: ["securityLevel", "startOnLoad", "htmlLabels"],
+      htmlLabels: false,
       theme: "base",
       themeVariables: themeVariables(),
-      flowchart: { htmlLabels: false },
     });
     await mermaid.parse(source, { suppressErrors: true });
     return (await mermaid.render(`dca-mermaid-${++diagramID}`, source)).svg;

@@ -46,6 +46,8 @@ test.describe("documentation Mermaid diagrams", () => {
         edgeStroke,
         labelContrast: contrast(labelFill, nodeFill),
         edgeContrast: contrast(edgeStroke, getComputedStyle(element).backgroundColor),
+        nodeLabels: [...svg.querySelectorAll(".node")].map((node) => node.textContent?.trim()),
+        foreignObjects: svg.querySelectorAll("foreignObject").length,
       };
     });
     expect(dark).not.toBe(light);
@@ -56,6 +58,8 @@ test.describe("documentation Mermaid diagrams", () => {
     }
     expect(diagramColors.labelContrast).toBeGreaterThanOrEqual(4.5);
     expect(diagramColors.edgeContrast).toBeGreaterThanOrEqual(3);
+    expect(diagramColors.nodeLabels).toEqual(expect.arrayContaining(["GitHub Pages", "opencode serve"]));
+    expect(diagramColors.foreignObjects).toBe(0);
 
     await page.setViewportSize({ width: 390, height: 740 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
