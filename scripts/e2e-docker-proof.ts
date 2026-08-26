@@ -116,18 +116,48 @@ function digest(value: string): string {
   return createHash("sha256").update(value).digest("hex").slice(0, 16);
 }
 
-/** Host-side snapshot: the worktree's own commit and dirty set. */
-function hostState(repoRoot: string): string {
+/**
+ * The host-side resource a container could plausibly reach.
+ *
+ * `/tmp/mock-project` is genuinely shared: the host lane writes it, and it is
+ * the thing two concurrent runs used to corrupt. If a container ever escaped its
+ * namespace, this is where it would show. Held to a hard assertion.
+ *
+ * Absent on a machine that has never run the host lane, which is fine — the
+ * claim is only that the value does not CHANGE.
+ */
+function hostFixtureState(): string {
+  const head = spawnSync("git", ["-C", FIXTURE, "rev-parse", "HEAD"], { encoding: "utf8" });
+  const status = spawnSync("git", ["-C", FIXTURE, "status", "--porcelain=v1", "--untracked-files=all"], {
+    encoding: "utf8",
+  });
+  return [
+    `hostFixtureHead=${(head.stdout || "").trim() || "absent"}`,
+    `hostFixtureStatus=${digest(status.stdout || "")}`,
+  ].join("\n");
+}
+
+/**
+ * The repository worktree's commit and dirty set.
+ *
+ * Compared across the tight window around the container damage, where any
+ * change really would be alarming. It is deliberately NOT asserted across the
+ * whole run: a stress run takes many minutes, and the operator editing or
+ * committing during it is ordinary activity that this snapshot cannot
+ * distinguish from an escape. Asserting it over that span produced exactly one
+ * false failure in a ten-pair run — the harness reporting the author's own
+ * commit as a containment breach. A check that cries wolf about normal work
+ * teaches people to ignore it, which costs more than the coverage was worth.
+ */
+function hostWorktreeState(repoRoot: string): string {
   const head = spawnSync("git", ["-C", repoRoot, "rev-parse", "HEAD"], { encoding: "utf8" });
   const status = spawnSync("git", ["-C", repoRoot, "status", "--porcelain=v1"], { encoding: "utf8" });
-  const fixture = spawnSync("git", ["-C", FIXTURE, "rev-parse", "HEAD"], { encoding: "utf8" });
-  return [
-    `head=${(head.stdout || "").trim()}`,
-    `status=${digest(status.stdout || "")}`,
-    // Absent on a machine that has never run the host lane; that is fine, the
-    // point is only that this value does not CHANGE.
-    `hostFixtureHead=${(fixture.stdout || "").trim() || "absent"}`,
-  ].join("\n");
+  return [`head=${(head.stdout || "").trim()}`, `status=${digest(status.stdout || "")}`].join("\n");
+}
+
+/** Both, for the tight window where neither may move. */
+function hostState(repoRoot: string): string {
+  return `${hostWorktreeState(repoRoot)}\n${hostFixtureState()}`;
 }
 
 /** Synchronous sleep with no subprocess, so the poll loop stays cheap. */
@@ -194,6 +224,8 @@ function runProof(): { proofID: string; checks: Check[]; failures: number; timin
 
   const timings: Record<string, number> = {};
   const hostBefore = hostState(repoRoot);
+  const fixtureBefore = hostFixtureState();
+  const worktreeBefore = hostWorktreeState(repoRoot);
   let failures = 0;
 
   try {
@@ -378,12 +410,26 @@ function runProof(): { proofID: string; checks: Check[]; failures: number; timin
       `workers=${workerDetail} shm=1g pids-limit=4096 network=none`,
     );
 
-    const hostFinal = hostState(repoRoot);
+    // Hard: the shared fixture must be untouched end to end. This is the
+    // resource a container escape would actually reach.
+    const fixtureFinal = hostFixtureState();
     record(
-      "host state unchanged across the whole exercise",
-      hostFinal === hostBefore,
-      hostFinal === hostBefore ? "identical" : "CHANGED",
+      "host fixture unchanged across the whole exercise",
+      fixtureFinal === fixtureBefore,
+      fixtureFinal === fixtureBefore ? "identical" : `before=${digest(fixtureBefore)} after=${digest(fixtureFinal)}`,
     );
+
+    // Informational only, and not a check. See hostWorktreeState for why: over a
+    // multi-minute run the operator's own edits are indistinguishable from an
+    // escape, and the tight window around the damage above already covers the
+    // case that matters.
+    const worktreeFinal = hostWorktreeState(repoRoot);
+    if (worktreeFinal !== worktreeBefore) {
+      console.log(
+        "      note: repository worktree changed during this run (a commit or edit by you). " +
+          "Not treated as a containment failure; the damage-window check above is the one that is.",
+      );
+    }
 
     // --- 7. disjoint artifacts ------------------------------------------------
     for (const lane of lanes) {
