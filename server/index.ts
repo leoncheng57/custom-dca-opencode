@@ -41,6 +41,8 @@ import { recentRoutes } from "./routes/recents.js";
 import { parsePublicAppUrl } from "./publicAppUrl.js";
 import { readDshConfig } from "./dsh/config.js";
 import { dshRoutes } from "./routes/dsh.js";
+import { parseLiveBrowserConfig } from "./browser/policy.js";
+import { liveBrowserRoutes } from "./browser/routes.js";
 
 dotenv.config();
 
@@ -100,6 +102,19 @@ app.use("/api", recentRoutes(opencode));
 app.use("/api", dshRoutes(dsh));
 const opencodePort = Number(new URL(opencode.baseUrl).port || 80);
 app.use("/api", previewRoutes(parseAllowedPorts(process.env.PREVIEW_ALLOWED_PORTS, [PORT, opencodePort])));
+
+// Live session browser (issue #229). Off by default; the manager — and with
+// it playwright-core — is only loaded when the flag is set, so a disabled
+// deployment pays nothing at boot. Chromium itself launches lazily on first
+// open, never here.
+const liveBrowser = parseLiveBrowserConfig(process.env);
+const liveBrowserManager = liveBrowser.enabled
+  ? new (await import("./browser/manager.js")).BrowserManager(
+      liveBrowser,
+      process.env.BROWSER_PROFILE_DIR || path.resolve(process.cwd(), ".state/live-browser-profile"),
+    )
+  : null;
+app.use("/api", liveBrowserRoutes(liveBrowser, liveBrowserManager));
 
 /**
  * Liveness for this BFF plus reachability of the OpenCode server behind it.
