@@ -618,8 +618,8 @@ several decisions below.
     are published on npm at the same `0.1.1-rc.2`, and `SessionPersistence` offers
     `list`, `listSnapshots` (cheap change tokens), `inspect`, `readRaw` and
     `readFrom(id, fromSeq)` — a documented watermark replay primitive for exactly this
-    kind of read model, verified working from plain Node. DCA does not use it **yet**,
-    and the reasons are cost and hazard, not absence: every published version is a
+    kind of read model, verified working from plain Node. Adopting it still carries
+    costs and hazards: every published version is a
     release candidate; the backend constructor unconditionally installs a write path and
     needs a stub `sessions` service on a cordis `Context`; `koffi` is a native
     transitive dependency; the operator's cordis file is sha256-pinned so persistence
@@ -653,6 +653,22 @@ several decisions below.
     did but knows nothing about what DCA observed around it, so `dca-lifecycle` records —
     a rejected prompt, a bridge exit, a capture gap — are interleaved by time and
     duplicate captured *native* events are dropped in favour of the durable ones.
+28b. **DSH Build is a separate, explicit privilege lane.** OpenCode Build and managed
+    children never authorize the independent DSH runtime. Each server-authored DSH
+    preset declares `read-only` or `build`; the mode is snapshotted onto the session at
+    creation and every prompt rejects if the current preset fingerprint or mode differs.
+    Build selection requires a browser confirmation, but the browser still cannot author
+    policy or paths. The outer macOS Seatbelt profile is the authority: read-only permits
+    writes only under DSH state, while Build adds exactly the canonical allowlisted
+    workspace and still denies every other write, including symlink escapes. The Cordis
+    `workspace-write` policy is a second boundary, not the grant. Build initially permits
+    file edits but does not specially allow a linked worktree's Git administrative
+    directory outside the workspace; committing from such a worktree may therefore fail.
+    Provider credentials cross the bridge only through the fixed allowlist
+    (`DEEPSEEK_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` and the DeepSeek endpoint),
+    never via browser input or Cordis values. The production OpenAI composition pins the
+    direct EU endpoint `https://eu.api.openai.com/v1`; keys remain only in mode-0600
+    deployment environment files.
     OpenCode Run Log remains a separate transcript-derived feature and is unchanged.
     Safe trajectory rows are an event-type-specific metadata projection. They never
     inspect arbitrary payload text and never derive prompt, system/context text,

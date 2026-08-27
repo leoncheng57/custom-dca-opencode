@@ -96,11 +96,10 @@ const dshConfig: DshConfigResponse = {
   enabled: true,
   configured: true,
   protocol: 1,
-  readOnly: true,
   sdkVersion: "0.1.1rc2",
   sandbox: "seatbelt",
   trajectory: { sensitiveDetailEnabled: false, fullExportEnabled: false },
-  presets: [{ id: DSH_PRESET_ID, label: "Preview preset", provider: "simulator", model: "sim-preview-v1", fingerprint: "0".repeat(64) }],
+  presets: [{ id: DSH_PRESET_ID, label: "Preview preset", provider: "simulator", model: "sim-preview-v1", fingerprint: "0".repeat(64), mode: "read-only" }],
   workspaces: [{ id: DSH_WORKSPACE_ID, label: "Preview workspace" }],
 };
 
@@ -109,7 +108,7 @@ interface DshFixtureSession extends DshSessionSummary {
 }
 
 function dshSummary(session: DshFixtureSession): DshSessionSummary {
-  return { id: session.id, title: session.title, presetId: session.presetId, workspaceId: session.workspaceId, createdAt: session.createdAt, updatedAt: session.updatedAt, running: session.running };
+  return { id: session.id, title: session.title, presetId: session.presetId, workspaceId: session.workspaceId, mode: session.mode, createdAt: session.createdAt, updatedAt: session.updatedAt, running: session.running };
 }
 
 function dshTrajectory(sessionId: string): DshTrajectoryPage {
@@ -173,6 +172,7 @@ function makeDshSeedSession(): DshFixtureSession {
     title: "DSH experiment conversation",
     presetId: DSH_PRESET_ID,
     workspaceId: DSH_WORKSPACE_ID,
+    mode: "read-only",
     createdAt: now,
     updatedAt: now,
     running: false,
@@ -433,6 +433,7 @@ export function createPublicSimulator(): typeof fetch {
         title: typeof body.title === "string" ? body.title.trim().slice(0, 120) || "New DSH conversation" : "New DSH conversation",
         presetId: selectedPreset.id,
         workspaceId: selectedWorkspace.id,
+        mode: selectedPreset.mode,
         createdAt: now,
         updatedAt: now,
         running: false,

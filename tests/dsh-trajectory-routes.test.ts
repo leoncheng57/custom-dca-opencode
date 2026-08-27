@@ -23,7 +23,7 @@ async function setup(input: { sensitive: boolean; full: boolean; pool?: EventEmi
   const root = await mkdtemp(path.join(os.tmpdir(), "dsh-trajectory-routes-"));
   temporary.push(root);
   const store = new DshSessionStore(path.join(root, "ledger.json"));
-  const session = store.create({ presetId: "preset", presetFingerprint: "0".repeat(64), workspaceId: "workspace" });
+  const session = store.create({ presetId: "preset", presetFingerprint: "0".repeat(64), workspaceId: "workspace", mode: "read-only" });
   const trajectory = new DshTrajectoryStore(path.join(root, "trajectory"), { sensitiveEnabled: input.sensitive });
   await trajectory.appendBridge({
     type: "notification",
@@ -43,7 +43,7 @@ async function setup(input: { sensitive: boolean; full: boolean; pool?: EventEmi
     trajectoryFullExportEnabled: input.full,
     sdkVersion: "0.1.1rc2",
     sandbox: "test-unsafe",
-    presets: input.allowlist ? [{ id: "preset", label: "Preset", provider: "deepseek", model: "safe-model", cordis: path.join(root, "cordis.toml"), fingerprint: "0".repeat(64) }] : [],
+    presets: input.allowlist ? [{ id: "preset", label: "Preset", provider: "deepseek", model: "safe-model", cordis: path.join(root, "cordis.toml"), fingerprint: "0".repeat(64), mode: "read-only" }] : [],
     workspaces: input.allowlist ? [{ id: "workspace", label: "Workspace", directory: await realpath(root), device: (await stat(root)).dev, inode: (await stat(root)).ino }] : [],
     errors: [],
   };
@@ -142,5 +142,18 @@ describe("DSH trajectory route privacy", () => {
     // The safe row never carries the cause; the sensitive detail redacts it.
     expect(JSON.stringify(rejected)).not.toContain("abcdefghijkl");
     expect(JSON.stringify(await trajectory.detail(session.id, rejected!.id))).not.toContain("abcdefghijkl");
+  });
+
+  it("rejects a preset privilege change after session creation", async () => {
+    const { origin, session, config } = await setup({ sensitive: false, full: false, allowlist: true });
+    config.presets[0]!.mode = "build";
+    const response = await fetch(`${origin}/api/dsh/sessions/${session.id}/prompt`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "attempt under changed policy" }),
+    });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "DSH session preset policy changed after creation" });
+    expect(session.running).toBe(false);
   });
 });

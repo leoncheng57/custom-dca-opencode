@@ -16,6 +16,7 @@ export function DshPage() {
   const [workspaceId, setWorkspaceId] = useState("");
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
+  const [confirmedBuild, setConfirmedBuild] = useState(false);
 
   useEffect(() => {
     void Promise.all([api.dshConfig(), api.dshSessions()]).then(([nextConfig, nextSessions]) => {
@@ -26,8 +27,11 @@ export function DshPage() {
     }).catch((cause: Error) => setError(cause.message));
   }, []);
 
+  const selectedPreset = config?.presets.find((preset) => preset.id === presetId);
+  const requiresBuildConfirmation = selectedPreset?.mode === "build";
+
   const create = async () => {
-    if (!presetId || !workspaceId || creating) return;
+    if (!presetId || !workspaceId || creating || (requiresBuildConfirmation && !confirmedBuild)) return;
     setCreating(true);
     setError("");
     try {
@@ -47,7 +51,7 @@ export function DshPage() {
             <div className="mb-2 flex items-center gap-2">
               <FlaskConical aria-hidden="true" size={18} />
               <Badge variant="neutral">Experimental runtime</Badge>
-              <Badge variant="neutral">Read only</Badge>
+              {selectedPreset && <Badge variant="neutral">{selectedPreset.mode === "build" ? "Build · may edit files" : "Read only"}</Badge>}
               {config && <Badge variant="neutral">SDK {config.sdkVersion} · {config.sandbox}</Badge>}
             </div>
             <h1 className="text-3xl font-semibold tracking-tight">DeepSeek Harness lab</h1>
@@ -62,14 +66,14 @@ export function DshPage() {
         {config && (
           <Card>
             <CardHeader>
-              <CardTitle>Start a read-only conversation</CardTitle>
+              <CardTitle>Start a DSH conversation</CardTitle>
               <CardDescription>Preset and workspace choices are configured on the server; this browser cannot author model credentials or DSH policy.</CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
               <label className="grid gap-1.5 text-sm">
                 Model preset
-                <select className="h-11 rounded-md border border-[var(--color-border-default)] bg-[var(--color-background-surface)] px-3" value={presetId} onChange={(event) => setPresetId(event.target.value)} data-testid="dsh-preset">
-                  {config.presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.label} ({preset.provider}/{preset.model})</option>)}
+                <select className="h-11 rounded-md border border-[var(--color-border-default)] bg-[var(--color-background-surface)] px-3" value={presetId} onChange={(event) => { setPresetId(event.target.value); setConfirmedBuild(false); }} data-testid="dsh-preset">
+                  {config.presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.label} · {preset.mode} ({preset.provider}/{preset.model})</option>)}
                 </select>
               </label>
               <label className="grid gap-1.5 text-sm">
@@ -78,10 +82,18 @@ export function DshPage() {
                   {config.workspaces.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.label}</option>)}
                 </select>
               </label>
-              <Button disabled={creating || !presetId || !workspaceId} onClick={() => void create()} data-testid="dsh-create">
+              <Button disabled={creating || !presetId || !workspaceId || (requiresBuildConfirmation && !confirmedBuild)} onClick={() => void create()} data-testid="dsh-create">
                 {creating ? "Starting..." : "Start"} <ArrowRight aria-hidden="true" className="ml-2" size={14} />
               </Button>
             </CardContent>
+            {requiresBuildConfirmation && (
+              <CardContent className="pt-0">
+                <label className="flex min-h-11 items-start gap-3 rounded-md border border-[var(--color-border-default)] bg-[var(--color-background-surface-warning-muted)] p-3 text-sm" data-testid="dsh-build-confirmation">
+                  <input type="checkbox" checked={confirmedBuild} onChange={(event) => setConfirmedBuild(event.target.checked)} className="mt-0.5 h-5 w-5 shrink-0" data-testid="dsh-build-confirm" />
+                  <span>This session may edit files inside the selected workspace. Writes outside that workspace and DSH state remain blocked by macOS Seatbelt.</span>
+                </label>
+              </CardContent>
+            )}
           </Card>
         )}
 
@@ -90,7 +102,7 @@ export function DshPage() {
           <div className="grid gap-3">
             {sessions.map((session) => (
               <Link key={session.id} to={`/dsh/sessions/${encodeURIComponent(session.id)}`} className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-background-surface)] p-4 hover:bg-[var(--color-background-surface-neutral-muted)]" data-testid="dsh-session-row">
-                <div className="flex items-center justify-between gap-3"><strong>{session.title}</strong>{session.running && <Badge variant="neutral">Running</Badge>}</div>
+                <div className="flex items-center justify-between gap-3"><strong>{session.title}</strong><div className="flex items-center gap-2"><Badge variant="neutral">{session.mode}</Badge>{session.running && <Badge variant="neutral">Running</Badge>}</div></div>
                 <p className="mt-1 text-xs text-[var(--color-text-muted)]">{session.presetId} · {session.workspaceId} · {new Date(session.updatedAt).toLocaleString()}</p>
               </Link>
             ))}

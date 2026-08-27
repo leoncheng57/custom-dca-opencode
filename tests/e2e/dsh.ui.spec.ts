@@ -17,6 +17,19 @@ test.describe("experimental DSH workspace", () => {
     await expect(page.getByTestId("dsh-prompt")).toBeEnabled();
   });
 
+  test("requires explicit confirmation before creating a Build session", async ({ page }) => {
+    await page.goto("/dsh");
+    await page.getByTestId("dsh-preset").selectOption("e2e-build");
+    await expect(page.getByText("Build · may edit files", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("dsh-build-confirmation")).toContainText("Writes outside that workspace");
+    await expect(page.getByTestId("dsh-create")).toBeDisabled();
+    await page.getByTestId("dsh-build-confirm").check();
+    await expect(page.getByTestId("dsh-create")).toBeEnabled();
+    await page.getByTestId("dsh-create").click();
+    await expect(page).toHaveURL(/\/dsh\/sessions\/dsh-/u);
+    await expect(page.getByText("Build · may edit files", { exact: true })).toBeVisible();
+  });
+
   test("opens the existing bounded preview experience", async ({ page }) => {
     await createSession(page);
     await page.getByTestId("dsh-open-preview").click();

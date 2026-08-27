@@ -128,13 +128,15 @@ export interface HealthResponse {
   events?: { connected: boolean };
 }
 
-export interface DshPresetSummary { id: string; label: string; provider: string; model: string; fingerprint: string }
+export type DshPresetMode = "read-only" | "build";
+export interface DshPresetSummary { id: string; label: string; provider: string; model: string; fingerprint: string; mode: DshPresetMode }
 export interface DshWorkspaceSummary { id: string; label: string }
 export interface DshSessionSummary {
   id: string;
   title: string;
   presetId: string;
   workspaceId: string;
+  mode: DshPresetMode;
   createdAt: string;
   updatedAt: string;
   running: boolean;
@@ -143,7 +145,6 @@ export interface DshConfigResponse {
   enabled: true;
   configured: boolean;
   protocol: 1;
-  readOnly: true;
   sdkVersion: string;
   sandbox: "seatbelt" | "test-unsafe";
   trajectory: { sensitiveDetailEnabled: boolean; fullExportEnabled: boolean };

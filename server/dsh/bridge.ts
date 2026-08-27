@@ -1,7 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, statSync } from "node:fs";
+import { mkdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 
 import type { DshConfig, DshPreset, DshWorkspace } from "./config.js";
@@ -23,8 +23,17 @@ interface Pending {
   timer: NodeJS.Timeout;
 }
 
-const SAFE_ENV = ["PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL"] as const;
+const SAFE_ENV = [
+  "PATH", "HOME", "TMPDIR", "LANG", "LC_ALL",
+  "DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
+] as const;
 export const DSH_BRIDGE_MAX_LINE_BYTES = 1024 * 1024;
+
+export function dshBridgeEnvironment(source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const environment: NodeJS.ProcessEnv = {};
+  for (const key of SAFE_ENV) if (source[key]) environment[key] = source[key];
+  return environment;
+}
 
 function seatbeltLiteral(value: string): string {
   return value.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
@@ -36,13 +45,23 @@ export function dshSeatbeltProfile(input: {
   python: string;
   bridgeScript: string;
   cordis: string;
+  mode: DshPreset["mode"];
 }): string {
   const pythonRoot = path.dirname(path.dirname(input.python));
+  // A virtualenv's bin/python is normally a symlink to the system/Homebrew
+  // interpreter. Reading only the venv lets imports resolve but macOS dyld
+  // cannot open the real Python framework, so the bridge exits before startup.
+  // The canonical runtime is read-only; it is never added to `writes` below.
+  const pythonRuntimeRoot = path.dirname(path.dirname(realpathSync(input.python)));
   const reads = [
-    input.workspace, input.stateRoot, pythonRoot, input.bridgeScript, input.cordis,
+    input.workspace, input.stateRoot, pythonRoot, pythonRuntimeRoot, input.bridgeScript, input.cordis,
     "/System", "/usr", "/bin", "/sbin", "/Library", "/private/etc", "/dev",
   ].map((item) => `(subpath "${seatbeltLiteral(item)}")`).join(" ");
-  return `(version 1)\n(deny default)\n(import "system.sb")\n(allow process*)\n(allow network*)\n(allow file-read-metadata)\n(allow file-read* ${reads})\n(allow file-write* (subpath "${seatbeltLiteral(input.stateRoot)}"))`;
+  const writes = [
+    input.stateRoot,
+    ...(input.mode === "build" ? [input.workspace] : []),
+  ].map((item) => `(subpath "${seatbeltLiteral(item)}")`).join(" ");
+  return `(version 1)\n(deny default)\n(import "system.sb")\n(allow process*)\n(allow network*)\n(allow file-read-metadata)\n(allow file-read* ${reads})\n(allow file-write* ${writes})`;
 }
 
 export class DshBridge extends EventEmitter {
@@ -63,8 +82,7 @@ export class DshBridge extends EventEmitter {
     if (this.ready) return this.ready;
     this.ready = new Promise<void>((resolve, reject) => {
       let ready = false;
-      const env: NodeJS.ProcessEnv = {};
-      for (const key of SAFE_ENV) if (process.env[key]) env[key] = process.env[key];
+      const env = dshBridgeEnvironment();
       const stateHome = path.join(this.config.sessionRoot, "home");
       const stateTmp = path.join(this.config.sessionRoot, "tmp");
       mkdirSync(stateHome, { recursive: true, mode: 0o700 });
@@ -100,6 +118,7 @@ export class DshBridge extends EventEmitter {
           python: this.config.python,
           bridgeScript: this.config.bridgeScript,
           cordis: this.preset.cordis,
+          mode: this.preset.mode,
         });
         command = "/usr/bin/sandbox-exec";
         args = ["-p", profile, this.config.python, this.config.bridgeScript];

@@ -4,6 +4,7 @@ import path from "node:path";
 import { EventEmitter } from "node:events";
 
 import type { BridgeNotification } from "./bridge.js";
+import type { DshPresetMode } from "./config.js";
 
 export type DshTranscriptEvent =
   | { id: string; messageId: string; timestamp: string; kind: "user"; text: string; reminders: []; workflows: []; attachments: [] }
@@ -17,6 +18,7 @@ export interface DshSession {
   presetId: string;
   presetFingerprint: string;
   workspaceId: string;
+  mode: DshPresetMode;
   createdAt: string;
   updatedAt: string;
   running: boolean;
@@ -32,6 +34,7 @@ export interface ExperimentRecord {
   presetId: string;
   presetFingerprint: string;
   workspaceId: string;
+  mode: DshPresetMode;
   taskClass: "conversation";
   startedAt: number;
   endedAt?: number;
@@ -75,7 +78,7 @@ export class DshSessionStore extends EventEmitter {
     }
   }
 
-  create(input: { presetId: string; presetFingerprint: string; workspaceId: string; title?: string }): DshSession {
+  create(input: { presetId: string; presetFingerprint: string; workspaceId: string; mode: DshPresetMode; title?: string }): DshSession {
     const now = new Date().toISOString();
     const session: DshSession = {
       id: `dsh-${randomUUID()}`,
@@ -83,6 +86,7 @@ export class DshSessionStore extends EventEmitter {
       presetId: input.presetId,
       presetFingerprint: input.presetFingerprint,
       workspaceId: input.workspaceId,
+      mode: input.mode,
       createdAt: now,
       updatedAt: now,
       running: false,
@@ -116,7 +120,7 @@ export class DshSessionStore extends EventEmitter {
       reminders: [], workflows: [], attachments: [],
     });
     const record: ExperimentRecord = {
-      id: randomUUID(), sessionId: session.id, presetId: session.presetId, presetFingerprint: session.presetFingerprint, workspaceId: session.workspaceId,
+      id: randomUUID(), sessionId: session.id, presetId: session.presetId, presetFingerprint: session.presetFingerprint, workspaceId: session.workspaceId, mode: session.mode,
       taskClass: "conversation", startedAt: now, outcome: "running", interventions: 0, testResult: "not-recorded",
     };
     session.activeRunId = record.id;

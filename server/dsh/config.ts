@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 
+export type DshPresetMode = "read-only" | "build";
+
 export interface DshPreset {
   id: string;
   label: string;
@@ -10,6 +12,7 @@ export interface DshPreset {
   maxTokens?: number;
   cordis: string;
   fingerprint: string;
+  mode: DshPresetMode;
 }
 
 export interface DshWorkspace {
@@ -98,10 +101,11 @@ export function readDshConfig(env: NodeJS.ProcessEnv = process.env): DshConfig {
   else for (const candidate of rawPresets) {
     const item = candidate as Record<string, unknown>;
     const cordisInput = absolute(item.cordis);
+    const mode = item.mode === "read-only" || item.mode === "build" ? item.mode : null;
     if (!SAFE_ID.test(String(item.id ?? "")) || typeof item.label !== "string" ||
         typeof item.provider !== "string" || typeof item.model !== "string" || !cordisInput ||
-        item.mode !== "read-only" || !/^[a-f0-9]{64}$/.test(String(item.sha256 ?? ""))) {
-      errors.push("every DSH preset needs a safe id, label, provider, model, mode=read-only, absolute cordis path, and sha256");
+        !mode || !/^[a-f0-9]{64}$/.test(String(item.sha256 ?? ""))) {
+      errors.push("every DSH preset needs a safe id, label, provider, model, mode=read-only|build, absolute cordis path, and sha256");
       continue;
     }
     if (!existsSync(cordisInput)) {
@@ -120,7 +124,7 @@ export function readDshConfig(env: NodeJS.ProcessEnv = process.env): DshConfig {
       continue;
     }
     presets.push({
-      id: String(item.id), label: item.label, provider: item.provider, model: item.model, cordis,
+      id: String(item.id), label: item.label, provider: item.provider, model: item.model, cordis, mode,
       fingerprint, ...(maxTokens ? { maxTokens } : {}),
     });
   }
@@ -145,7 +149,7 @@ export function readDshConfig(env: NodeJS.ProcessEnv = process.env): DshConfig {
 
   const bridgeScript = path.resolve(env.DSH_BRIDGE_SCRIPT || "scripts/dsh-bridge.py");
   if (enabled && !existsSync(bridgeScript)) errors.push("DSH bridge script does not exist");
-  if (enabled && presets.length === 0) errors.push("at least one read-only DSH preset is required");
+  if (enabled && presets.length === 0) errors.push("at least one DSH preset is required");
   if (enabled && workspaces.length === 0) errors.push("at least one allowlisted DSH workspace is required");
   for (const workspace of workspaces) {
     const relative = path.relative(workspace.directory, root);
