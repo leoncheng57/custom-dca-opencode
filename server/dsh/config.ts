@@ -60,8 +60,17 @@ export function readDshConfig(env: NodeJS.ProcessEnv = process.env): DshConfig {
   const errors: string[] = [];
   const root = canonicalProspective(path.resolve(env.DSH_STATE_DIR || ".state/dsh"));
   const sdkVersion = env.DSH_SDK_VERSION || "";
-  const testUnsafe = env.DSH_TEST_UNSAFE_BRIDGE === "true";
+  // The unsafe bridge removes the Seatbelt workspace-write backstop, so it may
+  // only be honoured by an explicit test process. A deployed service (the
+  // launchd plist sets NODE_ENV=production) can never opt into it, and asking
+  // for it outside a test fails closed rather than silently downgrading to
+  // Seatbelt: a run that believed it was unsandboxed must not proceed either.
+  const testUnsafeRequested = env.DSH_TEST_UNSAFE_BRIDGE === "true";
+  const testUnsafe = testUnsafeRequested && env.NODE_ENV === "test";
   const sandbox = testUnsafe ? "test-unsafe" : "seatbelt";
+  if (testUnsafeRequested && !testUnsafe) {
+    errors.push("DSH_TEST_UNSAFE_BRIDGE is test-only and requires NODE_ENV=test");
+  }
   if (enabled && !/^\d+\.\d+\.\d+(?:[A-Za-z0-9.-]+)?$/.test(sdkVersion)) {
     errors.push("DSH_SDK_VERSION must pin one exact SDK version");
   }

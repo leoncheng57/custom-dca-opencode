@@ -156,6 +156,38 @@ describe("DCA-captured DSH trajectory projection", () => {
     await chmod(file, 0o600);
   });
 
+  it("bounds the persisted detail after JSON escaping, not just before it", async () => {
+    const { root, store, sessionId } = await fixture();
+    // Escaping-heavy: every character costs 2 bytes as `\"`, and control
+    // characters cost 6 as `\u00XX`, so a pre-escape bound would overshoot.
+    await store.appendLifecycle(sessionId, "dca/session-created", { blob: `${'"'.repeat(40_000)}${"\u0001".repeat(20_000)}` });
+    await store.flush(sessionId);
+    const event = (await store.export(sessionId)).events[0];
+    const detail = await store.detail(sessionId, event.id);
+    expect(detail?.truncated).toBe(true);
+    expect(Buffer.byteLength(JSON.stringify(detail?.detail), "utf8")).toBeLessThanOrEqual(16 * 1024);
+    const persisted = JSON.parse((await readFile(path.join(root, "trajectory", `${sessionId}.jsonl`), "utf8")).trim()) as { detail: unknown };
+    expect(Buffer.byteLength(JSON.stringify(persisted.detail), "utf8")).toBeLessThanOrEqual(16 * 1024);
+  });
+
+  it("redacts the same credential labels in free-form text as in structured keys", async () => {
+    const { store, sessionId } = await fixture();
+    const secrets = ["alpha-authorization", "bravo-cookie", "charlie-access", "delta-refresh", "echo-session"];
+    await store.appendLifecycle(sessionId, "dca/session-created", {
+      note: [
+        `Authorization: Basic ${secrets[0]}`,
+        `cookie=session=${secrets[1]}`,
+        `access_token=${secrets[2]}`,
+        `refresh_token: "${secrets[3]}"`,
+        `session_id=${secrets[4]}`,
+      ].join("\n"),
+    });
+    const event = (await store.export(sessionId)).events[0];
+    const detail = JSON.stringify(await store.detail(sessionId, event.id));
+    for (const secret of secrets) expect(detail).not.toContain(secret);
+    expect(detail).toContain("[REDACTED]");
+  });
+
   it("removes expired events on the first read after restart", async () => {
     const { root, store, sessionId } = await fixture();
     await store.appendLifecycle(sessionId, "dca/session-created");

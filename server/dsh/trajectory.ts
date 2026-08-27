@@ -96,10 +96,20 @@ const MAX_DEPTH = 6;
 const MAX_NODES = 2_000;
 const MAX_ARRAY_ITEMS = 100;
 const MAX_OBJECT_KEYS = 100;
-const SECRET_KEY = /(authorization|api[-_]?key|access[-_]?token|refresh[-_]?token|password|secret|cookie|credential|private[-_]?key)/iu;
+// One credential vocabulary for both structured keys and free-form text. They
+// were separate lists, and the free-form one used `\b`, which cannot match
+// inside `access_token` because `_` is a word character — so a structured
+// `access_token` key was redacted while `access_token=...` inside a tool
+// argument or error string survived verbatim.
+const SECRET_LABEL = "authorization|api[-_]?key|access[-_]?token|refresh[-_]?token|session[-_]?(?:id|key|token)|password|passphrase|secret|cookie|credential|private[-_]?key|token";
+const SECRET_KEY = new RegExp(`(?:${SECRET_LABEL})`, "iu");
 const SECRET_VALUE = /\b(?:sk-[A-Za-z0-9_-]{8,}|gh[opsu]_[A-Za-z0-9]{12,}|Bearer\s+[A-Za-z0-9._~+\/-]+=*|AKIA[A-Z0-9]{16})\b/gu;
 const SECRET_VALUE_TEST = /\b(?:sk-[A-Za-z0-9_-]{8,}|gh[opsu]_[A-Za-z0-9]{12,}|Bearer\s+[A-Za-z0-9._~+\/-]+=*|AKIA[A-Z0-9]{16})\b/iu;
-const SECRET_ASSIGNMENT = /["']?\b(password|secret|token|api[-_]?key)\b["']?\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\s,;]+)/giu;
+// The value runs to the end of the line rather than the first space: a header
+// like `Authorization: Basic <token>` would otherwise lose only `Basic` and
+// keep the credential. Commas, semicolons and `}` still terminate it so one
+// cookie pair or JSON member does not swallow its neighbours.
+const SECRET_ASSIGNMENT = new RegExp(`["']?(${SECRET_LABEL})["']?\\s*[:=]\\s*(?:"[^"]*"|'[^']*'|[^\\n,;\\}]+)`, "giu");
 const SAFE_NAME = /^[A-Za-z][A-Za-z0-9_.:-]{0,63}$/u;
 const KNOWN_NATIVE_TYPES = new Set([
   "agent-preset/selected", "agent/inbox/spliced", "approval/asked", "approval/decided", "approval/policy",
@@ -177,13 +187,24 @@ function sanitizeDetail(value: unknown): { value: unknown; truncated: boolean } 
     }
     return output;
   };
-  let sanitized = visit(value, 0);
-  let serialized = JSON.stringify(sanitized);
-  if (Buffer.byteLength(serialized, "utf8") > MAX_DETAIL_BYTES) {
-    truncated = true;
-    sanitized = { preview: truncateUtf8(serialized, MAX_DETAIL_BYTES), omitted: "detail exceeded capture limit" };
+  const sanitized = visit(value, 0);
+  const serialized = JSON.stringify(sanitized) ?? "";
+  if (Buffer.byteLength(serialized, "utf8") <= MAX_DETAIL_BYTES) return { value: sanitized, truncated };
+  // The preview is itself re-serialized into the JSONL record, so escaping and
+  // the wrapper keys can push the persisted bytes back over the limit. Bound
+  // the FINAL representation, not the pre-escape string.
+  return { value: boundedPreview(serialized), truncated: true };
+}
+
+function boundedPreview(serialized: string): { preview: string; omitted: string } {
+  const omitted = "detail exceeded capture limit";
+  let preview = truncateUtf8(serialized, MAX_DETAIL_BYTES);
+  for (;;) {
+    const wrapped = { preview, omitted };
+    const overflow = Buffer.byteLength(JSON.stringify(wrapped), "utf8") - MAX_DETAIL_BYTES;
+    if (overflow <= 0 || preview.length === 0) return wrapped;
+    preview = preview.slice(0, Math.max(0, preview.length - Math.max(1, Math.ceil(overflow / 2))));
   }
-  return { value: sanitized, truncated };
 }
 
 function dataObject(value: unknown): Record<string, unknown> {
@@ -330,6 +351,10 @@ function lifecycleProjection(type: string): SafeProjection {
   if (type === "dca/prompt-accepted") return { category: "turn", title: "Prompt accepted by bridge", sensitive: false };
   if (type === "dca/cancelled-by-user") return { category: "status", title: "Cancelled by user", sensitive: false };
   if (type === "dca/bridge-exit") return { category: "error", title: "Bridge exited during capture", sensitive: false };
+  if (type === "dca/prompt-rejected") return { category: "error", title: "Bridge rejected the prompt", sensitive: true };
+  if (type === "dca/cancel-failed") return { category: "error", title: "Bridge cancellation failed", sensitive: true };
+  if (type === "dca/workspace-identity-changed") return { category: "error", title: "Allowlisted workspace identity changed", sensitive: false };
+  if (type === "dca/workspace-unavailable") return { category: "error", title: "Allowlisted workspace is unavailable", sensitive: true };
   if (type === "finished") return { category: "status", title: "DSH run finished", sensitive: true };
   if (type === "failed") return { category: "error", title: "DSH run failed", sensitive: true };
   return { category: "status", title: "DCA lifecycle event", summary: type, sensitive: false };

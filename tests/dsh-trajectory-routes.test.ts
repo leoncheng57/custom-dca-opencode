@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import type { AddressInfo } from "node:net";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import express from "express";
@@ -19,7 +19,7 @@ afterEach(async () => {
   await Promise.all(temporary.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
-async function setup(input: { sensitive: boolean; full: boolean }) {
+async function setup(input: { sensitive: boolean; full: boolean; pool?: EventEmitter; allowlist?: boolean }) {
   const root = await mkdtemp(path.join(os.tmpdir(), "dsh-trajectory-routes-"));
   temporary.push(root);
   const store = new DshSessionStore(path.join(root, "ledger.json"));
@@ -43,11 +43,11 @@ async function setup(input: { sensitive: boolean; full: boolean }) {
     trajectoryFullExportEnabled: input.full,
     sdkVersion: "0.1.1rc2",
     sandbox: "test-unsafe",
-    presets: [],
-    workspaces: [],
+    presets: input.allowlist ? [{ id: "preset", label: "Preset", provider: "deepseek", model: "safe-model", cordis: path.join(root, "cordis.toml"), fingerprint: "0".repeat(64) }] : [],
+    workspaces: input.allowlist ? [{ id: "workspace", label: "Workspace", directory: await realpath(root), device: (await stat(root)).dev, inode: (await stat(root)).ino }] : [],
     errors: [],
   };
-  const pool = new EventEmitter();
+  const pool = input.pool ?? new EventEmitter();
   const app = express();
   app.use(express.json());
   app.use("/api", dshRoutes(config, pool as DshBridgePool, store, trajectory));
@@ -55,7 +55,7 @@ async function setup(input: { sensitive: boolean; full: boolean }) {
   servers.push(server);
   await new Promise<void>((resolve) => server.once("listening", resolve));
   const port = (server.address() as AddressInfo).port;
-  return { base: `http://127.0.0.1:${port}/api/dsh/sessions/${session.id}/trajectory`, session, eventId, pool, store };
+  return { base: `http://127.0.0.1:${port}/api/dsh/sessions/${session.id}/trajectory`, origin: `http://127.0.0.1:${port}`, session, eventId, pool, store, trajectory, config };
 }
 
 function expectPrivate(response: Response): void {
@@ -107,5 +107,40 @@ describe("DSH trajectory route privacy", () => {
     expect(session.running).toBe(true);
     expect(session.events.some((event) => event.kind === "agent" && event.text === "injected")).toBe(false);
     await store.flush();
+  });
+
+  it("captures a rejected prompt so the trajectory never ends on an unanswered acceptance", async () => {
+    // The bridge rejects the RPC without emitting `failed` and without exiting,
+    // so the capture path driven by pool notifications never observes it.
+    const pool = Object.assign(new EventEmitter(), {
+      get: () => ({ request: () => Promise.reject(new Error("bridge refused: token=abcdefghijkl")) }),
+      closeWorkspace: () => {},
+    });
+    const { origin, session, trajectory } = await setup({ sensitive: true, full: false, allowlist: true, pool });
+
+    const response = await fetch(`${origin}/api/dsh/sessions/${session.id}/prompt`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "run the thing" }),
+    });
+    expect(response.status).toBe(502);
+
+    // Capture writes are queued off the request path, so drain before reading.
+    let events = (await trajectory.export(session.id)).events;
+    for (let attempt = 0; attempt < 50 && !events.some((event) => event.type === "dca/prompt-rejected"); attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      await trajectory.flush(session.id);
+      events = (await trajectory.export(session.id)).events;
+    }
+    const types = events.map((event) => event.type);
+    expect(types).toContain("dca/prompt-accepted");
+    expect(types).toContain("dca/prompt-rejected");
+
+    const rejected = events.find((event) => event.type === "dca/prompt-rejected");
+    expect(rejected?.category).toBe("error");
+    expect(rejected?.title).toBe("Bridge rejected the prompt");
+    // The safe row never carries the cause; the sensitive detail redacts it.
+    expect(JSON.stringify(rejected)).not.toContain("abcdefghijkl");
+    expect(JSON.stringify(await trajectory.detail(session.id, rejected!.id))).not.toContain("abcdefghijkl");
   });
 });

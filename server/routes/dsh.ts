@@ -178,11 +178,13 @@ export function dshRoutes(
     try {
       if (!await verifyWorkspaceIdentity(selectedWorkspace)) {
         pool.closeWorkspace(selectedPreset.id, selectedWorkspace.id);
+        captureLifecycle(session.id, "dca/workspace-identity-changed", { presetId: session.presetId, workspaceId: session.workspaceId });
         store.applyBridge({ type: "failed", sessionId: session.id, error: "allowlisted DSH workspace identity changed" });
         return error(res, 409, "allowlisted DSH workspace identity changed");
       }
-    } catch {
+    } catch (cause) {
       pool.closeWorkspace(selectedPreset.id, selectedWorkspace.id);
+      captureLifecycle(session.id, "dca/workspace-unavailable", { presetId: session.presetId, workspaceId: session.workspaceId, cause: cause instanceof Error ? cause.message : String(cause) });
       store.applyBridge({ type: "failed", sessionId: session.id, error: "allowlisted DSH workspace is unavailable" });
       return error(res, 409, "allowlisted DSH workspace is unavailable");
     }
@@ -196,6 +198,11 @@ export function dshRoutes(
       await pool.get(selectedPreset, selectedWorkspace).request("prompt", { sessionId: session.id, text });
       res.status(202).json({ accepted: true });
     } catch (cause) {
+      // The bridge may reject the RPC without ever emitting a `failed`
+      // notification or exiting, so nothing else would reach the trajectory.
+      // Without this the capture shows an accepted prompt and no outcome,
+      // which is the one direction a projection must never be wrong in.
+      captureLifecycle(session.id, "dca/prompt-rejected", { presetId: session.presetId, workspaceId: session.workspaceId, cause: cause instanceof Error ? cause.message : String(cause) });
       store.applyBridge({ type: "failed", sessionId: session.id, error: cause instanceof Error ? cause.message : String(cause) });
       error(res, 502, "DSH bridge rejected the prompt");
     }
@@ -213,7 +220,8 @@ export function dshRoutes(
       const cancelled = result.cancelled === true && store.cancel(session);
       if (cancelled) captureLifecycle(session.id, "dca/cancelled-by-user");
       res.json({ cancelled });
-    } catch {
+    } catch (cause) {
+      captureLifecycle(session.id, "dca/cancel-failed", { presetId: session.presetId, workspaceId: session.workspaceId, cause: cause instanceof Error ? cause.message : String(cause) });
       store.applyBridge({ type: "failed", sessionId: session.id, error: "DSH bridge cancellation failed" });
       error(res, 502, "DSH bridge cancellation failed");
     }

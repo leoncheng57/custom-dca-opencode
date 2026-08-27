@@ -57,6 +57,7 @@ describe("DSH experiment configuration", () => {
     const item = await fixture();
     const base = {
       DSH_EXPERIMENT_ENABLED: "true",
+      NODE_ENV: "test",
       DSH_TEST_UNSAFE_BRIDGE: "true",
       DSH_SDK_VERSION: "0.1.1rc2",
       DSH_STATE_DIR: path.join(item.root, "state"),
@@ -67,6 +68,26 @@ describe("DSH experiment configuration", () => {
     expect(readDshConfig(base).trajectorySensitiveEnabled).toBe(false);
     expect(readDshConfig({ ...base, DSH_TRAJECTORY_FULL_EXPORT_ENABLED: "true" }).trajectoryFullExportEnabled).toBe(false);
     expect(readDshConfig({ ...base, DSH_TRAJECTORY_SENSITIVE_ENABLED: "true" }).trajectoryFullExportEnabled).toBe(false);
+  });
+
+  it("refuses the unsafe bridge outside an explicit test process", async () => {
+    const item = await fixture();
+    const base = {
+      DSH_EXPERIMENT_ENABLED: "true",
+      DSH_TEST_UNSAFE_BRIDGE: "true",
+      DSH_SDK_VERSION: "0.1.1rc2",
+      DSH_STATE_DIR: path.join(item.root, "state"),
+      DSH_BRIDGE_SCRIPT: item.bridge,
+      DSH_PRESETS_JSON: JSON.stringify([{ id: "safe", label: "Safe", provider: "deepseek", model: "model", mode: "read-only", cordis: item.cordis, sha256: item.sha256 }]),
+      DSH_WORKSPACES_JSON: JSON.stringify([{ id: "fixture", label: "Fixture", directory: item.workspace }]),
+    };
+    for (const nodeEnv of ["production", "development", undefined]) {
+      const config = readDshConfig({ ...base, ...(nodeEnv === undefined ? {} : { NODE_ENV: nodeEnv }) });
+      expect(config.configured).toBe(false);
+      expect(config.sandbox).toBe("seatbelt");
+      expect(config.errors.join(" ")).toContain("DSH_TEST_UNSAFE_BRIDGE is test-only");
+    }
+    expect(readDshConfig({ ...base, NODE_ENV: "test" }).sandbox).toBe("test-unsafe");
   });
 
   it("fails closed on missing composition paths", async () => {
