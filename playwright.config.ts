@@ -57,7 +57,10 @@ export const mockPreviewServer = {
 export const appServer = {
   // Test the built bundle, not the dev server — the predecessor had bugs
   // that only appeared after a production build.
-  command: "npm run build && node dist/server/index.js",
+  // NODE_ENV is scoped to the server process, NOT the whole command: putting it
+  // in `env` also hands it to `vite build`, which then produces a different
+  // client bundle and breaks unrelated UI specs.
+  command: "npm run build && NODE_ENV=test node dist/server/index.js",
   port: PORT,
   reuseExistingServer: !process.env.CI,
   timeout: 120_000,
@@ -77,8 +80,8 @@ export const appServer = {
     GITHUB_API_URL: `http://127.0.0.1:${PREVIEW_PORT}`,
     GITHUB_TOKEN: "e2e-planning-token",
     DSH_EXPERIMENT_ENABLED: "true",
-    // The unsafe bridge is refused unless the process declares itself a test.
-    NODE_ENV: "test",
+    // The unsafe bridge is refused unless the process declares itself a test;
+    // NODE_ENV is set on the server command above, never on the build.
     DSH_TEST_UNSAFE_BRIDGE: "true",
     DSH_SDK_VERSION: "0.1.1rc2",
     DSH_STATE_DIR: `/tmp/custom-dca-opencode-dsh-state-${PORT}`,

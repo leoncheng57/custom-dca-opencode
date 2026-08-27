@@ -49,6 +49,7 @@ export default defineConfig({
   webServer: [
     fresh(mockOpenCodeServer),
     fresh(mockPreviewServer),
-    { ...fresh(appServer), command: "node dist/server/index.js" },
+    // Image already built dist/; NODE_ENV stays scoped to the server process.
+    { ...fresh(appServer), command: "NODE_ENV=test node dist/server/index.js" },
   ],
 });
