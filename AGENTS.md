@@ -407,8 +407,9 @@ several decisions below.
     it gates. A client-side match grants nothing; an unverified candidate simply renders
     as the ordinary text it renders as today.
 21. **Composer workflows are forms first, and their injectors are visible-but-trusted.**
-    The Workflows picker beside Reminder (#167) offers exactly three guided actions —
-    Playwright UI review, send an update to another session, launch a Managed Child.
+    The Workflows picker beside Reminder (#167) offers four guided actions —
+    Playwright UI review, snippet-by-snippet PR review, send an update to another
+    session, launch a Managed Child.
     Choosing one only opens a form; the sole exits are Cancel, "Apply to composer"
     (fills the draft, never sends), or the explicit Send/Launch on a preview that shows
     the exact generated prompt AND the trusted injector. Injectors invert the reminder
@@ -423,6 +424,19 @@ several decisions below.
     dialog states that prompt_async 204/202 means accepted, not completed. The
     managed-child form reuses decision #19's route and creates no task card and no
     automatic hand-back.
+21a. **The PR review workflow accepts a number, never a repository.** Its only input is a
+    pull request, and `parsePullRequestNumber` reduces `253`, `#253` and a pasted PR URL
+    to the integer alone — a URL's owner, repository and host are **discarded rather than
+    parsed out and used**. The repository always comes from the session's project
+    directory and the injector says so in the imperative, because this workflow ends by
+    *posting* a public comment: a link copied from anywhere else must not be able to
+    redirect where that comment lands. It sends in **this session's current mode**, so a
+    Plan session stops at the write instead of having write access quietly restored
+    (decision 9), and the form says that rather than letting the run fail silently. The
+    injector carries the review method itself — pin every link to the head SHA so lines
+    cannot drift, order steps to build understanding rather than follow file order,
+    smallest snippet that carries the idea, explain *why* for non-obvious choices, and
+    close by naming the riskiest snippet and whatever the change does not verify.
     That form has **no agent roster of its own**: it reads `GET /api/managed-child-agents`,
     the same catalogue the dedicated launcher reads, and derives the authorization
     requirement from each agent's `access === "can-modify"`. It shipped with a hardcoded
