@@ -3,6 +3,7 @@ import { appendFile, chmod, mkdir, readFile, readdir, rename, stat, unlink, writ
 import path from "node:path";
 
 import type { BridgeNotification } from "./bridge.js";
+import type { DshDurableReader, DurableEvent } from "./durable.js";
 
 export type TrajectoryCategory = "turn" | "request" | "message" | "tool" | "compaction" | "child" | "status" | "error";
 
@@ -68,15 +69,31 @@ export interface DshTrajectoryDetail {
   warning: string;
 }
 
-export interface DshTrajectoryCoverage {
-  source: "dca-captured-projection";
-  complete: false;
-  mayContainGaps: true;
+interface DshTrajectoryCoverageBase {
   capturedFrom: string | null;
   capturedThrough: string | null;
   nativeStreams: Array<{ session: string; first: number; last: number; gaps: number }>;
   note: string;
 }
+
+/**
+ * A discriminated union rather than two booleans, so the capture arm keeps its
+ * literal `complete: false` / `mayContainGaps: true`. Widening those to
+ * `boolean` would have removed the compile-time guarantee that a bounded
+ * capture can never claim to be the whole story.
+ */
+export type DshTrajectoryCoverage =
+  | (DshTrajectoryCoverageBase & {
+    source: "dca-captured-projection";
+    complete: false;
+    mayContainGaps: true;
+  })
+  | (DshTrajectoryCoverageBase & {
+    /** Read back from the harness's own durable log, so nothing was missed. */
+    source: "dsh-durable-persistence";
+    complete: true;
+    mayContainGaps: false;
+  });
 
 export interface DshTrajectoryPage {
   events: DshTrajectoryEvent[];
@@ -369,7 +386,68 @@ function publicEvent({ detail: _detail, detailTruncated: _detailTruncated, ...ev
   return event;
 }
 
-function coverage(events: StoredTrajectoryEvent[]): DshTrajectoryCoverage {
+/**
+ * Project one durable event exactly as a captured one, so the safe-row rules
+ * (metadata-only, no prompt/command/path/tool text) hold identically whichever
+ * source answered. The id is derived from the native stream rather than
+ * generated, so repeated reads of an immutable log are stable.
+ */
+function durableEvent(
+  sessionId: string,
+  event: DurableEvent,
+  policy: ProjectionPolicy,
+  sensitiveEnabled: boolean,
+): StoredTrajectoryEvent {
+  const nativeTime = new Date(Number(event.time));
+  const validTime = Number.isFinite(nativeTime.getTime());
+  const projection = nativeProjection(event.type, event.data, policy, sessionId, event.ignorable === true);
+  const sanitized = !sensitiveEnabled || event.data === undefined
+    ? { value: undefined, truncated: false }
+    : sanitizeDetail(event.data);
+  return {
+    id: `dsh:${sessionId}:${event.seq}`,
+    observationSeq: event.seq,
+    sessionId,
+    observedAt: validTime ? nativeTime.toISOString() : new Date(0).toISOString(),
+    type: safeEventType(event.type),
+    nativeSessionId: sessionId,
+    nativeSeq: event.seq,
+    ...(validTime ? { nativeTime: nativeTime.toISOString() } : {}),
+    ...(event.ignorable === true ? { ignorable: true as const } : {}),
+    category: projection.category,
+    title: projection.title,
+    ...(projection.summary === undefined ? {} : { summary: projection.summary }),
+    ...(projection.metadata === undefined ? {} : { metadata: projection.metadata }),
+    source: "dsh-native-notification",
+    hasDetail: sanitized.value !== undefined,
+    sensitive: projection.sensitive,
+    ...(sanitized.value === undefined ? {} : { detail: sanitized.value }),
+    ...(sanitized.truncated ? { detailTruncated: true as const } : {}),
+  };
+}
+
+/**
+ * Merge the authoritative native stream with DCA's own lifecycle records.
+ *
+ * The durable log is complete for what DSH did, but it knows nothing about
+ * what DCA observed around it — a rejected prompt, a bridge exit, a capture
+ * gap. Dropping those would lose the only record of failures that never
+ * reached the harness, so lifecycle events are kept and interleaved by time.
+ * Captured *native* events are discarded in favour of the durable ones they
+ * duplicate.
+ */
+function mergeDurable(durable: StoredTrajectoryEvent[], captured: StoredTrajectoryEvent[]): StoredTrajectoryEvent[] {
+  const lifecycle = captured.filter((event) => event.source === "dca-lifecycle");
+  return [...durable, ...lifecycle]
+    .sort((a, b) => {
+      const byTime = Date.parse(a.observedAt) - Date.parse(b.observedAt);
+      if (byTime !== 0 && Number.isFinite(byTime)) return byTime;
+      return a.observationSeq - b.observationSeq;
+    })
+    .slice(-EVENT_LIMIT);
+}
+
+function coverage(events: StoredTrajectoryEvent[], durable = false): DshTrajectoryCoverage {
   const streams = new Map<string, number[]>();
   for (const event of events) {
     if (event.nativeSeq === undefined || !event.nativeSessionId) continue;
@@ -383,15 +461,26 @@ function coverage(events: StoredTrajectoryEvent[]): DshTrajectoryCoverage {
     for (let index = 1; index < sequences.length; index++) gaps += Math.max(0, sequences[index] - sequences[index - 1] - 1);
     return { session, first: sequences[0], last: sequences.at(-1)!, gaps };
   }).sort((a, b) => a.session.localeCompare(b.session));
-  return {
-    source: "dca-captured-projection",
-    complete: false,
-    mayContainGaps: true,
+  const bounds = {
     capturedFrom: events[0]?.observedAt ?? null,
     capturedThrough: events.at(-1)?.observedAt ?? null,
     nativeStreams,
-    note: "DCA-captured projection only. It is not canonical DSH persistence, starts when the bridge observes events, and may contain gaps.",
   };
+  return durable
+    ? {
+      source: "dsh-durable-persistence",
+      complete: true,
+      mayContainGaps: false,
+      ...bounds,
+      note: "Read from the harness's own durable session log, so the native stream is complete. DCA lifecycle records are interleaved for events DSH never saw.",
+    }
+    : {
+      source: "dca-captured-projection",
+      complete: false,
+      mayContainGaps: true,
+      ...bounds,
+      note: "DCA-captured projection only. It is not canonical DSH persistence, starts when the bridge observes events, and may contain gaps.",
+    };
 }
 
 export class DshTrajectoryStore {
@@ -405,8 +494,10 @@ export class DshTrajectoryStore {
 
   private readonly sensitiveEnabled: boolean;
   private readonly policy: ProjectionPolicy;
+  private readonly durable?: DshDurableReader;
 
-  constructor(private readonly root: string, options: { sensitiveEnabled?: boolean; maintenanceEnabled?: boolean; allowedProviders?: Iterable<string>; allowedModels?: Iterable<string> } = {}) {
+  constructor(private readonly root: string, options: { sensitiveEnabled?: boolean; maintenanceEnabled?: boolean; allowedProviders?: Iterable<string>; allowedModels?: Iterable<string>; durable?: DshDurableReader } = {}) {
+    this.durable = options.durable;
     this.sensitiveEnabled = options.sensitiveEnabled === true;
     this.policy = { allowedProviders: new Set(options.allowedProviders), allowedModels: new Set(options.allowedModels) };
     if (options.maintenanceEnabled === true) {
@@ -527,9 +618,23 @@ export class DshTrajectoryStore {
     await next;
   }
 
+  /**
+   * Prefer the harness's own durable log when it can answer for this session,
+   * falling back to the bounded capture otherwise. A durable read that returns
+   * no events is NOT treated as durable: an empty answer must never be
+   * promoted into a claim that the trajectory is complete.
+   */
+  private async resolve(sessionId: string): Promise<{ events: StoredTrajectoryEvent[]; durable: boolean }> {
+    const captured = await this.load(sessionId);
+    const raw = await this.durable?.readFrom(sessionId, 0);
+    if (raw === undefined || raw.length === 0) return { events: captured, durable: false };
+    const projected = raw.map((event) => durableEvent(sessionId, event, this.policy, this.sensitiveEnabled));
+    return { events: mergeDurable(projected, captured), durable: true };
+  }
+
   async page(sessionId: string, options: { limit?: number; before?: number } = {}): Promise<DshTrajectoryPage> {
     await this.pruneFiles(true);
-    const events = await this.load(sessionId);
+    const { events, durable } = await this.resolve(sessionId);
     const requested = options.limit ?? 200;
     const limit = Number.isFinite(requested) ? Math.max(1, Math.min(PAGE_LIMIT, Math.trunc(requested))) : 200;
     const eligible = options.before === undefined ? events : events.filter((event) => event.observationSeq < options.before!);
@@ -537,19 +642,19 @@ export class DshTrajectoryStore {
     return {
       events: selected.map(publicEvent),
       nextBefore: eligible.length > selected.length ? selected[0]?.observationSeq ?? null : null,
-      coverage: coverage(events),
+      coverage: coverage(events, durable),
     };
   }
 
   async export(sessionId: string): Promise<{ version: 1; coverage: DshTrajectoryCoverage; events: DshTrajectoryEvent[] }> {
     await this.pruneFiles(true);
-    const events = await this.load(sessionId);
-    return { version: 1, coverage: coverage(events), events: events.map(publicEvent) };
+    const { events, durable } = await this.resolve(sessionId);
+    return { version: 1, coverage: coverage(events, durable), events: events.map(publicEvent) };
   }
 
   async detail(sessionId: string, eventId: string): Promise<DshTrajectoryDetail | null> {
     await this.pruneFiles(true);
-    const event = (await this.load(sessionId)).find((candidate) => candidate.id === eventId);
+    const event = (await this.resolve(sessionId)).events.find((candidate) => candidate.id === eventId);
     if (!event?.hasDetail) return null;
     return {
       eventId,
@@ -561,8 +666,8 @@ export class DshTrajectoryStore {
 
   async exportFull(sessionId: string): Promise<{ version: 1; coverage: DshTrajectoryCoverage; events: StoredTrajectoryEvent[] }> {
     await this.pruneFiles(true);
-    const events = await this.load(sessionId);
-    return { version: 1, coverage: coverage(events), events: [...events] };
+    const { events, durable } = await this.resolve(sessionId);
+    return { version: 1, coverage: coverage(events, durable), events: [...events] };
   }
 
   async flush(sessionId: string): Promise<void> {

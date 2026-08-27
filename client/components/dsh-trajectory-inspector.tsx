@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Download, Search, ShieldAlert, X } from "lucide-react";
+import { AlertTriangle, Download, Search, ShieldAlert, X, Database } from "lucide-react";
 
 import { api, type DshTrajectoryDetail, type DshTrajectoryEvent, type DshTrajectoryPage } from "../lib/api.js";
 import { DSH_TRAJECTORY_FILTERS, deriveDshTrajectoryTiming, filterDshTrajectory, groupDshTrajectory, mergeDshTrajectoryEvents, type DshTrajectoryFilter, type DshTrajectoryTiming } from "../lib/dshTrajectory.js";
@@ -291,7 +291,9 @@ export function DshTrajectoryInspector({ sessionId, open, running, onClose }: { 
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto pb-[max(0.75rem,env(safe-area-inset-bottom))]">
           {error && <p className="m-3 text-sm text-[var(--color-text-danger)]" role="alert">Trajectory unavailable: {error}</p>}
-          {page && <div className={`${styles.coverage} flex items-start gap-2 px-3 py-2 text-[11px] text-[var(--color-text-muted)]`}><AlertTriangle aria-hidden="true" className="mt-0.5 shrink-0" size={13} /><span>DCA-captured · incomplete · may contain gaps{gapCount ? ` · ${gapCount} known gap${gapCount === 1 ? "" : "s"}` : ""}</span></div>}
+          {page && (page.coverage.complete
+            ? <div className={`${styles.coverage} flex items-start gap-2 px-3 py-2 text-[11px] text-[var(--color-text-muted)]`} data-coverage="durable"><Database aria-hidden="true" className="mt-0.5 shrink-0" size={13} /><span>From DSH durable log · complete</span></div>
+            : <div className={`${styles.coverage} flex items-start gap-2 px-3 py-2 text-[11px] text-[var(--color-text-muted)]`} data-coverage="captured"><AlertTriangle aria-hidden="true" className="mt-0.5 shrink-0" size={13} /><span>DCA-captured · incomplete · may contain gaps{gapCount ? ` · ${gapCount} known gap${gapCount === 1 ? "" : "s"}` : ""}</span></div>)}
           {page?.nextBefore && <div className="p-3"><Button className="w-full" variant="secondary" onClick={() => void loadEarlier()} data-testid="dsh-trajectory-load-earlier">Load earlier captured events</Button></div>}
           {!error && page && visible.length === 0 && <p className="p-6 text-center text-sm text-[var(--color-text-muted)]">No matching trajectory events.</p>}
           <div className={styles.ledger}>

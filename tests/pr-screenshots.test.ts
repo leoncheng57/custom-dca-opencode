@@ -93,6 +93,12 @@ describe("PR screenshot requests", () => {
       .toHaveLength(3);
   });
 
+  it("accepts the DSH lab and one DSH conversation, but not an arbitrary DSH path", () => {
+    expect(parseScreenshotBlock("```screenshots\n/dsh\n/dsh/sessions/dsh-mock-1\n```").requests).toHaveLength(2);
+    expect(() => parseScreenshotBlock("```screenshots\n/dsh/sessions/dsh-mock-1/trajectory\n```"))
+      .toThrow(/not a known UI route/u);
+  });
+
   it("accepts the deterministic create-issue dialog state", () => {
     expect(parseScreenshotBlock("```screenshots\n/planning?create=1\n```").requests[0])
       .toMatchObject({ requestedRoute: "/planning?create=1", fullPage: false });
