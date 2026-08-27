@@ -26,8 +26,22 @@ import type { OpencodeConfig } from "../opencode/client.js";
 
 /** Upper bound on directories fanned out to, after dedupe. */
 export const RECENT_DIRECTORY_LIMIT = 40;
-export const RECENT_SESSION_LIMIT = 5;
-/** Match the full Hub list so an older parent can still contextualize a recent child. */
+/**
+ * Upper bound on the merged "recently active" window returned to the client.
+ *
+ * The Hub scrolls its recents columns inside a fixed-height section, so this
+ * is a row budget rather than a height budget. Raising it is cheap: the
+ * per-directory pool is already fetched at RECENT_SESSION_CONTEXT_LIMIT and
+ * `limit` only slices that existing pool, so no extra upstream request is made.
+ * Keep it in step with MAX_VISIBLE_RECENT_SESSIONS (client/lib/recentSessions.ts);
+ * whichever of the two is smaller is what a user actually sees.
+ */
+export const RECENT_SESSION_LIMIT = 100;
+/**
+ * Sessions loaded *per directory* so an older parent can still contextualize a
+ * recent child. Distinct from RECENT_SESSION_LIMIT, which slices the merged
+ * cross-directory pool; they are equal today only by coincidence.
+ */
 export const RECENT_SESSION_CONTEXT_LIMIT = 100;
 /** Upper bound on ids the client may ask to have resolved by name. */
 export const RECENT_LOOKUP_LIMIT = 50;
@@ -66,6 +80,19 @@ export function recentSessionContext<T extends { directory: string; id: string; 
     }
   }
   return pool.filter((session) => included.has(sessionKey(session)));
+}
+
+/**
+ * Bound the caller-supplied window.
+ *
+ * `Math.min` clamps DOWN on purpose: a client asking for more rows than the
+ * BFF is willing to serve gets the BFF's bound, never its own. Anything
+ * unparseable falls back to the default rather than collapsing the panel to
+ * zero rows.
+ */
+export function recentSessionLimit(raw: unknown, max = RECENT_SESSION_LIMIT): number {
+  const value = Number(raw ?? max);
+  return Number.isFinite(value) ? Math.min(max, Math.max(0, Math.floor(value))) : max;
 }
 
 function stringList(value: unknown, limit: number): string[] {
@@ -111,10 +138,7 @@ export function recentRoutes(config: OpencodeConfig, store = new ProjectPinStore
   router.get("/recent-sessions", async (req, res) => {
     const requested = stringList(req.query.directory, RECENT_DIRECTORY_LIMIT);
     const lookupIDs = new Set(stringList(req.query.session, RECENT_LOOKUP_LIMIT));
-    const rawLimit = Number(req.query.limit ?? RECENT_SESSION_LIMIT);
-    const limit = Number.isFinite(rawLimit)
-      ? Math.min(RECENT_SESSION_LIMIT, Math.max(0, Math.floor(rawLimit)))
-      : RECENT_SESSION_LIMIT;
+    const limit = recentSessionLimit(req.query.limit);
 
     // A pin store failure degrades the candidate set; it must not 500 a panel
     // the client can still populate from its own history.

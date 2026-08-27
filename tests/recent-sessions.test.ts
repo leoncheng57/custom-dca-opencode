@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { SessionSummary } from "../client/lib/api.js";
 import {
   MAX_STORED_RECENT_SESSIONS,
+  MAX_VISIBLE_RECENT_SESSIONS,
   RECENT_SESSIONS_STORAGE_KEY,
   readRecentSessionOpens,
   recentDirectories,
@@ -155,6 +156,52 @@ describe("recent session views", () => {
       "/repo",
       new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString(),
     ));
-    expect(recentlyActiveSessions(manySessions, 100)).toHaveLength(5);
+    // The panel scrolls now, so ten rows are ten rows — the old hard five is
+    // gone. What survives is the ceiling, asserted below.
+    expect(recentlyActiveSessions(manySessions, 100)).toHaveLength(10);
+  });
+
+  it("clamps down to the visible ceiling however large a limit the caller passes", () => {
+    // The clamp is Math.min, not Math.max: a caller cannot widen the window by
+    // asking for more. This is the half of the cap that lives in the browser;
+    // the BFF clamps its own response independently.
+    const overflowing = Array.from({ length: MAX_VISIBLE_RECENT_SESSIONS + 7 }, (_, index) => session(
+      `session-${index}`,
+      "/repo",
+      new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString(),
+    ));
+    expect(recentlyActiveSessions(overflowing, Number.MAX_SAFE_INTEGER))
+      .toHaveLength(MAX_VISIBLE_RECENT_SESSIONS);
+    expect(recentlyActiveSessions(overflowing)).toHaveLength(MAX_VISIBLE_RECENT_SESSIONS);
+
+    const entries = overflowing.map((item, index) => ({
+      id: item.id,
+      directory: "/repo",
+      openedAt: overflowing.length - index,
+    }));
+    expect(recentlyOpenedSessions(overflowing, entries, 10_000))
+      .toHaveLength(MAX_VISIBLE_RECENT_SESSIONS);
+    expect(recentlyOpenedSessions(overflowing, entries)).toHaveLength(MAX_VISIBLE_RECENT_SESSIONS);
+
+    // A non-finite limit still yields nothing rather than the whole pool.
+    expect(recentlyActiveSessions(overflowing, Number.NaN)).toEqual([]);
+    expect(recentlyOpenedSessions(overflowing, entries, Number.POSITIVE_INFINITY)).toEqual([]);
+  });
+
+  it("renders well past the old five-row cap", () => {
+    // Issue #44: the lists are scrollable, so twenty recent sessions all show.
+    const twenty = Array.from({ length: 20 }, (_, index) => session(
+      `session-${index}`,
+      "/repo",
+      new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString(),
+    ));
+    expect(recentlyActiveSessions(twenty)).toHaveLength(20);
+    expect(recentlyActiveSessions(twenty)[0]?.id).toBe("session-19");
+    const entries = twenty.map((item, index) => ({
+      id: item.id,
+      directory: "/repo",
+      openedAt: twenty.length - index,
+    }));
+    expect(recentlyOpenedSessions(twenty, entries)).toHaveLength(20);
   });
 });

@@ -2,7 +2,17 @@ import type { SessionSummary } from "./api.js";
 
 export const RECENT_SESSIONS_STORAGE_KEY = "opencode.recentSessions.v1";
 export const MAX_STORED_RECENT_SESSIONS = 50;
-export const MAX_VISIBLE_RECENT_SESSIONS = 5;
+/**
+ * Upper bound on rows a recents panel will render.
+ *
+ * The Hub scrolls these lists inside a fixed-height column, so a bigger number
+ * costs height nowhere — only DOM nodes. It must stay in step with the BFF's
+ * own `RECENT_SESSION_LIMIT` (server/routes/recents.ts): the server clamps the
+ * "recently active" window it returns, so raising this alone would silently
+ * change nothing. `api.recentSessions` defaults its request limit to this
+ * constant so the browser never asks for rows it would then discard.
+ */
+export const MAX_VISIBLE_RECENT_SESSIONS = 100;
 
 export interface RecentSessionOpen {
   id: string;

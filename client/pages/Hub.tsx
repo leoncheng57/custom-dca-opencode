@@ -403,6 +403,26 @@ export function HubPage() {
     )
   );
 
+  /**
+   * Each recents column scrolls inside a fixed budget instead of growing the
+   * page. `max-h-60` is about five 44px rows, which is the height this section
+   * already occupied when five was also the hard cap.
+   *
+   * `min-h-0` is load-bearing twice over: these columns are grid children of an
+   * `overflow-hidden` grid and flex children of the column, and both default to
+   * `min-height: auto`, which would let the list push the section taller rather
+   * than scroll. Focused rows are ordinary links, so the browser scrolls them
+   * into view within this container for keyboard users.
+   */
+  const recentScroller = (items: SessionSummary[], emptyMessage: string, testId: string) => (
+    <div
+      className="thin-scrollbar max-h-60 min-h-0 flex-1 overflow-y-auto overscroll-contain"
+      data-testid={`${testId}-scroll`}
+    >
+      {recentList(items, emptyMessage, testId)}
+    </div>
+  );
+
   return (
     <main className="mx-auto max-w-4xl space-y-5 p-4 sm:p-6" data-testid="opencode-hub">
       <header className="flex flex-wrap items-end gap-3 pt-2">
@@ -446,13 +466,13 @@ export function HubPage() {
 
       {recents !== null && (
         <section className="grid overflow-hidden rounded-xl border border-[var(--color-border-default)] sm:grid-cols-2" data-testid="opencode-recent-sessions">
-          <div className="min-w-0 sm:border-r sm:border-[var(--color-border-default)]">
-            <h2 className="border-b border-[var(--color-border-default)] px-4 py-2 text-sm font-semibold">Recently opened</h2>
-            {recentList(recentlyOpened, "Open a session to keep it handy here.", "opencode-recently-opened")}
+          <div className="flex min-h-0 min-w-0 flex-col sm:border-r sm:border-[var(--color-border-default)]">
+            <h2 className="shrink-0 border-b border-[var(--color-border-default)] px-4 py-2 text-sm font-semibold">Recently opened</h2>
+            {recentScroller(recentlyOpened, "Open a session to keep it handy here.", "opencode-recently-opened")}
           </div>
-          <div className="min-w-0 border-t border-[var(--color-border-default)] sm:border-t-0">
-            <h2 className="border-b border-[var(--color-border-default)] px-4 py-2 text-sm font-semibold">Recently active</h2>
-            {recentList(recentlyActive, "No recent sessions in your pinned or recently opened projects.", "opencode-recently-active")}
+          <div className="flex min-h-0 min-w-0 flex-col border-t border-[var(--color-border-default)] sm:border-t-0">
+            <h2 className="shrink-0 border-b border-[var(--color-border-default)] px-4 py-2 text-sm font-semibold">Recently active</h2>
+            {recentScroller(recentlyActive, "No recent sessions in your pinned or recently opened projects.", "opencode-recently-active")}
           </div>
         </section>
       )}

@@ -278,13 +278,14 @@ test.describe("hub", () => {
   });
 
   test("merges recently active across projects newest first", async ({ page }) => {
-    await pinRecentsTo(page, [
+    const pinnedFixtures = [
       "ses_second_newest",
       "ses_mock_unknown_model",
       "ses_mock_running",
       "ses_mock_done",
       "ses_second_oldest",
-    ]);
+    ];
+    await pinRecentsTo(page, pinnedFixtures);
     await page.addInitScript(({ directory }) => {
       localStorage.setItem("opencode.recentSessions.v1", JSON.stringify({
         version: 1,
@@ -294,7 +295,11 @@ test.describe("hub", () => {
     await page.goto(hub);
 
     const activeRows = page.getByTestId("opencode-recently-active-row");
-    await expect(activeRows).toHaveCount(5);
+    // Not a cap assertion — the panel holds up to MAX_VISIBLE_RECENT_SESSIONS
+    // rows now (issue #44). This count is exactly the pool the harness pinned,
+    // which is what makes the ordering below deterministic. Capacity itself is
+    // proven in recents-capacity.ui.spec.ts.
+    await expect(activeRows).toHaveCount(pinnedFixtures.length);
     // Interleaved by time, not grouped by project: that is the whole point.
     expect(await activeRows.allTextContents()).toEqual([
       expect.stringContaining("Second project newest"),

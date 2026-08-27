@@ -422,9 +422,16 @@ const MANAGED_SUBAGENT_DIRECTORY_INPUT = "/tmp/mock-managed-subagent-project";
 // managed child under ses_mock_workflow_main, so the fixtures live in a
 // directory only workflows.ui.spec.ts uses.
 const WORKFLOW_DIRECTORY_INPUT = "/tmp/mock-workflow-project";
+// Recents capacity fixture (issue #44). The recents panels used to be capped at
+// five rows; proving the cap is gone needs a project with more sessions than
+// that, and adding them to MOCK_DIRECTORY would change the exact row counts
+// smoke.ui.spec.ts asserts. Owned by recents-capacity.ui.spec.ts, which is the
+// only file that ever puts this directory in a recents scope.
+const RECENTS_DIRECTORY_INPUT = "/tmp/mock-recents-project";
 // Owned by session-agents.spec.ts: foreign-identity prompting fixtures.
 const SESSION_AGENT_DIRECTORY_INPUT = "/tmp/mock-session-agents-project";
 mkdirSync(SUBAGENT_DIRECTORY_INPUT, { recursive: true });
+mkdirSync(RECENTS_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(MANAGED_SUBAGENT_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(WORKFLOW_DIRECTORY_INPUT, { recursive: true });
 mkdirSync(SESSION_AGENT_DIRECTORY_INPUT, { recursive: true });
@@ -448,6 +455,7 @@ const POLICY_FAILURE_DIRECTORY = realpathSync(POLICY_FAILURE_DIRECTORY_INPUT);
 export const SUBAGENT_DIRECTORY = realpathSync(SUBAGENT_DIRECTORY_INPUT);
 export const MANAGED_SUBAGENT_DIRECTORY = realpathSync(MANAGED_SUBAGENT_DIRECTORY_INPUT);
 export const WORKFLOW_DIRECTORY = realpathSync(WORKFLOW_DIRECTORY_INPUT);
+export const RECENTS_DIRECTORY = realpathSync(RECENTS_DIRECTORY_INPUT);
 const SESSION_AGENT_DIRECTORY = realpathSync(SESSION_AGENT_DIRECTORY_INPUT);
 ensureGitFixture({
   directory: MOCK_DIRECTORY,
@@ -945,6 +953,21 @@ const SESSIONS: Array<Record<string, any>> = [
     tokens: {},
     time: { created: 1787200300000, updated: 1787200300000, archived: 1787200400000 },
   },
+  // Twelve flat sessions in a directory nobody else scopes recents to, so
+  // recents-capacity.ui.spec.ts can prove both panels render well past the old
+  // five-row cap. Deliberately parentless: this fixture is about row count, and
+  // a disclosure row would make "how many rows are visible" ambiguous. The
+  // timestamps ascend by one second so "newest first" has a single right answer.
+  ...Array.from({ length: 12 }, (_, index) => ({
+    id: `ses_recents_${String(index + 1).padStart(2, "0")}`,
+    title: `Recents fixture ${String(index + 1).padStart(2, "0")}`,
+    directory: RECENTS_DIRECTORY,
+    agent: "build",
+    model: { providerID: "anthropic", id: "claude-opus-5" },
+    cost: 0,
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    time: { created: 1787400000000 + index * 1000, updated: 1787400000000 + index * 1000 },
+  })),
 ];
 
 const TODOS = [

@@ -6,6 +6,10 @@
 import type { RawMessage } from "./events.js";
 import type { AgentMode } from "./agentMode.js";
 import type { ModelCatalogue, ModelSelection } from "./models.js";
+// Value import, and safe: recentSessions.ts only imports a *type* from here,
+// so the cycle is erased at build time. Sharing the constant is what keeps the
+// requested window and the rendered window from drifting apart.
+import { MAX_VISIBLE_RECENT_SESSIONS } from "./recentSessions.js";
 
 export type ManagedChildAgent = "plan" | "build" | "explore" | "general";
 export type ManagedChildAccess = "read-only" | "can-modify";
@@ -484,8 +488,11 @@ export const api = {
    * `lookupIDs` names sessions the browser opened previously. They are usually
    * not among the most recently active, so they have to be requested by id or
    * the "recently opened" panel would come back empty.
+   *
+   * The BFF clamps `limit` to its own bound, so this default is a ceiling the
+   * caller asks for, never one it can exceed.
    */
-  recentSessions: (directories: string[], lookupIDs: string[] = [], limit = 5) => {
+  recentSessions: (directories: string[], lookupIDs: string[] = [], limit = MAX_VISIBLE_RECENT_SESSIONS) => {
     const query = new URLSearchParams({ limit: String(limit) });
     for (const directory of directories) query.append("directory", directory);
     for (const id of lookupIDs) query.append("session", id);
