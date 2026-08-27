@@ -202,15 +202,21 @@ export interface DshTrajectoryPage {
   events: DshTrajectoryEvent[];
   nextBefore: number | null;
   capturePending: boolean;
-  coverage: {
-    source: "dca-captured-projection";
-    complete: false;
-    mayContainGaps: true;
-    capturedFrom: string | null;
-    capturedThrough: string | null;
-    nativeStreams: Array<{ session: string; first: number; last: number; gaps: number }>;
-    note: string;
-  };
+  coverage: DshTrajectoryCoverage;
+}
+/**
+ * Mirrors the server union. The capture arm keeps literal `false`/`true` so a
+ * bounded capture still cannot be typed as complete; the durable arm is the
+ * only way to claim completeness, and only the server can produce it.
+ */
+export type DshTrajectoryCoverage =
+  | (DshTrajectoryCoverageBase & { source: "dca-captured-projection"; complete: false; mayContainGaps: true })
+  | (DshTrajectoryCoverageBase & { source: "dsh-durable-persistence"; complete: true; mayContainGaps: false });
+interface DshTrajectoryCoverageBase {
+  capturedFrom: string | null;
+  capturedThrough: string | null;
+  nativeStreams: Array<{ session: string; first: number; last: number; gaps: number }>;
+  note: string;
 }
 export interface DshTrajectoryDetail {
   eventId: string;

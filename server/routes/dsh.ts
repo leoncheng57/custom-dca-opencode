@@ -5,6 +5,7 @@ import type { DshConfig, DshPreset, DshWorkspace } from "../dsh/config.js";
 import { DshBridgePool } from "../dsh/bridge.js";
 import { DshSessionStore } from "../dsh/store.js";
 import { DshTrajectoryStore } from "../dsh/trajectory.js";
+import { DshDurableReader } from "../dsh/durable.js";
 
 const MAX_PROMPT = 40_000;
 
@@ -36,6 +37,11 @@ export function dshRoutes(
     maintenanceEnabled: config.enabled,
     allowedProviders: config.presets.map((item) => item.provider),
     allowedModels: config.presets.map((item) => item.model),
+    // The bridge exports this root as DSH_SESSION_ROOT, which the stock
+    // composition uses for the JSONL backend, so a persisting deployment
+    // persists here. It stays optional: nothing requires the operator's
+    // sha256-pinned cordis file to compose persistence at all.
+    durable: new DshDurableReader(config.sessionRoot),
   }),
 ): Router {
   const router = Router();

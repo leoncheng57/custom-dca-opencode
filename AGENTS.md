@@ -611,8 +611,34 @@ several decisions below.
     transitive dependency; the operator's cordis file is sha256-pinned so persistence
     must be *detected*, not mandated; and `load`/`prepare` sit beside the read methods
     while performing cold recovery that **durably rewrites** the harness's own log, so a
-    read model must never call them. Until that lands DCA never parses native or
-    compressed DSH JSONL by hand — the vendor package is the only acceptable reader.
+    read model must never call them. DCA never parses native or compressed DSH JSONL by
+    hand — the vendor package is the only acceptable reader.
+28a. **Durable mode reads the harness's own log; capture is the fallback, and the
+    difference is typed.** `server/dsh/durable.ts` constructs the vendor JSONL backend as
+    a reader and exposes only `list`/`listSnapshots`/`readFrom`. `load` and `prepare` are
+    not surfaced at all rather than left available, because they perform cold recovery
+    that rewrites the harness's log. DCA already owns the root: the bridge passes
+    `session_root`, the SDK exports it as `DSH_SESSION_ROOT`, the stock composition
+    resolves the backend's `root` from it, and the seatbelt profile only grants writes
+    under that same state directory — so a composition that persists persists there.
+    Persistence is still **detected, never mandated**: the operator's cordis file is
+    sha256-pinned and may use `!!js` expressions only the runtime can evaluate, so DCA
+    probes for a session artifact instead of parsing YAML. The artifact *filename* names
+    the encoding, which matters because a reader built for the wrong `compression`
+    throws on every read (it never misparses) and the default when the key is omitted is
+    `zstd`. Detection is lazy and re-probed while unavailable, since the first session on
+    a fresh install creates the very artifacts being looked for.
+    Coverage is a **discriminated union**, not two booleans: the capture arm keeps
+    literal `complete: false` / `mayContainGaps: true`, so a bounded capture still cannot
+    be typed as complete. A durable read that returns *no* events is deliberately not
+    treated as durable — an empty answer must never be promoted into a completeness
+    claim. Durable events are projected through the same `nativeProjection` and sanitizer
+    as captured ones, so the metadata-only safe-row rules hold whichever source answered,
+    and their ids derive from the immutable log so repeated reads are stable.
+    The two sources are **merged, not swapped**: the durable log is complete for what DSH
+    did but knows nothing about what DCA observed around it, so `dca-lifecycle` records —
+    a rejected prompt, a bridge exit, a capture gap — are interleaved by time and
+    duplicate captured *native* events are dropped in favour of the durable ones.
     OpenCode Run Log remains a separate transcript-derived feature and is unchanged.
     Safe trajectory rows are an event-type-specific metadata projection. They never
     inspect arbitrary payload text and never derive prompt, system/context text,
@@ -637,6 +663,15 @@ several decisions below.
   only. **Never raw hex.**
 - Every interactive element carries a `data-testid`.
 - No new runtime dependencies without a reason recorded here.
+- `@deepseek-ai/dsh-session-persistence-jsonl` + `@deepseek-ai/cordis` are pinned exactly
+  and exist only to read DSH's durable session log (decision 28a). Hand-rolling a reader
+  for a compressed, versioned, append-only format the harness also writes is precisely
+  the thing not to do: the vendor reader refuses a newer log version and refuses unknown
+  event types rather than misparsing them. `@deepseek-ai/cordis` is the fork the package
+  actually imports `Service` from — plain `cordis` happens to work but is not what it
+  declares. `koffi` arrives transitively, is Windows-only (`kernel32.dll`, behind a
+  dynamic `import`), and its install script is not approved here, so no native build runs
+  and the module is never loaded on macOS or Linux.
 - `mermaid` is the lazy-loaded diagram parser and layout engine for repository-owned
   in-app docs only. It runs with Mermaid strict security, then its generated SVG is
   stripped of links, executable DOM, embedded resources and unsafe CSS before mounting.

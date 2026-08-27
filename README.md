@@ -355,12 +355,17 @@ replacement) without embedding or proxying DSH Web. It keeps a bounded, explicit
 incomplete **DCA-captured projection** from the moment the bridge observes an event.
 Every response states that it may contain gaps and is not canonical DSH persistence.
 
-That projection is capture-based because the Python SDK exposes no session
-list/read/replay — its whole request surface is `initialize`, `session/prompt` and
-`shutdown`. DSH *does* publish durable-history readers
-(`@deepseek-ai/dsh-session-persistence[-jsonl]`, including a `readFrom(id, fromSeq)`
-watermark primitive), and adopting them to make the trajectory complete is tracked
-separately. DCA never hand-parses DSH's native or compressed JSONL either way.
+When the composition persists sessions, DCA instead reads the harness's **own durable
+log** through the vendor package (`@deepseek-ai/dsh-session-persistence-jsonl`), and the
+inspector says *"From DSH durable log · complete"* rather than warning about gaps. That
+path is read-only by construction: only `list`, `listSnapshots` and `readFrom` are ever
+called, never `load`/`prepare`, which perform recovery that rewrites the harness's log.
+
+Persistence is detected, not required — the bridge already points `DSH_SESSION_ROOT` at
+DCA's own state directory, so DCA probes there for a session artifact. If nothing is
+persisted the bounded capture above is used unchanged, and the two are distinguishable
+in the API: only durable responses may report `complete: true`. DCA never hand-parses
+DSH's native or compressed JSONL either way.
 
 Safe rows and safe export contain metadata-only projections; they never derive prompt,
 command, path, tool input/output, reasoning, or context text. Sensitive one-event detail
