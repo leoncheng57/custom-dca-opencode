@@ -41,6 +41,10 @@ test.describe("requested PR screenshots", () => {
                   ? "opencode-doc"
                     : pathname.startsWith("/playbooks")
                       ? "opencode-playbooks"
+                    : pathname === "/dsh"
+                      ? "dsh-home"
+                    : pathname.startsWith("/dsh/sessions/")
+                      ? "dsh-conversation"
                       : "opencode-hub";
         await expect(page.getByTestId(stableRoot)).toBeVisible();
         if (pathname === "/planning") {
