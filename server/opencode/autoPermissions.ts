@@ -68,6 +68,9 @@ export class AutoPermissionService {
 
   async isEnabledCanonical(directory: string | undefined): Promise<boolean> {
     if (!directory) return false;
+    // An event can arrive while persisted auto-approval state is restoring.
+    // Wait so notification suppression sees the user's prior setting.
+    await this.loaded.catch(() => undefined);
     try {
       return this.isEnabled(await requireWorkspaceDirectory(directory));
     } catch {
