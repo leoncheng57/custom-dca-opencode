@@ -351,11 +351,16 @@ native Web UI. The full dual-runtime decision and phased estimate are tracked in
 Each DSH conversation also has a mobile-first **DSH Trajectory** inspector. It renders
 the pinned `dsh-v0.1.1-rc.2` `session.event` vocabulary (turns, steps, request metadata,
 messages, tool pairs, compaction, child lineage, timing, usage, failures, and surface
-replacement) without embedding or proxying DSH Web. The Python SDK has no supported
-session list/read/replay API, so DCA does not parse DSH's native JSONL. Instead it keeps
-a bounded, explicitly incomplete **DCA-captured projection** from the moment the bridge
-observes an event. Every response states that it may contain gaps and is not canonical
-DSH persistence.
+replacement) without embedding or proxying DSH Web. It keeps a bounded, explicitly
+incomplete **DCA-captured projection** from the moment the bridge observes an event.
+Every response states that it may contain gaps and is not canonical DSH persistence.
+
+That projection is capture-based because the Python SDK exposes no session
+list/read/replay — its whole request surface is `initialize`, `session/prompt` and
+`shutdown`. DSH *does* publish durable-history readers
+(`@deepseek-ai/dsh-session-persistence[-jsonl]`, including a `readFrom(id, fromSeq)`
+watermark primitive), and adopting them to make the trajectory complete is tracked
+separately. DCA never hand-parses DSH's native or compressed JSONL either way.
 
 Safe rows and safe export contain metadata-only projections; they never derive prompt,
 command, path, tool input/output, reasoning, or context text. Sensitive one-event detail
