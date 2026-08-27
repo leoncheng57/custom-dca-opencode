@@ -30,6 +30,40 @@ export function splitWorkflowTags(input: string): SplitWorkflowMessage {
 export const PLAYWRIGHT_REVIEW_WORKFLOW_ID = "playwright-ui-review";
 export const SESSION_UPDATE_WORKFLOW_ID = "session-update";
 export const MANAGED_CHILD_WORKFLOW_ID = "managed-child";
+export const PR_SNIPPET_REVIEW_WORKFLOW_ID = "pr-snippet-review";
+
+// ── Pull request review prompt generation ───────────────────────────────────
+
+/** GitHub's own ceiling is far lower; this only bounds the field. */
+const MAX_PULL_REQUEST_NUMBER = 9_999_999;
+
+/**
+ * Accept the three things a human actually has to hand — `253`, `#253`, or a
+ * pasted pull request URL — and reduce all of them to a number.
+ *
+ * Only the NUMBER survives. A pasted URL's owner, repository and host are
+ * deliberately discarded rather than parsed out and used: the repository comes
+ * from the session's project directory, so a link copied from somewhere else
+ * can never redirect the review (or the posted comment) at another repository.
+ */
+export function parsePullRequestNumber(input: string): number | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  const direct = /^#?(\d{1,7})$/u.exec(trimmed);
+  const fromUrl = /^https?:\/\/[^\s/]+\/[^\s/]+\/[^\s/]+\/pull\/(\d{1,7})(?:[/?#].*)?$/u.exec(trimmed);
+  const digits = direct?.[1] ?? fromUrl?.[1];
+  if (digits === undefined) return null;
+  const value = Number(digits);
+  return Number.isSafeInteger(value) && value >= 1 && value <= MAX_PULL_REQUEST_NUMBER ? value : null;
+}
+
+export function buildPrSnippetReviewPrompt(pullRequest: number): string {
+  return [
+    `Post a snippet-by-snippet review of pull request #${pullRequest} in this repository.`,
+    "",
+    "Walk it as an ordered sequence of explained snippets so it can be read top to bottom, then post it as a single GitHub comment.",
+  ].join("\n");
+}
 
 // ── Playwright review prompt generation ─────────────────────────────────────
 //

@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildPlaywrightReviewPrompt,
+  buildPrSnippetReviewPrompt,
   captureScopeLabel,
   MANAGED_CHILD_WORKFLOW_ID,
   PLAYWRIGHT_CAPTURE_SCOPES,
   PLAYWRIGHT_REVIEW_WORKFLOW_ID,
+  PR_SNIPPET_REVIEW_WORKFLOW_ID,
+  parsePullRequestNumber,
   SESSION_UPDATE_WORKFLOW_ID,
   splitWorkflowTags as clientSplitWorkflowTags,
 } from "../client/lib/workflows.js";
@@ -19,12 +22,24 @@ import {
 } from "../server/workflows/workflows.js";
 
 describe("workflow catalogue", () => {
-  it("contains exactly the three issue #167 workflows, in picker order", () => {
+  it("contains the shipped workflows, in picker order", () => {
     expect(workflowCatalogue().map((workflow) => workflow.id)).toEqual([
       PLAYWRIGHT_REVIEW_WORKFLOW_ID,
+      PR_SNIPPET_REVIEW_WORKFLOW_ID,
       SESSION_UPDATE_WORKFLOW_ID,
       MANAGED_CHILD_WORKFLOW_ID,
     ]);
+  });
+
+  it("binds the PR review injector to this project's repository and one comment", () => {
+    const injector = workflowCatalogue().find((workflow) => workflow.id === PR_SNIPPET_REVIEW_WORKFLOW_ID)?.injector ?? "";
+    // The only accepted input is a number; the repository must never come from
+    // the prompt, or a pasted link could redirect where the comment is posted.
+    expect(injector).toContain("NEVER take a repository, owner, or host from the prompt");
+    expect(injector).toContain("Post exactly one comment");
+    // Links must be pinned so a moving branch cannot invalidate them.
+    expect(injector).toContain("headRefOid");
+    expect(injector).toContain("Never claim a test, lane, or verification you did not actually run");
   });
 
   it("ships valid ids and non-empty user-facing text", () => {
@@ -143,5 +158,37 @@ describe("buildPlaywrightReviewPrompt", () => {
 
   it("offers exactly the two capture scopes", () => {
     expect(PLAYWRIGHT_CAPTURE_SCOPES.map((scope) => scope.id)).toEqual(["interaction", "targeted-screenshots"]);
+  });
+});
+
+describe("parsePullRequestNumber", () => {
+  it("accepts the three forms a human actually has to hand", () => {
+    expect(parsePullRequestNumber("253")).toBe(253);
+    expect(parsePullRequestNumber(" #253 ")).toBe(253);
+    expect(parsePullRequestNumber("https://github.com/leoncheng57/custom-dca-opencode/pull/253")).toBe(253);
+    expect(parsePullRequestNumber("https://github.com/o/r/pull/253/files#diff-abc")).toBe(253);
+  });
+
+  it("keeps only the number, so a pasted link cannot redirect the review", () => {
+    // Same number, a repository that is not this one: the owner/repo/host are
+    // discarded, never returned, so the agent still resolves the repository
+    // from the project directory.
+    expect(parsePullRequestNumber("https://github.com/attacker/other-repo/pull/253")).toBe(253);
+    expect(parsePullRequestNumber("https://evil.example.com/o/r/pull/253")).toBe(253);
+  });
+
+  it("rejects everything that is not a pull request number", () => {
+    for (const input of ["", "   ", "abc", "#", "0", "-1", "1.5", "12345678", "#12345678", "253 254", "https://github.com/o/r/issues/253", "https://github.com/o/r/pull/abc"]) {
+      expect(parsePullRequestNumber(input)).toBeNull();
+    }
+  });
+});
+
+describe("buildPrSnippetReviewPrompt", () => {
+  it("names the pull request and defers the repository to the session", () => {
+    const prompt = buildPrSnippetReviewPrompt(253);
+    expect(prompt).toContain("#253");
+    expect(prompt).toContain("in this repository");
+    expect(prompt).toContain("single GitHub comment");
   });
 });

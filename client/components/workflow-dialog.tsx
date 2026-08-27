@@ -18,6 +18,9 @@ import {
   MANAGED_CHILD_WORKFLOW_ID,
   PLAYWRIGHT_CAPTURE_SCOPES,
   PLAYWRIGHT_REVIEW_WORKFLOW_ID,
+  PR_SNIPPET_REVIEW_WORKFLOW_ID,
+  buildPrSnippetReviewPrompt,
+  parsePullRequestNumber,
   SESSION_UPDATE_WORKFLOW_ID,
   type PlaywrightCaptureScope,
 } from "../lib/workflows.js";
@@ -62,6 +65,7 @@ export function WorkflowDialog({
   const [error, setError] = useState<string | null>(null);
 
   // Playwright review fields.
+  const [pullRequest, setPullRequest] = useState("");
   const [route, setRoute] = useState("");
   const [target, setTarget] = useState("");
   const [scope, setScope] = useState<PlaywrightCaptureScope>("targeted-screenshots");
@@ -153,9 +157,15 @@ export function WorkflowDialog({
   const childAgentLabel = (agent: ManagedChildAgentSummary) =>
     `${agent.id[0].toUpperCase()}${agent.id.slice(1)} · ${agent.access}`;
 
+  // Only the number survives parsing, so a pasted link from another repository
+  // cannot redirect the review or the posted comment (see parsePullRequestNumber).
+  const pullRequestNumber = parsePullRequestNumber(pullRequest);
+
   const generatedPrompt =
     workflow.id === PLAYWRIGHT_REVIEW_WORKFLOW_ID
       ? (route.trim() && target.trim() ? buildPlaywrightReviewPrompt({ route, target, scope }) : "")
+      : workflow.id === PR_SNIPPET_REVIEW_WORKFLOW_ID
+        ? (pullRequestNumber === null ? "" : buildPrSnippetReviewPrompt(pullRequestNumber))
       : workflow.id === SESSION_UPDATE_WORKFLOW_ID
         ? message.trim()
         : objective.trim();
@@ -163,6 +173,8 @@ export function WorkflowDialog({
   const formValid =
     workflow.id === PLAYWRIGHT_REVIEW_WORKFLOW_ID
       ? Boolean(route.trim() && target.trim())
+      : workflow.id === PR_SNIPPET_REVIEW_WORKFLOW_ID
+        ? pullRequestNumber !== null
       : workflow.id === SESSION_UPDATE_WORKFLOW_ID
         ? Boolean(targetSession && message.trim())
         // No catalogue means no verified agent, so there is nothing safe to launch.
@@ -175,7 +187,10 @@ export function WorkflowDialog({
     setBusy(true);
     setError(null);
     try {
-      if (workflow.id === PLAYWRIGHT_REVIEW_WORKFLOW_ID) {
+      if (workflow.id === PLAYWRIGHT_REVIEW_WORKFLOW_ID || workflow.id === PR_SNIPPET_REVIEW_WORKFLOW_ID) {
+        // Sent in THIS session's current mode. Posting a comment is a write, so
+        // a Plan session will be stopped by its own policy rather than having
+        // write access quietly restored here (decision 9).
         await api.prompt(directory, sessionID, generatedPrompt, { mode }, undefined, undefined, undefined, workflow.id);
         onSent();
         onClose();
@@ -238,6 +253,29 @@ export function WorkflowDialog({
             className="mt-5 space-y-4"
             onSubmit={(event) => { event.preventDefault(); if (formValid) setStage("preview"); }}
           >
+            {workflow.id === PR_SNIPPET_REVIEW_WORKFLOW_ID && (
+              <label className="block text-sm font-medium">
+                Pull request <span className="font-normal text-[var(--color-text-muted)]">(required)</span>
+                <input
+                  ref={(node) => { firstFieldRef.current = node; }}
+                  type="text"
+                  inputMode="numeric"
+                  value={pullRequest}
+                  onChange={(event) => setPullRequest(event.target.value)}
+                  placeholder="253, #253, or a pull request URL"
+                  className={fieldClass}
+                  data-testid="composer-workflow-field-pull-request"
+                />
+                <span className="mt-1 block text-[11px] font-normal text-[var(--color-text-muted)]">
+                  The repository comes from this project directory. A pasted URL contributes only its number.
+                </span>
+                {pullRequest.trim() && pullRequestNumber === null && (
+                  <span className="mt-1 block text-[11px] font-normal text-[var(--color-text-danger)]" data-testid="composer-workflow-pull-request-invalid">
+                    Enter a pull request number, like 253.
+                  </span>
+                )}
+              </label>
+            )}
             {workflow.id === PLAYWRIGHT_REVIEW_WORKFLOW_ID && <>
               <label className="block text-sm font-medium">
                 Target route or component <span className="font-normal text-[var(--color-text-muted)]">(required)</span>
@@ -409,8 +447,13 @@ export function WorkflowDialog({
               <pre className="thin-scrollbar mt-1.5 max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded-md border border-[var(--color-border-default)] p-3 font-sans text-xs leading-relaxed text-[var(--color-text-muted)]">{workflow.injector}</pre>
               <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">Appended by the server exactly as shown. The browser only names the workflow id.</p>
             </details>
-            {workflow.id === PLAYWRIGHT_REVIEW_WORKFLOW_ID && (
+            {(workflow.id === PLAYWRIGHT_REVIEW_WORKFLOW_ID || workflow.id === PR_SNIPPET_REVIEW_WORKFLOW_ID) && (
               <p className="text-xs text-[var(--color-text-muted)]">"Apply to composer" only fills the message box for further editing — nothing is sent until you press Send.</p>
+            )}
+            {workflow.id === PR_SNIPPET_REVIEW_WORKFLOW_ID && (
+              <p className="text-xs text-[var(--color-text-muted)]" data-testid="composer-workflow-post-note">
+                This posts one comment on the pull request. Sent in this session's current mode, so a Plan session will stop at the write rather than post.
+              </p>
             )}
             {workflow.id === SESSION_UPDATE_WORKFLOW_ID && (
               <p className="text-xs text-[var(--color-text-muted)]" data-testid="composer-workflow-accepted-note">Delivery is asynchronous: POST /session/{"{target}"}/prompt_async answers 204 for <strong>accepted</strong>, not completed.</p>
@@ -431,7 +474,7 @@ export function WorkflowDialog({
             <div className="flex flex-wrap justify-end gap-2 border-t border-[var(--color-border-default)] pt-4">
               <Button type="button" variant="ghost" disabled={busy} onClick={() => { setError(null); setStage("form"); }} data-testid="composer-workflow-back">Back</Button>
               <Button type="button" variant="secondary" disabled={busy} onClick={onClose} data-testid="composer-workflow-cancel">Cancel</Button>
-              {workflow.id === PLAYWRIGHT_REVIEW_WORKFLOW_ID && <>
+              {(workflow.id === PLAYWRIGHT_REVIEW_WORKFLOW_ID || workflow.id === PR_SNIPPET_REVIEW_WORKFLOW_ID) && <>
                 <Button type="button" variant="secondary" disabled={busy} onClick={() => onApplyToComposer(generatedPrompt, workflow.id)} data-testid="composer-workflow-apply">Apply to composer</Button>
                 <Button type="button" disabled={!confirmReady} onClick={() => void submit("send")} data-testid="composer-workflow-send">{busy ? "Sending…" : "Send"}</Button>
               </>}

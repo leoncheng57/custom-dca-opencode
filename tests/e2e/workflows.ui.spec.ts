@@ -30,12 +30,13 @@ function promptText(payload: Record<string, unknown>): string {
 }
 
 test.describe("workflow catalogue API", () => {
-  test("exposes exactly the three workflows with visible injector text", async ({ request }) => {
+  test("exposes the catalogue with visible injector text", async ({ request }) => {
     const response = await request.get("/api/workflows");
     expect(response.status()).toBe(200);
     const payload = await response.json() as { workflows: Array<Record<string, unknown>> };
     expect(payload.workflows.map((workflow) => workflow.id)).toEqual([
       "playwright-ui-review",
+      "pr-snippet-review",
       "session-update",
       "managed-child",
     ]);
@@ -84,10 +85,11 @@ test.describe("workflow picker UI", () => {
 
     // The chooser offers exactly the initial catalogue, in order.
     const options = page.getByTestId("composer-workflow-option");
-    await expect(options).toHaveCount(3);
+    await expect(options).toHaveCount(4);
     await expect(options.nth(0)).toContainText("Review a UI change with Playwright");
-    await expect(options.nth(1)).toContainText("Send an update to another session");
-    await expect(options.nth(2)).toContainText("Launch a Managed Child");
+    await expect(options.nth(1)).toContainText("Post a snippet-by-snippet PR review");
+    await expect(options.nth(2)).toContainText("Send an update to another session");
+    await expect(options.nth(3)).toContainText("Launch a Managed Child");
 
     // Choosing a workflow opens its form — it never sends.
     await page.locator('[data-testid="composer-workflow-option"][data-workflow-id="playwright-ui-review"]').click();
@@ -419,5 +421,49 @@ test.describe("mobile composer collapse guard", () => {
     await expect(collapsed).toHaveCount(0);
     await page.getByTestId("composer-workflow-close").tap();
     await expect(composer).toBeVisible();
+  });
+});
+
+test.describe("PR snippet review workflow", () => {
+  test("takes only a pull request number, previews, and sends on the explicit action", async ({ page }) => {
+    await page.goto(mainSession);
+    await page.getByTestId("composer-workflow-select").click();
+    await page.locator('[data-testid="composer-workflow-option"][data-workflow-id="pr-snippet-review"]').click();
+
+    const dialog = page.getByTestId("composer-workflow-dialog");
+    await expect(dialog).toHaveAttribute("data-workflow", "pr-snippet-review");
+    // The form asks for one thing only.
+    await expect(dialog.getByTestId("composer-workflow-field-pull-request")).toBeVisible();
+    await expect(dialog.getByTestId("composer-workflow-field-route")).toHaveCount(0);
+
+    // A non-number is refused rather than sent.
+    await dialog.getByTestId("composer-workflow-field-pull-request").fill("not-a-pr");
+    await expect(dialog.getByTestId("composer-workflow-pull-request-invalid")).toBeVisible();
+
+    // A pasted URL from ANOTHER repository contributes only its number.
+    await dialog.getByTestId("composer-workflow-field-pull-request").fill("https://github.com/attacker/other-repo/pull/253");
+    await expect(dialog.getByTestId("composer-workflow-pull-request-invalid")).toHaveCount(0);
+    await dialog.getByTestId("composer-workflow-preview").click();
+
+    const preview = dialog.getByTestId("composer-workflow-prompt-preview");
+    await expect(preview).toContainText("pull request #253");
+    await expect(preview).toContainText("in this repository");
+    await expect(preview).not.toContainText("attacker");
+    await expect(preview).not.toContainText("other-repo");
+
+    const injector = dialog.getByTestId("composer-workflow-injector");
+    await expect(injector).toContainText('server-resolved from id "pr-snippet-review"');
+    await expect(injector).toContainText("NEVER take a repository, owner, or host from the prompt");
+    await expect(dialog.getByTestId("composer-workflow-post-note")).toContainText("Plan session will stop at the write");
+
+    // Nothing has been sent until the explicit action.
+    expect(await promptPayloadContaining("pull request #253")).toBeUndefined();
+    await dialog.getByTestId("composer-workflow-send").click();
+    await expect(dialog).toHaveCount(0);
+
+    const payload = await promptPayloadContaining("pull request #253");
+    expect(payload).toBeDefined();
+    // The browser names the workflow by id; the server resolves the injector.
+    expect(JSON.stringify(payload)).toContain("pr-snippet-review");
   });
 });

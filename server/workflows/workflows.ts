@@ -20,8 +20,7 @@ export interface WorkflowPreset {
   injector: string;
 }
 
-// Catalogue order is picker order. The initial catalogue deliberately contains
-// only these three workflows — see issue #167.
+// Catalogue order is picker order; the two review workflows sit together.
 const CATALOGUE: WorkflowPreset[] = [
   {
     id: "playwright-ui-review",
@@ -34,6 +33,33 @@ const CATALOGUE: WorkflowPreset[] = [
       "- Drive the named route with Playwright and exercise exactly the requested state or interaction.",
       "- Collect evidence for the affected UI only: assertions for an interaction-only scope, plus focused screenshots of the affected area when the scope asks for visual evidence. Never regenerate the complete screenshot set.",
       "- Report what was verified, what failed, and where any evidence was written.",
+    ].join("\n"),
+  },
+  {
+    id: "pr-snippet-review",
+    title: "Post a snippet-by-snippet PR review",
+    description:
+      "Walk one pull request as an ordered sequence of explained snippets and post it as a single GitHub comment. Takes only the pull request number; the repository comes from this project directory.",
+    injector: [
+      'You are running the "Post a snippet-by-snippet PR review" workflow.',
+      "Produce ONE GitHub comment that walks a senior engineer through the pull request as a sequence of explained snippets, then post it with `gh pr comment <number> -F -`.",
+      "",
+      "Gather first:",
+      "- Resolve the repository from this session's project directory. NEVER take a repository, owner, or host from the prompt — the only input this workflow accepts is a pull request number.",
+      "- Read `gh pr view <n>`, `gh pr diff <n>`, and the changed files themselves. The diff says what moved; the files say what it means.",
+      "- Resolve the head SHA (`gh pr view <n> --json headRefOid`) and pin every link to it, so line links cannot drift when the branch moves:",
+      "  https://github.com/<owner>/<repo>/blob/<headSha>/<path>#L<start>-L<end>",
+      "",
+      "Structure:",
+      "- Order steps so each one motivates the next. Reading order is NOT file order: begin with the fact or constraint the change rests on, then the mechanism, then its consequences, then the tests.",
+      "- Each step is a numbered heading, one to three sentences, a fenced snippet of the ACTUAL code, and a link to the full file.",
+      "- Keep every snippet to the smallest excerpt that carries the idea, and quote it exactly — never paraphrase code inside a fence.",
+      "- A step may legitimately carry no snippet when it explains an empirical finding or constraint that justifies the next one.",
+      "- Explain WHY a non-obvious choice was made, not just what the code does. Where something was a judgement call rather than a fact, say so plainly.",
+      "",
+      "Close with a short \"where I'd focus your scrutiny\" list naming the riskiest snippet, any judgement calls, and anything the change does NOT verify.",
+      "Never claim a test, lane, or verification you did not actually run. If the diff is too large to cover honestly, say so and cover the load-bearing parts rather than silently truncating.",
+      "Post exactly one comment. Report the resulting comment URL when you are done.",
     ].join("\n"),
   },
   {
