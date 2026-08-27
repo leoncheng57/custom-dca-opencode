@@ -54,6 +54,16 @@ test.describe("experimental DSH workspace", () => {
     await expect(inspector).not.toContainText("PRIVATE TOOL OUTPUT");
     await expect(page.getByTestId("dsh-trajectory-detail-toggle")).toHaveCount(0);
     await expect(page.getByTestId("dsh-trajectory-export-full")).toHaveCount(0);
+    const roleColor = (kind: string) => inspector.locator(`[data-visual-kind="${kind}"]`).first().getByTestId("dsh-trajectory-role-tag").evaluate((element) => getComputedStyle(element).color);
+    const requestColor = await roleColor("request");
+    const assistantColor = await roleColor("assistant");
+    const toolColor = await roleColor("tool");
+    expect(new Set([requestColor, assistantColor, toolColor]).size).toBe(3);
+    const assistantRow = inspector.locator('[data-visual-kind="assistant"]').first();
+    await assistantRow.getByTestId("dsh-trajectory-row-toggle").click();
+    await expect(assistantRow.getByTestId("dsh-trajectory-row-detail")).toBeVisible();
+    await expect(assistantRow.getByText("Identity", { exact: true })).toBeVisible();
+    await expect(assistantRow.getByText("Timing", { exact: true })).toBeVisible();
     await page.getByTestId("dsh-trajectory-filter-tools").click();
     await expect(page.getByTestId("dsh-trajectory-entry")).toHaveCount(2);
   });

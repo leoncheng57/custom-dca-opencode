@@ -33,5 +33,5 @@ test("runs the DSH fixture flow under the nested public preview path", async ({ 
   await expect(page.getByText("Tool called", { exact: true })).toBeVisible();
   await expect(page.getByText("Compaction surface replacement", { exact: true })).toBeVisible();
   await expect(page.getByText("Child agent started", { exact: true })).toBeVisible();
-  await expect(page.getByText("DCA-captured projection only", { exact: false })).toBeVisible();
+  await expect(page.getByText(/DCA-captured.*incomplete/u)).toBeVisible();
 });

@@ -36,21 +36,29 @@ export interface DshTrajectoryGroup { id: string; label: string; events: DshTraj
 
 export function groupDshTrajectory(events: DshTrajectoryEvent[]): DshTrajectoryGroup[] {
   const groups: DshTrajectoryGroup[] = [];
-  let currentTurn: number | undefined;
-  let currentStream: string | undefined;
+  const activeTurns = new Map<string, number>();
+  let currentId = "";
   for (const event of events) {
-    const turn = event.metadata?.turn;
-    const stream = event.nativeSessionId;
-    if (groups.length === 0 || (turn !== undefined && (turn !== currentTurn || stream !== currentStream))) {
-      currentTurn = turn;
-      currentStream = stream;
-      groups.push({
-        id: turn === undefined ? `session-${event.id}` : `turn-${turn}-${event.id}`,
-        label: turn === undefined ? "Session events" : `Turn ${turn}${stream ? ` · ${stream}` : ""}`,
-        events: [],
-      });
+    const stream = event.nativeSessionId ?? "root";
+    const explicitTurn = event.metadata?.turn;
+    if (event.type === "turn/start" && explicitTurn !== undefined) activeTurns.set(stream, explicitTurn);
+    const turn = explicitTurn ?? activeTurns.get(stream);
+    const standalone = event.metadata?.standalone === true || (event.category === "compaction" && turn === undefined);
+    const childStream = event.category === "child" && stream !== undefined;
+    const id = turn !== undefined ? `turn:${stream}:${turn}`
+      : standalone ? "between-turns"
+        : childStream ? `child:${stream}`
+          : "session";
+    const label = turn !== undefined ? `Turn ${turn}${event.nativeSessionId ? ` · ${event.nativeSessionId}` : ""}`
+      : standalone ? "Between turns"
+        : childStream ? event.nativeSessionId ? `Child stream · ${event.nativeSessionId}` : "Child lifecycle"
+          : "Session events";
+    if (currentId !== id) {
+      currentId = id;
+      groups.push({ id: `${id}:${event.id}`, label, events: [] });
     }
     groups.at(-1)!.events.push(event);
+    if (event.type === "turn/end") activeTurns.delete(stream);
   }
   return groups;
 }

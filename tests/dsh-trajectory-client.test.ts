@@ -27,6 +27,26 @@ describe("DSH trajectory client derivation", () => {
     expect(groups[0].events.filter((item) => item.metadata?.callId === "call-1")).toHaveLength(2);
   });
 
+  it("keeps request metadata inside the active native turn", () => {
+    const grouped = groupDshTrajectory([
+      event({ id: "start", observationSeq: 1, category: "turn", type: "turn/start", nativeSessionId: "id:root", metadata: { turn: 1 } }),
+      event({ id: "request", observationSeq: 2, category: "request", type: "request/header", nativeSessionId: "id:root" }),
+      event({ id: "end", observationSeq: 3, category: "turn", type: "turn/end", nativeSessionId: "id:root", metadata: { turn: 1 } }),
+    ]);
+    expect(grouped).toHaveLength(1);
+    expect(grouped[0].events.map((item) => item.id)).toEqual(["start", "request", "end"]);
+  });
+
+  it("labels standalone compaction between turns", () => {
+    const grouped = groupDshTrajectory([
+      event({ id: "compact-start", observationSeq: 1, category: "compaction", type: "compaction/start", metadata: { standalone: true } }),
+      event({ id: "compact-summary", observationSeq: 2, category: "compaction", type: "compaction/summary" }),
+      event({ id: "compact-end", observationSeq: 3, category: "compaction", type: "compaction/end", metadata: { standalone: true } }),
+    ]);
+    expect(grouped).toHaveLength(1);
+    expect(grouped[0].label).toBe("Between turns");
+  });
+
   it("merges polling and pagination pages by stable event id", () => {
     expect(mergeDshTrajectoryEvents(events.slice(1), events.slice(0, 2)).map((item) => item.id)).toEqual(["1", "2", "3", "4"]);
   });
