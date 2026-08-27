@@ -69,22 +69,26 @@ export function mergeDshTrajectoryEvents(current: DshTrajectoryEvent[], incoming
   return [...byId.values()].sort((a, b) => a.observationSeq - b.observationSeq).slice(-5_000);
 }
 
-export interface DshTrajectoryTiming { durationMs?: number; firstTokenMs?: number }
+export interface DshTrajectoryTiming { durationMs?: number; firstTokenMs?: number; sincePreviousMs?: number }
 
 export function deriveDshTrajectoryTiming(events: DshTrajectoryEvent[]): Map<string, DshTrajectoryTiming> {
   const result = new Map<string, DshTrajectoryTiming>();
   const turns = new Map<string, number>();
   const steps = new Map<string, { started: number; firstToken?: number }>();
   const calls = new Map<string, number>();
+  let previousTime: number | undefined;
+  const update = (eventId: string, timing: DshTrajectoryTiming) => result.set(eventId, { ...result.get(eventId), ...timing });
   for (const event of events) {
     const time = Date.parse(event.nativeTime ?? event.observedAt);
     if (!Number.isFinite(time)) continue;
+    if (previousTime !== undefined && time >= previousTime) update(event.id, { sincePreviousMs: time - previousTime });
+    previousTime = time;
     const metadata = event.metadata;
     const turnKey = metadata?.turn === undefined ? undefined : `${event.nativeSessionId ?? "root"}:${metadata.turn}`;
     if (event.type === "turn/start" && turnKey) turns.set(turnKey, time);
     if (event.type === "turn/end" && metadata?.turn !== undefined) {
       const started = turnKey ? turns.get(turnKey) : undefined;
-      if (started !== undefined) result.set(event.id, { durationMs: Math.max(0, time - started) });
+      if (started !== undefined) update(event.id, { durationMs: Math.max(0, time - started) });
     }
     if (metadata?.turn !== undefined && metadata.step !== undefined) {
       const key = `${event.nativeSessionId ?? "root"}:${metadata.turn}:${metadata.step}`;
@@ -92,13 +96,13 @@ export function deriveDshTrajectoryTiming(events: DshTrajectoryEvent[]): Map<str
       const step = steps.get(key);
       if (event.type === "assistant/chunk" && step && step.firstToken === undefined && (metadata.reason === "text-delta" || metadata.reason === "reasoning-delta")) step.firstToken = time;
       if ((event.type === "assistant/message" || event.type === "step/end") && step) {
-        result.set(event.id, { durationMs: Math.max(0, time - step.started), ...(step.firstToken === undefined ? {} : { firstTokenMs: Math.max(0, step.firstToken - step.started) }) });
+        update(event.id, { durationMs: Math.max(0, time - step.started), ...(step.firstToken === undefined ? {} : { firstTokenMs: Math.max(0, step.firstToken - step.started) }) });
       }
     }
     if (event.type === "tool/call" && metadata?.callId) calls.set(`${event.nativeSessionId ?? "root"}:${metadata.callId}`, time);
     if (event.type === "tool/result" && metadata?.callId) {
       const started = calls.get(`${event.nativeSessionId ?? "root"}:${metadata.callId}`);
-      if (started !== undefined) result.set(event.id, { durationMs: Math.max(0, time - started) });
+      if (started !== undefined) update(event.id, { durationMs: Math.max(0, time - started) });
     }
   }
   return result;

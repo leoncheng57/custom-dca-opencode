@@ -115,15 +115,16 @@ function dshSummary(session: DshFixtureSession): DshSessionSummary {
 function dshTrajectory(sessionId: string): DshTrajectoryPage {
   const time = "2026-08-25T18:00:00.000Z";
   const nativeSessionId = "id:simulatorroot";
+  const at = (milliseconds: number) => new Date(Date.parse(time) + milliseconds).toISOString();
   const native = (nativeSeq: number, type: string, category: DshTrajectoryEvent["category"], title: string, metadata?: DshTrajectoryEvent["metadata"], extra: Partial<DshTrajectoryEvent> = {}): DshTrajectoryEvent => ({
     id: `${sessionId}:${nativeSeq}`,
     observationSeq: nativeSeq + 2,
     sessionId,
-    observedAt: time,
+    observedAt: at(nativeSeq * 1_250),
     type,
     nativeSessionId,
     nativeSeq,
-    nativeTime: time,
+    nativeTime: at(nativeSeq * 1_250),
     category,
     title,
     source: "dsh-native-notification",
@@ -146,8 +147,8 @@ function dshTrajectory(sessionId: string): DshTrajectoryPage {
     native(9, "compaction/summary", "compaction", "Compaction summary committed", { compactionId: "id:compactpreview", shadowedEventCount: 3, shadowedTokenCount: 90, usage: { inputTokens: 40, outputTokens: 8 } }),
     native(10, "user/message", "compaction", "Compaction surface replacement", { phase: "committed", compactionId: "id:compactpreview" }, { sourceEventSeqs: [8, 9, 3, 4, 5], surfaceOp: { op: "replace", start: 3, end: 5 } }),
     native(11, "compaction/end", "compaction", "Standalone compaction ended", { phase: "end", compactionId: "id:compactpreview", standalone: true }),
-    { id: `${sessionId}-child-start`, observationSeq: 14, sessionId, observedAt: time, type: "subagent.started", category: "child", title: "Child agent started", metadata: { parentSessionId: nativeSessionId, childSessionId: "id:simulatorchild" }, source: "dsh-native-notification", hasDetail: false, sensitive: true },
-    { id: `${sessionId}-child-finish`, observationSeq: 15, sessionId, observedAt: time, type: "subagent.finished", category: "child", title: "Child agent finished", metadata: { parentSessionId: nativeSessionId, childSessionId: "id:simulatorchild", reason: "completed" }, source: "dsh-native-notification", hasDetail: false, sensitive: true },
+    { id: `${sessionId}-child-start`, observationSeq: 14, sessionId, observedAt: at(15_000), type: "subagent.started", category: "child", title: "Child agent started", metadata: { parentSessionId: nativeSessionId, childSessionId: "id:simulatorchild" }, source: "dsh-native-notification", hasDetail: false, sensitive: true },
+    { id: `${sessionId}-child-finish`, observationSeq: 15, sessionId, observedAt: at(20_000), type: "subagent.finished", category: "child", title: "Child agent finished", metadata: { parentSessionId: nativeSessionId, childSessionId: "id:simulatorchild", reason: "completed" }, source: "dsh-native-notification", hasDetail: false, sensitive: true },
   ];
   return {
     events,

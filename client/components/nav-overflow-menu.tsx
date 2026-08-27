@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { BookOpen, FlaskConical, LibraryBig, ListTodo, MoreHorizontal, Settings, Smartphone, Wrench } from "lucide-react";
+import { BookOpen, LibraryBig, ListTodo, MoreHorizontal, Settings, Smartphone, Wrench } from "lucide-react";
 import { NavLink } from "react-router-dom";
 
 import { Button } from "../ds/button.js";
@@ -30,11 +30,9 @@ const LINKS = [
 export function NavOverflowMenu({
   scopedPath,
   onOpenPhoneTransfer,
-  dshEnabled = false,
 }: {
   scopedPath: (path: string) => string;
   onOpenPhoneTransfer: () => void;
-  dshEnabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -124,14 +122,6 @@ export function NavOverflowMenu({
                 </NavLink>
               </li>
             ))}
-            {dshEnabled && (
-              <li>
-                <NavLink className={({ isActive }) => cn(ITEM_CLASS, isActive && "bg-[var(--color-background-surface-neutral-muted)] font-semibold")} onClick={() => close(false)} to="/dsh" data-testid="dsh-nav">
-                  <FlaskConical aria-hidden="true" size={15} />
-                  DSH lab
-                </NavLink>
-              </li>
-            )}
             <li>
               <NavLink
                 className={({ isActive }) => cn(ITEM_CLASS, isActive && "bg-[var(--color-background-surface-neutral-muted)] font-semibold")}

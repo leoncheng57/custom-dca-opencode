@@ -303,6 +303,17 @@
   font-size: .56rem;
 }
 
+.timeLine {
+  display: inline-flex;
+  align-items: baseline;
+  gap: .38rem;
+}
+
+.delta {
+  color: var(--trajectory-kind);
+  font-weight: 750;
+}
+
 .expanded {
   margin: 0 .7rem .7rem .25rem;
   padding: .65rem .7rem;

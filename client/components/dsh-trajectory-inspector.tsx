@@ -35,6 +35,16 @@ function formatDuration(value: number): string {
   return value < 1_000 ? `${value} ms` : `${(value / 1_000).toFixed(value < 10_000 ? 2 : 1)} s`;
 }
 
+function formatElapsed(value: number): string {
+  if (value < 1_000) return `+${value}ms`;
+  const seconds = Math.floor(value / 1_000);
+  if (seconds < 60) return `+${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `+${minutes}m${seconds % 60 ? ` ${seconds % 60}s` : ""}`;
+  const hours = Math.floor(minutes / 60);
+  return `+${hours}h${minutes % 60 ? ` ${minutes % 60}m` : ""}`;
+}
+
 function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -90,6 +100,7 @@ function ExpandedMetadata({ event, timing }: { event: DshTrajectoryEvent; timing
       </DetailBlock>
       <DetailBlock label="Timing">
         <div>{new Date(event.nativeTime ?? event.observedAt).toLocaleTimeString()}</div>
+        {timing?.sincePreviousMs !== undefined && <div>Since previous event {formatElapsed(timing.sincePreviousMs)}</div>}
         {timing?.durationMs !== undefined && <div>Duration {formatDuration(timing.durationMs)}</div>}
         {timing?.firstTokenMs !== undefined && <div>First token {formatDuration(timing.firstTokenMs)}</div>}
       </DetailBlock>
@@ -109,7 +120,7 @@ function CompactMetrics({ event, timing }: { event: DshTrajectoryEvent; timing?:
   const surface = event.surfaceOp && event.surfaceOp !== "append" ? `Surface replace ${event.surfaceOp.start}-${event.surfaceOp.end}` : undefined;
   return (
     <span className={styles.compactMeta}>
-      <time className={styles.time} dateTime={event.nativeTime ?? event.observedAt}>{new Date(event.nativeTime ?? event.observedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time>
+      <span className={styles.timeLine}><time className={styles.time} dateTime={event.nativeTime ?? event.observedAt}>{new Date(event.nativeTime ?? event.observedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time>{timing?.sincePreviousMs !== undefined && <span className={styles.delta} title="Elapsed since previous captured event">{formatElapsed(timing.sincePreviousMs)}</span>}</span>
       {timing?.durationMs !== undefined && <span>{formatDuration(timing.durationMs)}</span>}
       {usage && <span>{usage.inputTokens} in · {usage.outputTokens} out</span>}
       {surface && <span>{surface}</span>}

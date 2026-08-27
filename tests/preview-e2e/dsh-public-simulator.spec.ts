@@ -4,9 +4,12 @@ test("runs the DSH fixture flow under the nested public preview path", async ({ 
   await page.goto("./");
   await expect(page.getByTestId("opencode-public-simulator-banner")).toContainText("fixture data only");
 
-  await page.getByTestId("opencode-nav-more").click();
   const dshNav = page.getByTestId("dsh-nav");
-  await expect(dshNav).toContainText("DSH lab");
+  await expect(dshNav).toContainText("DSH");
+  await expect(dshNav).toHaveRole("link");
+  await page.getByTestId("opencode-nav-more").click();
+  await expect(page.getByTestId("opencode-nav-more-menu").getByText("DSH lab", { exact: true })).toHaveCount(0);
+  await page.keyboard.press("Escape");
   await dshNav.click();
   await expect(page).toHaveURL(/\/custom-dca-opencode\/pr-previews\/pr-1\/#\/dsh$/u);
   await expect(page.getByTestId("dsh-home")).toBeVisible();
@@ -33,5 +36,6 @@ test("runs the DSH fixture flow under the nested public preview path", async ({ 
   await expect(page.getByText("Tool called", { exact: true })).toBeVisible();
   await expect(page.getByText("Compaction surface replacement", { exact: true })).toBeVisible();
   await expect(page.getByText("Child agent started", { exact: true })).toBeVisible();
+  await expect(page.getByText("+5s", { exact: true })).toBeVisible();
   await expect(page.getByText(/DCA-captured.*incomplete/u)).toBeVisible();
 });

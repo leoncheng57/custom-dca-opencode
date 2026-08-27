@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Moon, RefreshCw, Search, Sun } from "lucide-react";
+import { FlaskConical, Moon, RefreshCw, Search, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 
@@ -229,8 +229,20 @@ export function AppShell() {
           >
             {resolvedTheme === "dark" ? <Sun aria-hidden="true" size={16} /> : <Moon aria-hidden="true" size={16} />}
           </Button>
+          {dshEnabled && (
+            <NavLink
+              aria-label="DSH lab"
+              className={({ isActive }) => `inline-flex size-8 shrink-0 items-center justify-center gap-1.5 rounded-md text-xs font-semibold pointer-coarse:size-11 sm:w-auto sm:px-2 ${isActive ? "bg-[var(--color-background-surface-info-muted)] text-[var(--color-text-info)]" : "text-[var(--color-text-action-ghost)] hover:bg-[var(--color-background-action-ghost-hover)]"}`}
+              title="DSH lab"
+              to="/dsh"
+              data-testid="dsh-nav"
+            >
+              <FlaskConical aria-hidden="true" size={16} />
+              <span className="hidden sm:inline">DSH</span>
+            </NavLink>
+          )}
           <NotificationPopover scopedPath={scopedPath} />
-          <NavOverflowMenu scopedPath={scopedPath} dshEnabled={dshEnabled} onOpenPhoneTransfer={() => void openPhoneTransfer()} />
+          <NavOverflowMenu scopedPath={scopedPath} onOpenPhoneTransfer={() => void openPhoneTransfer()} />
         </nav>
         {PUBLIC_SIMULATOR && (
           <div

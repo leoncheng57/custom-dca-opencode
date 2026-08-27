@@ -54,6 +54,7 @@ describe("DSH trajectory client derivation", () => {
   it("derives turn and tool-pair timing from native timestamps", () => {
     const timed = events.map((item, index) => ({ ...item, nativeTime: new Date(1_700_000_000_000 + index * 25).toISOString() }));
     const timing = deriveDshTrajectoryTiming(timed);
+    expect(timing.get("2")?.sincePreviousMs).toBe(25);
     expect(timing.get("3")?.durationMs).toBe(25);
     expect(timing.get("4")?.durationMs).toBe(75);
   });
