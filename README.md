@@ -329,6 +329,49 @@ The BFF exists because: it holds the server credential, fans one upstream SSE st
 to many browser clients, threads `?directory=` per project, and runs the things the
 OpenCode API doesn't expose (git history, forge APIs, notification transport).
 
+### Experimental DeepSeek Harness workspace
+
+DSH can run beside OpenCode behind a separate `/dsh` UI and `/api/dsh/*` bridge. It is
+off by default and does not alter OpenCode sessions, events, permissions, or URLs. V1 is
+read-only: install one exact `deepseek-harness-sdk` version in a dedicated Python environment, provide an
+explicit read-only Cordis composition, and configure allowlisted presets and workspaces as
+shown in `.env.example`. The BFF verifies and exposes the canonical entry-composition
+file fingerprint for diagnostics; it never falls back to the SDK's writable default composition.
+On the supported macOS V1 target, the bridge and every DSH child process run under a
+Seatbelt profile that denies writes inside the selected workspace. The Cordis policy is
+still responsible for narrowing tools and non-workspace access; the OS rule is the
+independent workspace-write backstop.
+
+The DSH subprocess inherits only a small environment allowlist (`PATH`, basic locale/temp
+state, and the DeepSeek endpoint/key). GitHub, OpenCode, notification, and DCA credentials
+are not forwarded. DSH remains local behind the BFF; do not expose or reverse-proxy its
+native Web UI. The full dual-runtime decision and phased estimate are tracked in
+[issue #225](https://github.com/leoncheng57/custom-dca-opencode/issues/225).
+
+Each DSH conversation also has a mobile-first **DSH Trajectory** inspector. It renders
+the pinned `dsh-v0.1.1-rc.2` `session.event` vocabulary (turns, steps, request metadata,
+messages, tool pairs, compaction, child lineage, timing, usage, failures, and surface
+replacement) without embedding or proxying DSH Web. It keeps a bounded, explicitly
+incomplete **DCA-captured projection** from the moment the bridge observes an event.
+Every response states that it may contain gaps and is not canonical DSH persistence.
+
+That projection is capture-based because the Python SDK exposes no session
+list/read/replay — its whole request surface is `initialize`, `session/prompt` and
+`shutdown`. DSH *does* publish durable-history readers
+(`@deepseek-ai/dsh-session-persistence[-jsonl]`, including a `readFrom(id, fromSeq)`
+watermark primitive), and adopting them to make the trajectory complete is tracked
+separately. DCA never hand-parses DSH's native or compressed JSONL either way.
+
+Safe rows and safe export contain metadata-only projections; they never derive prompt,
+command, path, tool input/output, reasoning, or context text. Sensitive one-event detail
+is `POST`-only and disabled unless `DSH_TRAJECTORY_SENSITIVE_ENABLED=true`. Full captured
+detail export additionally requires `DSH_TRAJECTORY_FULL_EXPORT_ENABLED=true` and an
+in-UI confirmation. Captured detail is bounded and credential-shaped values are redacted
+before persistence. Projection directories use mode `0700`, files use `0600`, and age,
+event-count, file-count, per-file-byte, and global-byte limits apply. DCA still has no
+application-level authentication, so private Tailscale reachability remains a deployment
+requirement rather than a substitute for these content controls.
+
 See [`docs/architecture.md`](docs/architecture.md) for conversation and event flows, state
 ownership, safety boundaries, and the extension map. See
 [`docs/subagents.md`](docs/subagents.md) for child-session lifecycles, permissions, and safe

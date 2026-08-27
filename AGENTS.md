@@ -587,6 +587,49 @@ several decisions below.
     problem. No per-PR image is published to GHCR: BuildKit `type=gha` cache scoped
     by platform + schema (not commit SHA) keeps the `npm ci` and browser layers warm
     without a registry, a write token or fork restrictions.
+28. **DSH Trajectory is a bounded DCA-captured projection, not DSH persistence.**
+    The pinned contract is DeepSeek Harness `dsh-v0.1.1-rc.2` at `b150a551`:
+    `session.event` carries `type`, native `seq`, epoch-millisecond `time`, `data`, and
+    optional `ignorable`, `sourceEventSeqs`, and `surfaceOp`. The bridge captures events
+    only while it is running, deduplicates native seq, and assigns a separate DCA
+    observation sequence. List/export responses always report
+    `complete: false`, `mayContainGaps: true`, capture bounds, and observed native gaps.
+    **Why capture rather than replay, stated precisely, because the loose version of
+    this claim was wrong.** The *Python SDK* exposes no session list/read/replay: its
+    surface is `start_session`/`run`/`session_prompt`, `start_session(id)` constructs a
+    local object without replaying, and the entire client→server request map in
+    `packages/sdk/protocol/src/types.ts` is `initialize`, `session/prompt`, `shutdown`,
+    so even the generic `request()` escape hatch has nothing to call. But DSH *as a
+    whole* does expose durable history: `@deepseek-ai/dsh-session-persistence[-jsonl]`
+    are published on npm at the same `0.1.1-rc.2`, and `SessionPersistence` offers
+    `list`, `listSnapshots` (cheap change tokens), `inspect`, `readRaw` and
+    `readFrom(id, fromSeq)` — a documented watermark replay primitive for exactly this
+    kind of read model, verified working from plain Node. DCA does not use it **yet**,
+    and the reasons are cost and hazard, not absence: every published version is a
+    release candidate; the backend constructor unconditionally installs a write path and
+    needs a stub `sessions` service on a cordis `Context`; `koffi` is a native
+    transitive dependency; the operator's cordis file is sha256-pinned so persistence
+    must be *detected*, not mandated; and `load`/`prepare` sit beside the read methods
+    while performing cold recovery that **durably rewrites** the harness's own log, so a
+    read model must never call them. Until that lands DCA never parses native or
+    compressed DSH JSONL by hand — the vendor package is the only acceptable reader.
+    OpenCode Run Log remains a separate transcript-derived feature and is unchanged.
+    Safe trajectory rows are an event-type-specific metadata projection. They never
+    inspect arbitrary payload text and never derive prompt, system/context text,
+    commands, paths, tool arguments/results, reasoning, compaction summaries, or model
+    output. Raw captured detail is sanitized before persistence with depth/node/string/
+    array/object/byte caps and credential-shape redaction. A bridge stdout frame larger
+    than 1 MiB is rejected before `JSON.parse` and the bridge is terminated so the run
+    cannot continue across an invisible observation gap.
+    There is no app-level authentication yet; the deployment still depends on private
+    Tailscale reachability. Therefore sensitive one-event detail defaults off and requires
+    `DSH_TRAJECTORY_SENSITIVE_ENABLED=true`, an explicit UI reveal, and a `POST` response
+    marked `private, no-store, nosniff`. Full captured-detail export needs that flag plus
+    `DSH_TRAJECTORY_FULL_EXPORT_ENABLED=true` and a separate confirmation. Sensitive UI
+    state is cleared on drawer close, document backgrounding, and session change. No
+    trajectory payload enters notifications, analytics, URLs, browser storage, or the
+    service worker. Projection directories/files are forced to `0700`/`0600`, with age,
+    event-count, session-file-count, per-file-byte, and total-byte retention caps.
 
 ## Client conventions (inherited from the OpenHands runner, still enforced)
 

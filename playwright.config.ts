@@ -1,4 +1,6 @@
 import { defineConfig } from "@playwright/test";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 
 import { e2eStateFiles, prepareE2EStateFiles } from "./tests/e2e/state-files.js";
 
@@ -12,6 +14,8 @@ import { e2eStateFiles, prepareE2EStateFiles } from "./tests/e2e/state-files.js"
 const PORT = Number(process.env.PORT || 3410);
 const MOCK_PORT = Number(process.env.MOCK_OPENCODE_PORT || 4599);
 const PREVIEW_PORT = Number(process.env.MOCK_PREVIEW_PORT || 4600);
+const DSH_CORDIS = `${process.cwd()}/tests/fixtures/dsh-readonly.yml`;
+const DSH_CORDIS_SHA256 = createHash("sha256").update(readFileSync(DSH_CORDIS)).digest("hex");
 
 // The BFF persists notification preferences, notification history, project pins,
 // model pins and the instruction audit to JSON files named by the env vars
@@ -53,7 +57,10 @@ export const mockPreviewServer = {
 export const appServer = {
   // Test the built bundle, not the dev server — the predecessor had bugs
   // that only appeared after a production build.
-  command: "npm run build && node dist/server/index.js",
+  // NODE_ENV is scoped to the server process, NOT the whole command: putting it
+  // in `env` also hands it to `vite build`, which then produces a different
+  // client bundle and breaks unrelated UI specs.
+  command: "npm run build && NODE_ENV=test node dist/server/index.js",
   port: PORT,
   reuseExistingServer: !process.env.CI,
   timeout: 120_000,
@@ -66,12 +73,34 @@ export const appServer = {
     OPENCODE_WORKTREE_ROOT: "/tmp/custom-dca-opencode-e2e-worktrees",
     NOTIFICATION_PREFS_FILE: stateFiles.NOTIFICATION_PREFS_FILE,
     NOTIFICATION_HISTORY_FILE: stateFiles.NOTIFICATION_HISTORY_FILE,
-        INSTRUCTION_AUDIT_FILE: stateFiles.INSTRUCTION_AUDIT_FILE,
-        AUTO_APPROVE_STATE_FILE: stateFiles.AUTO_APPROVE_STATE_FILE,
+    INSTRUCTION_AUDIT_FILE: stateFiles.INSTRUCTION_AUDIT_FILE,
+    AUTO_APPROVE_STATE_FILE: stateFiles.AUTO_APPROVE_STATE_FILE,
     PREVIEW_ALLOWED_PORTS: String(PREVIEW_PORT),
     PUBLIC_APP_URL: "https://ide.e2e.example.test:8443",
     GITHUB_API_URL: `http://127.0.0.1:${PREVIEW_PORT}`,
     GITHUB_TOKEN: "e2e-planning-token",
+    DSH_EXPERIMENT_ENABLED: "true",
+    // The unsafe bridge is refused unless the process declares itself a test;
+    // NODE_ENV is set on the server command above, never on the build.
+    DSH_TEST_UNSAFE_BRIDGE: "true",
+    DSH_SDK_VERSION: "0.1.1rc2",
+    DSH_STATE_DIR: `/tmp/custom-dca-opencode-dsh-state-${PORT}`,
+    DSH_BRIDGE_SCRIPT: `${process.cwd()}/tests/e2e/mock-dsh-bridge.py`,
+    DSH_PRESETS_JSON: JSON.stringify([{
+      id: "e2e-readonly",
+      label: "E2E read-only",
+      provider: "fixture",
+      model: "mock-dsh",
+      mode: "read-only",
+      cordis: DSH_CORDIS,
+      sha256: DSH_CORDIS_SHA256,
+    }]),
+    DSH_WORKSPACES_JSON: JSON.stringify([{
+      id: "dsh-e2e-workspace",
+      label: "DSH E2E workspace",
+      directory: process.cwd(),
+    }]),
+    DSH_EXPERIMENT_LEDGER: `/tmp/custom-dca-opencode-dsh-ledger-${PORT}.json`,
   },
 };
 

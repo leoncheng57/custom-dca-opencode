@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Moon, RefreshCw, Search, Sun } from "lucide-react";
+import { FlaskConical, Moon, RefreshCw, Search, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 
@@ -34,6 +34,8 @@ function documentTitle(pathname: string): string {
   if (pathname === "/docs") return `Docs | ${APP_NAME}`;
   if (pathname.startsWith("/docs/")) return `${getDoc(pathname.slice("/docs/".length))?.title ?? "Document"} | ${APP_NAME}`;
   if (pathname === "/planning") return `Planning | ${APP_NAME}`;
+  if (pathname === "/dsh") return `DSH Lab | ${APP_NAME}`;
+  if (pathname.startsWith("/dsh/sessions/")) return `DSH Session | ${APP_NAME}`;
   if (pathname === "/playbooks") return `Playbooks | ${APP_NAME}`;
   if (pathname === "/playbooks/skills") return `Skills | Playbooks | ${APP_NAME}`;
   if (pathname.startsWith("/playbooks/skills/")) return `Skill | Playbooks | ${APP_NAME}`;
@@ -54,6 +56,7 @@ export function AppShell() {
   const [paletteSessions, setPaletteSessions] = useState<SessionSummary[]>([]);
   const [paletteStatus, setPaletteStatus] = useState<string | undefined>();
   const [refreshing, setRefreshing] = useState(false);
+  const [dshEnabled, setDshEnabled] = useState(false);
   const paletteRequest = useRef(0);
 
   useEffect(() => {
@@ -63,6 +66,10 @@ export function AppShell() {
   const directory = resolvePaletteDirectory(location.search, localStorage.getItem(DIRECTORY_STORAGE_KEY));
   const scopedPath = (path: string) =>
     directory ? `${path}?${new URLSearchParams({ directory })}` : path;
+
+  useEffect(() => {
+    void api.appConfig().then((config) => setDshEnabled(config.dshEnabled)).catch(() => undefined);
+  }, []);
 
   const openPhoneTransfer = async () => {
     let configuredUrl: string | null = null;
@@ -138,6 +145,7 @@ export function AppShell() {
       },
       { id: "settings", title: "Settings", to: scopedPath("/settings") },
       { id: "planning", title: "Planning", to: "/planning", keywords: ["issues", "pull requests", "roadmap", "github"] },
+      ...(dshEnabled ? [{ id: "dsh", title: "DSH lab", to: "/dsh", keywords: ["deepseek", "harness", "experiment"] }] : []),
       { id: "playbooks", title: "Playbooks", to: "/playbooks", keywords: ["skills", "commands", "workflows", "procedures"] },
     ],
     actions: [
@@ -221,6 +229,18 @@ export function AppShell() {
           >
             {resolvedTheme === "dark" ? <Sun aria-hidden="true" size={16} /> : <Moon aria-hidden="true" size={16} />}
           </Button>
+          {dshEnabled && (
+            <NavLink
+              aria-label="DSH lab"
+              className={({ isActive }) => `inline-flex size-8 shrink-0 items-center justify-center gap-1.5 rounded-md text-xs font-semibold pointer-coarse:size-11 sm:w-auto sm:px-2 ${isActive ? "bg-[var(--color-background-surface-info-muted)] text-[var(--color-text-info)]" : "text-[var(--color-text-action-ghost)] hover:bg-[var(--color-background-action-ghost-hover)]"}`}
+              title="DSH lab"
+              to="/dsh"
+              data-testid="dsh-nav"
+            >
+              <FlaskConical aria-hidden="true" size={16} />
+              <span className="hidden sm:inline">DSH</span>
+            </NavLink>
+          )}
           <NotificationPopover scopedPath={scopedPath} />
           <NavOverflowMenu scopedPath={scopedPath} onOpenPhoneTransfer={() => void openPhoneTransfer()} />
         </nav>
