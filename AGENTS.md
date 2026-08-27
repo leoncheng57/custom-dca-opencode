@@ -705,6 +705,14 @@ several decisions below.
 - `mermaid` is the lazy-loaded diagram parser and layout engine for repository-owned
   in-app docs only. It runs with Mermaid strict security, then its generated SVG is
   stripped of links, executable DOM, embedded resources and unsafe CSS before mounting.
+- `playwright-core@1.62.1` (exact) is the live session browser's CDP client
+  (issue #229): one server-side persistent Chromium context, one page per
+  conversation session, streamed to the drawer as MJPEG. It is loaded only when
+  `LIVE_BROWSER_ENABLED=true` and reuses the browser install the E2E suite
+  already manages; hand-rolling a CDP transport is precisely the thing not to
+  do. All navigation and subresources pass `server/browser/policy.ts`, which
+  blocks loopback/private/link-local ranges, `file://` and downloads — without
+  it the panel could reach the unauthenticated OpenCode server on 127.0.0.1.
 - `qrcode-generator@2.0.4` is the sole QR runtime dependency: it creates the
   phone-transfer matrix entirely in the browser, avoiding URL disclosure to an
   external image service. The app reads its matrix API and renders a React SVG
