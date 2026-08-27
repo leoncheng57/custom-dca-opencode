@@ -144,7 +144,7 @@ export function DshConversationPage() {
         <Link to="/dsh" className="text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text-default)]" data-testid="dsh-back">DSH lab</Link>
         <span aria-hidden="true">/</span>
         <strong className="min-w-0 truncate text-sm">{session?.title ?? "Conversation"}</strong>
-        <Badge variant="neutral">Read only</Badge>
+        <Badge variant="neutral">{session?.mode === "build" ? "Build · may edit files" : "Read only"}</Badge>
         <Badge variant="neutral">{session?.presetId ?? "Loading"}</Badge>
         <div className="ml-auto flex gap-1">
           <Button size="sm" variant="secondary" onClick={() => setTrajectoryOpen(true)} data-testid="dsh-open-trajectory"><ListTree aria-hidden="true" className="mr-1" size={14} /> Trajectory</Button>

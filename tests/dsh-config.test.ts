@@ -29,7 +29,7 @@ describe("DSH experiment configuration", () => {
     expect(config.presets).toEqual([]);
   });
 
-  it("requires explicit existing read-only composition and workspace allowlists", async () => {
+  it("requires explicit existing composition and workspace allowlists", async () => {
     const item = await fixture();
     const config = readDshConfig({
       DSH_EXPERIMENT_ENABLED: "true",
@@ -51,6 +51,32 @@ describe("DSH experiment configuration", () => {
     expect(config.workspaces[0].directory).toMatch(/workspace$/);
     expect(config.trajectorySensitiveEnabled).toBe(true);
     expect(config.trajectoryFullExportEnabled).toBe(true);
+  });
+
+  it("accepts an explicit Build preset and rejects unknown privilege modes", async () => {
+    const item = await fixture();
+    const base = {
+      DSH_EXPERIMENT_ENABLED: "true",
+      NODE_ENV: "test",
+      DSH_TEST_UNSAFE_BRIDGE: "true",
+      DSH_SDK_VERSION: "0.1.1rc2",
+      DSH_STATE_DIR: path.join(item.root, "state"),
+      DSH_BRIDGE_SCRIPT: item.bridge,
+      DSH_WORKSPACES_JSON: JSON.stringify([{ id: "fixture", label: "Fixture", directory: item.workspace }]),
+    };
+    const build = readDshConfig({
+      ...base,
+      DSH_PRESETS_JSON: JSON.stringify([{ id: "build", label: "Build", provider: "openai", model: "gpt", mode: "build", cordis: item.cordis, sha256: item.sha256 }]),
+    });
+    expect(build.configured).toBe(true);
+    expect(build.presets[0]).toMatchObject({ id: "build", mode: "build" });
+
+    const invalid = readDshConfig({
+      ...base,
+      DSH_PRESETS_JSON: JSON.stringify([{ id: "unsafe", label: "Unsafe", provider: "openai", model: "gpt", mode: "danger-full-access", cordis: item.cordis, sha256: item.sha256 }]),
+    });
+    expect(invalid.configured).toBe(false);
+    expect(invalid.errors.join(" ")).toContain("mode=read-only|build");
   });
 
   it("keeps sensitive capture and full export disabled unless each flag is explicit", async () => {

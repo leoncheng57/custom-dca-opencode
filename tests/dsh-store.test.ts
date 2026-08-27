@@ -14,7 +14,7 @@ describe("DSH session store", () => {
     temporary.push(root);
     const store = new DshSessionStore(path.join(root, "ledger.json"));
     await store.load();
-    const session = store.create({ presetId: "flash", presetFingerprint: "a".repeat(64), workspaceId: "fixture" });
+    const session = store.create({ presetId: "flash", presetFingerprint: "a".repeat(64), workspaceId: "fixture", mode: "read-only" });
     store.startRun(session, "Inspect the repository");
     store.applyBridge({
       type: "notification", sessionId: session.id,
@@ -37,7 +37,7 @@ describe("DSH session store", () => {
     const ledger = path.join(root, "ledger.json");
     const store = new DshSessionStore(ledger);
     await store.load();
-    const session = store.create({ presetId: "flash", presetFingerprint: "a".repeat(64), workspaceId: "fixture" });
+    const session = store.create({ presetId: "flash", presetFingerprint: "a".repeat(64), workspaceId: "fixture", mode: "read-only" });
     store.startRun(session, "SECRET PROMPT CONTENT");
     store.applyBridge({ type: "finished", sessionId: session.id, finalResponse: "SECRET MODEL OUTPUT", finishReason: "completed" });
     await store.flush();
@@ -54,7 +54,7 @@ describe("DSH session store", () => {
     temporary.push(root);
     const store = new DshSessionStore(path.join(root, "ledger.json"));
     await store.load();
-    const session = store.create({ presetId: "flash", presetFingerprint: "a".repeat(64), workspaceId: "fixture" });
+    const session = store.create({ presetId: "flash", presetFingerprint: "a".repeat(64), workspaceId: "fixture", mode: "read-only" });
     store.startRun(session, "Inspect");
     store.failRunning("flash", "fixture");
     expect(session.running).toBe(false);

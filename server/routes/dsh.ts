@@ -24,7 +24,7 @@ function privateTrajectory(res: Response): void {
 function publicSession(session: ReturnType<DshSessionStore["create"]>) {
   return {
     id: session.id, title: session.title, presetId: session.presetId, workspaceId: session.workspaceId,
-    createdAt: session.createdAt, updatedAt: session.updatedAt, running: session.running,
+    mode: session.mode, createdAt: session.createdAt, updatedAt: session.updatedAt, running: session.running,
   };
 }
 
@@ -126,14 +126,13 @@ export function dshRoutes(
       enabled: true,
       configured: config.configured,
       protocol: 1,
-      readOnly: true,
       sdkVersion: config.sdkVersion,
       sandbox: config.sandbox,
       trajectory: {
         sensitiveDetailEnabled: config.trajectorySensitiveEnabled,
         fullExportEnabled: config.trajectoryFullExportEnabled,
       },
-      presets: config.presets.map(({ id, label, provider, model, fingerprint }) => ({ id, label, provider, model, fingerprint })),
+      presets: config.presets.map(({ id, label, provider, model, fingerprint, mode }) => ({ id, label, provider, model, fingerprint, mode })),
       workspaces: config.workspaces.map(({ id, label }) => ({ id, label })),
     });
   });
@@ -152,11 +151,18 @@ export function dshRoutes(
       if (!await verifyWorkspaceIdentity(selectedWorkspace)) {
         return error(res, 409, "allowlisted DSH workspace identity changed");
       }
-      const session = store.create({ presetId: selectedPreset.id, presetFingerprint: selectedPreset.fingerprint, workspaceId: selectedWorkspace.id, title: req.body?.title });
+      const session = store.create({
+        presetId: selectedPreset.id,
+        presetFingerprint: selectedPreset.fingerprint,
+        workspaceId: selectedWorkspace.id,
+        mode: selectedPreset.mode,
+        title: req.body?.title,
+      });
       captureLifecycle(session.id, "dca/session-created", {
         presetId: selectedPreset.id,
         presetFingerprint: selectedPreset.fingerprint,
         workspaceId: selectedWorkspace.id,
+        mode: selectedPreset.mode,
       });
       res.status(201).json({ session: publicSession(session) });
     } catch {
@@ -181,6 +187,9 @@ export function dshRoutes(
     const selectedPreset = preset(session.presetId);
     const selectedWorkspace = workspace(session.workspaceId);
     if (!selectedPreset || !selectedWorkspace) return error(res, 409, "DSH session configuration is no longer allowlisted");
+    if (selectedPreset.fingerprint !== session.presetFingerprint || selectedPreset.mode !== session.mode) {
+      return error(res, 409, "DSH session preset policy changed after creation");
+    }
     try {
       if (!await verifyWorkspaceIdentity(selectedWorkspace)) {
         pool.closeWorkspace(selectedPreset.id, selectedWorkspace.id);
