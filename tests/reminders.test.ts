@@ -104,9 +104,7 @@ describe("shipped catalogue", () => {
     "grill-me",
     "human-verification-steps",
     "parallel-research-handoff",
-    "red-team-this",
     "session-handoff",
-    "worktree-up",
   ]);
   const dir = path.join(import.meta.dirname, "..", "reminders");
   const ids = readdirSync(dir, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name);
@@ -166,12 +164,12 @@ describe("shipped catalogue", () => {
 });
 
 describe("reminderTag / withReminderTag", () => {
-  const reminder = preset("no-force-push", "Do not force-push.");
+  const reminder = preset("sample", "Do not force-push.");
 
   it("wraps and appends the server-resolved body", () => {
-    expect(reminderTag(reminder)).toBe('<reminder name="no-force-push">\nDo not force-push.\n</reminder>');
+    expect(reminderTag(reminder)).toBe('<reminder name="sample">\nDo not force-push.\n</reminder>');
     expect(withReminderTag("now push it", reminder)).toBe(
-      'now push it\n\n<reminder name="no-force-push">\nDo not force-push.\n</reminder>',
+      'now push it\n\n<reminder name="sample">\nDo not force-push.\n</reminder>',
     );
   });
 });
