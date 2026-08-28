@@ -1,6 +1,6 @@
 ---
 name: cite-file-lines
-description: Cite code with an exact repository-relative file path and line number so a reader can open the evidence directly. Covers choosing stable, load-bearing references, distinguishing verified facts from inference, and avoiding guessed locations. Use when explaining a codebase, reviewing a change, reporting a diagnosis, or giving implementation guidance that names specific code.
+description: Cite code with an exact repository-relative file path and line number so a reader can open the evidence directly. Covers choosing stable, load-bearing references, distinguishing verified facts from inference, and avoiding guessed locations. Use when explaining a codebase, reviewing a change, or reporting a diagnosis, or when the user says "cite the lines", "point me to the exact code", or "where exactly is that in the codebase".
 metadata:
   tags: verification
 ---
@@ -56,6 +56,10 @@ the claim remains unverified.
 | A link will drift during review | It names a moving branch | Pin external code-review links to the reviewed commit SHA |
 
 ## Worked example
+
+`SIMULATION.md` in this directory has a short transcript of this skill firing:
+a request to cite the lines behind a behavior, answered with a verified
+`path:line` reference instead of a paraphrase.
 
 Instead of writing “the API rejects unknown reminder IDs,” write: “The route
 validates the requested ID against the server-owned catalogue before resolving

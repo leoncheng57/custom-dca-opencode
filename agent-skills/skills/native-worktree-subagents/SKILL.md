@@ -1,6 +1,6 @@
 ---
 name: native-worktree-subagents
-description: Run mutating OpenCode Task children in isolated sibling Git worktrees while preserving native parent-child lineage and hand-back. Covers Plan deny inheritance, worktree containment, absolute-path prompts, preflight guards, disjoint ownership, and reviewing child results before merge. Use when delegating implementation to OpenCode Task subagents that must edit a separate branch safely.
+description: Run mutating OpenCode Task children in isolated sibling Git worktrees while preserving native parent-child lineage and hand-back. Covers Plan deny inheritance, worktree containment, absolute-path prompts, preflight guards, disjoint ownership, and reviewing child results before merge. Use when the user says "give the child its own worktree", "run this as a Task subagent in a separate branch", or "delegate this safely to a Task child".
 metadata:
   tags: worktrees, subagents
 ---
@@ -66,6 +66,11 @@ verification result before presenting or merging its PR.
 | Parent repeats child work | Background launch was treated as completion | Wait for the native hand-back and review the child output |
 
 ## Worked example
+
+`SIMULATION.md` in this directory has a short transcript of this skill firing:
+a request to isolate a Task child in its own worktree, answered with the
+preflight check, the assigned worktree and branch, and the ownership boundary
+stated in the launch prompt.
 
 For a child that updates only a component, assign one absolute worktree, name
 the component and tests it owns, prohibit lockfile changes, require its guard

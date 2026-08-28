@@ -999,12 +999,16 @@ test.describe("composer", () => {
     await expect(page.getByTestId("composer-reminder-icon")).toHaveCount(12);
     const humanVerification = page.locator('[data-testid="composer-reminder-option"][data-reminder-id="human-verification-steps"]');
     await expect(humanVerification).toHaveAccessibleName("Attach Write Human Verification Steps");
-    const details = page.locator('[data-testid="composer-reminder-details"]').filter({ hasText: "Write Human Verification Steps" });
+    const details = page.locator('[data-testid="composer-reminder-details"][data-reminder-id="human-verification-steps"]');
     await expect(details).toHaveAttribute("href", "/playbooks/skills/human-verification-steps");
     await expect(details).toHaveAttribute("target", "_blank");
+    await expect(details).toHaveAccessibleName("Open Write Human Verification Steps details in a new tab");
+    const detailsBox = await details.boundingBox();
+    expect(detailsBox?.width, "the details link stays a small touch target, not the whole row").toBeLessThanOrEqual(28);
+    expect(detailsBox?.height).toBeLessThanOrEqual(28);
     await page.getByTestId("composer-reminder-search").fill("Grill");
     await expect(page.getByTestId("composer-reminder-option")).toHaveCount(1);
-    await expect(page.getByTestId("composer-reminder-details")).toContainText("Grill the Design");
+    await expect(page.getByTestId("composer-reminder-title")).toContainText("Grill the Design");
     await page.getByTestId("composer-reminder-search").press("ArrowDown");
     await page.getByTestId("composer-reminder-search").press("Enter");
     await expect(picker).toHaveAttribute("value", "grill-me");
@@ -1103,7 +1107,7 @@ test.describe("mobile", () => {
     const panel = page.getByTestId("composer-reminder-panel");
     await expect(panel).toBeVisible();
     await expect(page.getByTestId("composer-reminder-option").first()).toHaveAccessibleName("Attach Grill the Design");
-    await expect(page.getByTestId("composer-reminder-details").first()).toContainText("Grill the Design");
+    await expect(page.getByTestId("composer-reminder-title").first()).toContainText("Grill the Design");
     const firstGrid = page.getByTestId("composer-reminder-group").first().locator("div.grid");
     expect(await firstGrid.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length)).toBe(2);
     const firstTile = page.getByTestId("composer-reminder-tile").first();

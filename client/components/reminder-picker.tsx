@@ -177,7 +177,7 @@ export function ReminderPicker({
                 const optionIndex = visible.indexOf(reminder) + 1;
                 const isActive = active === optionIndex;
                 const isSelected = value === reminder.id;
-                return <div key={reminder.id} className={`relative flex min-h-14 min-w-0 overflow-hidden rounded-lg border ${isActive ? "border-[var(--color-border-focus)] bg-[var(--color-background-surface-neutral-muted)]" : "border-[var(--color-border-default)] hover:bg-[var(--hh-row-hover)]"}`} data-testid="composer-reminder-tile">
+                return <div key={reminder.id} className={`relative flex min-h-14 min-w-0 overflow-hidden rounded-lg border ${isActive ? "border-[var(--color-border-focus)] bg-[var(--color-background-surface-neutral-muted)]" : "border-[var(--color-border-default)] hover:bg-[var(--hh-row-hover)]"}`} data-testid="composer-reminder-tile" data-reminder-id={reminder.id}>
                   <button
                 type="button"
                 id={`composer-reminder-option-${reminder.id}`}
@@ -194,10 +194,20 @@ export function ReminderPicker({
               >
                 <ReminderIcon reminder={reminder} />
                   </button>
-                  <Link to={`/playbooks/skills/${reminder.id}`} target="_blank" rel="noreferrer" className="flex min-w-0 flex-1 items-center gap-1 px-2 text-left text-xs font-medium leading-4 text-[var(--color-text-link)] hover:underline" data-testid="composer-reminder-details" aria-label={`Open ${reminder.title} details in a new tab`}>
-                    <span className="line-clamp-2">{reminder.title}</span>
-                    <ExternalLink aria-hidden="true" className="h-3 w-3 shrink-0" />
-                  </Link>
+                  <div className="flex min-w-0 flex-1 items-center gap-1 px-2">
+                    <span className="line-clamp-2 min-w-0 flex-1 text-left text-xs font-medium leading-4 text-[var(--color-text-default)]" data-testid="composer-reminder-title">{reminder.title}</span>
+                    <Link
+                      to={`/playbooks/skills/${reminder.id}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-[var(--color-text-link)] hover:bg-[var(--hh-row-hover)]"
+                      data-testid="composer-reminder-details"
+                      data-reminder-id={reminder.id}
+                      aria-label={`Open ${reminder.title} details in a new tab`}
+                    >
+                      <ExternalLink aria-hidden="true" className="h-3 w-3" />
+                    </Link>
+                  </div>
                 {isSelected && <Check aria-hidden="true" className="pointer-events-none absolute right-1 top-1 h-3.5 w-3.5 text-[var(--color-text-info)]" />}
                 </div>;
               })}
