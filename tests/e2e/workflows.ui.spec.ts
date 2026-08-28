@@ -11,12 +11,16 @@ const MAIN = "ses_mock_workflow_main";
 const TARGET = "ses_mock_workflow_target";
 const mainSession = `/sessions/${MAIN}?directory=${encodeURIComponent(DIR)}`;
 
-async function promptPayloadContaining(fragment: string): Promise<Record<string, unknown> | undefined> {
+async function promptPayloadsContaining(fragment: string): Promise<Array<Record<string, unknown>>> {
   const payloads = await (await fetch(`${MOCK_URL}/test/prompt-payloads`)).json() as Array<Record<string, unknown>>;
-  return payloads.find((item) => {
+  return payloads.filter((item) => {
     const parts = item.parts as Array<{ type?: string; text?: string }> | undefined;
-    return parts?.some((part) => part.type === "text" && part.text?.includes(fragment));
+    return parts?.some((part) => part.type === "text" && part.text?.includes(fragment)) ?? false;
   });
+}
+
+async function promptPayloadContaining(fragment: string): Promise<Record<string, unknown> | undefined> {
+  return (await promptPayloadsContaining(fragment))[0];
 }
 
 async function expectPromptPayloadContaining(fragment: string): Promise<Record<string, unknown>> {
@@ -39,6 +43,7 @@ test.describe("workflow catalogue API", () => {
       "pr-snippet-review",
       "session-update",
       "managed-child",
+      "design-doc-prototype",
     ]);
     for (const workflow of payload.workflows) {
       expect(Object.keys(workflow).sort()).toEqual(["description", "id", "injector", "title"]);
@@ -85,14 +90,15 @@ test.describe("workflow picker UI", () => {
 
     // The chooser offers exactly the initial catalogue, in order.
     const options = page.getByTestId("composer-workflow-option");
-    await expect(options).toHaveCount(4);
-    await expect(page.getByTestId("composer-workflow-group")).toHaveCount(2);
+    await expect(options).toHaveCount(5);
+    await expect(page.getByTestId("composer-workflow-group")).toHaveCount(3);
     await expect(page.getByTestId("composer-workflow-group").nth(0)).toHaveAccessibleName("Review");
-    await expect(page.getByTestId("composer-workflow-icon")).toHaveCount(4);
+    await expect(page.getByTestId("composer-workflow-icon")).toHaveCount(5);
     await expect(options.nth(0)).toContainText("Review a UI change with Playwright");
     await expect(options.nth(1)).toContainText("Post a snippet-by-snippet PR review");
     await expect(options.nth(2)).toContainText("Send an update to another session");
     await expect(options.nth(3)).toContainText("Launch a Managed Child");
+    await expect(options.nth(4)).toContainText("Capture a Durable Design Prototype");
 
     // Choosing a workflow opens its form — it never sends.
     await page.locator('[data-testid="composer-workflow-option"][data-workflow-id="playwright-ui-review"]').click();
@@ -136,6 +142,49 @@ test.describe("workflow picker UI", () => {
     expect(text).toContain("Review a UI change with Playwright.");
     expect(text).toContain('<workflow name="playwright-ui-review">');
     expect(text).toContain("Never regenerate the complete screenshot set.");
+  });
+
+  test("design prototype: no fields, fixed prompt, sends into this session", async ({ page }) => {
+    // The prompt is a fixed constant rather than a marker-bearing draft, so
+    // this counts matching payloads instead of asserting absence — a retry of
+    // this very test would otherwise trip over its own earlier send.
+    const FIXED = "Capture a durable design prototype for this proposal and publish it for review.";
+    const before = (await promptPayloadsContaining(FIXED)).length;
+
+    await page.goto(mainSession);
+    await page.getByTestId("composer-workflow-select").click();
+    await page.locator('[data-testid="composer-workflow-option"][data-workflow-id="design-doc-prototype"]').click();
+    const dialog = page.getByTestId("composer-workflow-dialog");
+    await expect(dialog).toHaveAttribute("data-workflow", "design-doc-prototype");
+
+    // Zero-field path: nothing to fill in, so confirm is live immediately.
+    await expect(dialog.locator('[data-testid^="composer-workflow-field-"]')).toHaveCount(0);
+    await expect(dialog.getByTestId("composer-workflow-no-fields")).toContainText("No input needed");
+    await expect(dialog.getByTestId("composer-workflow-preview")).toBeEnabled();
+    await dialog.getByTestId("composer-workflow-preview").click();
+
+    // The preview still shows the exact prompt and the trusted procedure.
+    await expect(dialog.getByTestId("composer-workflow-prompt-preview")).toHaveText(FIXED);
+    const injector = dialog.getByTestId("composer-workflow-injector");
+    await expect(injector).toContainText('server-resolved from id "design-doc-prototype"');
+    await expect(injector).toContainText("ntn CLI");
+    await expect(injector).toContainText("NOT yet built");
+    expect((await promptPayloadsContaining(FIXED)).length).toBe(before);
+
+    // Both non-destructive exits are offered; Send is the one taken here.
+    await expect(dialog.getByTestId("composer-workflow-apply")).toBeVisible();
+    await dialog.getByTestId("composer-workflow-send").click();
+    await expect(dialog).toHaveCount(0);
+
+    await expect.poll(async () => (await promptPayloadsContaining(FIXED)).length).toBeGreaterThan(before);
+    const payload = (await promptPayloadsContaining(FIXED)).at(-1)!;
+    // Sent into THIS session, like the review workflows: there is no target
+    // session and no child to create.
+    expect(payload.sessionID).toBe(MAIN);
+    const text = promptText(payload);
+    expect(text).toContain(FIXED);
+    expect(text).toContain('<workflow name="design-doc-prototype">');
+    expect(text).toContain("ntn CLI");
   });
 
   test("session update: target preview, explicit send, accepted is not completed", async ({ page }) => {

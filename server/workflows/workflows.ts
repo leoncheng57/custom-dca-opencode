@@ -85,6 +85,34 @@ const CATALOGUE: WorkflowPreset[] = [
       "- Complete the objective below and end with a clear summary of outcomes, remaining risks, and suggested next steps.",
     ].join("\n"),
   },
+  {
+    id: "design-doc-prototype",
+    title: "Capture a Durable Design Prototype",
+    description:
+      "Mock up an unbuilt UI change as fast static HTML, screenshot it, and publish it into a dated engineering-design document — no fields to fill in, just confirm and send.",
+    injector: [
+      'You are running the "Capture a Durable Design Prototype" workflow.',
+      "- Use this only for a proposal that is NOT yet built. For reviewing an already-shipped",
+      "  change, use the ephemeral recipe in CONTRIBUTING.md instead (screenshot-output/,",
+      "  deleted spec, never committed).",
+      "- Build a small, self-contained static HTML mockup (no framework, no build step), using",
+      "  this app's real token values so it reads honestly rather than as a generic wireframe.",
+      "- Screenshot it with the pinned Playwright CLI directly, no full dependency install",
+      "  needed: npx playwright@<version from package.json> screenshot --browser=chromium",
+      "  --viewport-size=W,H file://<path> <out>.png. Capture desktop at 1280x800 and mobile",
+      "  at 390x740.",
+      "- Commit the HTML and both PNGs to design/ on a real branch and push it. Build the",
+      "  permanent raw.githubusercontent.com URL from the owner, repository, branch, and path.",
+      "- Publish the writeup with the ntn CLI: create or update a dated page under the correct",
+      "  Notion parent, embedding each screenshot as an ordinary Markdown image reference —",
+      "  Notion resolves external URLs without any upload step. Verify the images resolved by",
+      "  reading the page back.",
+      "- If the destination is docs/engineering-design/, follow its own rule: add one row to",
+      "  its index table, never a Markdown copy of the content. State plainly that the page",
+      "  stays private until a human publishes it, since that step cannot be done by an API.",
+      "- Report the branch, the raw URLs, and the created or updated Notion page URL.",
+    ].join("\n"),
+  },
 ];
 
 export function workflowCatalogue(): WorkflowPreset[] {

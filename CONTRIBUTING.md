@@ -215,6 +215,11 @@ troubleshooting details.
 
 ### Capture transient UI state locally
 
+For a proposal that isn't built yet, use the composer's **"Capture a Durable Design
+Prototype"** workflow instead: it publishes a durable, externally-linkable prototype
+(committed to `design/`, embedded in a Notion page) rather than the ephemeral, gitignored
+capture below.
+
 Prefer the route-based `screenshots` block above. Reach for a temporary Playwright spec
 only when the state worth reviewing exists solely after an interaction, such as an open
 workspace drawer, a selected file, or an expanded menu. The workflow accepts a fixed list

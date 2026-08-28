@@ -15,6 +15,8 @@ import type { AgentMode } from "../lib/agentMode.js";
 import { catalogueDefault, type ModelCatalogue, type ModelSelection } from "../lib/models.js";
 import {
   buildPlaywrightReviewPrompt,
+  DESIGN_DOC_PROTOTYPE_PROMPT,
+  DESIGN_DOC_PROTOTYPE_WORKFLOW_ID,
   MANAGED_CHILD_WORKFLOW_ID,
   PLAYWRIGHT_CAPTURE_SCOPES,
   PLAYWRIGHT_REVIEW_WORKFLOW_ID,
@@ -166,6 +168,8 @@ export function WorkflowDialog({
       ? (route.trim() && target.trim() ? buildPlaywrightReviewPrompt({ route, target, scope }) : "")
       : workflow.id === PR_SNIPPET_REVIEW_WORKFLOW_ID
         ? (pullRequestNumber === null ? "" : buildPrSnippetReviewPrompt(pullRequestNumber))
+      : workflow.id === DESIGN_DOC_PROTOTYPE_WORKFLOW_ID
+        ? DESIGN_DOC_PROTOTYPE_PROMPT
       : workflow.id === SESSION_UPDATE_WORKFLOW_ID
         ? message.trim()
         : objective.trim();
@@ -175,6 +179,10 @@ export function WorkflowDialog({
       ? Boolean(route.trim() && target.trim())
       : workflow.id === PR_SNIPPET_REVIEW_WORKFLOW_ID
         ? pullRequestNumber !== null
+      // Nothing is collected, so there is nothing to invalidate: the whole
+      // procedure lives in the trusted injector shown on the next stage.
+      : workflow.id === DESIGN_DOC_PROTOTYPE_WORKFLOW_ID
+        ? true
       : workflow.id === SESSION_UPDATE_WORKFLOW_ID
         ? Boolean(targetSession && message.trim())
         // No catalogue means no verified agent, so there is nothing safe to launch.
@@ -187,7 +195,11 @@ export function WorkflowDialog({
     setBusy(true);
     setError(null);
     try {
-      if (workflow.id === PLAYWRIGHT_REVIEW_WORKFLOW_ID || workflow.id === PR_SNIPPET_REVIEW_WORKFLOW_ID) {
+      if (
+        workflow.id === PLAYWRIGHT_REVIEW_WORKFLOW_ID
+        || workflow.id === PR_SNIPPET_REVIEW_WORKFLOW_ID
+        || workflow.id === DESIGN_DOC_PROTOTYPE_WORKFLOW_ID
+      ) {
         // Sent in THIS session's current mode. Posting a comment is a write, so
         // a Plan session will be stopped by its own policy rather than having
         // write access quietly restored here (decision 9).
@@ -318,6 +330,15 @@ export function WorkflowDialog({
               </p>
             </>}
 
+            {workflow.id === DESIGN_DOC_PROTOTYPE_WORKFLOW_ID && (
+              // Deliberately no fields, and so no firstFieldRef: focus falls
+              // back to the dialog itself, which is what the effect already does
+              // when the ref is null.
+              <p className="text-sm text-[var(--color-text-muted)]" data-testid="composer-workflow-no-fields">
+                No input needed. Confirm to preview the exact prompt and trusted procedure below.
+              </p>
+            )}
+
             {workflow.id === SESSION_UPDATE_WORKFLOW_ID && <>
               <label className="block text-sm font-medium">
                 Target session <span className="font-normal text-[var(--color-text-muted)]">(required)</span>
@@ -447,7 +468,7 @@ export function WorkflowDialog({
               <pre className="thin-scrollbar mt-1.5 max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded-md border border-[var(--color-border-default)] p-3 font-sans text-xs leading-relaxed text-[var(--color-text-muted)]">{workflow.injector}</pre>
               <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">Appended by the server exactly as shown. The browser only names the workflow id.</p>
             </details>
-            {(workflow.id === PLAYWRIGHT_REVIEW_WORKFLOW_ID || workflow.id === PR_SNIPPET_REVIEW_WORKFLOW_ID) && (
+            {(workflow.id === PLAYWRIGHT_REVIEW_WORKFLOW_ID || workflow.id === PR_SNIPPET_REVIEW_WORKFLOW_ID || workflow.id === DESIGN_DOC_PROTOTYPE_WORKFLOW_ID) && (
               <p className="text-xs text-[var(--color-text-muted)]">"Apply to composer" only fills the message box for further editing — nothing is sent until you press Send.</p>
             )}
             {workflow.id === PR_SNIPPET_REVIEW_WORKFLOW_ID && (
@@ -474,7 +495,7 @@ export function WorkflowDialog({
             <div className="flex flex-wrap justify-end gap-2 border-t border-[var(--color-border-default)] pt-4">
               <Button type="button" variant="ghost" disabled={busy} onClick={() => { setError(null); setStage("form"); }} data-testid="composer-workflow-back">Back</Button>
               <Button type="button" variant="secondary" disabled={busy} onClick={onClose} data-testid="composer-workflow-cancel">Cancel</Button>
-              {(workflow.id === PLAYWRIGHT_REVIEW_WORKFLOW_ID || workflow.id === PR_SNIPPET_REVIEW_WORKFLOW_ID) && <>
+              {(workflow.id === PLAYWRIGHT_REVIEW_WORKFLOW_ID || workflow.id === PR_SNIPPET_REVIEW_WORKFLOW_ID || workflow.id === DESIGN_DOC_PROTOTYPE_WORKFLOW_ID) && <>
                 <Button type="button" variant="secondary" disabled={busy} onClick={() => onApplyToComposer(generatedPrompt, workflow.id)} data-testid="composer-workflow-apply">Apply to composer</Button>
                 <Button type="button" disabled={!confirmReady} onClick={() => void submit("send")} data-testid="composer-workflow-send">{busy ? "Sending…" : "Send"}</Button>
               </>}

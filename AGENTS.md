@@ -58,6 +58,14 @@ several decisions below.
   natively under `/playbooks`. This remains separate from runtime reminders and the
   installed-skill `/api/catalog`, which reports what the connected OpenCode loaded.
 
+## Agent working conventions
+
+- **Keep your own planning to-do list current as you work**, not just at the end. Mark
+  an item `in_progress` before starting it and `completed` immediately after finishing
+  it — never batch every update to the end of a multi-step task. This is about the
+  agent's own session planning tool, unrelated to this app's in-product Todo API/feature
+  (see the `Todo has no id` row below).
+
 ## Non-obvious API contracts (each one cost real debugging)
 
 | Trap | Rule |
