@@ -2,7 +2,9 @@ import type { SessionSummary } from "./api.js";
 
 export const RECENT_SESSIONS_STORAGE_KEY = "opencode.recentSessions.v1";
 export const MAX_STORED_RECENT_SESSIONS = 50;
-export const MAX_VISIBLE_RECENT_SESSIONS = 5;
+// Raised from 5 to 25 (issue #44): both Recents columns render this many rows in a
+// scrollable container rather than truncating a short static list.
+export const MAX_VISIBLE_RECENT_SESSIONS = 25;
 
 export interface RecentSessionOpen {
   id: string;

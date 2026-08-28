@@ -73,6 +73,62 @@ test.describe("hub", () => {
     await expect(pills.filter({ hasText: "running" })).toHaveCount(1);
   });
 
+  test("needs attention shows running sessions and unresolved notification sessions, and hides entirely when empty", async ({ page }) => {
+    // Constrain recents to the one known-running fixture so the running band
+    // is deterministic regardless of other tests' cross-project activity.
+    await pinRecentsTo(page, ["ses_mock_running"]);
+    await page.route("**/api/notifications/history*", async (route) => {
+      await route.fulfill({
+        json: {
+          records: [{
+            id: "ntf_attention_1",
+            kind: "permission",
+            at: Date.UTC(2026, 7, 28, 12, 0, 0),
+            directory: DIR,
+            sessionID: "ses_mock_done",
+            sessionTitle: "Add a health endpoint",
+            title: "OpenCode needs permission",
+            body: "bash: npm test",
+            displayBody: "Needs approval to run bash",
+            delivery: { ntfy: "off", desktop: "off" },
+          }],
+          activeCount: 1,
+          appBadgeCount: 1,
+          appBadgeRevision: 1,
+          suppressedActive: { "auto-permissions": 0, subagent: 0, "preference-off": 0 },
+        },
+      });
+    });
+    await page.goto(hub);
+
+    const attention = page.getByTestId("opencode-needs-attention");
+    await expect(attention).toBeVisible();
+    const runningRow = attention.getByTestId("opencode-attention-running-row");
+    await expect(runningRow).toHaveCount(1);
+    await expect(runningRow).toContainText("Refactor the parser");
+    const notificationRow = attention.getByTestId("opencode-attention-notification-row");
+    await expect(notificationRow).toHaveCount(1);
+    await expect(notificationRow).toContainText("Add a health endpoint");
+    await expect(notificationRow).toContainText("permission");
+
+    // Clicking a notification row navigates to the session that produced it.
+    await notificationRow.click();
+    await expect(page).toHaveURL(/\/sessions\/ses_mock_done\?/);
+
+    await page.goto(hub);
+    await page.route("**/api/notifications/history*", async (route) => {
+      await route.fulfill({
+        json: { records: [], activeCount: 0, appBadgeCount: 0, appBadgeRevision: 1, suppressedActive: { "auto-permissions": 0, subagent: 0, "preference-off": 0 } },
+      });
+    });
+    await page.addInitScript(() => localStorage.setItem("opencode.recentSessions.v1", JSON.stringify({ version: 1, entries: [] })));
+    await page.route("**/api/recent-sessions?*", async (route) => {
+      await route.fulfill({ json: { sessions: [], directories: [] } });
+    });
+    await page.goto(hub);
+    await expect(page.getByTestId("opencode-needs-attention")).toHaveCount(0);
+  });
+
   test("reports the upstream agent version", async ({ page }) => {
     await page.goto(hub);
   await expect(page.getByTestId("opencode-upstream-badge")).toContainText("1.18.23+dca.2");
@@ -146,6 +202,9 @@ test.describe("hub", () => {
 
   test("searches project cards and keeps manual paths as an advanced fallback", async ({ page }) => {
     await page.goto(hub);
+    // The project picker is collapsed by default; expand it before reaching
+    // into its search box or card list.
+    await page.getByTestId("opencode-project-picker-toggle").click();
     const mockProject = page.getByTestId("opencode-project-card").filter({
       has: page.getByText("mock-project", { exact: true }),
     });
@@ -170,6 +229,7 @@ test.describe("hub", () => {
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ directories }) });
     });
     await page.goto(hub);
+    await page.getByTestId("opencode-project-picker-toggle").click();
     const mockProject = page.getByTestId("opencode-project-card").filter({
       has: page.getByText("mock-project", { exact: true }),
     });
@@ -1054,7 +1114,9 @@ test.describe("mobile", () => {
   test("hub is usable on a phone", async ({ page }) => {
     await page.goto(hub);
     await expect(page.getByTestId("opencode-session-list")).toBeVisible();
-    await expect(page.getByTestId("opencode-project-list")).toBeVisible();
+    // The project picker is collapsed by default; its toggle is what should be
+    // reachable without scrolling on a phone, not the (hidden) list inside it.
+    await expect(page.getByTestId("opencode-project-picker-toggle")).toBeVisible();
     await expect(page.getByTestId("opencode-hub-mode")).toBeVisible();
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
