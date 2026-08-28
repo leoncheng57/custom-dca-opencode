@@ -239,4 +239,14 @@ describe("notification service worker", () => {
     expect(source).not.toContain('addEventListener("fetch"');
     expect(source).not.toMatch(/caches\.|CacheStorage/u);
   });
+
+  it("does not need message-passing for closing stale notifications", async () => {
+    // Stale notification cleanup (issue #270) uses the page-side
+    // ServiceWorkerRegistration.getNotifications() API directly, which works
+    // identically whether called from page or worker context. No service
+    // worker message handler needed — simpler and more direct.
+    const source = await readFile(path.resolve("client/public/sw.js"), "utf8");
+    expect(source).not.toContain("CLOSE_SESSION_NOTIFICATIONS");
+    expect(source).not.toContain("CLOSE_STALE");
+  });
 });

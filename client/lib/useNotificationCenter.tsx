@@ -10,6 +10,7 @@ import {
   saveNotificationView,
   type NotificationViewPreferences,
 } from "./notificationView.js";
+import { sessionTag, closeNotificationsForTag, reconcileStaleNotifications } from "./closeStaleNotifications.js";
 
 const NO_SUPPRESSED_ACTIVE: SuppressedActiveCounts = { "auto-permissions": 0, subagent: 0, "preference-off": 0 };
 
@@ -126,6 +127,12 @@ export function NotificationCenterProvider({ children }: { children: ReactNode }
         setSuppressedActive(result.suppressedActive ?? NO_SUPPRESSED_ACTIVE);
         void syncAppBadge(result.appBadgeCount, navigator, result.appBadgeRevision);
         setError("");
+        
+        // Reconcile OS notification cards: close any that are stale (resolved
+        // on another device/tab, or removed by retention). Best-effort cleanup
+        // that never breaks the refresh flow.
+        const unresolvedRecords = result.records.filter((record) => !record.resolvedAt);
+        void reconcileStaleNotifications(unresolvedRecords);
       })
       .catch((e: Error) => {
         if (request !== generation.current) return;
@@ -172,6 +179,11 @@ export function NotificationCenterProvider({ children }: { children: ReactNode }
       }
       try {
         await api.setNotificationResolved(id, resolved);
+        // Close the OS notification card when resolving (not when reopening).
+        // Fire-and-forget: never let this best-effort cleanup break the resolve.
+        if (resolved && target) {
+          void closeNotificationsForTag(sessionTag(target));
+        }
       } finally {
         // Confirm the optimistic state, or roll it back to the server value if
         // the mutation failed.
@@ -190,13 +202,22 @@ export function NotificationCenterProvider({ children }: { children: ReactNode }
         // immediately so a later history refresh failure cannot leave the
         // installed-app badge stale after a successful mutation.
         void syncAppBadge(result.appBadgeCount, navigator, result.appBadgeRevision);
+        
+        // Close OS notification cards for all resolved records. Find the
+        // resolved records in the current state, compute their distinct tags,
+        // and close each tag once (multiple records can share one session tag).
+        const resolvedRecords = records.filter((record) => ids.includes(record.id));
+        const distinctTags = new Set(resolvedRecords.map(sessionTag));
+        for (const tag of distinctTags) {
+          void closeNotificationsForTag(tag);
+        }
       } finally {
         // Confirm the server's bounded selection rather than assuming every id
         // still existed or stayed active between confirmation and the POST.
         await refresh();
       }
     },
-    [directory, refresh],
+    [directory, records, refresh],
   );
 
   const value = useMemo(
