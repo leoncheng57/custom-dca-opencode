@@ -1293,6 +1293,49 @@ export async function listMessages(
 export const SESSION_EXCERPT_LIMIT = 240;
 
 /**
+ * Below this length, a first sentence reads as a boilerplate opener ("Done."
+ * / "Sure,") rather than something that tells two different turns from the
+ * same session apart, so it is combined with the second sentence instead.
+ */
+const SHORT_SENTENCE_THRESHOLD = 40;
+
+/** A sentence-ending punctuation mark followed by whitespace or the end of the string. */
+const SENTENCE_END = /[.!?](?:\s|$)/gu;
+
+/**
+ * Picks a bounded, literal excerpt of agent output for notification copy.
+ *
+ * Prefers the first non-empty line — so a bulleted list's first item, not an
+ * arbitrary character cutoff spanning several unrelated lines, becomes the
+ * excerpt — and, within that line, the first sentence. That sentence is
+ * extended to include the second one when the first is short enough to be a
+ * boilerplate opener that would otherwise make two different turns from the
+ * same session look identical. Every boundary here is optional: whatever is
+ * found is still clamped to `limit`, and when no sentence-ending punctuation
+ * exists at all, the whole line (or text) is returned bounded exactly as it
+ * always was. Nothing is ever reordered or invented — only literal
+ * substrings of the input, in their original order, are returned.
+ */
+export function firstMeaningfulExcerpt(rawText: string, limit: number): string {
+  const lines = rawText.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0);
+  const source = lines[0] ?? rawText;
+  const flat = source.replace(/\s+/gu, " ").trim();
+  if (!flat) return "";
+
+  const matches = [...flat.matchAll(SENTENCE_END)];
+  if (matches.length > 0) {
+    let end = matches[0].index! + 1;
+    if (end < SHORT_SENTENCE_THRESHOLD && matches.length > 1) {
+      end = matches[1].index! + 1;
+    }
+    const sentence = flat.slice(0, end).trim();
+    if (sentence.length <= limit) return sentence;
+  }
+
+  return flat.length > limit ? `${flat.slice(0, limit - 1)}\u2026` : flat;
+}
+
+/**
  * Last thing the agent actually said in a session, for notification copy.
  *
  * Reads only the newest page and scans backwards for the newest assistant
@@ -1325,11 +1368,9 @@ export async function latestAssistantExcerpt(
       .filter((part) => part.type === "text" && typeof part.text === "string")
       .map((part) => part.text as string)
       .join(" ");
-    const flat = text.replace(/\s+/gu, " ").trim();
-    if (!flat) continue;
-    return flat.length > SESSION_EXCERPT_LIMIT
-      ? `${flat.slice(0, SESSION_EXCERPT_LIMIT - 1)}\u2026`
-      : flat;
+    const excerpt = firstMeaningfulExcerpt(text, SESSION_EXCERPT_LIMIT);
+    if (!excerpt) continue;
+    return excerpt;
   }
   return undefined;
 }

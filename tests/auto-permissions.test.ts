@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { mkdir, mkdtemp, realpath, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -11,6 +11,11 @@ import { parsePermissionRequest } from "../server/opencode/permissions.js";
 const directory = process.cwd();
 const config = { baseUrl: "http://opencode.test" };
 const previousProjectsDirectory = process.env.PROJECTS_DIR;
+// Production reconciles the shared state file every 5s (throttled to at most
+// once per 1s on-demand); tests override both to milliseconds so a state-file
+// change made outside the instance under test is observed quickly without
+// fake timers, which would also have to fake the real fs.promises I/O below.
+const FAST_RELOAD_MS = 20;
 
 function permission(id = "perm_test") {
   return {
@@ -225,5 +230,144 @@ describe("AutoPermissionService", () => {
       properties: { requestID: "perm_manual", sessionID: "ses_test", reply: "reject" },
     });
     await vi.waitFor(() => expect(instance.status(directory).error).toBeNull());
+  });
+
+  // The state file used to be read once at boot and never again, so a
+  // directory enabled after that — by a manual edit, or by a second process
+  // sharing the default state-file path — stayed silently stale for the life
+  // of the process. This is exactly what happened in production: one
+  // auto-approved directory kept suppressing correctly while a sibling
+  // directory, enabled in the same file after boot, kept sending ordinary
+  // Web Push permission alerts.
+  it("reconciles a directory enabled by writing the state file directly after the service has started", async () => {
+    const pending = permission("perm_external");
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/permission" && init?.method === "GET") return Response.json([pending]);
+      if (url.pathname === "/permission/perm_external/reply") return Response.json(true);
+      return new Response("not found", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const file = path.join(await mkdtemp(path.join(os.tmpdir(), "dca-auto-permission-external-")), "auto-approve.json");
+    const bus = new EventEmitter() as EventBus;
+    const instance = new AutoPermissionService(config, bus, file, FAST_RELOAD_MS, FAST_RELOAD_MS);
+    instance.start();
+
+    // Simulate a second writer — another process, or a manual edit — enabling
+    // this directory after the service already started against an empty (or
+    // nonexistent) file.
+    await writeFile(file, `${JSON.stringify({ version: 1, enabled: [directory] }, null, 2)}\n`, { mode: 0o600 });
+
+    await vi.waitFor(() => expect(instance.isEnabled(directory)).toBe(true));
+    expect(instance.snapshot().source[directory]).toBe("loaded");
+    await vi.waitFor(() => expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/permission/perm_external/reply"))).toBe(true));
+    instance.stop();
+  });
+
+  it("keeps two instances sharing one state file in agreement, including demotion", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json([])));
+    const file = path.join(await mkdtemp(path.join(os.tmpdir(), "dca-auto-permission-shared-")), "auto-approve.json");
+    const instanceA = new AutoPermissionService(config, new EventEmitter() as EventBus, file, FAST_RELOAD_MS, FAST_RELOAD_MS);
+    const instanceB = new AutoPermissionService(config, new EventEmitter() as EventBus, file, FAST_RELOAD_MS, FAST_RELOAD_MS);
+    instanceA.start();
+    instanceB.start();
+
+    await instanceA.setEnabled(directory, true);
+    await vi.waitFor(() => expect(instanceB.isEnabled(directory)).toBe(true));
+    // Instance B only ever reconciled the file — it never received an
+    // explicit toggle itself — so its provenance for this directory is
+    // "loaded", distinct from instance A's own "explicit" entry.
+    expect(instanceB.snapshot().source[directory]).toBe("loaded");
+
+    await instanceA.setEnabled(directory, false);
+    await vi.waitFor(() => expect(instanceB.isEnabled(directory)).toBe(false));
+
+    instanceA.stop();
+    instanceB.stop();
+  });
+
+  it("keeps an explicit toggle even after an external rewrite omits that directory entirely", async () => {
+    const other = `${directory}-other`;
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json([])));
+    const file = path.join(await mkdtemp(path.join(os.tmpdir(), "dca-auto-permission-explicit-wins-")), "auto-approve.json");
+    const bus = new EventEmitter() as EventBus;
+    const instance = new AutoPermissionService(config, bus, file, FAST_RELOAD_MS, FAST_RELOAD_MS);
+    instance.start();
+
+    await instance.setEnabled(directory, true);
+    expect(instance.snapshot().source[directory]).toBe("explicit");
+
+    // A second writer rewrites the file to enable a different directory,
+    // without ever mentioning `directory` at all.
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await writeFile(file, `${JSON.stringify({ version: 1, enabled: [other] }, null, 2)}\n`, { mode: 0o600 });
+
+    await vi.waitFor(() => expect(instance.isEnabled(other)).toBe(true));
+    // An explicit toggle must survive an external rewrite that doesn't even
+    // mention it — the file is not required to echo back every explicitly
+    // toggled directory for that directory to stay enabled in this process.
+    expect(instance.isEnabled(directory)).toBe(true);
+    expect(instance.snapshot().source[directory]).toBe("explicit");
+
+    instance.stop();
+  });
+
+  // Uses the explicit `reload()` hook rather than the background timer so the
+  // assertion on call *count* is deterministic instead of racing a wall-clock
+  // interval — a real interval-driven reconcile pass can occasionally land
+  // twice in very close succession under system load, which would make an
+  // exact-count assertion flaky without actually indicating a logic bug.
+  it("warns about an external state-file change exactly once per change", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json([])));
+    const root = await mkdtemp(path.join(os.tmpdir(), "dca-auto-permission-warn-"));
+    const file = path.join(root, "auto-approve.json");
+    await writeFile(file, `${JSON.stringify({ version: 1, enabled: [] }, null, 2)}\n`, { mode: 0o600 });
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const bus = new EventEmitter() as EventBus;
+    const instance = new AutoPermissionService(config, bus, file);
+    instance.start();
+    await instance.reload();
+    // The very first sighting of a file is never treated as "external" (it
+    // may just be this process's own first boot), so only what follows below
+    // is expected to warn.
+    warning.mockClear();
+
+    await new Promise((resolve) => setTimeout(resolve, 5)); // guarantee a distinct mtime
+    await writeFile(file, `${JSON.stringify({ version: 1, enabled: [directory] }, null, 2)}\n`, { mode: 0o600 });
+    await instance.reload();
+    expect(instance.isEnabled(directory)).toBe(true);
+    // Reconciling again against unchanged content must not warn again.
+    await instance.reload();
+    await instance.reload();
+
+    expect(warning.mock.calls.filter(
+      (call) => call[0] === "[auto-permission]" && call[1] === "state file changed outside this process; reconciling",
+    )).toHaveLength(1);
+
+    instance.stop();
+    warning.mockRestore();
+  });
+
+  it("does not warn about its own persisted write", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json([])));
+    const file = path.join(await mkdtemp(path.join(os.tmpdir(), "dca-auto-permission-own-write-")), "auto-approve.json");
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const bus = new EventEmitter() as EventBus;
+    const instance = new AutoPermissionService(config, bus, file);
+    instance.start();
+
+    await instance.setEnabled(directory, true);
+    // Simulate the next scheduled reconcile pass observing this process's
+    // own already-recorded write.
+    await instance.reload();
+    await instance.reload();
+
+    expect(warning.mock.calls.some(
+      (call) => call[1] === "state file changed outside this process; reconciling",
+    )).toBe(false);
+    expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ version: 1, enabled: [directory] });
+
+    instance.stop();
+    warning.mockRestore();
   });
 });

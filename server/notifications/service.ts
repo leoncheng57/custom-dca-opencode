@@ -8,6 +8,7 @@ import {
   parseSessionMetadata,
   type SessionMetadata,
 } from "../opencode/sessions.js";
+import { correlationId, logAuditEvent } from "./audit.js";
 import { sendNtfy, type NotificationMessage } from "./ntfy.js";
 import {
   HistoryStore,
@@ -349,6 +350,12 @@ export class NotificationService {
     const detail = kind === "idle" && !subagent ? await this.excerptFor(event.directory, sessionID) : undefined;
     const message = {
       ...outboundMessage(event, kind, sessionTitle),
+      // Supersedes decision 26's in-app-only boundary (see decision 29): the
+      // generic idle body was identical every time, which was the actual
+      // complaint — the in-app-only excerpt never reached the channel people
+      // actually look at. Re-truncated to NTFY_BODY_LIMIT for the lock-screen
+      // body; falls back to the generic body when no excerpt is available.
+      ...(kind === "idle" && detail ? { body: truncate(detail, NTFY_BODY_LIMIT) } : {}),
       ...(eventClickUrl(this.publicAppUrl, event) ? { click: eventClickUrl(this.publicAppUrl, event) } : {}),
     };
     const common = {
@@ -373,6 +380,14 @@ export class NotificationService {
         delivery: { ntfy: "off", desktop: "off", webPush: "off", suppressed: "subagent" },
       });
       this.emitRecorded(record, "subagent");
+      logAuditEvent("notification_decided", {
+        recordCorrelation: correlationId(record.id),
+        directoryCorrelation: correlationId(event.directory),
+        sessionCorrelation: correlationId(sessionID),
+        kind,
+        outcome: "suppressed",
+        suppressionReason: "subagent",
+      });
       return;
     }
 
@@ -386,6 +401,14 @@ export class NotificationService {
         delivery: { ntfy: "off", desktop: "off", webPush: "off", suppressed: "auto-permissions" },
       });
       this.emitRecorded(record, "auto-permissions");
+      logAuditEvent("notification_decided", {
+        recordCorrelation: correlationId(record.id),
+        directoryCorrelation: correlationId(event.directory),
+        sessionCorrelation: correlationId(sessionID),
+        kind,
+        outcome: "suppressed",
+        suppressionReason: "auto-permissions",
+      });
       return;
     }
 
@@ -402,6 +425,14 @@ export class NotificationService {
     });
     await this.history.setDelivery(record.id, delivery);
     this.emitRecorded(record, delivery.suppressed);
+    logAuditEvent("notification_decided", {
+      recordCorrelation: correlationId(record.id),
+      directoryCorrelation: correlationId(event.directory),
+      sessionCorrelation: correlationId(sessionID),
+      kind,
+      outcome: delivery.suppressed ? "suppressed" : "delivered",
+      suppressionReason: delivery.suppressed,
+    });
 
     // Only arm the escalation if a parked alert could actually reach the user.
     // It used to arm unconditionally, so switching `parked` off silenced the
@@ -620,6 +651,20 @@ export class NotificationService {
             const stale = subscriptions.find((item) => item.endpoint === endpoint);
             return this.pushSubscriptions.remove(endpoint, stale?.keys);
           }));
+          // Logged here, inside the single `deliver()` implementation, rather
+          // than via a field read back by each caller: `handle()` fires
+          // `deliver()` without awaiting a serialized queue, so two
+          // notifications in flight at once would otherwise race on a shared
+          // mutable field and could log one record's stats under another's
+          // correlation id. This also naturally covers both call sites
+          // (normal delivery and the parked-escalation timer) instead of only
+          // one of them.
+          logAuditEvent("webpush_delivery_finished", {
+            recordCorrelation: correlationId(message.tag),
+            sent: result.sent,
+            failed: result.failed,
+            expired: result.expired.length,
+          });
           return result.failed && result.sent
             ? { state: "partial" as const, error: `${result.sent} sent; ${result.failed} failed` }
             : result.failed

@@ -2,11 +2,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   createSession,
+  firstMeaningfulExcerpt,
   getSessionTurnDiff,
+  latestAssistantExcerpt,
   listManagedChildAgents,
   listMessages,
   managedChildTitle,
   messagePageCursor,
+  SESSION_EXCERPT_LIMIT,
   SESSION_TURN_DIFF_LIMITS,
   toSummary,
 } from "../server/opencode/sessions.js";
@@ -278,5 +281,105 @@ describe("session turn diffs", () => {
       "ses_1",
       "msg_1",
     )).resolves.toEqual({ status: "too_large" });
+  });
+});
+
+describe("notification excerpt extraction", () => {
+  // "Rebuilt the bundle and fixed two type errors." — a single complete
+  // sentence within the limit — must still return verbatim: a real excerpt
+  // used by tests/notifications.test.ts's "agent output excerpts" suite.
+  it("returns a single complete sentence unchanged", () => {
+    const text = "Rebuilt the bundle and fixed two type errors.";
+    expect(firstMeaningfulExcerpt(text, SESSION_EXCERPT_LIMIT)).toBe(text);
+  });
+
+  it("keeps only the first sentence when it is not a short boilerplate opener", () => {
+    const first = "Rebuilt the notification excerpt logic to prefer sentence boundaries.";
+    const second = "Also updated three call sites accordingly.";
+    expect(firstMeaningfulExcerpt(`${first} ${second}`, SESSION_EXCERPT_LIMIT)).toBe(first);
+  });
+
+  it("combines a short boilerplate opener with the next sentence", () => {
+    const opener = "Done.";
+    const rest = "Fixed the bug in the auth module and added a regression test.";
+    expect(firstMeaningfulExcerpt(`${opener} ${rest}`, SESSION_EXCERPT_LIMIT)).toBe(`${opener} ${rest}`);
+  });
+
+  it("prefers the first non-empty line over a cutoff spanning multiple lines", () => {
+    const firstLine = "Fixed the parser bug.";
+    const rest = "Also rewrote the changelog and unrelated details that would otherwise dominate a single-line cutoff.";
+    expect(firstMeaningfulExcerpt(`${firstLine}\n${rest}`, SESSION_EXCERPT_LIMIT)).toBe(firstLine);
+  });
+
+  it("returns the flattened text unchanged when no sentence-ending punctuation exists", () => {
+    const text = "Updated the config schema, added a migration script, and refreshed the docs";
+    expect(firstMeaningfulExcerpt(text, SESSION_EXCERPT_LIMIT)).toBe(text);
+  });
+
+  it("bounds a runaway excerpt with no punctuation at all", () => {
+    const text = "x".repeat(5_000);
+    const result = firstMeaningfulExcerpt(text, SESSION_EXCERPT_LIMIT);
+    expect(result.length).toBeLessThanOrEqual(SESSION_EXCERPT_LIMIT);
+    expect(result.endsWith("\u2026")).toBe(true);
+  });
+
+  it("does not leak a secret verbatim string beyond its own content", () => {
+    // Mirrors the privacy regression in tests/notifications.test.ts: text with
+    // no sentence-ending punctuation at all is returned exactly as given.
+    const secret = "Wrote the deploy key to /tmp/private/id_rsa";
+    expect(firstMeaningfulExcerpt(secret, SESSION_EXCERPT_LIMIT)).toBe(secret);
+  });
+
+  it("falls back to a bounded cutoff when a combined short-opener sentence still exceeds the limit", () => {
+    const long = "A".repeat(250);
+    const text = `Ok. ${long}.`;
+    const result = firstMeaningfulExcerpt(text, SESSION_EXCERPT_LIMIT);
+    expect(result.length).toBeLessThanOrEqual(SESSION_EXCERPT_LIMIT);
+    expect(result.endsWith("\u2026")).toBe(true);
+    expect(text.startsWith(result.slice(0, -1))).toBe(true);
+  });
+
+  it("returns an empty string for text that is entirely whitespace", () => {
+    expect(firstMeaningfulExcerpt("   \n\t  ", SESSION_EXCERPT_LIMIT)).toBe("");
+  });
+});
+
+describe("latestAssistantExcerpt", () => {
+  function messagesResponse(entries: unknown[]) {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(entries)));
+  }
+
+  it("scans backwards for the newest assistant turn and skips tool/user messages", async () => {
+    messagesResponse([
+      { info: { role: "user" }, parts: [{ type: "text", text: "Please fix the flaky test." }] },
+      { info: { role: "assistant" }, parts: [{ type: "tool" }, { type: "text", text: "Fixed the flaky test. Also updated the fixture." }] },
+      { info: { role: "user" }, parts: [{ type: "text", text: "Thanks, one more thing." }] },
+    ]);
+
+    // "Fixed the flaky test." is under the short-sentence threshold, so it is
+    // combined with the next sentence — the same rule exercised directly in
+    // "notification excerpt extraction" above, here proving it composes
+    // correctly with the backward scan and tool/user role filtering.
+    await expect(latestAssistantExcerpt({ baseUrl: "http://opencode.test" }, "/tmp/project", "ses_1"))
+      .resolves.toBe("Fixed the flaky test. Also updated the fixture.");
+  });
+
+  it("joins multiple text parts of the newest assistant message before extracting", async () => {
+    messagesResponse([
+      { info: { role: "assistant" }, parts: [{ type: "text", text: "Rebuilt the bundle" }, { type: "text", text: "and fixed two type errors." }] },
+    ]);
+
+    await expect(latestAssistantExcerpt({ baseUrl: "http://opencode.test" }, "/tmp/project", "ses_1"))
+      .resolves.toBe("Rebuilt the bundle and fixed two type errors.");
+  });
+
+  it("returns undefined when the transcript has no assistant text", async () => {
+    messagesResponse([
+      { info: { role: "assistant" }, parts: [{ type: "tool" }] },
+      { info: { role: "user" }, parts: [{ type: "text", text: "Anyone there?" }] },
+    ]);
+
+    await expect(latestAssistantExcerpt({ baseUrl: "http://opencode.test" }, "/tmp/project", "ses_1"))
+      .resolves.toBeUndefined();
   });
 });

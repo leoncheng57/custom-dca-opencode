@@ -792,11 +792,22 @@ export const api = {
     }).then((r) => json<{ preferences: NotificationPreferences; tokenConfigured: boolean; webPush: { configured: boolean; publicKey: string | null } }>(r)),
   testNtfy: () =>
     fetch("/api/notifications/test", { method: "POST" }).then((r) => json<{ sent: boolean }>(r)),
-  addPushSubscription: (subscription: PushSubscriptionJSON) =>
+  addPushSubscription: (subscription: PushSubscriptionJSON & { installationId?: string }) =>
     fetch("/api/notifications/push-subscriptions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(subscription),
+    }).then((r) => r.ok ? undefined : json<never>(r)),
+  listPushSubscriptions: () =>
+    fetch("/api/notifications/push-subscriptions")
+      .then((r) => json<{ subscriptions: Array<{ id: string; addedAt: number; label: string }> }>(r)),
+  removePushSubscriptionById: (id: string) =>
+    fetch(`/api/notifications/push-subscriptions/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    }).then((r) => r.ok ? undefined : json<never>(r)),
+  removeAllPushSubscriptions: () =>
+    fetch("/api/notifications/push-subscriptions/all", {
+      method: "DELETE",
     }).then((r) => r.ok ? undefined : json<never>(r)),
   removePushSubscription: (endpoint: string) =>
     fetch("/api/notifications/push-subscriptions", {

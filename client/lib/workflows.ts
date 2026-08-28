@@ -31,6 +31,16 @@ export const PLAYWRIGHT_REVIEW_WORKFLOW_ID = "playwright-ui-review";
 export const SESSION_UPDATE_WORKFLOW_ID = "session-update";
 export const MANAGED_CHILD_WORKFLOW_ID = "managed-child";
 export const PR_SNIPPET_REVIEW_WORKFLOW_ID = "pr-snippet-review";
+export const DESIGN_DOC_PROTOTYPE_WORKFLOW_ID = "design-doc-prototype";
+
+// ── Design prototype prompt ─────────────────────────────────────────────────
+//
+// This workflow collects nothing, so its visible prompt is a fixed constant
+// rather than a builder: every instruction that varies lives in the trusted
+// server-resolved injector, which the preview shows before anything is sent.
+
+export const DESIGN_DOC_PROTOTYPE_PROMPT =
+  "Capture a durable design prototype for this proposal and publish it for review.";
 
 // ── Pull request review prompt generation ───────────────────────────────────
 
