@@ -1,0 +1,1194 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Session Todo — placement alternatives and progress affordance</title>
+<style>
+/* ---------------------------------------------------------------------------
+   Token values copied verbatim from client/theme/tokens.css (.dark block).
+   This prototype is deliberately standalone: no framework, no build step.
+   --------------------------------------------------------------------------- */
+:root {
+  --color-background-surface: #16181d;
+  --color-background-surface-neutral-muted: #22252c;
+  --color-background-surface-info-muted: #172554;
+  --color-background-surface-success-muted: #052e1d;
+  --color-background-surface-warning-muted: #3b2a06;
+  --color-background-surface-danger-muted: #3f1414;
+
+  --color-background-surface-plan-muted: #3b2a06;
+  --color-border-plan: #fbbf24;
+  --color-text-plan: #fcd34d;
+  --color-background-surface-build-muted: #172554;
+  --color-border-build: #60a5fa;
+  --color-text-build: #93c5fd;
+
+  --color-background-action-primary: #22c55e;
+  --color-background-action-info: #3b82f6;
+
+  --color-text-default: #e8eaed;
+  --color-text-muted: #9aa0a6;
+  --color-text-info: #93c5fd;
+  --color-text-success: #6ee7a8;
+  --color-text-warning: #fcd34d;
+  --color-text-danger: #fca5a5;
+
+  --color-border-default: #2c3038;
+  --color-border-focus: #22c55e;
+  --color-border-danger: #7f1d1d;
+  --color-border-overlay: #4b525f;
+
+  --hh-row-hover: #1c1f25;
+
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--color-background-surface);
+  color: var(--color-text-default);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+.page { max-width: 1180px; margin: 0 auto; padding: 32px 28px 72px; }
+
+/* ---- typography ---- */
+h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; letter-spacing: -0.01em; }
+h2 {
+  font-size: 17px; margin: 0 0 4px; letter-spacing: -0.005em;
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+}
+h3 { font-size: 14px; margin: 0 0 6px; }
+p { margin: 0 0 12px; }
+.muted { color: var(--color-text-muted); }
+.small { font-size: 12px; }
+.tiny { font-size: 11px; }
+code, .mono { font-family: var(--mono); font-size: 12px; }
+code {
+  background: var(--color-background-surface-neutral-muted);
+  border: 1px solid var(--color-border-default);
+  border-radius: 4px; padding: 1px 5px;
+  color: var(--color-text-default);
+}
+a { color: var(--color-text-info); }
+
+/* ---- chrome ---- */
+.eyebrow {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.09em;
+  color: var(--color-text-muted); margin-bottom: 10px;
+}
+.doc-head { border-bottom: 1px solid var(--color-border-default); padding-bottom: 22px; margin-bottom: 30px; }
+.meta { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+
+.badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;
+  border-radius: 999px; padding: 3px 9px; border: 1px solid var(--color-border-default);
+  background: var(--color-background-surface-neutral-muted); color: var(--color-text-muted);
+  white-space: nowrap;
+}
+.badge.success { background: var(--color-background-surface-success-muted); border-color: #14532d; color: var(--color-text-success); }
+.badge.warning { background: var(--color-background-surface-warning-muted); border-color: #78350f; color: var(--color-text-warning); }
+.badge.danger  { background: var(--color-background-surface-danger-muted);  border-color: var(--color-border-danger); color: var(--color-text-danger); }
+.badge.info    { background: var(--color-background-surface-info-muted);    border-color: #1e40af; color: var(--color-text-info); }
+.badge.plan    { background: var(--color-background-surface-plan-muted);    border-color: var(--color-border-plan);  color: var(--color-text-plan); }
+.badge.build   { background: var(--color-background-surface-build-muted);   border-color: var(--color-border-build); color: var(--color-text-build); }
+
+section.block { margin: 0 0 40px; }
+.section-head { margin-bottom: 16px; }
+.rule { height: 1px; background: var(--color-border-default); border: 0; margin: 34px 0; }
+
+.card {
+  border: 1px solid var(--color-border-default);
+  border-radius: 10px;
+  background: var(--color-background-surface-neutral-muted);
+  padding: 16px;
+}
+.callout {
+  border: 1px solid var(--color-border-default);
+  border-left-width: 3px;
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: var(--color-background-surface-neutral-muted);
+  margin: 0 0 14px;
+}
+.callout.key   { border-left-color: var(--color-border-focus); }
+.callout.warn  { border-left-color: var(--color-border-plan); }
+.callout.info  { border-left-color: var(--color-border-build); }
+.callout h3 { margin-bottom: 4px; font-size: 13px; }
+.callout p:last-child { margin-bottom: 0; }
+
+/* =========================================================================
+   WIREFRAME PRIMITIVES — schematic of the Conversation page.
+   Every alternative reuses this so placements are compared like-for-like.
+   ========================================================================= */
+.wf {
+  border: 1px solid var(--color-border-overlay);
+  border-radius: 8px;
+  background: var(--color-background-surface);
+  overflow: hidden;
+  display: flex; flex-direction: column;
+  height: 178px;
+  position: relative;
+}
+.wf-top {
+  height: 22px; flex: 0 0 22px;
+  border-bottom: 1px solid var(--color-border-default);
+  display: flex; align-items: center; gap: 5px; padding: 0 7px;
+  background: var(--color-background-surface-neutral-muted);
+}
+.wf-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--color-border-overlay); }
+.wf-top .cap { font-size: 8px; color: var(--color-text-muted); letter-spacing: 0.04em; }
+.wf-body { flex: 1; display: flex; min-height: 0; }
+.wf-rail {
+  flex: 0 0 26px; border-right: 1px solid var(--color-border-default);
+  display: flex; flex-direction: column; gap: 4px; padding: 5px 4px;
+  background: var(--color-background-surface-neutral-muted);
+}
+.wf-rail i { display: block; height: 5px; border-radius: 2px; background: var(--color-border-overlay); opacity: .55; }
+.wf-main { flex: 1; padding: 7px; display: flex; flex-direction: column; gap: 5px; min-width: 0; overflow: hidden; }
+.wf-side {
+  flex: 0 0 74px; border-left: 1px solid var(--color-border-default);
+  padding: 6px; display: flex; flex-direction: column; gap: 4px;
+  background: var(--color-background-surface-neutral-muted);
+}
+.wf-composer {
+  flex: 0 0 26px; border-top: 1px solid var(--color-border-default);
+  display: flex; align-items: center; gap: 5px; padding: 0 7px;
+  background: var(--color-background-surface-neutral-muted);
+}
+.wf-composer .field {
+  flex: 1; height: 12px; border-radius: 3px;
+  border: 1px solid var(--color-border-default);
+  background: var(--color-background-surface);
+}
+.wf-composer .send { width: 20px; height: 12px; border-radius: 3px; background: var(--color-background-action-primary); opacity: .7; }
+
+/* message stand-ins */
+.wf-msg { border-radius: 4px; padding: 4px 5px; background: var(--hh-row-hover); }
+.wf-msg i { display: block; height: 3px; border-radius: 2px; background: var(--color-border-overlay); opacity: .5; margin-bottom: 3px; }
+.wf-msg i:last-child { margin-bottom: 0; }
+.wf-msg i.w80 { width: 80%; } .wf-msg i.w60 { width: 60%; } .wf-msg i.w95 { width: 95%; } .wf-msg i.w40 { width: 40%; }
+.wf-side i { display: block; height: 4px; border-radius: 2px; background: var(--color-border-overlay); opacity: .45; }
+.wf-tabs { display: flex; gap: 3px; margin-bottom: 3px; }
+.wf-tabs b { flex: 1; height: 7px; border-radius: 2px; background: var(--color-border-overlay); opacity: .4; }
+
+/* the highlight: where the todo affordance lands */
+.hl {
+  position: relative;
+  outline: 2px solid var(--color-background-action-primary);
+  outline-offset: -1px;
+  background: rgba(34, 197, 94, 0.13) !important;
+  border-radius: 4px;
+}
+.hl-tag {
+  position: absolute; z-index: 3;
+  font-size: 8px; line-height: 1; letter-spacing: 0.03em;
+  background: var(--color-background-action-primary);
+  color: #06210f; font-weight: 700;
+  padding: 2px 4px; border-radius: 3px; white-space: nowrap;
+}
+
+/* floating / overlay placements inside the wireframe */
+.wf-float {
+  position: absolute; z-index: 2;
+  width: 26px; height: 26px; border-radius: 50%;
+  background: rgba(34, 197, 94, 0.16);
+  border: 2px solid var(--color-background-action-primary);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 7px; font-weight: 700; color: var(--color-text-success);
+}
+.wf-strip {
+  height: 15px; flex: 0 0 15px;
+  border-bottom: 1px solid var(--color-border-default);
+  display: flex; align-items: center; gap: 5px; padding: 0 7px;
+  background: rgba(34, 197, 94, 0.13);
+  outline: 2px solid var(--color-background-action-primary);
+  outline-offset: -1px;
+}
+.wf-statusbar {
+  height: 16px; flex: 0 0 16px;
+  border-top: 1px solid var(--color-border-default);
+  display: flex; align-items: center; gap: 5px; padding: 0 7px;
+  background: rgba(34, 197, 94, 0.13);
+  outline: 2px solid var(--color-background-action-primary);
+  outline-offset: -1px;
+}
+.pill-mini { height: 6px; border-radius: 3px; background: var(--color-background-action-primary); opacity: .75; }
+
+/* ---- alternatives grid ---- */
+.alts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.alt {
+  border: 1px solid var(--color-border-default);
+  border-radius: 10px; overflow: hidden;
+  background: var(--color-background-surface-neutral-muted);
+  display: flex; flex-direction: column;
+}
+.alt-head {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid var(--color-border-default);
+}
+.alt-num {
+  flex: 0 0 22px; height: 22px; border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700; font-family: var(--mono);
+  background: var(--color-background-surface); color: var(--color-text-muted);
+  border: 1px solid var(--color-border-default);
+}
+.alt-title { flex: 1; min-width: 0; }
+.alt-title h3 { margin: 0 0 2px; font-size: 13px; }
+.alt-diagram { padding: 12px 14px; background: var(--color-background-surface); }
+.alt-body { padding: 12px 14px; display: flex; flex-direction: column; gap: 9px; }
+.pc { display: flex; gap: 8px; font-size: 12px; align-items: flex-start; }
+.pc .k {
+  flex: 0 0 46px; font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em;
+  padding-top: 2px;
+}
+.pc.pro .k { color: var(--color-text-success); }
+.pc.con .k { color: var(--color-text-warning); }
+.pc .v { flex: 1; min-width: 0; color: var(--color-text-muted); }
+
+/* ---- flow diagram ---- */
+.flow { display: flex; flex-direction: column; gap: 0; }
+.fstep {
+  display: flex; gap: 12px; align-items: flex-start;
+  border: 1px solid var(--color-border-default);
+  border-radius: 8px; padding: 10px 12px;
+  background: var(--color-background-surface-neutral-muted);
+}
+.fstep .fn {
+  flex: 0 0 20px; height: 20px; border-radius: 5px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--mono); font-size: 10px; font-weight: 700;
+  background: var(--color-background-surface); border: 1px solid var(--color-border-default);
+  color: var(--color-text-muted);
+}
+.fstep .ft { flex: 1; min-width: 0; }
+.fstep .ft b { font-size: 12px; display: block; margin-bottom: 1px; }
+.fstep .ft .mono { color: var(--color-text-muted); word-break: break-all; }
+.farrow {
+  height: 16px; margin-left: 22px;
+  border-left: 2px dashed var(--color-border-overlay);
+  position: relative;
+}
+.farrow span {
+  position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+  font-size: 10px; color: var(--color-text-muted); white-space: nowrap;
+}
+.fstep.owner-oc { border-left: 3px solid var(--color-border-build); }
+.fstep.owner-bff { border-left: 3px solid var(--color-border-plan); }
+.fstep.owner-cl { border-left: 3px solid var(--color-background-action-primary); }
+
+.legend { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 12px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--color-text-muted); }
+.legend i { width: 10px; height: 3px; border-radius: 2px; display: block; }
+
+/* ---- permission derivation diagram ---- */
+.perm { display: grid; grid-template-columns: 1fr auto 1fr; gap: 14px; align-items: center; }
+.perm-col { border: 1px solid var(--color-border-default); border-radius: 8px; padding: 12px; background: var(--color-background-surface-neutral-muted); }
+.perm-col h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-muted); margin-bottom: 9px; }
+.tool {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  font-family: var(--mono); font-size: 11px;
+  border: 1px solid var(--color-border-default); border-radius: 5px;
+  padding: 4px 7px; margin-bottom: 5px;
+  background: var(--color-background-surface);
+}
+.tool:last-child { margin-bottom: 0; }
+.tool.pass { border-color: #14532d; background: var(--color-background-surface-success-muted); color: var(--color-text-success); }
+.tool.deny { border-color: var(--color-border-danger); background: var(--color-background-surface-danger-muted); color: var(--color-text-danger); }
+.tool.star { border-color: var(--color-background-action-primary); box-shadow: 0 0 0 1px rgba(34,197,94,.35); }
+.tool em { font-style: normal; font-size: 9px; letter-spacing: 0.04em; opacity: .85; }
+.perm-op {
+  text-align: center; font-family: var(--mono); font-size: 11px;
+  color: var(--color-text-muted); padding: 0 4px;
+}
+.perm-op b { display: block; color: var(--color-text-default); font-size: 12px; margin-bottom: 3px; }
+
+/* ---- progress ring gallery ---- */
+.rings { display: flex; gap: 14px; flex-wrap: wrap; }
+.ringcard {
+  border: 1px solid var(--color-border-default); border-radius: 10px;
+  background: var(--color-background-surface-neutral-muted);
+  padding: 14px; text-align: center; min-width: 132px; flex: 1;
+}
+.ringcard .lbl { font-size: 11px; color: var(--color-text-muted); margin-top: 8px; }
+.ringcard .sub { font-size: 10px; color: var(--color-text-muted); opacity: .8; }
+
+/* ---- inspector fidelity mock (today) ---- */
+.mock-inspector {
+  border: 1px solid var(--color-border-default); border-radius: 10px;
+  background: var(--color-background-surface); width: 320px; max-width: 100%;
+  padding: 14px; flex: 0 0 auto;
+}
+.mock-tabs { display: flex; gap: 4px; margin-bottom: 14px; }
+.mock-tab {
+  font-size: 11px; padding: 4px 9px; border-radius: 6px;
+  border: 1px solid transparent; color: var(--color-text-muted);
+}
+.mock-tab.on {
+  border-color: var(--color-border-default);
+  background: var(--color-background-surface-neutral-muted);
+  color: var(--color-text-default);
+}
+.mock-h {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px;
+}
+.mock-h h4 { margin: 0; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-muted); font-weight: 500; }
+.mock-bar { height: 6px; border-radius: 3px; background: var(--color-background-surface-neutral-muted); overflow: hidden; margin-bottom: 12px; }
+.mock-bar i { display: block; height: 100%; background: var(--color-text-success); }
+.mock-item {
+  border: 1px solid var(--color-border-default); border-radius: 6px; padding: 10px; margin-bottom: 8px;
+}
+.mock-item .row { display: flex; gap: 8px; align-items: flex-start; }
+.mock-item .box { font-family: var(--mono); font-size: 11px; color: var(--color-text-muted); }
+.mock-item .txt { font-size: 13px; flex: 1; min-width: 0; }
+.mock-item .txt.done { color: var(--color-text-muted); text-decoration: line-through; }
+.mock-item .tags { display: flex; gap: 5px; margin-top: 8px; padding-left: 22px; flex-wrap: wrap; }
+.side-by { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
+
+/* ---- matrix ---- */
+.matrix-wrap { overflow-x: auto; border: 1px solid var(--color-border-default); border-radius: 10px; }
+table.matrix { border-collapse: collapse; width: 100%; font-size: 12px; min-width: 720px; }
+table.matrix th, table.matrix td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--color-border-default); vertical-align: top; }
+table.matrix thead th {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--color-text-muted); font-weight: 500;
+  background: var(--color-background-surface-neutral-muted); white-space: nowrap;
+}
+table.matrix tbody tr:last-child td { border-bottom: 0; }
+table.matrix td.n { font-family: var(--mono); color: var(--color-text-muted); width: 26px; }
+.score { font-family: var(--mono); font-size: 11px; }
+.score.hi { color: var(--color-text-success); }
+.score.mid { color: var(--color-text-warning); }
+.score.lo { color: var(--color-text-danger); }
+tr.pick td { background: rgba(34, 197, 94, 0.09); }
+
+/* ---- mobile ---- */
+@media (max-width: 760px) {
+  .page { padding: 22px 16px 56px; }
+  h1 { font-size: 21px; }
+  .alts { grid-template-columns: 1fr; }
+  .perm { grid-template-columns: 1fr; }
+  .perm-op { padding: 4px 0; }
+  .perm-op b { display: inline; margin-right: 6px; }
+  .side-by { flex-direction: column; }
+  .mock-inspector { width: 100%; }
+  .wf { height: 158px; }
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ===================== HEAD ===================== -->
+  <header class="doc-head">
+    <div class="eyebrow">Design prototype &middot; custom-dca-opencode</div>
+    <h1>Session Todo: placement alternatives and a progress affordance</h1>
+    <p class="muted" style="max-width:74ch">
+      Ten candidate homes for the session todo list, each drawn against the same Conversation-page
+      wireframe so they can be compared like-for-like &mdash; plus the two mechanics that constrain
+      any of them: who may write a todo, and how long the UI takes to notice.
+    </p>
+    <div class="meta">
+      <span class="badge warning">Proposed &middot; not implemented</span>
+      <span class="badge">Snapshot 2026-08-28</span>
+      <span class="badge">Static mockup &middot; no framework</span>
+      <span class="badge info">Tokens from client/theme/tokens.css</span>
+    </div>
+  </header>
+
+  <!-- ===================== 1. TODAY ===================== -->
+  <section class="block">
+    <div class="section-head">
+      <h2>1 &nbsp;What exists today <span class="badge">shipped</span></h2>
+      <p class="muted small">
+        <code>TodoPanel</code> &mdash; <code>client/components/session-inspector.tsx:54&ndash;90</code>
+      </p>
+    </div>
+
+    <div class="side-by">
+      <div class="mock-inspector">
+        <div class="mock-tabs">
+          <span class="mock-tab on">Todo 4</span>
+          <span class="mock-tab">Run log</span>
+          <span class="mock-tab">Subagents</span>
+        </div>
+        <div class="mock-h">
+          <h4>Session todo</h4>
+          <span class="small muted">2/4 done</span>
+        </div>
+        <div class="mock-bar"><i style="width:50%"></i></div>
+
+        <div class="mock-item">
+          <div class="row"><span class="box">[x]</span><span class="txt done">Gather design tokens and workflow rules</span></div>
+          <div class="tags"><span class="badge success">completed</span><span class="badge">low priority</span></div>
+        </div>
+        <div class="mock-item">
+          <div class="row"><span class="box">[x]</span><span class="txt done">Verify Plan-mode allowlist</span></div>
+          <div class="tags"><span class="badge success">completed</span><span class="badge warning">medium priority</span></div>
+        </div>
+        <div class="mock-item">
+          <div class="row"><span class="box">[~]</span><span class="txt">Build static prototype with layout diagrams</span></div>
+          <div class="tags"><span class="badge warning">in progress</span><span class="badge danger">high priority</span></div>
+        </div>
+        <div class="mock-item">
+          <div class="row"><span class="box">[ ]</span><span class="txt">Publish for review and report URLs</span></div>
+          <div class="tags"><span class="badge">pending</span><span class="badge danger">high priority</span></div>
+        </div>
+      </div>
+
+      <div style="flex:1; min-width:280px">
+        <div class="callout key">
+          <h3>Where it lives</h3>
+          <p class="small muted">
+            Desktop &ge;1024px: a fixed <code>w-80</code> (320px) right <code>aside</code>, first of five
+            inspector tabs and the default selection. Below <code>lg</code>: a modal sheet behind an icon,
+            so it is <em>zero-glance</em> &mdash; invisible until deliberately opened.
+          </p>
+        </div>
+        <div class="callout">
+          <h3>The progress affordance today</h3>
+          <p class="small muted">
+            A native <code>&lt;progress&gt;</code> at <code>h-1.5</code> full-width, plus the text
+            <code>{completed}/{total} done</code>, plus a count on the tab label. All three live inside the
+            panel, so none of them is visible while the panel is closed or another tab is selected.
+          </p>
+        </div>
+        <div class="callout warn">
+          <h3>The gap this proposal addresses</h3>
+          <p class="small muted">
+            Progress exists but is <b>co-located with the thing it describes</b>. On mobile the list is behind
+            a tap; on desktop it is behind a tab. A reader watching the transcript has no ambient signal that
+            the plan moved.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top:18px">
+      <div class="card" style="max-width:520px">
+        <div class="tiny muted" style="margin-bottom:9px; text-transform:uppercase; letter-spacing:.06em">Current placement</div>
+        <div class="wf">
+          <div class="wf-top"><span class="wf-dot"></span><span class="wf-dot"></span><span class="cap">Conversation</span></div>
+          <div class="wf-body">
+            <div class="wf-rail"><i></i><i></i><i></i></div>
+            <div class="wf-main">
+              <div class="wf-msg"><i class="w80"></i><i class="w95"></i><i class="w60"></i></div>
+              <div class="wf-msg"><i class="w95"></i><i class="w40"></i></div>
+              <div class="wf-msg"><i class="w60"></i><i class="w80"></i></div>
+            </div>
+            <div class="wf-side hl">
+              <span class="hl-tag" style="top:-1px; right:-1px">TODO TAB</span>
+              <div class="wf-tabs" style="margin-top:10px"><b></b><b></b><b></b></div>
+              <i></i><i></i><i></i><i></i>
+            </div>
+          </div>
+          <div class="wf-composer"><span class="field"></span><span class="send"></span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <!-- ===================== 2. FLOW ===================== -->
+  <section class="block">
+    <div class="section-head">
+      <h2>2 &nbsp;How a todo actually changes</h2>
+      <p class="muted small">
+        Answers &ldquo;why does it sometimes update and sometimes not?&rdquo; &mdash; and bounds how fast any
+        placement below can possibly react.
+      </p>
+    </div>
+
+    <div class="legend">
+      <span><i style="background:var(--color-border-build)"></i> OpenCode server (owns the data)</span>
+      <span><i style="background:var(--color-border-plan)"></i> Express BFF (pure proxy)</span>
+      <span><i style="background:var(--color-background-action-primary)"></i> Browser (read-only)</span>
+    </div>
+
+    <div class="flow">
+      <div class="fstep owner-oc">
+        <span class="fn">1</span>
+        <div class="ft">
+          <b>Agent calls the <code>todowrite</code> tool</b>
+          <div class="small muted">The <em>only</em> way a todo ever changes. No UI control writes one; no BFF route writes one.</div>
+        </div>
+      </div>
+      <div class="farrow"><span>tool executes inside the agent turn</span></div>
+
+      <div class="fstep owner-oc">
+        <span class="fn">2</span>
+        <div class="ft">
+          <b>OpenCode persists it in session state</b>
+          <div class="small muted">Sole store. Nothing is written to <code>.state/</code> and nothing is cached in the BFF.</div>
+        </div>
+      </div>
+      <div class="farrow"><span>emits <code>todo.updated</code></span></div>
+
+      <div class="fstep owner-bff">
+        <span class="fn">3</span>
+        <div class="ft">
+          <b>BFF fans the event out</b>
+          <div class="small mono">server/opencode/events.ts &mdash; <code>UI_EVENT_TYPES</code> includes <code>todo.updated</code></div>
+        </div>
+      </div>
+      <div class="farrow"><span>SSE to the browser</span></div>
+
+      <div class="fstep owner-cl">
+        <span class="fn">4</span>
+        <div class="ft">
+          <b>The client does not read the event payload &mdash; it just polls</b>
+          <div class="small muted">
+            Any session-relevant event calls <code>poll()</code>; a <code>POLL_MS = 3000</code> timer calls it anyway.
+            <b>The event is a nudge, not a delivery.</b>
+          </div>
+        </div>
+      </div>
+      <div class="farrow"><span><code>GET /sessions/:id/todos?directory=…</code></span></div>
+
+      <div class="fstep owner-bff">
+        <span class="fn">5</span>
+        <div class="ft">
+          <b>BFF forwards, unmodified</b>
+          <div class="small mono">server/routes/sessions.ts:439 &rarr; listTodos() &rarr; <code>GET /session/:id/todo</code></div>
+        </div>
+      </div>
+      <div class="farrow"><span>Todo[] &mdash; <code>{ content, status, priority }</code></span></div>
+
+      <div class="fstep owner-cl">
+        <span class="fn">6</span>
+        <div class="ft">
+          <b>React state replaces the whole array</b>
+          <div class="small muted">
+            Fetched inside <code>Promise.allSettled</code> beside messages and permissions, so a todo failure
+            never blanks the transcript.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; margin-top:18px">
+      <div class="callout key">
+        <h3>Why it &ldquo;sometimes doesn't update&rdquo;</h3>
+        <p class="small muted">
+          Almost never a permission problem. Either the agent simply did not call <code>todowrite</code> this
+          turn, or you are inside the <b>&le;3s poll window</b>. Refresh is pull-based, so latency is bounded
+          by the timer, not by the event.
+        </p>
+      </div>
+      <div class="callout warn">
+        <h3>Constraint every placement inherits</h3>
+        <p class="small muted">
+          <code>Todo</code> has <b>no <code>id</code></b> (AGENTS.md). Rows are keyed by index + content, so a
+          reordered list is indistinguishable from an edited one. Any animated ring must tolerate the whole
+          array being swapped, and must not imply per-item identity it cannot prove.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <!-- ===================== 3. PLAN MODE ===================== -->
+  <section class="block">
+    <div class="section-head">
+      <h2>3 &nbsp;Why <span class="badge plan">Plan</span> is allowed to write todos</h2>
+      <p class="muted small">
+        Not an upstream quirk and not an oversight &mdash; a deliberate line in this repository's BFF.
+      </p>
+    </div>
+
+    <p class="small muted" style="max-width:82ch">
+      Plan mode does not enumerate what it permits. It asks OpenCode for the live tool catalogue, subtracts a
+      constant allowlist, and appends <code>deny</code> for <b>everything that remains</b>
+      (<code>server/opencode/sessions.ts:519&ndash;522</code>). <code>todowrite</code> is a member of that
+      allowlist (<code>:32&ndash;42</code>), so it is never in the deny set &mdash; there is no rule to strip it.
+    </p>
+
+    <div class="perm">
+      <div class="perm-col">
+        <h3>Discovered tools <span class="tiny">/experimental/tool/ids</span></h3>
+        <div class="tool">read</div>
+        <div class="tool">grep</div>
+        <div class="tool star">todowrite <em>&#9733;</em></div>
+        <div class="tool">task</div>
+        <div class="tool">bash</div>
+        <div class="tool">edit</div>
+        <div class="tool">write</div>
+      </div>
+
+      <div class="perm-op">
+        <b>filter</b>
+        <div class="mono">!PLAN_TOOL_<br />ALLOWLIST<br />.has(id)</div>
+        <div style="margin-top:8px; font-size:16px">&rarr;</div>
+      </div>
+
+      <div class="perm-col">
+        <h3>Rules appended to the session</h3>
+        <div class="tool pass">read <em>no rule</em></div>
+        <div class="tool pass">grep <em>no rule</em></div>
+        <div class="tool pass star">todowrite <em>no rule</em></div>
+        <div class="tool pass">task <em>no rule</em></div>
+        <div class="tool deny">bash <em>deny *</em></div>
+        <div class="tool deny">edit <em>deny *</em></div>
+        <div class="tool deny">write <em>deny *</em></div>
+      </div>
+    </div>
+
+    <div style="display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; margin-top:18px">
+      <div class="callout key">
+        <h3>The rationale is sound</h3>
+        <p class="small muted">
+          A todo list is a <b>plan artifact</b>, not a mutation of the user's workspace. Denying
+          <code>todowrite</code> would leave Plan mode able to reason about work but unable to record it &mdash;
+          the one thing the mode exists to do. Writes stay blocked; the notebook stays open.
+        </p>
+      </div>
+      <div class="callout info">
+        <h3>Design consequence</h3>
+        <p class="small muted">
+          A todo ring will move during <span class="badge plan">Plan</span> turns, when no file has changed.
+          Any placement that reads as build progress will lie. Wherever it lands it must be legible as
+          <em>plan progress</em>, and should sit near the existing mode pill rather than near diff or file affordances.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <!-- ===================== 4. TEN ALTERNATIVES ===================== -->
+  <section class="block">
+    <div class="section-head">
+      <h2>4 &nbsp;Ten placement alternatives</h2>
+      <p class="muted small">
+        Same wireframe every time. Green marks where the affordance lands: header, rail, side, main, composer, overlay.
+      </p>
+    </div>
+
+    <div class="alts">
+
+      <!-- 1 -->
+      <div class="alt">
+        <div class="alt-head">
+          <span class="alt-num">1</span>
+          <div class="alt-title">
+            <h3>Ring on the inspector tab</h3>
+            <div class="tiny muted">Smallest change. Count badge becomes a ring.</div>
+          </div>
+          <span class="badge success">low cost</span>
+        </div>
+        <div class="alt-diagram">
+          <div class="wf">
+            <div class="wf-top"><span class="wf-dot"></span><span class="wf-dot"></span><span class="cap">Conversation</span></div>
+            <div class="wf-body">
+              <div class="wf-rail"><i></i><i></i><i></i></div>
+              <div class="wf-main">
+                <div class="wf-msg"><i class="w80"></i><i class="w95"></i></div>
+                <div class="wf-msg"><i class="w60"></i></div>
+                <div class="wf-msg"><i class="w95"></i><i class="w40"></i></div>
+              </div>
+              <div class="wf-side">
+                <div class="wf-tabs hl" style="position:relative; padding:2px">
+                  <span class="hl-tag" style="top:-13px; right:-2px">RING</span>
+                  <b></b><b></b><b></b>
+                </div>
+                <i></i><i></i><i></i><i></i>
+              </div>
+            </div>
+            <div class="wf-composer"><span class="field"></span><span class="send"></span></div>
+          </div>
+        </div>
+        <div class="alt-body">
+          <div class="pc pro"><span class="k">for</span><span class="v">One component touched. Ring replaces a number that is already there.</span></div>
+          <div class="pc con"><span class="k">against</span><span class="v">Still invisible on mobile, where the whole inspector is behind a tap. Does not solve the actual gap.</span></div>
+        </div>
+      </div>
+
+      <!-- 2 -->
+      <div class="alt">
+        <div class="alt-head">
+          <span class="alt-num">2</span>
+          <div class="alt-title">
+            <h3>Conversation header, beside the mode pill</h3>
+            <div class="tiny muted">Ring sits next to Plan/Build.</div>
+          </div>
+          <span class="badge success">recommended</span>
+        </div>
+        <div class="alt-diagram">
+          <div class="wf">
+            <div class="wf-top">
+              <span class="wf-dot"></span><span class="wf-dot"></span><span class="cap">Conversation</span>
+              <span style="flex:1"></span>
+              <span class="hl" style="position:relative; width:16px; height:16px; border-radius:50%; display:inline-block">
+                <span class="hl-tag" style="top:-11px; right:-2px">RING</span>
+              </span>
+            </div>
+            <div class="wf-body">
+              <div class="wf-rail"><i></i><i></i><i></i></div>
+              <div class="wf-main">
+                <div class="wf-msg"><i class="w80"></i><i class="w95"></i><i class="w60"></i></div>
+                <div class="wf-msg"><i class="w95"></i><i class="w40"></i></div>
+                <div class="wf-msg"><i class="w60"></i></div>
+              </div>
+              <div class="wf-side"><div class="wf-tabs"><b></b><b></b><b></b></div><i></i><i></i><i></i></div>
+            </div>
+            <div class="wf-composer"><span class="field"></span><span class="send"></span></div>
+          </div>
+        </div>
+        <div class="alt-body">
+          <div class="pc pro"><span class="k">for</span><span class="v">Visible at every width without opening anything. Adjacency to the mode pill reads correctly as <em>plan</em> progress (&sect;3).</span></div>
+          <div class="pc con"><span class="k">against</span><span class="v">Header is finite; needs an audit against the existing title, mode pill and session actions.</span></div>
+        </div>
+      </div>
+
+      <!-- 3 -->
+      <div class="alt">
+        <div class="alt-head">
+          <span class="alt-num">3</span>
+          <div class="alt-title">
+            <h3>Sticky strip under the title</h3>
+            <div class="tiny muted">Full-width band: ring + current item.</div>
+          </div>
+          <span class="badge warning">costs height</span>
+        </div>
+        <div class="alt-diagram">
+          <div class="wf">
+            <div class="wf-top"><span class="wf-dot"></span><span class="wf-dot"></span><span class="cap">Conversation</span></div>
+            <div class="wf-strip" style="position:relative">
+              <span class="hl-tag" style="top:-1px; left:-1px">TODO STRIP</span>
+              <span style="width:9px;height:9px;border-radius:50%;border:2px solid var(--color-background-action-primary);display:inline-block"></span>
+              <span class="pill-mini" style="width:52px"></span>
+            </div>
+            <div class="wf-body">
+              <div class="wf-rail"><i></i><i></i><i></i></div>
+              <div class="wf-main">
+                <div class="wf-msg"><i class="w80"></i><i class="w95"></i></div>
+                <div class="wf-msg"><i class="w60"></i><i class="w40"></i></div>
+              </div>
+              <div class="wf-side"><div class="wf-tabs"><b></b><b></b><b></b></div><i></i><i></i></div>
+            </div>
+            <div class="wf-composer"><span class="field"></span><span class="send"></span></div>
+          </div>
+        </div>
+        <div class="alt-body">
+          <div class="pc pro"><span class="k">for</span><span class="v">Room for the ring <em>and</em> the in-progress item's text &mdash; answers &ldquo;what is it doing now?&rdquo;, not just &ldquo;how far?&rdquo;</span></div>
+          <div class="pc con"><span class="k">against</span><span class="v">Permanent vertical cost on the surface with the least height to spare on a phone.</span></div>
+        </div>
+      </div>
+
+      <!-- 4 -->
+      <div class="alt">
+        <div class="alt-head">
+          <span class="alt-num">4</span>
+          <div class="alt-title">
+            <h3>Composer-adjacent, left of Send</h3>
+            <div class="tiny muted">Where the eye already rests while typing.</div>
+          </div>
+          <span class="badge info">high dwell</span>
+        </div>
+        <div class="alt-diagram">
+          <div class="wf">
+            <div class="wf-top"><span class="wf-dot"></span><span class="wf-dot"></span><span class="cap">Conversation</span></div>
+            <div class="wf-body">
+              <div class="wf-rail"><i></i><i></i><i></i></div>
+              <div class="wf-main">
+                <div class="wf-msg"><i class="w80"></i><i class="w95"></i><i class="w60"></i></div>
+                <div class="wf-msg"><i class="w95"></i><i class="w40"></i></div>
+                <div class="wf-msg"><i class="w60"></i></div>
+              </div>
+              <div class="wf-side"><div class="wf-tabs"><b></b><b></b><b></b></div><i></i><i></i><i></i></div>
+            </div>
+            <div class="wf-composer">
+              <span class="field"></span>
+              <span class="hl" style="position:relative; width:16px; height:16px; border-radius:50%; display:inline-block">
+                <span class="hl-tag" style="top:-12px; right:16px">RING</span>
+              </span>
+              <span class="send"></span>
+            </div>
+          </div>
+        </div>
+        <div class="alt-body">
+          <div class="pc pro"><span class="k">for</span><span class="v">Highest dwell time on the page, and exactly where you decide whether to interrupt the agent.</span></div>
+          <div class="pc con"><span class="k">against</span><span class="v">Crowds the one control that must stay unambiguous. A tap target next to Send risks mis-sends.</span></div>
+        </div>
+      </div>
+
+      <!-- 5 -->
+      <div class="alt">
+        <div class="alt-head">
+          <span class="alt-num">5</span>
+          <div class="alt-title">
+            <h3>Floating dock bubble</h3>
+            <div class="tiny muted">Overlay puck, bottom-right, expands on tap.</div>
+          </div>
+          <span class="badge warning">occludes</span>
+        </div>
+        <div class="alt-diagram">
+          <div class="wf">
+            <div class="wf-float" style="right:84px; bottom:34px">2/4</div>
+            <span class="hl-tag" style="right:78px; bottom:64px">FLOATING</span>
+            <div class="wf-top"><span class="wf-dot"></span><span class="wf-dot"></span><span class="cap">Conversation</span></div>
+            <div class="wf-body">
+              <div class="wf-rail"><i></i><i></i><i></i></div>
+              <div class="wf-main">
+                <div class="wf-msg"><i class="w80"></i><i class="w95"></i><i class="w60"></i></div>
+                <div class="wf-msg"><i class="w95"></i><i class="w40"></i></div>
+                <div class="wf-msg"><i class="w60"></i><i class="w80"></i></div>
+              </div>
+              <div class="wf-side"><div class="wf-tabs"><b></b><b></b><b></b></div><i></i><i></i><i></i></div>
+            </div>
+            <div class="wf-composer"><span class="field"></span><span class="send"></span></div>
+          </div>
+        </div>
+        <div class="alt-body">
+          <div class="pc pro"><span class="k">for</span><span class="v">Costs no layout space and is identical on both widths.</span></div>
+          <div class="pc con"><span class="k">against</span><span class="v">Occludes the transcript's last line &mdash; the newest text, which is the part being read. Adds a z-index tier over drawers and dialogs.</span></div>
+        </div>
+      </div>
+
+      <!-- 6 -->
+      <div class="alt">
+        <div class="alt-head">
+          <span class="alt-num">6</span>
+          <div class="alt-title">
+            <h3>Persistent bottom status bar</h3>
+            <div class="tiny muted">Below the composer, full width.</div>
+          </div>
+          <span class="badge warning">costs height</span>
+        </div>
+        <div class="alt-diagram">
+          <div class="wf">
+            <div class="wf-top"><span class="wf-dot"></span><span class="wf-dot"></span><span class="cap">Conversation</span></div>
+            <div class="wf-body">
+              <div class="wf-rail"><i></i><i></i><i></i></div>
+              <div class="wf-main">
+                <div class="wf-msg"><i class="w80"></i><i class="w95"></i></div>
+                <div class="wf-msg"><i class="w60"></i><i class="w40"></i></div>
+              </div>
+              <div class="wf-side"><div class="wf-tabs"><b></b><b></b><b></b></div><i></i><i></i></div>
+            </div>
+            <div class="wf-composer"><span class="field"></span><span class="send"></span></div>
+            <div class="wf-statusbar" style="position:relative">
+              <span class="hl-tag" style="bottom:-1px; left:-1px">STATUS BAR</span>
+              <span style="width:8px;height:8px;border-radius:50%;border:2px solid var(--color-background-action-primary);display:inline-block"></span>
+              <span class="pill-mini" style="width:44px"></span>
+              <span style="flex:1"></span>
+              <span class="pill-mini" style="width:16px"></span>
+            </div>
+          </div>
+        </div>
+        <div class="alt-body">
+          <div class="pc pro"><span class="k">for</span><span class="v">Never occludes content, and there is room for other ambient state later (mode, connection, running).</span></div>
+          <div class="pc con"><span class="k">against</span><span class="v">Competes with the mobile home indicator and the keyboard accessory bar. Fixed chrome for one number.</span></div>
+        </div>
+      </div>
+
+      <!-- 7 -->
+      <div class="alt">
+        <div class="alt-head">
+          <span class="alt-num">7</span>
+          <div class="alt-title">
+            <h3>Global left rail</h3>
+            <div class="tiny muted">Ring per session, outside the conversation.</div>
+          </div>
+          <span class="badge info">cross-session</span>
+        </div>
+        <div class="alt-diagram">
+          <div class="wf">
+            <div class="wf-top"><span class="wf-dot"></span><span class="wf-dot"></span><span class="cap">Conversation</span></div>
+            <div class="wf-body">
+              <div class="wf-rail hl" style="position:relative">
+                <span class="hl-tag" style="top:-1px; left:-1px">RAIL</span>
+                <i style="margin-top:12px"></i><i></i><i></i><i></i>
+              </div>
+              <div class="wf-main">
+                <div class="wf-msg"><i class="w80"></i><i class="w95"></i><i class="w60"></i></div>
+                <div class="wf-msg"><i class="w95"></i><i class="w40"></i></div>
+                <div class="wf-msg"><i class="w60"></i></div>
+              </div>
+              <div class="wf-side"><div class="wf-tabs"><b></b><b></b><b></b></div><i></i><i></i><i></i></div>
+            </div>
+            <div class="wf-composer"><span class="field"></span><span class="send"></span></div>
+          </div>
+        </div>
+        <div class="alt-body">
+          <div class="pc pro"><span class="k">for</span><span class="v">The only option that shows progress for sessions you are <em>not</em> looking at.</span></div>
+          <div class="pc con"><span class="k">against</span><span class="v">Needs one todo fetch per visible session. Recents are already a capped, concurrency-limited fan-out; this repeats that cost on a 3s timer.</span></div>
+        </div>
+      </div>
+
+      <!-- 8 -->
+      <div class="alt">
+        <div class="alt-head">
+          <span class="alt-num">8</span>
+          <div class="alt-title">
+            <h3>Inline marker in the transcript</h3>
+            <div class="tiny muted">A row where <code>todowrite</code> ran.</div>
+          </div>
+          <span class="badge danger">no evidence</span>
+        </div>
+        <div class="alt-diagram">
+          <div class="wf">
+            <div class="wf-top"><span class="wf-dot"></span><span class="wf-dot"></span><span class="cap">Conversation</span></div>
+            <div class="wf-body">
+              <div class="wf-rail"><i></i><i></i><i></i></div>
+              <div class="wf-main">
+                <div class="wf-msg"><i class="w80"></i><i class="w95"></i></div>
+                <div class="wf-msg hl" style="position:relative">
+                  <span class="hl-tag" style="top:-1px; right:-1px">INLINE</span>
+                  <i class="w40"></i>
+                </div>
+                <div class="wf-msg"><i class="w95"></i><i class="w60"></i></div>
+              </div>
+              <div class="wf-side"><div class="wf-tabs"><b></b><b></b><b></b></div><i></i><i></i><i></i></div>
+            </div>
+            <div class="wf-composer"><span class="field"></span><span class="send"></span></div>
+          </div>
+        </div>
+        <div class="alt-body">
+          <div class="pc pro"><span class="k">for</span><span class="v">Ties plan changes to the moment they happened, which is the one question a ring cannot answer.</span></div>
+          <div class="pc con"><span class="k">against</span><span class="v"><b>Not currently derivable.</b> The list has no <code>id</code> and the fetch returns only current state &mdash; there is no per-turn diff to render. Would need history the API does not expose.</span></div>
+        </div>
+      </div>
+
+      <!-- 9 -->
+      <div class="alt">
+        <div class="alt-head">
+          <span class="alt-num">9</span>
+          <div class="alt-title">
+            <h3>Resizable / pinnable inspector</h3>
+            <div class="tiny muted">Keep the panel; let it stay open beside.</div>
+          </div>
+          <span class="badge warning">desktop only</span>
+        </div>
+        <div class="alt-diagram">
+          <div class="wf">
+            <div class="wf-top"><span class="wf-dot"></span><span class="wf-dot"></span><span class="cap">Conversation</span></div>
+            <div class="wf-body">
+              <div class="wf-rail"><i></i><i></i><i></i></div>
+              <div class="wf-main">
+                <div class="wf-msg"><i class="w80"></i><i class="w60"></i></div>
+                <div class="wf-msg"><i class="w95"></i></div>
+              </div>
+              <div class="wf-side hl" style="flex:0 0 104px; position:relative">
+                <span class="hl-tag" style="top:-1px; right:-1px">WIDER</span>
+                <div class="wf-tabs" style="margin-top:10px"><b></b><b></b><b></b></div>
+                <i></i><i></i><i></i><i></i><i></i>
+              </div>
+            </div>
+            <div class="wf-composer"><span class="field"></span><span class="send"></span></div>
+          </div>
+        </div>
+        <div class="alt-body">
+          <div class="pc pro"><span class="k">for</span><span class="v">Full list and transcript at once, with no new surface invented.</span></div>
+          <div class="pc con"><span class="k">against</span><span class="v">Trades transcript width for it, does nothing below <code>lg</code>, and adds drag state to persist.</span></div>
+        </div>
+      </div>
+
+      <!-- 10 -->
+      <div class="alt">
+        <div class="alt-head">
+          <span class="alt-num">10</span>
+          <div class="alt-title">
+            <h3>Hub / session-list row</h3>
+            <div class="tiny muted">Ring on each card before you open it.</div>
+          </div>
+          <span class="badge info">complementary</span>
+        </div>
+        <div class="alt-diagram">
+          <div class="wf">
+            <div class="wf-top"><span class="wf-dot"></span><span class="wf-dot"></span><span class="cap">Hub &mdash; recent sessions</span></div>
+            <div class="wf-body">
+              <div class="wf-rail"><i></i><i></i><i></i></div>
+              <div class="wf-main" style="gap:6px">
+                <div class="wf-msg" style="display:flex; align-items:center; gap:6px">
+                  <span class="hl" style="width:11px;height:11px;border-radius:50%;flex:0 0 11px"></span>
+                  <span style="flex:1"><i class="w60"></i><i class="w40"></i></span>
+                </div>
+                <div class="wf-msg" style="display:flex; align-items:center; gap:6px; position:relative">
+                  <span class="hl-tag" style="top:-1px; right:-1px">PER ROW</span>
+                  <span class="hl" style="width:11px;height:11px;border-radius:50%;flex:0 0 11px"></span>
+                  <span style="flex:1"><i class="w80"></i><i class="w40"></i></span>
+                </div>
+                <div class="wf-msg" style="display:flex; align-items:center; gap:6px">
+                  <span class="hl" style="width:11px;height:11px;border-radius:50%;flex:0 0 11px"></span>
+                  <span style="flex:1"><i class="w95"></i><i class="w40"></i></span>
+                </div>
+              </div>
+            </div>
+            <div class="wf-composer"><span class="field"></span><span class="send"></span></div>
+          </div>
+        </div>
+        <div class="alt-body">
+          <div class="pc pro"><span class="k">for</span><span class="v">Triage across projects: which session is nearly done, which has barely started.</span></div>
+          <div class="pc con"><span class="k">against</span><span class="v">Same fan-out cost as #7, on a surface explicitly designed to tolerate per-directory failure. A blank ring must not read as &ldquo;no work&rdquo;.</span></div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <!-- ===================== 5. RING SPEC ===================== -->
+  <section class="block">
+    <div class="section-head">
+      <h2>5 &nbsp;The ring itself</h2>
+      <p class="muted small">
+        One 16px SVG, states below. Reused unchanged by whichever placement wins.
+      </p>
+    </div>
+
+    <div class="rings">
+      <div class="ringcard">
+        <svg width="52" height="52" viewBox="0 0 40 40" role="img" aria-label="No todos">
+          <circle cx="20" cy="20" r="16" fill="none" stroke="#2c3038" stroke-width="4" />
+        </svg>
+        <div class="lbl">Empty</div>
+        <div class="sub">no todos &middot; ring hidden</div>
+      </div>
+
+      <div class="ringcard">
+        <svg width="52" height="52" viewBox="0 0 40 40" role="img" aria-label="0 of 4 done">
+          <circle cx="20" cy="20" r="16" fill="none" stroke="#2c3038" stroke-width="4" />
+          <text x="20" y="24" text-anchor="middle" font-size="11" fill="#9aa0a6" font-family="ui-monospace,monospace">0/4</text>
+        </svg>
+        <div class="lbl">Not started</div>
+        <div class="sub">track only</div>
+      </div>
+
+      <div class="ringcard">
+        <svg width="52" height="52" viewBox="0 0 40 40" role="img" aria-label="2 of 4 done">
+          <circle cx="20" cy="20" r="16" fill="none" stroke="#2c3038" stroke-width="4" />
+          <circle cx="20" cy="20" r="16" fill="none" stroke="#22c55e" stroke-width="4" stroke-linecap="round"
+                  stroke-dasharray="50.3 100.5" transform="rotate(-90 20 20)" />
+          <text x="20" y="24" text-anchor="middle" font-size="11" fill="#e8eaed" font-family="ui-monospace,monospace">2/4</text>
+        </svg>
+        <div class="lbl">In progress</div>
+        <div class="sub">50% &middot; success stroke</div>
+      </div>
+
+      <div class="ringcard">
+        <svg width="52" height="52" viewBox="0 0 40 40" role="img" aria-label="3 of 4 done, 1 in progress">
+          <circle cx="20" cy="20" r="16" fill="none" stroke="#2c3038" stroke-width="4" />
+          <circle cx="20" cy="20" r="16" fill="none" stroke="#fcd34d" stroke-width="4"
+                  stroke-dasharray="25.1 75.4" stroke-dashoffset="-75.4" transform="rotate(-90 20 20)" />
+          <circle cx="20" cy="20" r="16" fill="none" stroke="#22c55e" stroke-width="4" stroke-linecap="round"
+                  stroke-dasharray="75.4 25.1" transform="rotate(-90 20 20)" />
+          <text x="20" y="24" text-anchor="middle" font-size="11" fill="#e8eaed" font-family="ui-monospace,monospace">3/4</text>
+        </svg>
+        <div class="lbl">Two-tone</div>
+        <div class="sub">done + in&nbsp;progress arc</div>
+      </div>
+
+      <div class="ringcard">
+        <svg width="52" height="52" viewBox="0 0 40 40" role="img" aria-label="4 of 4 done">
+          <circle cx="20" cy="20" r="16" fill="none" stroke="#22c55e" stroke-width="4" />
+          <path d="M13 20.5l4.6 4.6L27.5 15" fill="none" stroke="#22c55e" stroke-width="3.4"
+                stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+        <div class="lbl">Complete</div>
+        <div class="sub">4/4 &middot; check replaces text</div>
+      </div>
+
+      <div class="ringcard">
+        <svg width="52" height="52" viewBox="0 0 40 40" role="img" aria-label="Todos unavailable">
+          <circle cx="20" cy="20" r="16" fill="none" stroke="#2c3038" stroke-width="4" stroke-dasharray="3 4" />
+          <text x="20" y="24.5" text-anchor="middle" font-size="13" fill="#9aa0a6" font-family="ui-monospace,monospace">?</text>
+        </svg>
+        <div class="lbl">Unavailable</div>
+        <div class="sub">fetch failed &middot; not &ldquo;0 done&rdquo;</div>
+      </div>
+    </div>
+
+    <div class="callout warn" style="margin-top:16px">
+      <h3>Two rules the ring must not break</h3>
+      <p class="small muted">
+        <b>Never render failure as zero.</b> Todos are fetched with <code>Promise.allSettled</code> and may fail
+        while everything else succeeds; an empty green ring would silently claim &ldquo;nothing to do&rdquo;.
+        The dashed <code>?</code> state is mandatory, not decorative.<br /><br />
+        <b>Never animate per item.</b> With no <code>id</code>, a replaced array cannot be diffed into
+        &ldquo;item 3 completed&rdquo;. Animate the <em>aggregate</em> arc between two totals and nothing else.
+      </p>
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <!-- ===================== 6. MATRIX ===================== -->
+  <section class="block">
+    <div class="section-head">
+      <h2>6 &nbsp;Comparison</h2>
+    </div>
+    <div class="matrix-wrap">
+      <table class="matrix">
+        <thead>
+          <tr>
+            <th></th><th>Placement</th><th>Glanceable</th><th>Mobile</th>
+            <th>Layout cost</th><th>Extra fetches</th><th>Build cost</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td class="n">1</td><td>Inspector tab ring</td><td class="score mid">tab only</td><td class="score lo">behind a tap</td><td class="score hi">none</td><td class="score hi">none</td><td class="score hi">XS</td></tr>
+          <tr class="pick"><td class="n">2</td><td><b>Header, beside mode pill</b></td><td class="score hi">always</td><td class="score hi">always</td><td class="score hi">none</td><td class="score hi">none</td><td class="score hi">S</td></tr>
+          <tr><td class="n">3</td><td>Sticky strip under title</td><td class="score hi">always</td><td class="score mid">costs height</td><td class="score lo">~32px</td><td class="score hi">none</td><td class="score mid">M</td></tr>
+          <tr><td class="n">4</td><td>Composer, left of Send</td><td class="score hi">always</td><td class="score hi">always</td><td class="score mid">crowds Send</td><td class="score hi">none</td><td class="score hi">S</td></tr>
+          <tr><td class="n">5</td><td>Floating bubble</td><td class="score hi">always</td><td class="score mid">occludes</td><td class="score mid">overlay</td><td class="score hi">none</td><td class="score mid">M</td></tr>
+          <tr><td class="n">6</td><td>Bottom status bar</td><td class="score hi">always</td><td class="score mid">keyboard clash</td><td class="score lo">~28px</td><td class="score hi">none</td><td class="score mid">M</td></tr>
+          <tr><td class="n">7</td><td>Global left rail</td><td class="score hi">cross-session</td><td class="score lo">rail hidden</td><td class="score mid">rail width</td><td class="score lo">N per poll</td><td class="score lo">L</td></tr>
+          <tr><td class="n">8</td><td>Inline transcript marker</td><td class="score mid">on scroll</td><td class="score hi">inherits</td><td class="score hi">none</td><td class="score lo">needs history</td><td class="score lo">XL &middot; blocked</td></tr>
+          <tr><td class="n">9</td><td>Resizable inspector</td><td class="score mid">when open</td><td class="score lo">none</td><td class="score mid">transcript width</td><td class="score hi">none</td><td class="score mid">M</td></tr>
+          <tr><td class="n">10</td><td>Hub row ring</td><td class="score hi">pre-open</td><td class="score hi">inherits</td><td class="score hi">none</td><td class="score lo">N per poll</td><td class="score mid">M</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <!-- ===================== 7. RECOMMENDATION ===================== -->
+  <section class="block">
+    <div class="section-head">
+      <h2>7 &nbsp;Recommendation</h2>
+    </div>
+    <div style="display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px">
+      <div class="callout key">
+        <h3>Ship #2, keep the panel where it is</h3>
+        <p class="small muted">
+          The complaint is not that the list is in the wrong place &mdash; a 320px panel is the right home for
+          four wrapping rows with two badges each. The complaint is that <b>progress is only visible from
+          inside that panel</b>. Alternative 2 adds an always-visible ring next to the mode pill and leaves
+          <code>TodoPanel</code> untouched: no layout cost, no new fetch, and the adjacency states plainly that
+          this is plan progress, which &sect;3 shows is exactly what it is.
+        </p>
+      </div>
+      <div class="callout info">
+        <h3>Then #10, and only then reconsider #7</h3>
+        <p class="small muted">
+          The Hub ring is the next real gain &mdash; triage before opening a session &mdash; but it inherits the
+          Recents fan-out cost and must render the dashed <code>?</code> rather than an empty ring when a
+          directory fails. <b>#8 is blocked</b>, not merely expensive: without a todo <code>id</code> or any
+          history endpoint there is nothing to anchor an inline marker to. It stays on this page as a
+          documented dead end so it is not re-proposed.
+        </p>
+      </div>
+    </div>
+    <p class="small muted" style="margin-top:18px; border-top:1px solid var(--color-border-default); padding-top:14px">
+      <b>Not decided here:</b> whether the ring is a button. Making it open the inspector tab is one line on
+      desktop and a sheet on mobile, but it turns an ambient indicator into a control and needs its own
+      <code>data-testid</code> and focus treatment. Proposed as a follow-up, not part of the first change.
+    </p>
+  </section>
+
+</div>
+</body>
+</html>
