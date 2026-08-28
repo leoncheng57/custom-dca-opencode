@@ -1,10 +1,22 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { Check, ChevronDown, X } from "lucide-react";
+import { Check, ChevronDown, Circle, GitPullRequest, MessageSquareText, MonitorCheck, Send, Split, X, type LucideIcon } from "lucide-react";
 import { createPortal } from "react-dom";
 
 import type { WorkflowSummary } from "../lib/api.js";
 
 const LISTBOX_ID = "composer-workflow-listbox";
+
+const WORKFLOW_GROUPS: Array<{ label: string; ids: string[] }> = [
+  { label: "Review", ids: ["playwright-ui-review", "pr-snippet-review"] },
+  { label: "Coordinate", ids: ["session-update", "managed-child"] },
+];
+
+const WORKFLOW_ICONS: Record<string, LucideIcon> = {
+  "playwright-ui-review": MonitorCheck,
+  "pr-snippet-review": GitPullRequest,
+  "session-update": MessageSquareText,
+  "managed-child": Split,
+};
 
 /**
  * The composer's Workflows entry point (issue #167). Choosing a workflow only
@@ -29,9 +41,17 @@ export function WorkflowPicker({
   const listRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const attachedWorkflow = catalogue.find((workflow) => workflow.id === attached);
+  const groupedWorkflows = WORKFLOW_GROUPS.map(({ label, ids }) => ({
+    label,
+    workflows: ids.map((id) => catalogue.find((workflow) => workflow.id === id)).filter((workflow): workflow is WorkflowSummary => Boolean(workflow)),
+  })).filter(({ workflows }) => workflows.length > 0);
+  const groupedIDs = new Set(WORKFLOW_GROUPS.flatMap(({ ids }) => ids));
+  const otherWorkflows = catalogue.filter((workflow) => !groupedIDs.has(workflow.id));
+  if (otherWorkflows.length) groupedWorkflows.push({ label: "Other", workflows: otherWorkflows });
+  const visibleWorkflows = groupedWorkflows.flatMap(({ workflows }) => workflows);
   // The detach row only exists while something is attached; a "no workflow"
   // placeholder would suggest workflows are a mode rather than an action.
-  const options: Array<WorkflowSummary | null> = attachedWorkflow ? [null, ...catalogue] : [...catalogue];
+  const options: Array<WorkflowSummary | null> = attachedWorkflow ? [null, ...visibleWorkflows] : [...visibleWorkflows];
 
   useEffect(() => {
     if (!open) return;
@@ -91,6 +111,7 @@ export function WorkflowPicker({
         : "Guided, explicit actions. Choosing one opens a form; nothing is sent or launched until you confirm."}
       value={attached}
     >
+      {attachedWorkflow && <WorkflowIcon workflow={attachedWorkflow} />}
       <span className="min-w-0 flex-1 truncate">{attachedWorkflow?.title ?? "Workflows"}</span>
       <ChevronDown aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
     </button>
@@ -124,11 +145,13 @@ export function WorkflowPicker({
                 </span>
               </button>
             )}
-            {catalogue.map((workflow, index) => {
-              const optionIndex = attachedWorkflow ? index + 1 : index;
-              const isActive = active === optionIndex;
-              const isAttached = attached === workflow.id;
-              return <button
+            {groupedWorkflows.map(({ label, workflows }) => <section key={label} role="group" aria-label={label} className="mb-3 last:mb-0" data-testid="composer-workflow-group">
+              <h3 className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.09em] text-[var(--color-text-muted)]">{label}</h3>
+              {workflows.map((workflow) => {
+                const optionIndex = visibleWorkflows.indexOf(workflow) + (attachedWorkflow ? 1 : 0);
+                const isActive = active === optionIndex;
+                const isAttached = attached === workflow.id;
+                return <button
                 type="button"
                 id={`composer-workflow-option-${workflow.id}`}
                 key={workflow.id}
@@ -141,13 +164,15 @@ export function WorkflowPicker({
                 onMouseMove={() => setActive(optionIndex)}
                 className={`flex min-h-16 w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left ${isActive ? "bg-[var(--color-background-surface-neutral-muted)]" : "hover:bg-[var(--hh-row-hover)]"}`}
               >
+                <WorkflowIcon workflow={workflow} />
                 <span className="min-w-0 flex-1">
                   <span className="truncate text-sm font-medium text-[var(--color-text-default)]">{workflow.title}</span>
                   <span className="mt-0.5 block text-xs leading-5 text-[var(--color-text-muted)]">{workflow.description}</span>
                 </span>
                 {isAttached && <Check aria-hidden="true" className="mt-1 h-4 w-4 shrink-0 text-[var(--color-text-info)]" />}
               </button>;
-            })}
+              })}
+            </section>)}
           </div>
           <p className="shrink-0 border-t border-[var(--color-border-default)] px-4 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] text-[11px] text-[var(--color-text-muted)]" aria-live="polite">Up/Down to navigate - Enter to open the form - Esc to close</p>
         </div>
@@ -155,4 +180,11 @@ export function WorkflowPicker({
       document.body,
     )}
   </div>;
+}
+
+function WorkflowIcon({ workflow }: { workflow: WorkflowSummary }) {
+  const Icon = WORKFLOW_ICONS[workflow.id] ?? Circle;
+  return <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--color-border-default)] bg-[var(--color-background-surface-neutral-muted)] text-[var(--color-text-default)]" title={`${workflow.title} symbol`} data-testid="composer-workflow-icon">
+    <Icon aria-hidden="true" className="h-3.5 w-3.5" />
+  </span>;
 }

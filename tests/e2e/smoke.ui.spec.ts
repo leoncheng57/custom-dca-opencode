@@ -993,22 +993,26 @@ test.describe("composer", () => {
     await expect(picker).toBeVisible();
     await picker.click();
     await expect(page.getByTestId("composer-reminder-search")).toBeFocused();
+    await expect(page.getByTestId("composer-reminder-group")).toHaveCount(5);
+    await expect(page.getByTestId("composer-reminder-group").nth(0)).toHaveAccessibleName("Plan & Design");
+    await expect(page.getByTestId("composer-reminder-option")).toHaveCount(12);
+    await expect(page.getByTestId("composer-reminder-icon")).toHaveCount(12);
     const humanVerification = page.locator('[data-testid="composer-reminder-option"][data-reminder-id="human-verification-steps"]');
     await expect(humanVerification).toContainText("Write Human Verification Steps");
     await expect(humanVerification).toContainText("verifies completed behavior from a user's perspective");
-    await page.getByTestId("composer-reminder-search").fill("Red-Team");
+    await page.getByTestId("composer-reminder-search").fill("Grill");
     await expect(page.getByTestId("composer-reminder-option")).toHaveCount(1);
-    await expect(page.getByTestId("composer-reminder-option")).toContainText("Red-Team This");
+    await expect(page.getByTestId("composer-reminder-option")).toContainText("Grill the Design");
     await page.getByTestId("composer-reminder-search").press("ArrowDown");
     await page.getByTestId("composer-reminder-search").press("Enter");
-    await expect(picker).toHaveAttribute("value", "red-team-this");
+    await expect(picker).toHaveAttribute("value", "grill-me");
     await picker.click();
     await page.getByTestId("composer-reminder-option-none").click();
     await expect(picker).toHaveAttribute("value", "");
     await expect(picker).toBeFocused();
 
     const cases = [
-      { id: "red-team-this", text: `red team ${Date.now()}`, body: "Explicitly switch from author" },
+      { id: "grill-me", text: `grill ${Date.now()}`, body: "Map the plan or design as a decision tree" },
       { id: "human-verification-steps", text: `manual QA ${Date.now()}`, body: "Run the repository's relevant automated checks" },
     ];
     for (const reminderCase of cases) {
@@ -1096,7 +1100,7 @@ test.describe("mobile", () => {
     await reminder.click();
     const panel = page.getByTestId("composer-reminder-panel");
     await expect(panel).toBeVisible();
-    await expect(page.getByTestId("composer-reminder-option").first()).toContainText("Draw an ASCII Diagram");
+    await expect(page.getByTestId("composer-reminder-option").first()).toContainText("Grill the Design");
     const panelBox = await panel.boundingBox();
     expect(panelBox?.width).toBeLessThanOrEqual(390);
     expect(panelBox?.height).toBeLessThanOrEqual(740);

@@ -1,11 +1,34 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { Check, ChevronDown, Search, X } from "lucide-react";
+import { ArrowRightLeft, Bird, BookOpen, Check, ChevronDown, Circle, FileText, GitFork, ListChecks, MessageCircleQuestion, Search, Send, Waves, X, type LucideIcon } from "lucide-react";
 import { createPortal } from "react-dom";
 
 import { Badge } from "../ds/badge.js";
 import type { ReminderSummary } from "../lib/api.js";
 
 const LISTBOX_ID = "composer-reminder-listbox";
+
+const REMINDER_GROUPS: Array<{ label: string; ids: string[] }> = [
+  { label: "Plan & Design", ids: ["grill-me", "build-waves"] },
+  { label: "Research & Evidence", ids: ["deep-research-subagents", "parallel-research-handoff", "cite-file-lines"] },
+  { label: "Delegate & Parallelize", ids: ["background-subagent", "session-handoff", "native-worktree-subagents"] },
+  { label: "Documentation & Delivery", ids: ["docs-and-diagram-tooling", "ascii-diagrams", "human-verification-steps"] },
+  { label: "Examples / Display", ids: ["duck-mode"] },
+];
+
+const REMINDER_ICONS: Record<string, LucideIcon> = {
+  "grill-me": MessageCircleQuestion,
+  "build-waves": Waves,
+  "deep-research-subagents": Search,
+  "parallel-research-handoff": Send,
+  "cite-file-lines": FileText,
+  "background-subagent": Send,
+  "session-handoff": ArrowRightLeft,
+  "native-worktree-subagents": GitFork,
+  "docs-and-diagram-tooling": BookOpen,
+  "ascii-diagrams": FileText,
+  "human-verification-steps": ListChecks,
+  "duck-mode": Bird,
+};
 
 function matches(reminder: ReminderSummary, query: string): boolean {
   const needle = query.trim().toLowerCase();
@@ -28,7 +51,14 @@ export function ReminderPicker({
   const listRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const selected = catalogue.find((reminder) => reminder.id === value);
-  const visible = catalogue.filter((reminder) => matches(reminder, query));
+  const visibleGroups = REMINDER_GROUPS.map(({ label, ids }) => ({
+    label,
+    reminders: ids.map((id) => catalogue.find((reminder) => reminder.id === id)).filter((reminder): reminder is ReminderSummary => Boolean(reminder && matches(reminder, query))),
+  })).filter(({ reminders }) => reminders.length > 0);
+  const groupedIDs = new Set(REMINDER_GROUPS.flatMap(({ ids }) => ids));
+  const otherReminders = catalogue.filter((reminder) => !groupedIDs.has(reminder.id) && matches(reminder, query));
+  if (otherReminders.length) visibleGroups.push({ label: "Other", reminders: otherReminders });
+  const visible = visibleGroups.flatMap(({ reminders }) => reminders);
   const options: Array<ReminderSummary | null> = [null, ...visible];
 
   useEffect(() => {
@@ -93,6 +123,7 @@ export function ReminderPicker({
       title={selected ? `${selected.title}\n\n${selected.description}` : "Attach one reminder to the next message only. Cleared after sending."}
       value={value}
     >
+      {selected && <ReminderIcon reminder={selected} />}
       <span className="min-w-0 flex-1 truncate">{selected?.title ?? "+ reminder"}</span>
       <ChevronDown aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
     </button>
@@ -139,11 +170,13 @@ export function ReminderPicker({
               </span>
               {!value && <Check aria-hidden="true" className="h-4 w-4 shrink-0 text-[var(--color-text-info)]" />}
             </button>
-            {visible.map((reminder, index) => {
-              const optionIndex = index + 1;
-              const isActive = active === optionIndex;
-              const isSelected = value === reminder.id;
-              return <button
+            {visibleGroups.map(({ label, reminders }) => <section key={label} role="group" aria-label={label} className="mb-3 last:mb-0" data-testid="composer-reminder-group">
+              <h3 className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.09em] text-[var(--color-text-muted)]">{label}</h3>
+              {reminders.map((reminder) => {
+                const optionIndex = visible.indexOf(reminder) + 1;
+                const isActive = active === optionIndex;
+                const isSelected = value === reminder.id;
+                return <button
                 type="button"
                 id={`composer-reminder-option-${reminder.id}`}
                 key={reminder.id}
@@ -156,6 +189,7 @@ export function ReminderPicker({
                 onMouseMove={() => setActive(optionIndex)}
                 className={`flex min-h-16 w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left ${isActive ? "bg-[var(--color-background-surface-neutral-muted)]" : "hover:bg-[var(--hh-row-hover)]"}`}
               >
+                <ReminderIcon reminder={reminder} />
                 <span className="min-w-0 flex-1">
                   <span className="flex min-w-0 items-center gap-2">
                     <span className="truncate text-sm font-medium text-[var(--color-text-default)]">{reminder.title}</span>
@@ -165,7 +199,8 @@ export function ReminderPicker({
                 </span>
                 {isSelected && <Check aria-hidden="true" className="mt-1 h-4 w-4 shrink-0 text-[var(--color-text-info)]" />}
               </button>;
-            })}
+              })}
+            </section>)}
             {visible.length === 0 && <p className="px-3 py-10 text-center text-sm text-[var(--color-text-muted)]" data-testid="composer-reminder-empty">No matching reminders</p>}
           </div>
           <p className="shrink-0 border-t border-[var(--color-border-default)] px-4 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] text-[11px] text-[var(--color-text-muted)]" aria-live="polite">One reminder applies to the next message only. Up/Down to navigate - Enter to select - Esc to close</p>
@@ -174,4 +209,11 @@ export function ReminderPicker({
       document.body,
     )}
   </div>;
+}
+
+function ReminderIcon({ reminder }: { reminder: ReminderSummary }) {
+  const Icon = REMINDER_ICONS[reminder.id] ?? Circle;
+  return <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--color-border-default)] bg-[var(--color-background-surface-neutral-muted)] text-[var(--color-text-default)]" title={`${reminder.title} symbol`} data-testid="composer-reminder-icon">
+    <Icon aria-hidden="true" className="h-3.5 w-3.5" />
+  </span>;
 }

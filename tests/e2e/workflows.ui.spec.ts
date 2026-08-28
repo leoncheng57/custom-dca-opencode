@@ -86,6 +86,9 @@ test.describe("workflow picker UI", () => {
     // The chooser offers exactly the initial catalogue, in order.
     const options = page.getByTestId("composer-workflow-option");
     await expect(options).toHaveCount(4);
+    await expect(page.getByTestId("composer-workflow-group")).toHaveCount(2);
+    await expect(page.getByTestId("composer-workflow-group").nth(0)).toHaveAccessibleName("Review");
+    await expect(page.getByTestId("composer-workflow-icon")).toHaveCount(4);
     await expect(options.nth(0)).toContainText("Review a UI change with Playwright");
     await expect(options.nth(1)).toContainText("Post a snippet-by-snippet PR review");
     await expect(options.nth(2)).toContainText("Send an update to another session");
