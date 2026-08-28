@@ -77,6 +77,12 @@ export function notificationRoutes(
       .catch((error: unknown) => res.status(502).json({ error: error instanceof Error ? error.message : String(error) }));
   });
 
+  router.get("/notifications/push-subscriptions", (_req, res) => {
+    pushSubscriptions.summaries()
+      .then((subscriptions) => res.json({ subscriptions }))
+      .catch((error: unknown) => res.status(500).json({ error: error instanceof Error ? error.message : String(error) }));
+  });
+
   router.post("/notifications/push-subscriptions", (req, res) => {
     if (!webPushConfig()) {
       res.status(503).json({ error: "Web Push is not configured" });
@@ -85,6 +91,18 @@ export function notificationRoutes(
     pushSubscriptions.add(req.body)
       .then(() => res.status(204).end())
       .catch((error: unknown) => res.status(400).json({ error: error instanceof Error ? error.message : String(error) }));
+  });
+
+  router.delete("/notifications/push-subscriptions/all", (_req, res) => {
+    pushSubscriptions.removeAll()
+      .then(() => res.status(204).end())
+      .catch((error: unknown) => res.status(500).json({ error: error instanceof Error ? error.message : String(error) }));
+  });
+
+  router.delete("/notifications/push-subscriptions/:id", (req, res) => {
+    pushSubscriptions.removeById(req.params.id)
+      .then(() => res.status(204).end())
+      .catch((error: unknown) => res.status(500).json({ error: error instanceof Error ? error.message : String(error) }));
   });
 
   router.delete("/notifications/push-subscriptions", (req, res) => {

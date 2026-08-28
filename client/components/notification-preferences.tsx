@@ -41,11 +41,28 @@ export function NotificationPreferencesSection() {
   const [webPush, setWebPush] = useState<{ configured: boolean; publicKey: string | null }>({ configured: false, publicKey: null });
   const [pushSubscribed, setPushSubscribed] = useState(false);
   const [pushEndpoint, setPushEndpoint] = useState<string | null>(null);
+  const [pushSubscriptions, setPushSubscriptions] = useState<Array<{ id: string; addedAt: number; label: string }>>([]);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const saving = useRef(false);
   const [savePending, setSavePending] = useState(false);
   const capabilities = notificationCapabilities();
+
+  const loadSubscriptions = async () => {
+    try {
+      const result = await api.listPushSubscriptions();
+      setPushSubscriptions(result.subscriptions);
+      // Get current installation ID to mark "this device"
+      // Note: we can't directly match by installation ID because the server
+      // doesn't return it in summaries (by design, to keep them safe).
+      // For now, we'll just show the list without marking "this device".
+      // A future enhancement could match by checking the current push subscription
+      // endpoint against a server lookup, but that's not required for this feature.
+    } catch (e) {
+      // Don't error out the whole preferences page if listing fails
+      setPushSubscriptions([]);
+    }
+  };
 
   useEffect(() => {
     void api.notifications().then((result) => {
@@ -60,6 +77,7 @@ export function NotificationPreferencesSection() {
         setPushSubscribed(false);
         setPushEndpoint(null);
       });
+      void loadSubscriptions();
     }).catch((e: Error) => setError(e.message));
   }, []);
 
@@ -128,6 +146,29 @@ export function NotificationPreferencesSection() {
     }
     notifyBrowser(preferences, "idle", "OpenCode notification test", undefined, devicePreferences);
     setMessage("Browser test triggered");
+  };
+
+  const removeSubscription = async (id: string) => {
+    try {
+      await api.removePushSubscriptionById(id);
+      await loadSubscriptions();
+      setMessage("Subscription removed");
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  const removeAllSubscriptions = async () => {
+    const count = pushSubscriptions.length;
+    if (count === 0) return;
+    if (!window.confirm(`Remove all ${count} registered device${count === 1 ? "" : "s"}? You can re-subscribe later.`)) return;
+    try {
+      await api.removeAllPushSubscriptions();
+      await loadSubscriptions();
+      setMessage("All subscriptions removed");
+    } catch (e) {
+      setError((e as Error).message);
+    }
   };
 
   return (
@@ -226,6 +267,56 @@ export function NotificationPreferencesSection() {
               </div>
             </fieldset>
           </section>
+
+          {webPush.configured && (
+            <section className="space-y-3 rounded-lg border border-[var(--color-border-default)] p-4" data-testid="opencode-registered-devices">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <h3 className="font-semibold">Registered devices</h3>
+                  <p className="text-xs text-[var(--color-text-muted)]">
+                    Devices subscribed to receive PWA push notifications. Each reinstall creates a new entry.
+                  </p>
+                </div>
+                {pushSubscriptions.length > 0 && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => void removeAllSubscriptions()}
+                    data-testid="opencode-remove-all-subscriptions"
+                  >
+                    Remove all ({pushSubscriptions.length})
+                  </Button>
+                )}
+              </div>
+              {pushSubscriptions.length === 0 ? (
+                <p className="text-sm text-[var(--color-text-muted)]" data-testid="opencode-no-subscriptions">
+                  No devices are currently registered.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {pushSubscriptions.map((subscription) => (
+                    <div
+                      key={subscription.id}
+                      className="flex items-center justify-between gap-3 rounded-md border border-[var(--color-border-default)] p-3"
+                      data-testid={`opencode-subscription-${subscription.id}`}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <span className="text-sm">{subscription.label}</span>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => void removeSubscription(subscription.id)}
+                        data-testid={`opencode-remove-subscription-${subscription.id}`}
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
 
           <section
             className="space-y-3 rounded-lg border border-[var(--color-border-default)] p-4"

@@ -1,4 +1,5 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import webpush from "web-push";
 
@@ -7,11 +8,17 @@ import type { NotificationMessage } from "./ntfy.js";
 export interface PushSubscriptionRecord {
   endpoint: string;
   keys: { p256dh: string; auth: string };
+  installationId?: string;
+}
+
+interface StoredPushSubscriptionRecord extends PushSubscriptionRecord {
+  id: string;
+  addedAt: number;
 }
 
 interface StoredSubscriptions {
   version: 1;
-  subscriptions: PushSubscriptionRecord[];
+  subscriptions: StoredPushSubscriptionRecord[];
 }
 
 export const MAX_PUSH_SUBSCRIPTIONS = 32;
@@ -38,7 +45,13 @@ function validSubscription(value: unknown): PushSubscriptionRecord | null {
     || !trustedPushEndpoint(source.endpoint)
     || !keys || typeof keys.p256dh !== "string" || keys.p256dh.length > 512
     || typeof keys.auth !== "string" || keys.auth.length > 512) return null;
-  return { endpoint: source.endpoint, keys: { p256dh: keys.p256dh, auth: keys.auth } };
+  const installationId = source.installationId;
+  if (installationId !== undefined && (typeof installationId !== "string" || installationId.length > 256)) return null;
+  return {
+    endpoint: source.endpoint,
+    keys: { p256dh: keys.p256dh, auth: keys.auth },
+    ...(installationId !== undefined ? { installationId } : {}),
+  };
 }
 
 export class PushSubscriptionStore {
@@ -47,14 +60,30 @@ export class PushSubscriptionStore {
   constructor(readonly file = process.env.WEB_PUSH_SUBSCRIPTIONS_FILE || path.resolve(process.cwd(), ".state/web-push-subscriptions.json")) {}
 
   async list(): Promise<PushSubscriptionRecord[]> {
+    const stored = await this.listStored();
+    return stored.map(({ endpoint, keys, installationId }) => ({
+      endpoint,
+      keys,
+      ...(installationId !== undefined ? { installationId } : {}),
+    }));
+  }
+
+  private async listStored(): Promise<StoredPushSubscriptionRecord[]> {
     try {
       const parsed = JSON.parse(await readFile(this.file, "utf8")) as StoredSubscriptions;
       if (parsed.version !== 1 || !Array.isArray(parsed.subscriptions) || parsed.subscriptions.length > MAX_PUSH_SUBSCRIPTIONS) {
         throw new Error("invalid Web Push subscription store");
       }
-      const subscriptions = parsed.subscriptions.map(validSubscription);
+      const subscriptions = parsed.subscriptions.map((item) => {
+        const valid = validSubscription(item);
+        if (!valid) return null;
+        // Backward compatibility: stored records might lack id/addedAt
+        const id = typeof item.id === "string" ? item.id : randomUUID();
+        const addedAt = typeof item.addedAt === "number" ? item.addedAt : Date.now();
+        return { ...valid, id, addedAt };
+      });
       if (subscriptions.some((item) => item === null)) throw new Error("invalid Web Push subscription store");
-      return subscriptions as PushSubscriptionRecord[];
+      return subscriptions as StoredPushSubscriptionRecord[];
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
       throw error;
@@ -65,18 +94,65 @@ export class PushSubscriptionStore {
     const subscription = validSubscription(value);
     if (!subscription) throw new Error("invalid push subscription");
     await this.queue(async () => {
-      const subscriptions = (await this.list()).filter((item) => item.endpoint !== subscription.endpoint);
-      subscriptions.push(subscription);
-      if (subscriptions.length > MAX_PUSH_SUBSCRIPTIONS) throw new Error(`at most ${MAX_PUSH_SUBSCRIPTIONS} push subscriptions are allowed`);
-      await this.write(subscriptions);
+      let subscriptions = await this.listStored();
+      
+      // If the incoming subscription has an installationId, replace any existing
+      // record with the same installationId (updating endpoint/keys/addedAt but keeping the same id)
+      if (subscription.installationId) {
+        const existingIndex = subscriptions.findIndex((item) => item.installationId === subscription.installationId);
+        if (existingIndex !== -1) {
+          const existing = subscriptions[existingIndex];
+          subscriptions[existingIndex] = {
+            ...subscription,
+            id: existing.id,
+            addedAt: Date.now(),
+          };
+          await this.writeStored(subscriptions);
+          return;
+        }
+      }
+      
+      // Fall back to endpoint-based deduplication (old behavior)
+      subscriptions = subscriptions.filter((item) => item.endpoint !== subscription.endpoint);
+      subscriptions.push({
+        ...subscription,
+        id: randomUUID(),
+        addedAt: Date.now(),
+      });
+      
+      if (subscriptions.length > MAX_PUSH_SUBSCRIPTIONS) {
+        throw new Error(`at most ${MAX_PUSH_SUBSCRIPTIONS} push subscriptions are allowed`);
+      }
+      await this.writeStored(subscriptions);
     });
   }
 
   async remove(endpoint: string, expectedKeys?: PushSubscriptionRecord["keys"]): Promise<void> {
     await this.queue(async () => {
-      await this.write((await this.list()).filter((item) => item.endpoint !== endpoint
+      await this.writeStored((await this.listStored()).filter((item) => item.endpoint !== endpoint
         || (expectedKeys !== undefined && (item.keys.p256dh !== expectedKeys.p256dh || item.keys.auth !== expectedKeys.auth))));
     });
+  }
+
+  async removeById(id: string): Promise<void> {
+    await this.queue(async () => {
+      await this.writeStored((await this.listStored()).filter((item) => item.id !== id));
+    });
+  }
+
+  async removeAll(): Promise<void> {
+    await this.queue(async () => {
+      await this.writeStored([]);
+    });
+  }
+
+  async summaries(): Promise<Array<{ id: string; addedAt: number; label: string }>> {
+    const stored = await this.listStored();
+    return stored.map((item) => ({
+      id: item.id,
+      addedAt: item.addedAt,
+      label: `Registered ${new Date(item.addedAt).toISOString()}`,
+    }));
   }
 
   private async queue(operation: () => Promise<void>): Promise<void> {
@@ -85,7 +161,7 @@ export class PushSubscriptionStore {
     await result;
   }
 
-  private async write(subscriptions: PushSubscriptionRecord[]): Promise<void> {
+  private async writeStored(subscriptions: StoredPushSubscriptionRecord[]): Promise<void> {
     await mkdir(path.dirname(this.file), { recursive: true });
     const temporary = `${this.file}.${process.pid}.tmp`;
     await writeFile(temporary, `${JSON.stringify({ version: 1, subscriptions }, null, 2)}\n`, { mode: 0o600 });
