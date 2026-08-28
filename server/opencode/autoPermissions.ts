@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { correlationId, logAuditEvent } from "../notifications/audit.js";
 import { OpencodeError, type OpencodeConfig } from "./client.js";
 import type { EventBus, OpencodeEvent } from "./events.js";
 import { listPermissions, parsePermissionRequest, replyPermission, type PermissionRequest } from "./permissions.js";
@@ -233,9 +234,17 @@ export class AutoPermissionService {
       // already-loaded state alone rather than guessing at intent.
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
         this.lastFileMtimeMs = null;
+        logAuditEvent("auto_approval_restore_completed", {
+          restoredCount: 0,
+          outcome: "file_not_found",
+        });
         return;
       }
       console.warn("[auto-permission]", `Could not stat state file: ${this.message(error)}`);
+      logAuditEvent("auto_approval_restore_completed", {
+        restoredCount: 0,
+        outcome: "stat_error",
+      });
       return;
     }
     if (this.lastFileMtimeMs !== null && fileStat.mtimeMs === this.lastFileMtimeMs) return;
@@ -254,6 +263,10 @@ export class AutoPermissionService {
       // corrupt instruction list; the next content change is still picked up
       // once the mtime moves again.
       console.warn("[auto-permission]", `Could not restore state: ${this.message(error)}`);
+      logAuditEvent("auto_approval_restore_completed", {
+        restoredCount: 0,
+        outcome: "parse_error",
+      });
       return;
     }
 
@@ -281,6 +294,11 @@ export class AutoPermissionService {
         state.generation += 1;
       }
     }
+
+    logAuditEvent("auto_approval_restore_completed", {
+      restoredCount: enabled.length,
+      outcome: "success",
+    });
   }
 
   private persist(): Promise<void> {
@@ -353,10 +371,27 @@ export class AutoPermissionService {
     await this.reconcileFromFile().catch(() => undefined);
     const pending = parsePermissionRequest(event.properties);
     const state = this.states.get(directory);
+    const sessionID = typeof event.properties.sessionID === "string" ? event.properties.sessionID : undefined;
+
+    logAuditEvent("permission_asked_observed", {
+      directoryCorrelation: correlationId(directory),
+      sessionCorrelation: correlationId(sessionID),
+      requestCorrelation: correlationId(pending?.id),
+      autoApprovalEnabled: state?.enabled ?? false,
+    });
+
     if (!pending || !state?.enabled) return;
     const generation = state.generation;
     await this.enqueue(directory, async (current) => {
-      if (!current.enabled || current.generation !== generation || current.completed.has(pending.id)) return;
+      if (!current.enabled || current.generation !== generation) return;
+      if (current.completed.has(pending.id)) {
+        logAuditEvent("auto_approval_reply", {
+          directoryCorrelation: correlationId(directory),
+          requestCorrelation: correlationId(pending.id),
+          outcome: "already_handled",
+        });
+        return;
+      }
       await this.approve(directory, current, pending);
     });
   }
@@ -408,13 +443,28 @@ export class AutoPermissionService {
       await replyPermission(this.config, directory, pending.id, "once");
       state.failures.delete(pending.id);
       this.complete(state, pending.id);
+      logAuditEvent("auto_approval_reply", {
+        directoryCorrelation: correlationId(directory),
+        requestCorrelation: correlationId(pending.id),
+        outcome: "approved",
+      });
     } catch (error) {
       if (error instanceof OpencodeError && error.status === 404) {
         state.failures.delete(pending.id);
         this.complete(state, pending.id);
+        logAuditEvent("auto_approval_reply", {
+          directoryCorrelation: correlationId(directory),
+          requestCorrelation: correlationId(pending.id),
+          outcome: "not_found",
+        });
         return;
       }
       state.failures.set(pending.id, `Could not auto-approve ${pending.permission}: ${this.message(error)}`);
+      logAuditEvent("auto_approval_reply", {
+        directoryCorrelation: correlationId(directory),
+        requestCorrelation: correlationId(pending.id),
+        outcome: "error",
+      });
     }
   }
 
