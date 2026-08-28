@@ -172,12 +172,12 @@ export function ReminderPicker({
             </button>
             {visibleGroups.map(({ label, reminders }) => <section key={label} role="group" aria-label={label} className="mb-4 last:mb-0" data-testid="composer-reminder-group">
               <h3 className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.09em] text-[var(--color-text-muted)]">{label}</h3>
-              <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {reminders.map((reminder) => {
                 const optionIndex = visible.indexOf(reminder) + 1;
                 const isActive = active === optionIndex;
                 const isSelected = value === reminder.id;
-                return <div key={reminder.id} className="min-w-0">
+                return <div key={reminder.id} className={`relative flex min-h-14 min-w-0 overflow-hidden rounded-lg border ${isActive ? "border-[var(--color-border-focus)] bg-[var(--color-background-surface-neutral-muted)]" : "border-[var(--color-border-default)] hover:bg-[var(--hh-row-hover)]"}`} data-testid="composer-reminder-tile">
                   <button
                 type="button"
                 id={`composer-reminder-option-${reminder.id}`}
@@ -190,15 +190,15 @@ export function ReminderPicker({
                 data-testid="composer-reminder-option"
                 onClick={() => choose(reminder)}
                 onMouseMove={() => setActive(optionIndex)}
-                className={`relative flex aspect-square w-full flex-col items-center justify-center gap-2 rounded-lg border px-3 py-2 text-center ${isActive ? "border-[var(--color-border-focus)] bg-[var(--color-background-surface-neutral-muted)]" : "border-[var(--color-border-default)] hover:bg-[var(--hh-row-hover)]"}`}
+                className="flex min-h-14 w-11 shrink-0 items-center justify-center border-r border-[var(--color-border-default)]"
               >
                 <ReminderIcon reminder={reminder} />
-                {isSelected && <Check aria-hidden="true" className="absolute right-2 top-2 h-4 w-4 text-[var(--color-text-info)]" />}
                   </button>
-                  <Link to={`/playbooks/skills/${reminder.id}`} target="_blank" rel="noreferrer" className="mt-1 flex items-start gap-1 text-xs font-medium leading-4 text-[var(--color-text-link)] hover:underline" data-testid="composer-reminder-details" aria-label={`Open ${reminder.title} details in a new tab`}>
+                  <Link to={`/playbooks/skills/${reminder.id}`} target="_blank" rel="noreferrer" className="flex min-w-0 flex-1 items-center gap-1 px-2 text-left text-xs font-medium leading-4 text-[var(--color-text-link)] hover:underline" data-testid="composer-reminder-details" aria-label={`Open ${reminder.title} details in a new tab`}>
                     <span className="line-clamp-2">{reminder.title}</span>
-                    <ExternalLink aria-hidden="true" className="mt-0.5 h-3 w-3 shrink-0" />
+                    <ExternalLink aria-hidden="true" className="h-3 w-3 shrink-0" />
                   </Link>
+                {isSelected && <Check aria-hidden="true" className="pointer-events-none absolute right-1 top-1 h-3.5 w-3.5 text-[var(--color-text-info)]" />}
                 </div>;
               })}
               </div>

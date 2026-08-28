@@ -1104,7 +1104,11 @@ test.describe("mobile", () => {
     await expect(panel).toBeVisible();
     await expect(page.getByTestId("composer-reminder-option").first()).toHaveAccessibleName("Attach Grill the Design");
     await expect(page.getByTestId("composer-reminder-details").first()).toContainText("Grill the Design");
-    expect(await page.getByTestId("composer-reminder-group").first().locator("div.grid").evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length)).toBe(3);
+    const firstGrid = page.getByTestId("composer-reminder-group").first().locator("div.grid");
+    expect(await firstGrid.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length)).toBe(2);
+    const firstTile = page.getByTestId("composer-reminder-tile").first();
+    const tileBox = await firstTile.boundingBox();
+    expect(tileBox?.width).toBeGreaterThan((tileBox?.height ?? 0) * 2);
     const panelBox = await panel.boundingBox();
     expect(panelBox?.width).toBeLessThanOrEqual(390);
     expect(panelBox?.height).toBeLessThanOrEqual(740);
