@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { ArrowRightLeft, Bird, BookOpen, Check, ChevronDown, Circle, FileText, GitFork, ListChecks, MessageCircleQuestion, Search, Send, Waves, X, type LucideIcon } from "lucide-react";
+import { ArrowRightLeft, Bird, BookOpen, Check, ChevronDown, Circle, ExternalLink, FileText, GitFork, ListChecks, MessageCircleQuestion, Search, Send, Waves, X, type LucideIcon } from "lucide-react";
 import { createPortal } from "react-dom";
+import { Link } from "react-router-dom";
 
-import { Badge } from "../ds/badge.js";
 import type { ReminderSummary } from "../lib/api.js";
 
 const LISTBOX_ID = "composer-reminder-listbox";
@@ -170,36 +170,38 @@ export function ReminderPicker({
               </span>
               {!value && <Check aria-hidden="true" className="h-4 w-4 shrink-0 text-[var(--color-text-info)]" />}
             </button>
-            {visibleGroups.map(({ label, reminders }) => <section key={label} role="group" aria-label={label} className="mb-3 last:mb-0" data-testid="composer-reminder-group">
+            {visibleGroups.map(({ label, reminders }) => <section key={label} role="group" aria-label={label} className="mb-4 last:mb-0" data-testid="composer-reminder-group">
               <h3 className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.09em] text-[var(--color-text-muted)]">{label}</h3>
-              {reminders.map((reminder) => {
+              <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                {reminders.map((reminder) => {
                 const optionIndex = visible.indexOf(reminder) + 1;
                 const isActive = active === optionIndex;
                 const isSelected = value === reminder.id;
-                return <button
+                return <div key={reminder.id} className="min-w-0">
+                  <button
                 type="button"
                 id={`composer-reminder-option-${reminder.id}`}
-                key={reminder.id}
                 role="option"
                 aria-selected={isSelected}
+                aria-label={`Attach ${reminder.title}`}
+                aria-description={reminder.description}
                 data-active={isActive}
                 data-reminder-id={reminder.id}
                 data-testid="composer-reminder-option"
                 onClick={() => choose(reminder)}
                 onMouseMove={() => setActive(optionIndex)}
-                className={`flex min-h-16 w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left ${isActive ? "bg-[var(--color-background-surface-neutral-muted)]" : "hover:bg-[var(--hh-row-hover)]"}`}
+                className={`relative flex aspect-square w-full flex-col items-center justify-center gap-2 rounded-lg border px-3 py-2 text-center ${isActive ? "border-[var(--color-border-focus)] bg-[var(--color-background-surface-neutral-muted)]" : "border-[var(--color-border-default)] hover:bg-[var(--hh-row-hover)]"}`}
               >
                 <ReminderIcon reminder={reminder} />
-                <span className="min-w-0 flex-1">
-                  <span className="flex min-w-0 items-center gap-2">
-                    <span className="truncate text-sm font-medium text-[var(--color-text-default)]">{reminder.title}</span>
-                    {reminder.triggers.length > 0 && <Badge variant="warning" className="shrink-0 px-1.5 py-0 text-[9px]">Triggers ignored</Badge>}
-                  </span>
-                  <span className="mt-0.5 block max-h-10 overflow-hidden text-xs leading-5 text-[var(--color-text-muted)]" title={reminder.description}>{reminder.description}</span>
-                </span>
-                {isSelected && <Check aria-hidden="true" className="mt-1 h-4 w-4 shrink-0 text-[var(--color-text-info)]" />}
-              </button>;
+                {isSelected && <Check aria-hidden="true" className="absolute right-2 top-2 h-4 w-4 text-[var(--color-text-info)]" />}
+                  </button>
+                  <Link to={`/playbooks/skills/${reminder.id}`} target="_blank" rel="noreferrer" className="mt-1 flex items-start gap-1 text-xs font-medium leading-4 text-[var(--color-text-link)] hover:underline" data-testid="composer-reminder-details" aria-label={`Open ${reminder.title} details in a new tab`}>
+                    <span className="line-clamp-2">{reminder.title}</span>
+                    <ExternalLink aria-hidden="true" className="mt-0.5 h-3 w-3 shrink-0" />
+                  </Link>
+                </div>;
               })}
+              </div>
             </section>)}
             {visible.length === 0 && <p className="px-3 py-10 text-center text-sm text-[var(--color-text-muted)]" data-testid="composer-reminder-empty">No matching reminders</p>}
           </div>

@@ -998,11 +998,13 @@ test.describe("composer", () => {
     await expect(page.getByTestId("composer-reminder-option")).toHaveCount(12);
     await expect(page.getByTestId("composer-reminder-icon")).toHaveCount(12);
     const humanVerification = page.locator('[data-testid="composer-reminder-option"][data-reminder-id="human-verification-steps"]');
-    await expect(humanVerification).toContainText("Write Human Verification Steps");
-    await expect(humanVerification).toContainText("verifies completed behavior from a user's perspective");
+    await expect(humanVerification).toHaveAccessibleName("Attach Write Human Verification Steps");
+    const details = page.locator('[data-testid="composer-reminder-details"]').filter({ hasText: "Write Human Verification Steps" });
+    await expect(details).toHaveAttribute("href", "/playbooks/skills/human-verification-steps");
+    await expect(details).toHaveAttribute("target", "_blank");
     await page.getByTestId("composer-reminder-search").fill("Grill");
     await expect(page.getByTestId("composer-reminder-option")).toHaveCount(1);
-    await expect(page.getByTestId("composer-reminder-option")).toContainText("Grill the Design");
+    await expect(page.getByTestId("composer-reminder-details")).toContainText("Grill the Design");
     await page.getByTestId("composer-reminder-search").press("ArrowDown");
     await page.getByTestId("composer-reminder-search").press("Enter");
     await expect(picker).toHaveAttribute("value", "grill-me");
@@ -1100,7 +1102,9 @@ test.describe("mobile", () => {
     await reminder.click();
     const panel = page.getByTestId("composer-reminder-panel");
     await expect(panel).toBeVisible();
-    await expect(page.getByTestId("composer-reminder-option").first()).toContainText("Grill the Design");
+    await expect(page.getByTestId("composer-reminder-option").first()).toHaveAccessibleName("Attach Grill the Design");
+    await expect(page.getByTestId("composer-reminder-details").first()).toContainText("Grill the Design");
+    expect(await page.getByTestId("composer-reminder-group").first().locator("div.grid").evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length)).toBe(3);
     const panelBox = await panel.boundingBox();
     expect(panelBox?.width).toBeLessThanOrEqual(390);
     expect(panelBox?.height).toBeLessThanOrEqual(740);
