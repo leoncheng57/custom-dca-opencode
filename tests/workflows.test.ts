@@ -4,6 +4,7 @@ import {
   buildPlaywrightReviewPrompt,
   buildPrSnippetReviewPrompt,
   captureScopeLabel,
+  DESIGN_DOC_PROTOTYPE_WORKFLOW_ID,
   MANAGED_CHILD_WORKFLOW_ID,
   PLAYWRIGHT_CAPTURE_SCOPES,
   PLAYWRIGHT_REVIEW_WORKFLOW_ID,
@@ -28,6 +29,7 @@ describe("workflow catalogue", () => {
       PR_SNIPPET_REVIEW_WORKFLOW_ID,
       SESSION_UPDATE_WORKFLOW_ID,
       MANAGED_CHILD_WORKFLOW_ID,
+      DESIGN_DOC_PROTOTYPE_WORKFLOW_ID,
     ]);
   });
 
