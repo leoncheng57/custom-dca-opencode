@@ -26,7 +26,10 @@ import type { OpencodeConfig } from "../opencode/client.js";
 
 /** Upper bound on directories fanned out to, after dedupe. */
 export const RECENT_DIRECTORY_LIMIT = 40;
-export const RECENT_SESSION_LIMIT = 5;
+// Raised from 5 to 25 (issue #44): the client cap in recentSessions.ts moved in lockstep,
+// and both panels needed room to actually show that many rows rather than being capped
+// here before the client ever sees them.
+export const RECENT_SESSION_LIMIT = 25;
 /** Match the full Hub list so an older parent can still contextualize a recent child. */
 export const RECENT_SESSION_CONTEXT_LIMIT = 100;
 /** Upper bound on ids the client may ask to have resolved by name. */

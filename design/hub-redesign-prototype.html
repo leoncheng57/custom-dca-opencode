@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Hub redesign prototype (static mockup — not wired to the app)</title>
+<style>
+  :root {
+    --color-background-surface: #ffffff;
+    --color-background-surface-neutral-muted: #f3f4f6;
+    --color-background-surface-info-muted: #eff6ff;
+    --color-background-surface-warning-muted: #fffbeb;
+    --color-background-surface-danger-muted: #fef2f2;
+    --color-background-action-primary: #16a34a;
+    --color-background-action-ghost-hover: #f3f4f6;
+    --color-text-default: #111827;
+    --color-text-muted: #6b7280;
+    --color-text-info: #1d4ed8;
+    --color-text-warning: #b45309;
+    --color-text-danger: #b91c1c;
+    --color-border-default: #e5e7eb;
+    --hh-row-hover: #f9fafb;
+    --border-radius-12: 0.75rem;
+    --border-radius-8: 0.5rem;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--color-background-surface);
+    color: var(--color-text-default);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size: 14px;
+  }
+  main {
+    max-width: 56rem;
+    margin: 0 auto;
+    padding: 1rem 1.5rem 3rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.1rem;
+  }
+  header.page-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 0.75rem;
+    padding-top: 0.5rem;
+  }
+  h1 { font-size: 1.5rem; font-weight: 800; margin: 0; letter-spacing: -0.01em; }
+  .sub { margin: 0.25rem 0 0; color: var(--color-text-muted); }
+  .beta {
+    margin-left: auto;
+    display: inline-flex; align-items: center; gap: 0.5rem;
+    font-size: 0.75rem; color: var(--color-text-muted);
+  }
+  .badge-beta {
+    background: var(--color-background-surface-info-muted);
+    color: var(--color-text-info);
+    padding: 0.15rem 0.5rem; border-radius: 999px; font-weight: 700; font-size: 0.65rem;
+    letter-spacing: 0.04em;
+  }
+
+  section.card {
+    border: 1px solid var(--color-border-default);
+    border-radius: var(--border-radius-12);
+  }
+  .card-head {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.6rem 1rem;
+    border-bottom: 1px solid var(--color-border-default);
+    font-weight: 700; font-size: 0.85rem;
+  }
+  .card-head .count {
+    font-weight: 500; color: var(--color-text-muted); font-size: 0.75rem;
+  }
+
+  /* Needs attention */
+  .attention {
+    border-color: #fbbf24;
+    background: var(--color-background-surface-warning-muted);
+  }
+  .attention .card-head { border-bottom-color: #fbbf24; color: var(--color-text-warning); }
+  .attention-row {
+    display: flex; align-items: center; gap: 0.6rem;
+    padding: 0.55rem 1rem;
+    border-bottom: 1px solid #fde68a;
+    font-size: 0.85rem;
+  }
+  .attention-row:last-child { border-bottom: none; }
+  .attention-row .proj { margin-left: auto; color: var(--color-text-muted); font-size: 0.72rem; }
+  .attention-link { color: var(--color-text-info); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
+
+  .pill {
+    display: inline-flex; align-items: center; border-radius: 999px;
+    padding: 0.1rem 0.5rem; font-size: 0.68rem; font-weight: 600; flex-shrink: 0;
+  }
+  .pill-running { background: var(--color-background-surface-info-muted); color: var(--color-text-info); }
+  .pill-idle { background: var(--color-background-surface-neutral-muted); color: var(--color-text-muted); }
+  .pill-notify { background: var(--color-background-surface-danger-muted); color: var(--color-text-danger); }
+
+  /* Recents */
+  .recents-grid {
+    display: grid; grid-template-columns: 1fr 1fr; overflow: hidden; border-radius: var(--border-radius-12);
+    border: 1px solid var(--color-border-default);
+  }
+  .recents-col { min-width: 0; }
+  .recents-col + .recents-col { border-left: 1px solid var(--color-border-default); }
+  .recents-scroll {
+    max-height: 15.5rem;
+    overflow-y: auto;
+  }
+  .session-row {
+    display: flex; align-items: center; gap: 0.55rem;
+    padding: 0.5rem 0.85rem;
+    border-bottom: 1px solid var(--color-border-default);
+    font-size: 0.82rem;
+  }
+  .session-row:hover { background: var(--hh-row-hover); }
+  .session-row .title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .session-row .proj { flex-shrink: 0; color: var(--color-text-muted); font-size: 0.7rem; max-width: 30%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row-count { font-size: 0.7rem; color: var(--color-text-muted); padding: 0.4rem 0.85rem 0; }
+
+  /* New task / composer */
+  .composer-body { padding: 1rem 1.1rem; }
+  .selected-project-line {
+    display: flex; align-items: center; gap: 0.5rem;
+    margin-bottom: 0.65rem; font-size: 0.78rem; color: var(--color-text-muted);
+  }
+  .selected-project-line strong { color: var(--color-text-default); font-weight: 700; }
+  .change-project-btn {
+    margin-left: auto;
+    border: 1px solid var(--color-border-default); background: transparent;
+    border-radius: var(--border-radius-8); padding: 0.2rem 0.6rem; font-size: 0.72rem; cursor: pointer;
+    color: var(--color-text-default);
+  }
+  textarea.prompt {
+    width: 100%; border: 1px solid var(--color-border-default); border-radius: var(--border-radius-8);
+    padding: 0.6rem; font: inherit; resize: vertical; min-height: 4.5rem; margin-bottom: 0.6rem;
+    background: transparent; color: inherit;
+  }
+  .composer-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+  .toggle-group { display: inline-flex; border: 1px solid var(--color-border-default); border-radius: var(--border-radius-8); overflow: hidden; }
+  .toggle-group button { border: 0; background: transparent; padding: 0.4rem 0.7rem; font: inherit; font-weight: 600; cursor: pointer; color: inherit; }
+  .toggle-group button.active { background: var(--color-background-surface-info-muted); color: var(--color-text-info); }
+  select.model {
+    border: 1px solid var(--color-border-default); border-radius: var(--border-radius-8);
+    padding: 0.4rem 0.6rem; font: inherit; background: transparent; color: inherit;
+  }
+  .start-btn {
+    margin-left: auto;
+    background: var(--color-background-action-primary); color: #fff; border: 0;
+    border-radius: var(--border-radius-8); padding: 0.5rem 1rem; font: inherit; font-weight: 700; cursor: pointer;
+  }
+  .auto-pill {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    border: 1px solid var(--color-text-danger); color: var(--color-text-danger);
+    border-radius: 999px; padding: 0.25rem 0.6rem; font-size: 0.72rem; font-weight: 700;
+  }
+
+  /* Collapsible sections */
+  details.collapsible > summary {
+    list-style: none; cursor: pointer;
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.6rem 1rem; font-weight: 700; font-size: 0.85rem;
+  }
+  details.collapsible > summary::-webkit-details-marker { display: none; }
+  details.collapsible > summary::before { content: "▸"; color: var(--color-text-muted); transition: transform .15s; }
+  details.collapsible[open] > summary::before { transform: rotate(90deg); }
+  details.collapsible > summary .count { font-weight: 500; color: var(--color-text-muted); font-size: 0.75rem; }
+  .collapsible-body { border-top: 1px solid var(--color-border-default); padding: 0.75rem 1rem; }
+  .project-scroll, .worktree-scroll {
+    max-height: 12rem; overflow-y: auto;
+    border: 1px solid var(--color-border-default); border-radius: var(--border-radius-8);
+  }
+  .project-row, .worktree-row {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.5rem 0.7rem; border-bottom: 1px solid var(--color-border-default); font-size: 0.8rem;
+  }
+  .project-row:last-child, .worktree-row:last-child { border-bottom: none; }
+  .project-row .path, .worktree-row .path { color: var(--color-text-muted); font-size: 0.72rem; }
+  .pin { margin-left: auto; color: var(--color-text-muted); }
+
+  .caption {
+    font-size: 0.72rem; color: var(--color-text-muted); text-align: center; padding: 0.5rem 0 0;
+  }
+</style>
+</head>
+<body>
+<main>
+
+  <header class="page-head">
+    <div>
+      <h1>What should the agent do?</h1>
+      <p class="sub">One OpenCode server, every project. Pick a directory to scope the session.</p>
+    </div>
+    <div class="beta"><span class="badge-beta">BETA</span> agent 1.18.23+dca.2</div>
+  </header>
+
+  <!-- 1. Needs attention: running sessions + unresolved notifications, cross-project -->
+  <section class="card attention">
+    <div class="card-head">⚠ Needs attention <span class="count">2 running · 3 unresolved</span></div>
+    <div class="attention-row">
+      <span class="pill pill-running">running</span>
+      <span class="title">Refactor the parser</span>
+      <span class="proj">stellar-wolf</span>
+    </div>
+    <div class="attention-row">
+      <span class="pill pill-running">running</span>
+      <span class="title">New session — 2026-08-28T17:29</span>
+      <span class="proj">mighty-comet</span>
+    </div>
+    <div class="attention-row">
+      <span class="pill pill-notify">notify</span>
+      <span class="attention-link">3 unresolved notifications (permission asks, questions)</span>
+      <span class="proj">→ View in Notifications</span>
+    </div>
+  </section>
+
+  <!-- 2. Recents, first, scrollable, cap raised to 25 -->
+  <section>
+    <div class="recents-grid">
+      <div class="recents-col">
+        <div class="card-head">Recently opened <span class="count">25 shown</span></div>
+        <div class="recents-scroll" id="opened-scroll"></div>
+      </div>
+      <div class="recents-col">
+        <div class="card-head">Recently active <span class="count">25 shown</span></div>
+        <div class="recents-scroll" id="active-scroll"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3. New task / composer, prominent, right after recents -->
+  <section class="card">
+    <div class="card-head">New task</div>
+    <div class="composer-body">
+      <div class="selected-project-line">
+        Project: <strong>custom-dca-opencode</strong>
+        <button class="change-project-btn">Change project ▾</button>
+      </div>
+      <textarea class="prompt" placeholder="What should the agent do?"></textarea>
+      <div class="composer-controls">
+        <div class="toggle-group">
+          <button>Plan</button>
+          <button class="active">Build</button>
+        </div>
+        <select class="model"><option>Claude Opus 5</option></select>
+        <span class="auto-pill">⚠ Auto: ON</span>
+        <button class="start-btn">Start agent</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4. Choose a project — collapsed by default, max-height + scroll when open -->
+  <details class="collapsible" style="border:1px solid var(--color-border-default); border-radius:var(--border-radius-12);">
+    <summary>Choose a project <span class="count">8 projects</span></summary>
+    <div class="collapsible-body">
+      <div class="project-scroll" id="project-scroll"></div>
+      <p class="caption">Search + pinned projects, unchanged behavior — only the container gains a max height once the list grows.</p>
+    </div>
+  </details>
+
+  <!-- 5. Isolated workspaces (worktree picker) — collapsed by default, max-height + scroll when open -->
+  <details class="collapsible" style="border:1px solid var(--color-border-default); border-radius:var(--border-radius-12);">
+    <summary>Isolated workspaces <span class="count">16 worktrees</span></summary>
+    <div class="collapsible-body">
+      <div class="worktree-scroll" id="worktree-scroll"></div>
+    </div>
+  </details>
+
+  <!-- 6. Full sessions list stays visible, unchanged -->
+  <section class="card">
+    <div class="card-head">Sessions <span class="count">24</span></div>
+    <div class="session-row"><span class="pill pill-idle">idle</span><span class="title">Greeting</span></div>
+    <div class="session-row"><span class="pill pill-idle">idle</span><span class="title">Add priority labels to untagged GitHub issues</span></div>
+    <div class="session-row"><span class="pill pill-idle">idle</span><span class="title">Notifications limit: persist max 100 items</span></div>
+  </section>
+
+  <p class="caption">Static prototype for visual review only — not wired to the real app, data, or API.</p>
+</main>
+
+<script>
+  const openedTitles = [
+    "New session - 2026-08-28T17:29", "Finish DSH mobile trajectory", "custom-dca issue #229",
+    "PWA notification permissions", "Ramp Inspect Helix Hub blog", "Group composer reminders",
+    "Ship BFF logs to Grafana", "Add confined DSH Build presets", "Investigate session-first auto-approval",
+    "Expand the Reviews panel", "Recover DSH after cancellation", "Explore DSH capabilities backlog",
+    "Fix PWA pushes during restore", "Testing permission checks", "Allow two-way subagent conversations",
+    "Build GitHub PR deployment pipeline", "Local deployment refresh with changelog", "Graceful offline recovery",
+    "Surface interrupted sessions", "Session lists: find and triage", "Show collapsed parent/subagent trees",
+    "Make OpenCode restarts recoverable", "Investigate mobile composer controls", "Prototype grouped reminder picker",
+    "Verify workspace reference safety",
+  ];
+  const projects = [
+    "mighty-comet", "stellar-wolf", "shiny-sailor", "clever-island", "quick-nebula",
+    "custom-dca-opencode", "quiet-squid", "curious-nebula", "swift-comet", "cosmic-harbor",
+  ];
+  function statusPill(running) {
+    return running ? '<span class="pill pill-running">running</span>' : '<span class="pill pill-idle">idle</span>';
+  }
+  function renderRows(containerId, titles, seedRunning) {
+    const el = document.getElementById(containerId);
+    el.innerHTML = titles.map((title, i) => `
+      <div class="session-row">
+        ${statusPill(seedRunning && i === 0)}
+        <span class="title">${title}</span>
+        <span class="proj">${projects[i % projects.length]}</span>
+      </div>
+    `).join("");
+  }
+  renderRows("opened-scroll", openedTitles, true);
+  renderRows("active-scroll", [...openedTitles].reverse(), true);
+
+  const projectEl = document.getElementById("project-scroll");
+  projectEl.innerHTML = Array.from({ length: 8 }, (_, i) => `
+    <div class="project-row">
+      <strong>${projects[i]}</strong>
+      <span class="path">fun-personal-projects/${projects[i]}</span>
+      <span class="pin">${i < 3 ? "📌" : "📍"}</span>
+    </div>
+  `).join("");
+
+  const worktreeEl = document.getElementById("worktree-scroll");
+  const worktreeNames = [
+    "plan-build-toggle", "project-discovery-pins", "mobile-remote-cockpit", "rich-review-cards",
+    "model-switching", "command-palette-search", "queued-steer-messages", "theme-controls",
+    "auto-permissions", "mobile-full-sessions", "swift-comet", "clever-island",
+    "shiny-sailor", "quiet-squid", "curious-nebula", "mighty-comet",
+  ];
+  worktreeEl.innerHTML = worktreeNames.map((name) => `
+    <div class="worktree-row">
+      <span class="title">${name}</span>
+    </div>
+  `).join("");
+</script>
+</body>
+</html>

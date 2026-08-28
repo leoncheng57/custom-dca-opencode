@@ -583,7 +583,7 @@ export const api = {
    * not among the most recently active, so they have to be requested by id or
    * the "recently opened" panel would come back empty.
    */
-  recentSessions: (directories: string[], lookupIDs: string[] = [], limit = 5) => {
+  recentSessions: (directories: string[], lookupIDs: string[] = [], limit = 25) => {
     const query = new URLSearchParams({ limit: String(limit) });
     for (const directory of directories) query.append("directory", directory);
     for (const id of lookupIDs) query.append("session", id);

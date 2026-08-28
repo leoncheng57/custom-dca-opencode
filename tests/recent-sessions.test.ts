@@ -150,11 +150,13 @@ describe("recent session views", () => {
     expect(recentlyActiveSessions(sessions, 1).map(({ id }) => id)).toEqual(["other"]);
     expect(recentlyActiveSessions(sessions, -1)).toEqual([]);
 
-    const manySessions = Array.from({ length: 10 }, (_, index) => session(
+    // More sessions than the visible cap, so the cap — not the array size — is
+    // what the assertion below actually proves.
+    const manySessions = Array.from({ length: 30 }, (_, index) => session(
       `session-${index}`,
       "/repo",
       new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString(),
     ));
-    expect(recentlyActiveSessions(manySessions, 100)).toHaveLength(5);
+    expect(recentlyActiveSessions(manySessions, 100)).toHaveLength(25);
   });
 });
