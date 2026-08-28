@@ -816,22 +816,61 @@ describe("agent output excerpts", () => {
     notifications.stop();
   });
 
-  it("keeps the excerpt out of the outbound body", async () => {
-    // The lock screen and a third-party relay stay content-free; only the
-    // authenticated in-app row carries agent prose.
+  it("sends the excerpt in the outbound ntfy body, bounded to NTFY_BODY_LIMIT", async () => {
+    // Supersedes decision 26's in-app-only boundary (see decision 29): the
+    // generic idle body was identical every time, which was the real
+    // complaint. The excerpt now reaches ntfy/Web Push too, still bounded.
     const sent: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: { body?: string }) => {
       if (init?.body) sent.push(init.body);
       return new Response("ok", { status: 200 });
     }));
-    const secret = "Wrote the deploy key to /tmp/private/id_rsa";
-    const { bus, history, notifications } = service(async () => secret);
+    const excerpt = "Rebuilt the bundle and fixed two type errors.";
+    const { bus, history, notifications } = service(async () => excerpt);
 
     bus.emit("event", idleEvent);
     await vi.waitFor(async () => expect(await history.list()).toHaveLength(1));
 
-    expect((await history.list())[0].detail).toBe(secret);
-    for (const body of sent) expect(body).not.toContain("id_rsa");
+    expect((await history.list())[0].detail).toBe(excerpt);
+    expect(sent.some((body) => body === excerpt)).toBe(true);
+    notifications.stop();
+  });
+
+  it("still bounds a long excerpt to NTFY_BODY_LIMIT in the outbound body", async () => {
+    const sent: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: { body?: string }) => {
+      if (init?.body) sent.push(init.body);
+      return new Response("ok", { status: 200 });
+    }));
+    // Longer than NTFY_BODY_LIMIT (140) but under SESSION_EXCERPT_LIMIT (240),
+    // so history keeps it whole while the outbound body truncates further.
+    const excerpt = "A".repeat(200);
+    const { bus, history, notifications } = service(async () => excerpt);
+
+    bus.emit("event", idleEvent);
+    await vi.waitFor(async () => expect(await history.list()).toHaveLength(1));
+
+    expect((await history.list())[0].detail).toBe(excerpt);
+    const outbound = sent.find((body) => body.startsWith("AAAA"));
+    expect(outbound).toBeDefined();
+    expect(outbound!.length).toBeLessThanOrEqual(140);
+    expect(outbound!.endsWith("...")).toBe(true);
+    notifications.stop();
+  });
+
+  it("falls back to the generic idle body when no excerpt is available", async () => {
+    const sent: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: { body?: string }) => {
+      if (init?.body) sent.push(init.body);
+      return new Response("ok", { status: 200 });
+    }));
+    const { bus, history, notifications } = service(async () => undefined);
+
+    bus.emit("event", idleEvent);
+    await vi.waitFor(async () => expect(await history.list()).toHaveLength(1));
+
+    expect((await history.list())[0].detail).toBeUndefined();
+    expect(sent).toContain("Finished its turn and is waiting for you");
     notifications.stop();
   });
 

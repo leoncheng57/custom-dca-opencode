@@ -349,6 +349,12 @@ export class NotificationService {
     const detail = kind === "idle" && !subagent ? await this.excerptFor(event.directory, sessionID) : undefined;
     const message = {
       ...outboundMessage(event, kind, sessionTitle),
+      // Supersedes decision 26's in-app-only boundary (see decision 29): the
+      // generic idle body was identical every time, which was the actual
+      // complaint — the in-app-only excerpt never reached the channel people
+      // actually look at. Re-truncated to NTFY_BODY_LIMIT for the lock-screen
+      // body; falls back to the generic body when no excerpt is available.
+      ...(kind === "idle" && detail ? { body: truncate(detail, NTFY_BODY_LIMIT) } : {}),
       ...(eventClickUrl(this.publicAppUrl, event) ? { click: eventClickUrl(this.publicAppUrl, event) } : {}),
     };
     const common = {

@@ -551,11 +551,11 @@ several decisions below.
     its reason) and costs one upstream read that borrows the session lookup's exact
     discipline: hard timeout, shared concurrency budget, fail open to `undefined`. A
     missing excerpt costs the row specificity; a stalled one would cost the user the
-    ping. It is **in-app only** — never copied into the outbound ntfy/Web Push body,
-    which stays deliberately lock-screen-safe — and bounded on both write and read,
-    because `normalizeRecord` is the only barrier against a hand-edited file and this is
-    model-authored text on a durable record. Retention rose to 5,000 per capped
-    category; unresolved *delivered* records remain exempt from every cap.
+    ping. ~~It is **in-app only** — never copied into the outbound ntfy/Web Push body,
+    which stays deliberately lock-screen-safe~~ — see decision 29 — and bounded on both
+    write and read, because `normalizeRecord` is the only barrier against a hand-edited
+    file and this is model-authored text on a durable record. Retention rose to 5,000
+    per capped category; unresolved *delivered* records remain exempt from every cap.
 27. **Docker is optional test infrastructure, one container per Playwright invocation.**
     Worktrees isolate source and dependencies but not the machine-global fixtures the E2E
     suite writes: `/tmp/mock-*`, their real `.git` directories, and ports 3410/4599/4600.
@@ -686,6 +686,16 @@ several decisions below.
     trajectory payload enters notifications, analytics, URLs, browser storage, or the
     service worker. Projection directories/files are forced to `0700`/`0600`, with age,
     event-count, session-file-count, per-file-byte, and total-byte retention caps.
+29. **The excerpt reaches the outbound ntfy/Web Push body too, superseding decision 26's
+    in-app-only boundary.** Every idle push looked identical on a lock screen even
+    across different turns in the same session, which was the actual user complaint —
+    the in-app fix in decision 26 never reached the channel people actually look at.
+    Accepted explicitly without a consent gate: this deployment is reachable only over
+    a private Tailscale network, and the existing bounding/fail-open discipline from
+    decision 26 (240 chars, `undefined` on a stalled lookup) still applies before
+    truncating again to `NTFY_BODY_LIMIT` (140 chars) for the outbound body. Applies to
+    `idle` only — permission/question/error/parked bodies already carry their own
+    dynamic, non-agent-authored content and are unchanged.
 
 ## Client conventions (inherited from the OpenHands runner, still enforced)
 
