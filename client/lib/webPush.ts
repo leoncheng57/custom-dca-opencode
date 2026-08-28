@@ -1,9 +1,24 @@
 import { api } from "./api.js";
 
+const INSTALLATION_ID_KEY = "dca-web-push-installation-id";
+
 function applicationServerKey(value: string): Uint8Array<ArrayBuffer> {
   const padded = value.replace(/-/gu, "+").replace(/_/gu, "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
   const bytes = Uint8Array.from(atob(padded), (character) => character.charCodeAt(0));
   return bytes;
+}
+
+function getOrCreateInstallationId(): string {
+  try {
+    const existing = localStorage.getItem(INSTALLATION_ID_KEY);
+    if (existing) return existing;
+    const id = crypto.randomUUID();
+    localStorage.setItem(INSTALLATION_ID_KEY, id);
+    return id;
+  } catch {
+    // Fall back to a session-only ID if localStorage is unavailable
+    return crypto.randomUUID();
+  }
 }
 
 export function webPushSupported(): boolean {
@@ -40,7 +55,8 @@ export async function subscribeWebPush(publicKey: string): Promise<PushSubscript
     userVisibleOnly: true,
     applicationServerKey: applicationServerKey(publicKey),
   });
-  await api.addPushSubscription(subscription.toJSON());
+  const installationId = getOrCreateInstallationId();
+  await api.addPushSubscription({ ...subscription.toJSON(), installationId });
   return subscription;
 }
 
