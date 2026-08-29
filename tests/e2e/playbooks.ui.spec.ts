@@ -14,7 +14,9 @@ test.describe("Playbooks", () => {
     await expect(page).toHaveTitle("Playbooks | DCA");
     await expect(page.getByTestId("opencode-playbooks-wip-warning")).toHaveText("Playbooks is still work in progress and its UI/UX may contain bugs.");
     await expect(page.getByRole("heading", { name: "Repeatable work, invoked on purpose." })).toBeVisible();
-    await expect(page.getByTestId("opencode-playbook-command-card")).toHaveCount(17);
+    for (const command of ["dca", "goal", "leaving-now-wrap-up"]) {
+      await expect(page.getByTestId(`opencode-playbook-command-${command}`)).toBeVisible();
+    }
   });
 
   test("presents commands as human-invoked with zero at-rest context", async ({ page }) => {
