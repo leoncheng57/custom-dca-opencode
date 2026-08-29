@@ -254,6 +254,13 @@ export interface CatalogResponse {
   servers: Record<string, McpStatus>;
   skills: CatalogSkill[];
   commands: CatalogCommand[];
+  /**
+   * Tool ids the connected process reports as invocable. Built-ins only —
+   * a connected MCP server contributes nothing here, so its tools cannot be
+   * enumerated. `null` means the registry was unreadable, which is not the
+   * same as an empty registry.
+   */
+  tools: string[] | null;
   refreshedAt: string;
 }
 

@@ -32,6 +32,20 @@ export interface CatalogResponse {
   servers: Record<string, CatalogMcpStatus>;
   skills: CatalogSkill[];
   commands: CatalogCommand[];
+  /**
+   * Tool ids the connected process reports as registered and therefore
+   * invocable (issue #55).
+   *
+   * Verified against OpenCode 1.18.23: this registry contains **built-in tools
+   * only**. An MCP server reporting `connected` contributes nothing here, so
+   * there is no endpoint anywhere that enumerates a connected server's tools.
+   * That is precisely why "connected" must not be rendered as "its tools work"
+   * — the app genuinely cannot know.
+   *
+   * `null` when the registry could not be read, which is distinct from an
+   * empty registry and must not be shown as "no tools".
+   */
+  tools: string[] | null;
   refreshedAt: string;
 }
 
@@ -113,16 +127,37 @@ export function parseMcpServers(value: unknown): Record<string, CatalogMcpStatus
   }));
 }
 
+/**
+ * Registered tool ids, or null when the registry is unreadable.
+ *
+ * Unlike the other parsers this never throws: the tool registry is supporting
+ * evidence, and losing it must not blank the MCP, skill, and command lists that
+ * are the point of the catalogue.
+ */
+export function parseToolIDs(value: unknown): string[] | null {
+  if (!Array.isArray(value) || value.length > MAX_ITEMS) return null;
+  const ids: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string" || !item.trim() || item.length > MAX_NAME) return null;
+    ids.push(item);
+  }
+  return ids;
+}
+
 export async function loadCatalog(config: OpencodeConfig, directory: string): Promise<CatalogResponse> {
-  const [servers, skills, commands] = await Promise.all([
+  const [servers, skills, commands, tools] = await Promise.all([
     request<unknown>(config, "/mcp", { directory }),
     request<unknown>(config, "/skill", { directory }),
     request<unknown>(config, "/command", { directory }),
+    // Supporting evidence only, so a failure degrades to `null` rather than
+    // failing the whole catalogue.
+    request<unknown>(config, "/experimental/tool/ids", { directory }).catch(() => null),
   ]);
   return {
     servers: parseMcpServers(servers),
     skills: parseSkills(skills),
     commands: parseCommands(commands),
+    tools: parseToolIDs(tools),
     refreshedAt: new Date().toISOString(),
   };
 }
