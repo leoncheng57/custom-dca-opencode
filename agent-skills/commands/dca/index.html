@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>dca | OpenCode commands</title>
+  <link rel="canonical" href="/custom-dca-opencode/agent-skills/commands/dca/">
+  <link rel="stylesheet" href="/custom-dca-opencode/agent-skills/assets/site.css">
+</head>
+<body><main><nav><a href="/custom-dca-opencode/agent-skills/commands/">All commands</a></nav>
+<header><p class="eyebrow">OpenCode command</p><h1>/dca &lt;arguments&gt;</h1>
+<p>Operate DCA sessions through the native BFF API</p><div class="meta"><span>agent: build</span></div></header>
+<section><h2>Command template</h2><pre><code>Use DCA&#39;s BFF API for `$ARGUMENTS`. This is the agent-facing HTTP workflow for
+creating, prompting, and observing sessions. It is distinct from DCA&#39;s
+human-only &quot;Start a DCA session&quot; composer workflow: that UI asks a human to
+review and launch a session, while this command calls already-authorized BFF
+endpoints directly.
+
+First establish the boundary:
+
+1. Set `DCA_BASE_URL` to the deployment&#39;s canonical BFF origin, without a
+   trailing slash. Do not assume `127.0.0.1`, a port, or even that loopback is
+   reachable from this shell. A remote, containerized, sandboxed, or phone-side
+   shell may need a private DNS/Tailscale URL or may have no route at all.
+2. Use the deployment&#39;s existing authentication mechanism. The examples below
+   omit auth headers; that is valid only for a private deployment that actually
+   has no app-level auth. Never invent a token or put a secret in a tracked file.
+3. Confirm network access and upstream health before creating anything:
+
+```bash
+: &quot;${DCA_BASE_URL:?Set DCA_BASE_URL to the reachable DCA BFF origin}&quot;
+curl -sS --fail-with-body &quot;$DCA_BASE_URL/api/health&quot; | jq .
+```
+
+`healthy: true` proves the BFF answered. Also inspect `upstream.reachable`,
+`upstream.versionMatches`, and `events.connected`; do not flatten those distinct
+signals into one claim.
+
+Use an absolute project path and URL-encode it. List root sessions:
+
+```bash
+PROJECT=/absolute/path/to/project
+curl -sS --fail-with-body --get &quot;$DCA_BASE_URL/api/sessions&quot; \
+  --data-urlencode &quot;directory=$PROJECT&quot; \
+  --data-urlencode &quot;roots=true&quot; \
+  --data-urlencode &quot;limit=50&quot; | jq .
+```
+
+Create a root and submit its first prompt in one request. `mode` is `plan` or
+`build`; the server validates any `model` and optional isolated worktree fields.
+
+```bash
+BODY=$(jq -n \
+  --arg directory &quot;$PROJECT&quot; \
+  --arg title &quot;Investigate flaky export test&quot; \
+  --arg prompt &quot;Diagnose the flaky export test. Do not edit files; report evidence.&quot; \
+  &#39;{directory:$directory,title:$title,prompt:$prompt,mode:&quot;plan&quot;}&#39;)
+CREATED=$(curl -sS --fail-with-body -X POST &quot;$DCA_BASE_URL/api/sessions&quot; \
+  -H &#39;Content-Type: application/json&#39; -d &quot;$BODY&quot;)
+SESSION_ID=$(jq -er &#39;.session.id&#39; &lt;&lt;&lt;&quot;$CREATED&quot;)
+printf &#39;%s\n&#39; &quot;$SESSION_ID&quot;
+```
+
+For an existing session, submit a prompt asynchronously. HTTP `202` and
+`{&quot;accepted&quot;:true}` mean accepted, not completed:
+
+```bash
+KNOWN_ASSISTANTS=$(curl -sS --fail-with-body --get \
+  &quot;$DCA_BASE_URL/api/sessions/$SESSION_ID/messages&quot; \
+  --data-urlencode &quot;directory=$PROJECT&quot; --data-urlencode &quot;limit=100&quot; \
+  | jq -c &#39;[.messages[]? | select(.info.role == &quot;assistant&quot;) | .info.id]&#39;)
+BODY=$(jq -n --arg directory &quot;$PROJECT&quot; --arg text &quot;Continue and verify the fix.&quot; \
+  &#39;{directory:$directory,text:$text,mode:&quot;build&quot;}&#39;)
+curl -sS --fail-with-body -X POST \
+  &quot;$DCA_BASE_URL/api/sessions/$SESSION_ID/prompt&quot; \
+  -H &#39;Content-Type: application/json&#39; -d &quot;$BODY&quot; | jq .
+```
+
+Poll messages with the same directory until the submitted turn has a completed
+assistant response and `running` is false. Responses contain raw OpenCode
+`{info,parts}` messages, plus `nextCursor` and `running`; inspect the payload
+rather than guessing a fixed array position. Use `before=&lt;nextCursor&gt;` for older
+pages and keep `limit` between 1 and 100.
+
+```bash
+while :; do
+  PAGE=$(curl -sS --fail-with-body --get \
+    &quot;$DCA_BASE_URL/api/sessions/$SESSION_ID/messages&quot; \
+    --data-urlencode &quot;directory=$PROJECT&quot; --data-urlencode &quot;limit=100&quot;) || exit
+  jq &#39;{running, messages}&#39; &lt;&lt;&lt;&quot;$PAGE&quot;
+  # Stop only after identifying this turn&#39;s completed assistant message.
+  jq -e --argjson known &quot;$KNOWN_ASSISTANTS&quot; &#39;.running == false and
+    any(.messages[]?; .info.role == &quot;assistant&quot; and
+      .info.time.completed != null and
+      (.info.id as $id | ($known | index($id)) == null))&#39; \
+    &gt;/dev/null &lt;&lt;&lt;&quot;$PAGE&quot; &amp;&amp; break
+  sleep 3
+done
+```
+
+Use a Managed Child instead of a root when parent/child accounting, inherited
+project scope, child status, or parent-scoped abort authority matters. Query the
+server-owned agent catalogue first. Read-only agents reject `authorization`;
+agents whose catalogue entry has `access: &quot;can-modify&quot;` require the explicit
+`authorization: &quot;modify&quot;` field. The idempotency key must be stable for a retry
+of the same launch and unique for different work.
+
+```bash
+PARENT_ID=ses_parent
+curl -sS --fail-with-body --get &quot;$DCA_BASE_URL/api/managed-child-agents&quot; \
+  --data-urlencode &quot;directory=$PROJECT&quot; | jq .
+
+KEY=&quot;audit-export-$(date -u +%Y%m%dT%H%M%SZ)&quot;
+BODY=$(jq -n --arg directory &quot;$PROJECT&quot; --arg key &quot;$KEY&quot; \
+  --arg prompt &quot;Audit export error handling and report findings with file lines.&quot; \
+  &#39;{directory:$directory,prompt:$prompt,agent:&quot;explore&quot;,idempotencyKey:$key}&#39;)
+CHILD=$(curl -sS --fail-with-body -X POST \
+  &quot;$DCA_BASE_URL/api/sessions/$PARENT_ID/managed-children&quot; \
+  -H &#39;Content-Type: application/json&#39; -d &quot;$BODY&quot;)
+CHILD_ID=$(jq -er &#39;.session.id&#39; &lt;&lt;&lt;&quot;$CHILD&quot;)
+```
+
+The creation request submits the Managed Child&#39;s initial prompt. Poll the child
+through `/api/sessions/$CHILD_ID/messages`; later prompts use the ordinary
+`/api/sessions/$CHILD_ID/prompt` route, which re-verifies its managed
+configuration. Inspect parent accounting with
+`GET /api/sessions/$PARENT_ID/subagents?directory=...`. Abort a verified child
+with `POST /api/sessions/$PARENT_ID/subagents/$CHILD_ID/abort` and the directory
+in the JSON body; do not use abort as routine completion handling.
+
+Useful read surfaces are `GET /api/sessions/:id`, `todos`, `diff` with a
+`userMessageID`, `/api/session-agents`, `/api/models`, and `/api/events` for SSE.
+Sharing, deleting, auto-approval, aborting, isolated worktree creation, and
+modify-capable Managed Children are mutations or privilege-bearing operations;
+call them only when the user&#39;s request and current permissions authorize them.
+
+Prefer this BFF API over cmux for DCA session lifecycle. cmux is optional
+presentation or orchestration only when its app, CLI/socket access, and current
+environment are actually available; it is not a transport fallback and this
+command never assumes it exists.</code></pre></section></main></body>
+</html>

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>standup | OpenCode commands</title>
+  <link rel="canonical" href="/custom-dca-opencode/agent-skills/commands/standup/">
+  <link rel="stylesheet" href="/custom-dca-opencode/agent-skills/assets/site.css">
+</head>
+<body><main><nav><a href="/custom-dca-opencode/agent-skills/commands/">All commands</a></nav>
+<header><p class="eyebrow">OpenCode command</p><h1>/standup &lt;arguments&gt;</h1>
+<p>Turn today&#39;s commits into a standup update</p><div class="meta"><span>agent: build</span><span>subtask</span><span>shell interpolation</span></div></header>
+<section><h2>Command template</h2><pre><code>My commits across all branches in the last day:
+
+!`git log --all --author=&quot;$(git config user.email)&quot; --since=&quot;24 hours ago&quot; --pretty=format:&#39;%h %s&#39; --no-merges`
+
+Merged pull requests, if the GitHub CLI is available:
+
+!`gh pr list --author &quot;@me&quot; --state merged --limit 10 --json number,title,mergedAt -q &#39;.[] | &quot;#\(.number) \(.title)&quot;&#39; 2&gt;/dev/null || echo &quot;(gh unavailable)&quot;`
+
+Still open:
+
+!`gh pr list --author &quot;@me&quot; --state open --limit 10 --json number,title,isDraft -q &#39;.[] | &quot;#\(.number)\(if .isDraft then &quot; DRAFT&quot; else &quot;&quot; end) \(.title)&quot;&#39; 2&gt;/dev/null || echo &quot;(gh unavailable)&quot;`
+
+Write a standup update from the above, in three sections:
+
+**Yesterday** — what actually landed, grouped by theme rather than listed per
+commit. Say what it does for a reader, not what the diff touched.
+
+**Today** — what the open work implies is next. Mark anything that is a guess.
+
+**Blocked** — only genuine blockers. If there are none, say &quot;nothing blocked&quot;
+rather than inventing one.
+
+Rules:
+
+- Three to six bullets per section. This gets read aloud.
+- No commit hashes and no branch names unless someone would need to go find it.
+- If the log is empty, say so plainly. Do not pad it out of the PR list.
+- `$ARGUMENTS` may narrow the scope to one project or topic; if it does, drop
+  everything else.
+
+This small utility is deliberately self-contained and adds no retrieval context
+until a human invokes it.</code></pre></section></main></body>
+</html>

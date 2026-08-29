@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>review-learning | OpenCode commands</title>
+  <link rel="canonical" href="/custom-dca-opencode/agent-skills/commands/review-learning/">
+  <link rel="stylesheet" href="/custom-dca-opencode/agent-skills/assets/site.css">
+</head>
+<body><main><nav><a href="/custom-dca-opencode/agent-skills/commands/">All commands</a></nav>
+<header><p class="eyebrow">OpenCode command</p><h1>/review-learning &lt;arguments&gt;</h1>
+<p>Review code or a PR with findings first and exact learning excerpts</p><div class="meta"><span>agent: plan</span></div></header>
+<section><h2>Command template</h2><pre><code>Review `$ARGUMENTS` as a senior engineer and turn the result into a concise
+learning walkthrough. If no target is supplied, review the current diff. Honor
+any requested subsystem or boundary first, such as authentication or an
+external-runtime integration.
+
+This command is self-contained. Do not load or defer to a skill. Do not change
+code, post comments, open issues, or persist the walkthrough unless the user
+explicitly asks after the review.
+
+## Review before teaching
+
+Inspect the complete diff and enough surrounding code, callers, tests,
+configuration, and contracts to understand behavior across layers. For a PR,
+review the whole change at its pinned head revision rather than only the latest
+commit. Reproduce or run focused checks when safe and feasible.
+
+Return findings first, ordered by severity. Each finding must contain:
+
+- severity and a precise title;
+- repository-relative `path:line-line` at the defect or risky behavior;
+- concrete failure mode and affected user/system;
+- evidence establishing the claim;
+- the smallest useful remediation direction, without implementing it.
+
+Separate `Verified findings` from `Unverified risks`. A verified finding is
+supported by implementation, a reproducer, test output, or an authoritative
+contract. An unverified risk names exactly what evidence is missing and the
+cheapest check. Do not inflate educational observations into findings.
+
+If there are no findings, say that explicitly before teaching and name residual
+risks and test gaps. &quot;No findings&quot; never means &quot;proved correct&quot;.
+
+## Then teach from a small evidence set
+
+After findings, select two to five high-value excerpts. Choose code that explains
+an invariant, boundary, state transition, failure strategy, or non-obvious
+tradeoff. Do not quote routine plumbing, the whole diff, or several snippets
+that teach the same lesson.
+
+For every excerpt:
+
+1. give an exact repository-relative `path:line-line` verified against the
+   reviewed revision;
+2. quote the smallest contiguous source range that is independently readable;
+3. state whether it is `Finding evidence` or `Educational`;
+4. explain the engineering lesson and why the implementation shape matters;
+5. connect it to the preceding and following layer;
+6. state what the excerpt does not prove.
+
+Use this output shape:
+
+```text
+Verified findings
+1. [severity] Title — path:line-line
+   Failure, evidence, remediation direction.
+
+Unverified risks
+- Risk — missing evidence; cheapest verification.
+
+Layer map
+HTTP route -&gt; service/pool -&gt; sidecar protocol -&gt; external SDK
+
+Learning excerpts
+1. path:line-line — Finding evidence | Educational
+   &lt;minimal exact quote&gt;
+   Lesson: ...
+   Connection: previous layer -&gt; this code -&gt; next layer.
+   Does not prove: ...
+
+Residual risks and test gaps
+- ...
+```
+
+Adapt the layer map to the repository. Distinguish control flow from authority:
+a route calling a service does not prove the service may trust browser input,
+and a mock sidecar does not prove the external SDK behaves the same way. Keep
+quoted lines exact, explanations concise, and educational value subordinate to
+the correctness review.</code></pre></section></main></body>
+</html>
