@@ -8,6 +8,9 @@ test("serves an interactive, credential-free PR simulator", async ({ page }) => 
   expect(pageErrors).toEqual([]);
   await expect(page.getByTestId("opencode-public-simulator-banner")).toContainText("fixture data only");
   await expect(page.getByTestId("opencode-upstream-badge")).toContainText("1.18.23+dca.2");
+  // "3. Existing sessions" is a <details> that ships collapsed, so its contents
+  // are in the DOM but not visible until the toggle is clicked.
+  await page.getByTestId("opencode-sessions-picker-toggle").click();
   await expect(page.getByTestId("opencode-session-list")).toContainText("Build the PR preview pipeline");
 
   await page.getByTestId("opencode-session-list").getByText("Build the PR preview pipeline").click();
