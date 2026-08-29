@@ -928,6 +928,22 @@ several decisions below.
     fall under `Other`. Workflow-only routes never query `/api/catalog` or make command
     installation claims, and deep-link absence is reported only after a successful
     workflow catalogue load.
+32. **The public command catalogue is generated static output, not a second app.**
+    The retired `agent-skills` React shell stays retired. A dependency-free generator
+    reuses the command parser and emits escaped HTML only under
+    `dist/agent-skills-site/agent-skills/`, with one index and direct route per command.
+    Its canonical Pages base is `/custom-dca-opencode/agent-skills/`; there are no skill
+    routes and the Runner SPA is never copied into this subtree. Publication runs only
+    after a trusted push to `main`, validates a bounded manifest and exact inventory,
+    rejects symlinks and unsafe paths, and replaces only `gh-pages:agent-skills/` while
+    preserving root assets, PR previews, PR screenshots, and unrelated directories.
+    It shares the `pr-screenshot-publication` lock with every other Pages writer and
+    uses a normal non-force push. The old `https://leoncheng.dev/agent-skills/` belongs
+    to an archived separate repository; this repository's token cannot redirect it,
+    so do not claim that legacy URL is covered or attempt a cross-repository mutation.
+    The published catalogue is commands-only: the live **Workflows** category above is
+    read from `GET /api/workflows` at runtime and is deliberately absent from this
+    static output, which has no BFF to read it from.
 
 ## Client conventions (inherited from the OpenHands runner, still enforced)
 

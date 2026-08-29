@@ -18,6 +18,7 @@
     "dev:ui": "vite",
     "build:ui": "vite build",
     "build:preview": "VITE_PUBLIC_SIMULATOR=true vite build --base=${PREVIEW_BASE_PATH:-/}",
+    "build:agent-skills-site": "tsx scripts/generate-agent-skills-site.ts",
     "build:server": "tsc -p tsconfig.server.json",
     "build": "npm run build:ui && npm run build:server",
     "start": "node dist/server/index.js",

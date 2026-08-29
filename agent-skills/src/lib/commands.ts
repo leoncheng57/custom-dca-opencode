@@ -1,5 +1,5 @@
-import { parseFrontmatter } from './frontmatter'
-import type { Simulation } from './simulation'
+import { parseFrontmatter } from './frontmatter.js'
+import type { Simulation } from './simulation.js'
 
 /**
  * An OpenCode custom command: `commands/<name>.md`, invoked by a human typing
