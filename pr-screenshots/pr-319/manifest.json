@@ -1,8 +1,8 @@
 {
   "schemaVersion": 2,
   "prNumber": 319,
-  "sourceSha": "14d0e5c95c63c51958be35db59a6f4e06cf684ab",
-  "capturedAt": "2026-08-29T21:54:30.265Z",
+  "sourceSha": "1c0221caad919f835ea97f8a24af1dc92882aed5",
+  "capturedAt": "2026-08-29T22:07:06.711Z",
   "screenshots": [
     {
       "requestedRoute": "/playbooks",
@@ -38,8 +38,8 @@
             "width": 1280,
             "height": 800
           },
-          "bytes": 87960,
-          "sha256": "cd77f33b197e3e7fb35b4ed7555663bd3a2b26da2f0ff23718796c60e995fe3c"
+          "bytes": 87927,
+          "sha256": "f4fe14f15e78051b8eb9c27fcf807de6d909b2321bff094d32778873866616cf"
         },
         "mobile": {
           "filename": "02-playbooks-commands-verify-c4ba2af6--mobile.png",
@@ -47,8 +47,8 @@
             "width": 390,
             "height": 740
           },
-          "bytes": 49082,
-          "sha256": "c131de0aefc486966ac031637d419f591a5b7e5d91925fe02934fa4a03125b71"
+          "bytes": 49022,
+          "sha256": "dbda1cbbfc0a5787d43b51420fad08abf30b397cc193e2c10fdc28d8a28de35a"
         }
       }
     },
