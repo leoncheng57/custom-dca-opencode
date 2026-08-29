@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 2,
+  "prNumber": 318,
+  "sourceSha": "e9ec291c3cbe25db828e29c06181441853a020ae",
+  "capturedAt": "2026-08-29T21:43:38.235Z",
+  "screenshots": [
+    {
+      "requestedRoute": "/sessions/ses_mock_workflow_main?directory=/tmp/mock-workflow-project",
+      "fullPage": true,
+      "captures": {
+        "desktop": {
+          "filename": "01-sessions-ses_mock_workflow_main-directory-tmp-mock-workflow-project-648ae459--desktop--full.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 800
+          },
+          "bytes": 38993,
+          "sha256": "0e18d1f713847c109eccf4bee6923a061f147606e27e129662e728a08091b265"
+        },
+        "mobile": {
+          "filename": "01-sessions-ses_mock_workflow_main-directory-tmp-mock-workflow-project-3bfc23a7--mobile--full.png",
+          "dimensions": {
+            "width": 390,
+            "height": 740
+          },
+          "bytes": 25504,
+          "sha256": "78d23d8dadac88a19ce3e4f828669ab9aecdacf4c42e4aa185e15f3636bea439"
+        }
+      }
+    },
+    {
+      "requestedRoute": "/sessions/ses_mock_workflow_target?directory=/tmp/mock-workflow-project",
+      "fullPage": false,
+      "captures": {
+        "desktop": {
+          "filename": "02-sessions-ses_mock_workflow_target-directory-tmp-mock-workflow-project-4e5771e0--desktop.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 800
+          },
+          "bytes": 39518,
+          "sha256": "566a4ef5ee1dba55a1ff857ab09b5bf1ce8ed51ac705be7f3f0da20dc64e6e13"
+        },
+        "mobile": {
+          "filename": "02-sessions-ses_mock_workflow_target-directory-tmp-mock-workflow-project-53f2ecf1--mobile.png",
+          "dimensions": {
+            "width": 390,
+            "height": 740
+          },
+          "bytes": 25857,
+          "sha256": "06b5f41fc86c6f439a060868c1d782603e983f353a9584144489e9f629546541"
+        }
+      }
+    }
+  ]
+}
