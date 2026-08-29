@@ -673,6 +673,23 @@ describe("duplicate push notifications", () => {
     expect(worker.shown.some((n) => n.body === "Succeeds")).toBe(true);
   });
 
+  it("stamps the worker version onto diagnostic pushes only", async () => {
+    // Decision 18 activates a new worker only on explicit user approval, so
+    // the deployed sw.js and the executing sw.js routinely differ. A diag
+    // push makes the card itself name the worker that rendered it; a real
+    // notification must never carry the suffix.
+    const worker = await runPushWorker();
+
+    await worker.push({ title: "DIAG", body: "probe", diag: true });
+    await worker.push({ title: "Session", body: "Real notification" });
+
+    const source = await readFile(path.resolve("client/public/sw.js"), "utf8");
+    const version = /SW_VERSION = "([^"]+)"/u.exec(source)?.[1];
+    expect(version).toBeTruthy();
+    expect(worker.shown[0].body).toBe(`probe [sw v${version}]`);
+    expect(worker.shown[1].body).toBe("Real notification");
+  });
+
   it("never resolves without showing a notification", async () => {
     // The subscription is userVisibleOnly: a push handler that shows nothing
     // invites the browser's own "updated in the background" notification, so
