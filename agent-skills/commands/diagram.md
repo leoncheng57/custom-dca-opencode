@@ -28,5 +28,19 @@ Return the diagram first, then no more than five bullets explaining the
 load-bearing choices. Do not use Mermaid unless the user explicitly asked for
 a rendered diagram.
 
-For character conventions, width checking, and the three complete formats,
-load the `ascii-diagrams` skill.
+Use one consistent character set. Box drawing is reliable in normal monospace
+renderers; ambiguous-width emoji can shift terminal columns, so use ASCII
+markers for terminals known to render them double-width. Count characters, not
+UTF-8 bytes, and inspect the result in a monospace surface before publishing.
+
+Do not diagram a single-file change, yes/no answer, two-axis comparison, or a
+linear sequence with no branches. Use prose, a table, or a numbered list.
+
+| Failure | Response |
+|---|---|
+| Columns or box edges drift | Recount character widths and use one shared offset |
+| Diagram shows only a happy path | Attach the failure at the arrow where it occurs |
+| An annotation repeats the structure | Delete it or replace it with a design or coordination fact |
+| Mermaid appears unrendered | Fall back to fenced ASCII unless the target surface is proven to render it |
+
+Longer annotated examples live in `agent-skills/command-docs/diagram-examples.md`.

@@ -22,6 +22,21 @@ Create a git worktree for "$ARGUMENTS" now.
 7. Report the absolute worktree path, branch, base revision, dependency status,
    baseline result, and any port conflict.
 
-If creation is blocked by a stale registration, a branch already checked out,
-or a sibling stack, consult the `worktree-up` skill for the full failure-mode and
-cleanup procedures. Do not work around Git's worktree safety checks.
+Do not work around Git's worktree safety checks. If `origin/HEAD` is unset, run
+`git remote set-head origin --auto` and re-read it. If the branch exists, omit
+`-b`; if it is checked out elsewhere, find and use that worktree instead.
+
+Worktrees must be siblings, never nested under the clone. On cleanup, inspect
+for uncommitted work before `git worktree remove`; use `--force` only when that
+work is explicitly disposable. Run `git worktree prune` for registrations whose
+directories were deleted outside Git.
+
+| Failure | Response |
+|---|---|
+| New branch is already behind | Fetch and recreate it from the remote default branch |
+| Branch is already checked out | Use `git worktree list`; do not bypass the refusal |
+| New worktree commands fail immediately | Install its own dependencies |
+| App has no local config | Copy required ignored config and fix relative paths |
+| Server behaves like another branch | Verify the listening PID and its worktree |
+| Two stacks share writable state | Stop one stack; use stack-free verification tiers |
+| Deleted path remains registered | Prune stale worktrees, then confirm the list |

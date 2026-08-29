@@ -89,8 +89,10 @@ describe("PR screenshot requests", () => {
   });
 
   it("accepts Playbooks catalog and detail routes", () => {
-    expect(parseScreenshotBlock("```screenshots\n/playbooks\n/playbooks/skills/grill-me\n/playbooks/commands/verify\n```").requests)
+    expect(parseScreenshotBlock("```screenshots\n/playbooks\n/playbooks/commands/grill-me\n/playbooks/commands/verify\n```").requests)
       .toHaveLength(3);
+    expect(() => parseScreenshotBlock("```screenshots\n/playbooks/skills/grill-me\n```"))
+      .toThrow(/not a known UI route/u);
   });
 
   it("accepts the DSH lab and one DSH conversation, but not an arbitrary DSH path", () => {

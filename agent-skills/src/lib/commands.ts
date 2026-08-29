@@ -5,17 +5,10 @@ import type { Simulation } from './simulation'
  * An OpenCode custom command: `commands/<name>.md`, invoked by a human typing
  * `/<name>` in the TUI.
  *
- * The distinction from a skill is not cosmetic and drives everything below:
- *
- *  - A **skill** is model-invoked. Its `description` is resident in the agent's
- *    context on every single turn so retrieval can match against it, and the
- *    body is loaded on demand. Ten skills currently cost ~5,700 characters of
- *    permanent context, and that grows linearly with the catalogue.
- *  - A **command** is human-invoked. Nothing is in context until someone types
+ * Commands are human-invoked. Nothing is in context until someone types
  *    `/name`, at which point the template is injected verbatim into that turn.
  *    A large command catalogue is therefore free, and a command re-asserts
- *    exact instructions late in a long session, after the skill body that was
- *    injected at turn 1 has been compacted away.
+ *    exact instructions late in a long session.
  *
  * Commands are also deliberately **OpenCode-only**. Claude Code reads
  * `.claude/commands/` with a different frontmatter dialect (`argument-hint`,
@@ -45,20 +38,6 @@ export interface Command {
   takesArguments: boolean
   /** True when the template injects shell output with `` !`cmd` ``. */
   runsShell: boolean
-  /**
-   * Skills this command references, in the order they appear in the template.
-   *
-   * Derived from the template body rather than declared in frontmatter, for
-   * two reasons. OpenCode owns the `commands/` frontmatter namespace and this
-   * repository should not add speculative keys to it; and the reference *is*
-   * the relationship — a command that defers to a skill says so in its closing
-   * line, so reading it back cannot drift from the truth.
-   *
-   * Name equality alone would not do: `/red-team` defers to `red-team-this`,
-   * and `/verify` to `human-verification-steps`, because nobody wants to type
-   * a skill's full name as a slash command.
-   */
-  relatedSkills: string[]
   simulation?: Simulation
   bytes: number
 }
@@ -69,24 +48,8 @@ const ARGUMENT_PATTERN = /\$ARGUMENTS\b|\$[1-9]\b/
 /** Shell interpolation: !`command`. */
 const SHELL_PATTERN = /!`[^`]+`/
 
-/** Any backticked token in the body, e.g. `red-team-this`. */
-const BACKTICKED = /`([a-z0-9]+(?:-[a-z0-9]+)*)`/g
-
-/**
- * Every catalogue skill the template names, deduplicated, in template order.
- * A `` !`shell command` `` interpolation is skipped so a command that happens
- * to run a binary sharing a skill's name is not mistaken for a reference.
- */
-function referencedSkills(body: string, skillNames: ReadonlySet<string>): string[] {
-  const withoutShell = body.replace(/!`[^`]+`/g, ' ')
-  const found: string[] = []
-  for (const match of withoutShell.matchAll(BACKTICKED)) {
-    const token = match[1]
-    if (skillNames.has(token) && !found.includes(token)) {
-      found.push(token)
-    }
-  }
-  return found
+export function isValidCommandName(name: string): boolean {
+  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)
 }
 
 export function commandNameFromPath(path: string): string {
@@ -106,10 +69,10 @@ export function invocation(name: string, takesArguments: boolean): string {
 export function parseCommand(
   path: string,
   raw: string,
-  options: { skillNames?: ReadonlySet<string>; simulation?: Simulation } = {}
+  options: { simulation?: Simulation } = {}
 ): Command | null {
   const name = commandNameFromPath(path)
-  if (!name) {
+  if (!isValidCommandName(name)) {
     return null
   }
 
@@ -123,8 +86,6 @@ export function parseCommand(
     return null
   }
 
-  const relatedSkills = referencedSkills(body, options.skillNames ?? new Set())
-
   return {
     name,
     description,
@@ -134,7 +95,6 @@ export function parseCommand(
     body,
     takesArguments: ARGUMENT_PATTERN.test(body),
     runsShell: SHELL_PATTERN.test(body),
-    relatedSkills,
     ...(options.simulation ? { simulation: options.simulation } : {}),
     bytes: typeof TextEncoder === 'undefined' ? raw.length : new TextEncoder().encode(raw).length,
   }
@@ -144,14 +104,12 @@ export function parseCommand(
 export function loadCommandsFromFiles(
   files: Record<string, string>,
   options: {
-    skillNames?: ReadonlySet<string>
     simulations?: ReadonlyMap<string, Simulation>
   } = {}
 ): Command[] {
   return Object.entries(files)
     .map(([path, raw]) =>
       parseCommand(path, raw, {
-        skillNames: options.skillNames,
         simulation: options.simulations?.get(commandNameFromPath(path)),
       })
     )
@@ -170,7 +128,7 @@ export function filterCommands(commands: Command[], query: string): Command[] {
     return commands
   }
   return commands.filter((command) =>
-    [command.name, command.description, command.body, command.relatedSkills.join(' ')]
+    [command.name, command.description, command.body]
       .join(' ')
       .toLowerCase()
       .includes(needle)

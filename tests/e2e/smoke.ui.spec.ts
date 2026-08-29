@@ -1137,6 +1137,12 @@ test.describe("composer", () => {
 
   test("round-trips two imported reminders by ID and resets the picker", async ({ page }) => {
     const sent: Array<Record<string, unknown>> = [];
+    await page.route("**/api/reminders?*", async (route) => {
+      const response = await route.fetch();
+      const body = await response.json() as { reminders: Array<{ id: string; title: string; description: string; triggers: string[]; tags: string[] }> };
+      body.reminders.push({ id: "new-server-reminder", title: "New Server Reminder", description: "Exists only on a newer server.", triggers: [], tags: ["new"] });
+      await route.fulfill({ response, json: body });
+    });
     await page.route("**/api/sessions/*/prompt?*", async (route) => {
       sent.push(route.request().postDataJSON() as Record<string, unknown>);
       await route.continue();
@@ -1146,14 +1152,14 @@ test.describe("composer", () => {
     await expect(picker).toBeVisible();
     await picker.click();
     await expect(page.getByTestId("composer-reminder-search")).toBeFocused();
-    await expect(page.getByTestId("composer-reminder-group")).toHaveCount(5);
+    await expect(page.getByTestId("composer-reminder-group")).toHaveCount(6);
     await expect(page.getByTestId("composer-reminder-group").nth(0)).toHaveAccessibleName("Plan & Design");
-    await expect(page.getByTestId("composer-reminder-option")).toHaveCount(12);
-    await expect(page.getByTestId("composer-reminder-icon")).toHaveCount(12);
+    await expect(page.getByTestId("composer-reminder-option")).toHaveCount(13);
+    await expect(page.getByTestId("composer-reminder-icon")).toHaveCount(13);
     const humanVerification = page.locator('[data-testid="composer-reminder-option"][data-reminder-id="human-verification-steps"]');
     await expect(humanVerification).toHaveAccessibleName("Attach Write Human Verification Steps");
     const details = page.locator('[data-testid="composer-reminder-details"][data-reminder-id="human-verification-steps"]');
-    await expect(details).toHaveAttribute("href", "/playbooks/skills/human-verification-steps");
+    await expect(details).toHaveAttribute("href", "/playbooks/commands/verify");
     await expect(details).toHaveAttribute("target", "_blank");
     await expect(details).toHaveAccessibleName("Open Write Human Verification Steps details in a new tab");
     // The details link is a real touch target in its own right (matching
@@ -1164,6 +1170,11 @@ test.describe("composer", () => {
     expect(detailsBox?.width, "details link is a real touch target").toBeGreaterThanOrEqual(40);
     expect(detailsBox?.height, "details link is a real touch target").toBeGreaterThanOrEqual(40);
     expect(detailsBox?.width, "the details link stays a minority of the tile, not the whole row").toBeLessThan((tileBox?.width ?? 0) / 2);
+    const unknown = page.locator('[data-testid="composer-reminder-tile"][data-reminder-id="new-server-reminder"]');
+    await expect(unknown.getByTestId("composer-reminder-details")).toHaveCount(0);
+    await unknown.getByTestId("composer-reminder-option").click();
+    await expect(picker).toHaveAttribute("value", "new-server-reminder");
+    await picker.click();
     await page.getByTestId("composer-reminder-search").fill("Grill");
     await expect(page.getByTestId("composer-reminder-option")).toHaveCount(1);
     await expect(page.getByTestId("composer-reminder-title")).toContainText("Grill the Design");

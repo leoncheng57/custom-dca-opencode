@@ -17,8 +17,8 @@ caveat: >-
 ```
 $ git log --all --author="you@example.com" --since="24 hours ago" --pretty=format:'%h %s' --no-merges
 7ed8c02 feat: add simulation playback
-779d9c2 feat: add session handoff skill
-4699eaf feat: add human verification steps skill
+779d9c2 feat: add session handoff command
+4699eaf feat: add human verification command
 $ gh pr list --author "@me" --state open --limit 10
 (no open pull requests)
 ```
@@ -27,9 +27,9 @@ $ gh pr list --author "@me" --state open --limit 10
 
 **Yesterday**
 
-- Skill pages now play their worked example as a timed transcript instead of a
+- Command pages now play their worked example as a timed transcript instead of a
   wall of text — autoplay, manual stepping, and a speed control.
-- Two new skills landed: writing human verification checklists, and handing a
+- Two new commands landed: writing human verification checklists, and handing a
   session off to a fresh one with its settings intact.
 
 **Today**
@@ -50,6 +50,5 @@ The "Today" bullet is marked as a guess, because the log genuinely does not
 contain it. The "Blocked" section says nothing is blocked rather than
 manufacturing something to fill the heading.
 
-This command has no skill behind it on purpose. It is small and self-contained,
-so giving it a permanent slot in the agent's retrieval context would cost about
-570 characters on every turn of every session to save typing a sentence.
+This command is small and self-contained. It adds no retrieval context until a
+human explicitly invokes it.

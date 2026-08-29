@@ -5,7 +5,7 @@
  * fixes that matter here:
  *
  *  1. Block scalars. `description: >-` followed by indented lines is the normal
- *     way to write a long Agent Skills description. The original parser stored
+ *     way to write a long command description. The original parser stored
  *     the literal two-character string `>-` and dropped the text entirely.
  *     Literal (`|`, `|-`, `|+`) and folded (`>`, `>-`, `>+`) forms are both
  *     handled here, including chomping.
@@ -16,7 +16,7 @@
  *  3. CRLF. `startsWith('---\n')` is false for a CRLF file, so those files were
  *     treated as having no frontmatter at all. Line endings are normalised
  *     (and a UTF-8 BOM stripped) before anything else happens.
- *  4. Nested maps. The Agent Skills spec allows an optional `metadata:` block
+ *  4. Nested maps. Imported Markdown may include a `metadata:` block
  *     of string→string pairs; the original parser flattened it into an empty
  *     array. One level of nesting is supported.
  *
@@ -25,7 +25,7 @@
  * growing this one.
  */
 
-/** One level of nesting: the Agent Skills spec's `metadata` map is string→string. */
+/** One level of nesting for string-to-string metadata. */
 export type FrontmatterMap = Record<string, string>
 
 export type FrontmatterValue =

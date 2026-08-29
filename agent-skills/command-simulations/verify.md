@@ -2,8 +2,8 @@
 title: Checks run before the human is asked to look
 trigger: /verify
 caveat: >-
-  The checklist is trimmed to four steps; a real one runs to eight or ten. The
-  shell blocks ran before the model saw anything, which is the point.
+  The checklist is trimmed to four steps; a real one runs to eight or ten. This
+  fixture repository uses npm, but the command discovers tooling before checks.
 ---
 
 # Worked example
@@ -53,13 +53,11 @@ Disposition: **Blocked on human access** for the visual steps.
 
 ## note
 
-The four shell blocks are not the assistant deciding to run things. They are
-`` !`command` `` interpolations in the template: they executed before the model
-saw the prompt, so their output was already in the turn.
+The assistant first inspected this repository's instructions, package manifest,
+lockfile, CI, and changed tests. Those sources established npm and the three
+commands shown above; the portable command did not assume them.
 
-That ordering is the guard. A skill has to *decide* to run the checks and can
-skip them; the command cannot, because the output arrives whether the model
-wants it or not. The reward is that a red build never reaches a human.
+The automation gate remains load-bearing: a red build never reaches a human.
 
 Note the honest split at the end. Running the commands is not the same as
 looking at the page, and the report says so rather than claiming a pass.

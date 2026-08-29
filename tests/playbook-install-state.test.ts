@@ -32,8 +32,6 @@ describe("installStateFrom", () => {
     const state = installStateFrom("/tmp/mock-project", catalogue(["grill-me"], ["verify"]));
     expect(state.status).toBe("ready");
     expect(state.directoryLabel).toBe("mock-project");
-    expect(state.installedSkills.has("grill-me")).toBe(true);
-    expect(state.installedSkills.has("build-waves")).toBe(false);
     expect(state.installedCommands.has("verify")).toBe(true);
   });
 
@@ -53,6 +51,6 @@ describe("installStateFrom", () => {
     const state = installStateFrom("/tmp/mock-project", catalogue([], []));
     expect(state.status).toBe("ready");
     expect(state.directoryLabel).toBe("mock-project");
-    expect(state.installedSkills.size).toBe(0);
+    expect(state.installedCommands.size).toBe(0);
   });
 });

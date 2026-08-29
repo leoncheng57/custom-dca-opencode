@@ -32,5 +32,20 @@ If a named renderer or MCP server is unavailable in this session, say so and
 offer the medium that can actually be verified. "It should render" is not
 verification.
 
-For the installed tool inventory, rendering tradeoffs, and docs-site caveats,
-load the `docs-and-diagram-tooling` skill.
+When unsure, choose ASCII because it remains readable without a renderer. Never
+maintain ASCII and Mermaid copies of the same diagram. For rendered SVG, pass an
+explicit output directory and use a light theme for documents normally read on
+a light page. A Markdown preview validates structure but may show Mermaid as a
+code block; build the actual docs site to prove its plugin chain renders it.
+
+Check the current agent and MCP roster instead of assuming machine-local tools
+are connected. A table beats a diagram for two-axis comparison, and a numbered
+list beats one for a branchless sequence.
+
+| Failure | Response |
+|---|---|
+| Mermaid is visible as source | Use ASCII or a rendered SVG |
+| SVG lands outside the documentation tree | Render again with an explicit output directory |
+| New page does not appear in site navigation | Follow the site's navigation configuration and nearest page |
+| Preview looks right but the build is red | Report failure; rendered appearance is not build verification |
+| Tool named in the procedure is unavailable | State the limitation and use a verifiable fallback |

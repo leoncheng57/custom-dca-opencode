@@ -41,11 +41,9 @@ Ready. I have not written any code in it.
 
 ## note
 
-`$ARGUMENTS` carried `dark-mode` straight into the template, which is the whole
-reason this is a command rather than a skill — a skill cannot take input.
+`$ARGUMENTS` carried `dark-mode` straight into the template, so the same command
+can create a specifically named worktree without permanent retrieval context.
 
-The template is the happy path only. The moment something goes wrong — a stale
-worktree registration, a branch already checked out elsewhere, a sibling
-worktree holding the port — the last line of the command sends the agent to the
-`worktree-up` skill for the failure-mode table. The command deliberately does
-not restate it, because two copies of a failure-mode table drift.
+The template also owns the failure paths: stale registration, a branch already
+checked out elsewhere, and a sibling worktree holding the port. One complete
+command avoids a second source that could drift.

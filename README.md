@@ -27,21 +27,23 @@ the same server and can be attached at the same time, watching the same sessions
 
 ## Playbooks
 
-The Runner's native **Playbooks** section at `/playbooks` catalogs portable OpenCode
-skills, custom commands, and worked simulations. Their installable Markdown source
-lives in [`agent-skills/`](agent-skills/), migrated from the former standalone
-`leoncheng57/agent-skills` repository so the Runner and the procedures it is built to
-use have one source of truth.
+The Runner's native **Playbooks** section at `/playbooks` catalogs repository-owned,
+human-invoked OpenCode commands and their worked simulations. Their installable
+Markdown source lives in [`agent-skills/`](agent-skills/). Commands add zero retrieval
+context until explicitly invoked and contain their complete workflow and failure
+handling; this repository intentionally ships no skills.
 
-Install a skill directly from this repository with the skills CLI:
+Install a command directly from this repository:
 
 ```bash
-npx skills add https://github.com/leoncheng57/custom-dca-opencode/tree/main/agent-skills \
-  --skill parallel-research-handoff -g
+mkdir -p ~/.config/opencode/commands
+curl -sL https://raw.githubusercontent.com/leoncheng57/custom-dca-opencode/main/agent-skills/commands/verify.md \
+  -o ~/.config/opencode/commands/verify.md
 ```
 
-The former standalone catalog app is retired. Playbooks uses the Runner's own router,
-design system, safe Markdown renderer, test suite, and production build.
+Runtime reminders under root `reminders/` remain separate per-message prompt content,
+and the live `/skill` Catalog panel remains the connected OpenCode process's inventory
+of externally installed content. The former standalone catalog app is retired.
 
 ## Status
 

@@ -38,5 +38,19 @@ through a shell and a terminal emulator on its way to the agent.
 Write it to a file outside every git working tree and print the path. Do not
 launch anything; show me the prompt first.
 
-For the research phase that feeds this, load `parallel-research-handoff`. For
-launching the session afterwards, load `session-handoff`.
+Before finalizing, verify every claimed path, branch, baseline, model, and
+runtime capability. Mark anything else `UNVERIFIED`. Keep credentials out of
+the packet because it may later appear in shell history or process arguments.
+
+Do not compress decisions into conclusions: preserve rationale, especially for
+scope exclusions and one-way choices. A negative finding must name how it was
+searched so the receiving agent knows its evidence boundary.
+
+| Failure | Response |
+|---|---|
+| Receiving agent repeats discovery | Add cited findings and `DO NOT RE-DERIVE` |
+| Scope is relitigated | Add the settled rationale and supporting evidence |
+| Prompt starts a checkout dirty | Move it outside all worktrees |
+| Baseline is only reported from memory | Mark it UNVERIFIED or run it before handoff |
+| Prompt contains secrets | Remove them and use a separate safe channel |
+| Work is launched without review | Stop; print the packet and exact command first |

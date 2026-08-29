@@ -4,7 +4,7 @@ title: Cite File Lines
 description: Reference code as file_path:line_number so the user can jump straight to it.
 tags: verification
 source_repo: https://github.com/leoncheng57/custom-dca-opencode
-source_path: agent-skills/skills/cite-file-lines/SKILL.md
+source_path: agent-skills/commands/cite-file-lines.md
 source_commit: fe9e5ede5f3dc749b0515372ee2e2bc2fc3b3fba
 ---
 

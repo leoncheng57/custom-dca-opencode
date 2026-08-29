@@ -1,16 +1,7 @@
 import { parseFrontmatter, stripLeadingHeading } from './frontmatter'
-import { directoryNameFromPath } from './skills'
 
 /**
- * A `skills/<name>/SIMULATION.md` file: one short, content-authored transcript
- * of the skill firing in practice.
- *
- * The transcript lives beside `SKILL.md` rather than inside it because
- * `SKILL.md` is *agent context* — every line of it is injected into the model
- * when the skill loads. A worked example there would be pure token cost, and
- * worse, the model tends to imitate an example's literal content instead of
- * following the procedure. The same reasoning already produced
- * `skills/ascii-diagrams/EXAMPLES.md`.
+ * A short, content-authored transcript of a command firing in practice.
  *
  * Nothing here is simulated in the computational sense: there is no model of
  * the world that could predict what an agent says. The truth is authored, so
@@ -34,9 +25,7 @@ export interface Simulation {
   /** Scenario name, shown in the disclosure's summary meta. */
   title: string
   /**
-   * The literal phrase that fires the skill. Tested against both the first
-   * user turn and the owning `SKILL.md` description, so a renamed trigger
-   * cannot silently leave a stale example behind.
+   * The literal slash invocation that fires the command.
    */
   trigger: string
   /** One line naming what this transcript compresses. Never optional. */
@@ -136,7 +125,7 @@ function splitTurns(body: string): RawTurn[] | null {
  * Parses one `SIMULATION.md`.
  *
  * Returns null rather than throwing on malformed input: the glob in
- * {@link ../lib/skillsSource} is eager, so a thrown error would take the whole
+ * The command source glob is eager, so a thrown error would take the whole
  * site down over one typo in one file. Strictness lives in the test suite
  * instead — `simulation.test.ts` asserts that every file on disk parses. The
  * site is resilient; the pipeline is strict.
@@ -175,14 +164,15 @@ export function parseSimulation(raw: string): Simulation | null {
 }
 
 /**
- * Keyed by skill directory name, so a simulation joins its skill by living
- * next to it — the same "the directory is the identity" rule the catalog uses.
+ * Keyed by the parent directory name. Flat command simulations are re-keyed
+ * into that shape by the caller before parsing.
  */
 export function loadSimulationsFromFiles(files: Record<string, string>): Map<string, Simulation> {
   const simulations = new Map<string, Simulation>()
 
   for (const [path, raw] of Object.entries(files)) {
-    const directoryName = directoryNameFromPath(path)
+    const parts = path.split('/').filter(Boolean)
+    const directoryName = parts.length > 1 ? parts.at(-2) ?? '' : ''
     const simulation = directoryName === '' ? null : parseSimulation(raw)
     if (simulation) {
       simulations.set(directoryName, simulation)

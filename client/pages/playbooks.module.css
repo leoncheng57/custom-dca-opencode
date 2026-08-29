@@ -13,7 +13,7 @@
 
 .wipWarning { margin-bottom: 1.5rem; }
 
-.mono, .eyebrow, .type, .count, .filterLabel, .filterInput, .tag, .meta, .source, .terminal, .methodScope {
+.mono, .eyebrow, .type, .filterLabel, .filterInput, .meta, .source, .terminal, .methodScope {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
@@ -41,7 +41,7 @@
 .hero h1 { max-width: 42rem; margin: .75rem 0; font-size: clamp(2.7rem, 6vw, 4.8rem); line-height: .92; letter-spacing: -.055em; }
 .lede { max-width: 39rem; margin: 0; color: var(--playbooks-muted); font-size: 1rem; line-height: 1.55; }
 
-.typeStats { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; }
+.typeStats { display: grid; grid-template-columns: repeat(2, 1fr); gap: .5rem; }
 .typeStat { border: 2px solid var(--playbooks-line); background: var(--playbooks-surface); box-shadow: 3px 3px 0 var(--playbooks-shadow); padding: .8rem .5rem; text-align: center; }
 .typeStat strong { display: block; font: 700 1.35rem Georgia, "Times New Roman", serif; }
 .typeStat span { display: block; margin-top: .15rem; font: .55rem ui-monospace, monospace; letter-spacing: .1em; text-transform: uppercase; }
@@ -49,29 +49,17 @@
 .catalog { margin-top: 2rem; }
 .catalogHead { display: flex; align-items: end; justify-content: space-between; gap: 1rem; }
 .sectionTitle { margin: .35rem 0 0; font-size: 1.8rem; line-height: 1; }
-.count { margin-left: .5rem; color: var(--playbooks-muted); font-size: .7rem; }
 
 .filter { display: flex; min-height: 2.7rem; align-items: center; border: 2px solid var(--playbooks-line); background: var(--playbooks-surface); box-shadow: 3px 3px 0 var(--playbooks-shadow); }
 .filterLabel { padding: 0 .7rem; color: var(--playbooks-muted); font-size: .7rem; }
 .filterInput { min-width: 14rem; flex: 1; border: 0; outline: 0; background: transparent; color: var(--playbooks-ink); font-size: .72rem; }
 .clear { margin: .25rem; border: 1px solid transparent; background: transparent; color: var(--playbooks-ink); cursor: pointer; font: 1rem ui-monospace, monospace; }
-.clear:focus-visible, .tag:focus-visible, .tab:focus-visible, .cardLink:focus-visible, .source:focus-visible { outline: 2px solid var(--playbooks-accent); outline-offset: 2px; }
+.clear:focus-visible, .cardLink:focus-visible, .source:focus-visible { outline: 2px solid var(--playbooks-accent); outline-offset: 2px; }
 
-.tabs, .tags { display: flex; flex-wrap: wrap; gap: .5rem; }
-.tabs { margin-top: 1.25rem; }
-.tab, .tag { border: 2px solid var(--playbooks-line); background: transparent; color: var(--playbooks-ink); cursor: pointer; font-size: .68rem; font-weight: 700; text-decoration: none; }
-.tab { padding: .45rem .75rem; }
-.tabActive { background: var(--playbooks-accent); color: var(--playbooks-surface); }
-.tags { margin-top: .8rem; align-items: center; }.tags > span { font-size: .65rem; color: var(--playbooks-muted); }
-.tag { border-width: 0; padding: .25rem .35rem; color: var(--playbooks-accent); }
 
 .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin-top: 1.6rem; }
 .card { display: flex; min-height: 14rem; flex-direction: column; border: 2px solid var(--playbooks-line); background: var(--playbooks-surface); box-shadow: 5px 5px 0 var(--playbooks-shadow); padding: 1.1rem; }
 .cardTop { display: flex; justify-content: space-between; gap: 1rem; }.type { display: inline-flex; align-items: center; gap: .25rem; border: 1px solid var(--playbooks-line); padding: .22rem .38rem; font-size: .55rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }.meta { color: var(--playbooks-muted); font-size: .62rem; }
-/* Skills are chosen by the model, commands by a human. That is the single most
-   load-bearing distinction on this page, so it gets colour and an icon rather
-   than only a word. */
-.typeSkill { border-color: var(--playbooks-accent); background: var(--playbooks-accent-soft); color: var(--playbooks-accent); }
 .typeCommand { border-color: var(--playbooks-line); background: var(--playbooks-terminal); color: var(--playbooks-terminal-ink); }
 /* Always carries the project name: installation is per-directory while this
    page is global, so an unlabelled badge would be false elsewhere. */
@@ -79,7 +67,6 @@
 .loadStateOn { border-color: var(--playbooks-accent); color: var(--playbooks-accent); }
 .loadStateOff { color: var(--playbooks-muted); }
 .scopeNote { margin: 1.5rem 0 0; border-left: 3px solid var(--playbooks-line); padding: .55rem .85rem; color: var(--playbooks-muted); font-size: .76rem; line-height: 1.5; }
-.cardSkill { border-left-width: 6px; border-left-color: var(--playbooks-accent); }
 .cardCommand { border-left-width: 6px; border-left-color: var(--playbooks-terminal); }
 .cardTitle { margin: 1.3rem 0 .45rem; font-size: 1.55rem; line-height: 1; }.cardCopy { margin: 0; flex: 1; color: var(--playbooks-muted); font-size: .88rem; line-height: 1.45; }.cardTags { display: flex; flex-wrap: wrap; gap: .25rem; margin-top: .7rem; }.cardTags span { font: .58rem ui-monospace, monospace; color: var(--playbooks-muted); }.cardLink { margin-top: 1.25rem; color: var(--playbooks-accent); font: 700 .68rem ui-monospace, monospace; text-decoration: none; }.cardLink:hover, .source:hover { text-decoration: underline; }
 .empty { margin-top: 1.5rem; border: 2px solid var(--playbooks-line); background: var(--playbooks-surface); padding: 1rem; color: var(--playbooks-muted); }

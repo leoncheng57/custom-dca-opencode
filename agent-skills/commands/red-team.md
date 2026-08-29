@@ -25,6 +25,16 @@ Then:
    verdict of exactly one of `proceed`, `proceed-with-change`, or `stop`.
 
 Do not re-litigate the work's merits. The case for it has already been made.
+Prefer a fresh subtask context for anything larger than a small diff so the
+reviewer does not inherit the author's sunk cost.
 
-For the full objection taxonomy, the ranking axes, and the failure-mode table,
-load the `red-team-this` skill.
+Score likelihood, cost if true, and inverted cost-to-check from 1-5; sort by
+their product. Cheap checks on plausible expensive failures should rise first.
+
+| Failure | Response |
+|---|---|
+| Review hedges or praises the work | Re-state the side switch and delete the defense |
+| Concerns are plausible but ungrounded | Run the grep/curl/read or move them to speculative |
+| Highest concern cannot be acted on | Include cost-to-check and identify one experiment |
+| Same blind spot survives | Move the artifact into a fresh subtask context |
+| Review ends with concerns but no decision | Emit one of the three exact verdicts |

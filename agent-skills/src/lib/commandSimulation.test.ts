@@ -4,9 +4,8 @@ import { commands as realCommands } from './commandsSource'
 /**
  * Commands that ship without a worked example.
  *
- * Same reviewed-list device as WITHOUT_SIMULATION in simulation.test.ts and
- * TAG_VOCABULARY in skills.test.ts: currently empty, and adding an entry has to
- * be a decision someone made rather than an omission nobody noticed.
+ * A reviewed exception list: currently empty, and adding an entry has to be a
+ * decision someone made rather than an omission nobody noticed.
  */
 const WITHOUT_SIMULATION: readonly string[] = []
 

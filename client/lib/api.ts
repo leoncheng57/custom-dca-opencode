@@ -444,7 +444,7 @@ export interface ReminderSummary {
   title: string;
   description: string;
   triggers: string[];
-  /** Retrieval tags mirrored from the reminder's Playbook skill. */
+  /** Application-owned tags used to group and filter reminders. */
   tags: string[];
 }
 

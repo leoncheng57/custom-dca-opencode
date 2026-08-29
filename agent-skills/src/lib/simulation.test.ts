@@ -1,61 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import { loadSimulationsFromFiles, parseSimulation } from './simulation'
-import { skills as realSkills } from './skillsSource'
-
-/**
- * Skills that ship without a worked example.
- *
- * Same device as TAG_VOCABULARY in skills.test.ts: a deliberately-reviewed
- * list, so landing a skill with no `SIMULATION.md` means editing this on
- * purpose, in review, rather than letting coverage quietly rot.
- *
- * Currently empty — every shipped skill has one. An entry here is allowed to
- * be permanent if a transcript genuinely does not suit the skill; "no
- * simulation" is a legitimate outcome, but it has to be a decision someone
- * made rather than an omission nobody noticed.
- */
-const WITHOUT_SIMULATION: readonly string[] = []
-
-/** Past this the example is trying to be the instructions. */
-const MAX_TURNS = 12
-
-const FILLER_CAVEATS = new Set(['none', 'n/a', 'na', '-', 'nothing'])
-
-/**
- * Trigger phrases are matched against hard-wrapped markdown, where a phrase
- * routinely straddles a line break. Line wrapping is not semantic, so it is
- * flattened before comparing.
- */
-function flatten(text: string): string {
-  return text.replace(/\s+/g, ' ').toLowerCase()
-}
-
-/**
- * Drops fenced blocks, so a shell comment (`# from the root of your project`)
- * is not mistaken for a markdown heading.
- */
-function proseLines(body: string): string[] {
-  const lines: string[] = []
-  let openFence: string | null = null
-
-  for (const line of body.split('\n')) {
-    const fence = line.match(/^[ \t]{0,3}(`{3,}|~{3,})(.*)$/)
-    if (fence) {
-      const [, marker, rest] = fence
-      if (openFence === null) {
-        openFence = marker
-      } else if (marker[0] === openFence[0] && marker.length >= openFence.length && rest.trim() === '') {
-        openFence = null
-      }
-      continue
-    }
-    if (openFence === null) {
-      lines.push(line)
-    }
-  }
-
-  return lines
-}
 
 const SIMULATION_MD = [
   '---',
@@ -231,8 +175,8 @@ describe('parseSimulation tolerates', () => {
 })
 
 describe('loadSimulationsFromFiles', () => {
-  it('keys simulations by their skill directory', () => {
-    const loaded = loadSimulationsFromFiles({ '../../skills/grill-me/SIMULATION.md': SIMULATION_MD })
+  it('keys simulations by their normalized parent directory', () => {
+    const loaded = loadSimulationsFromFiles({ '../../commands/grill-me/SIMULATION.md': SIMULATION_MD })
 
     expect([...loaded.keys()]).toEqual(['grill-me'])
   })
@@ -241,99 +185,10 @@ describe('loadSimulationsFromFiles', () => {
     // The glob is eager: throwing here would take the whole site down over one
     // typo. CI catches it instead, in "the shipped simulations" below.
     const loaded = loadSimulationsFromFiles({
-      '../../skills/good/SIMULATION.md': SIMULATION_MD,
-      '../../skills/bad/SIMULATION.md': 'no frontmatter, no turns',
+      '../../commands/good/SIMULATION.md': SIMULATION_MD,
+      '../../commands/bad/SIMULATION.md': 'no frontmatter, no turns',
     })
 
     expect([...loaded.keys()]).toEqual(['good'])
   })
-})
-
-describe('the shipped simulations', () => {
-  const withSimulation = realSkills.filter((skill) => skill.simulation)
-
-  it('covers every skill except the reviewed exceptions', () => {
-    const missing = realSkills
-      .filter((skill) => !skill.simulation)
-      .map((skill) => skill.name)
-      .filter((name) => !(WITHOUT_SIMULATION as readonly string[]).includes(name))
-
-    expect(missing).toEqual([])
-  })
-
-  it('has no stale entries in the exception list', () => {
-    const stale = WITHOUT_SIMULATION.filter((name) =>
-      realSkills.some((skill) => skill.name === name && skill.simulation)
-    )
-
-    expect(stale).toEqual([])
-  })
-
-  it('lists only real skills in the exception list', () => {
-    const unknown = WITHOUT_SIMULATION.filter((name) => !realSkills.some((skill) => skill.name === name))
-
-    expect(unknown).toEqual([])
-  })
-
-  it('parses at least one simulation, so the glob is actually wired up', () => {
-    expect(withSimulation.length).toBeGreaterThan(0)
-  })
-
-  it.each(withSimulation.map((skill) => [skill.name, skill] as const))(
-    '%s opens on the user speaking its trigger phrase',
-    (_name, skill) => {
-      const simulation = skill.simulation!
-      const opening = simulation.turns[0]
-
-      expect(opening.role).toBe('user')
-      expect(flatten(opening.body)).toContain(flatten(simulation.trigger))
-    }
-  )
-
-  it.each(withSimulation.map((skill) => [skill.name, skill] as const))(
-    '%s uses a trigger the description actually documents',
-    (_name, skill) => {
-      // The drift detector. Rename a trigger in SKILL.md and this fails,
-      // rather than leaving a worked example quietly describing the old skill.
-      expect(flatten(skill.description)).toContain(flatten(skill.simulation!.trigger))
-    }
-  )
-
-  it.each(withSimulation.map((skill) => [skill.name, skill] as const))(
-    '%s names what its transcript compresses',
-    (_name, skill) => {
-      const caveat = skill.simulation!.caveat
-      expect(caveat.length).toBeGreaterThan(20)
-      expect(FILLER_CAVEATS.has(caveat.trim().toLowerCase().replace(/[.]$/, ''))).toBe(false)
-    }
-  )
-
-  it.each(withSimulation.map((skill) => [skill.name, skill] as const))(
-    `%s stays under ${MAX_TURNS} turns`,
-    (_name, skill) => {
-      expect(skill.simulation!.turns.length).toBeLessThanOrEqual(MAX_TURNS)
-    }
-  )
-
-  it.each(withSimulation.map((skill) => [skill.name, skill] as const))(
-    '%s is pointed at from its SKILL.md',
-    (_name, skill) => {
-      // The other direction of the same drift guard: a worked example nobody
-      // links to is invisible to the agent that installed the skill.
-      expect(skill.body).toContain('SIMULATION.md')
-    }
-  )
-
-  it.each(withSimulation.map((skill) => [skill.name, skill] as const))(
-    '%s puts no headings inside a turn body',
-    (_name, skill) => {
-      // rehype-slug would mint ids for them, colliding with the instruction
-      // body rendered further down the same page.
-      const offenders = skill
-        .simulation!.turns.flatMap((turn) => proseLines(turn.body))
-        .filter((line) => /^#{1,6}\s/.test(line))
-
-      expect(offenders).toEqual([])
-    }
-  )
 })

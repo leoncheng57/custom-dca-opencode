@@ -1,8 +1,10 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { splitReminderTags as clientSplitReminderTags } from "../client/lib/reminders.js";
+import { commands } from "../agent-skills/src/lib/commandsSource.js";
+import { commandForReminder, REMINDER_COMMANDS } from "../agent-skills/src/lib/reminderCommands.js";
 import { reminderCatalogue } from "../server/reminders/loader.js";
 import {
   REMINDER_BODY_MAX,
@@ -83,7 +85,7 @@ describe("parseReminderMarkdown", () => {
       "name: local",
       "description: A reminder documented by this application.",
       "source_repo: https://github.com/leoncheng57/custom-dca-opencode",
-      "source_path: agent-skills/skills/local/SKILL.md",
+      "source_path: agent-skills/commands/local.md",
       "source_commit: 0123456789abcdef0123456789abcdef01234567",
       "---",
       "",
@@ -91,7 +93,7 @@ describe("parseReminderMarkdown", () => {
     ].join("\n"));
     expect(parsed?.source).toEqual({
       repo: "https://github.com/leoncheng57/custom-dca-opencode",
-      path: "agent-skills/skills/local/SKILL.md",
+      path: "agent-skills/commands/local.md",
       commit: "0123456789abcdef0123456789abcdef01234567",
     });
   });
@@ -159,24 +161,24 @@ describe("shipped catalogue", () => {
     expect(parsedIds).toHaveLength(ids.length);
   });
 
-  it("documents every runtime reminder as a Playbook skill", () => {
-    const playbooksDir = path.join(import.meta.dirname, "..", "agent-skills", "skills");
-    for (const { id } of reminderCatalogue()) {
-      expect(existsSync(path.join(playbooksDir, id, "SKILL.md")), `agent-skills/skills/${id}/SKILL.md is missing`).toBe(true);
+  it("maps every runtime reminder to one real command", () => {
+    const commandNames = new Set(commands.map(({ name }) => name));
+    const reminderIds = reminderCatalogue().map(({ id }) => id).sort();
+    expect(Object.keys(REMINDER_COMMANDS).sort()).toEqual(reminderIds);
+    expect(new Set(Object.values(REMINDER_COMMANDS)).size).toBe(reminderIds.length);
+    for (const id of reminderIds) {
+      const command = commandForReminder(id);
+      expect(command, `${id} has no command mapping`).toBeDefined();
+      expect(commandNames.has(command!), `${id} maps to a missing command`).toBe(true);
     }
   });
 
-  it("mirrors each reminder's tags from its Playbook skill", () => {
-    // Reminder tags are a copy, not a second taxonomy. Copying is only safe if
-    // divergence is a build failure, so compare against the Playbook source of
-    // truth rather than against a hardcoded list. The vocabulary itself stays
-    // enforced by agent-skills/src/lib/skills.test.ts.
-    const playbooksDir = path.join(import.meta.dirname, "..", "agent-skills", "skills");
+  it("does not guess a command for an unknown reminder", () => {
+    expect(commandForReminder("new-server-reminder")).toBeUndefined();
+  });
+
+  it("keeps reminder tags application-owned and non-empty", () => {
     for (const { id, tags } of reminderCatalogue()) {
-      const skill = readFileSync(path.join(playbooksDir, id, "SKILL.md"), "utf8");
-      const declared = /^\s+tags:\s*(.*)$/m.exec(skill)?.[1] ?? "";
-      const expected = declared.replace(/^["']|["']$/g, "").split(",").map((tag) => tag.trim().toLowerCase()).filter(Boolean);
-      expect(tags, `reminders/${id} tags drifted from agent-skills/skills/${id}`).toEqual(expected);
       expect(tags.length, `reminders/${id} declares no tags`).toBeGreaterThan(0);
     }
   });
@@ -211,7 +213,7 @@ describe("shipped catalogue", () => {
       if (locallyDocumentedIds.has(reminder.id)) {
         expect(reminder.source).toEqual({
           repo: "https://github.com/leoncheng57/custom-dca-opencode",
-          path: `agent-skills/skills/${reminder.id}/SKILL.md`,
+          path: `agent-skills/commands/${reminder.id}.md`,
           commit: localSourceCommit,
         });
         expect(reminder.body).not.toContain(localSourceCommit);
