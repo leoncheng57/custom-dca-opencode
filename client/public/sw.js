@@ -1,5 +1,8 @@
 const BADGE_DB = "opencode-pwa-state";
 const BADGE_STORE = "metadata";
+// Written by client/lib/webPush.ts, which cannot be imported here. Both copies
+// of these constants are asserted equal in tests/web-push.test.ts.
+const PUSH_IDENTITY_KEY = "pushIdentity";
 let badgeQueue = Promise.resolve();
 
 function badgeDatabase() {
@@ -110,6 +113,67 @@ function queueBadge(count, revision) {
   badgeQueue = badgeQueue.then(() => applyBadge(count, revision), () => applyBadge(count, revision));
   return badgeQueue;
 }
+
+async function storedPushIdentity() {
+  const database = await badgeDatabase();
+  return new Promise((resolve, reject) => {
+    const request = database.transaction(BADGE_STORE).objectStore(BADGE_STORE).get(PUSH_IDENTITY_KEY);
+    request.onsuccess = () => {
+      const value = request.result;
+      resolve({
+        installationId: typeof value?.installationId === "string" ? value.installationId : null,
+        applicationServerKey: typeof value?.applicationServerKey === "string" ? value.applicationServerKey : null,
+      });
+    };
+    request.onerror = () => reject(request.error);
+  }).finally(() => database.close());
+}
+
+function decodeApplicationServerKey(value) {
+  const padded = value.replace(/-/gu, "+").replace(/_/gu, "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
+  return Uint8Array.from(atob(padded), (character) => character.charCodeAt(0));
+}
+
+/**
+ * The browser rotates or invalidates a push subscription on its own schedule
+ * and this event is the only signal it gives. Without it the server keeps
+ * posting to an endpoint the device no longer listens on — the push service
+ * still answers 200, so nothing looks broken from either side — and the only
+ * recovery is a human remembering to re-save Settings. Re-registering here
+ * makes that recovery automatic.
+ */
+self.addEventListener("pushsubscriptionchange", (event) => {
+  event.waitUntil((async () => {
+    try {
+      const identity = await storedPushIdentity()
+        .catch(() => ({ installationId: null, applicationServerKey: null }));
+      // Some browsers hand over the replacement directly; the rest expect the
+      // worker to re-subscribe itself.
+      let subscription = event.newSubscription ?? null;
+      if (!subscription) {
+        const key = event.oldSubscription?.options?.applicationServerKey
+          ?? (identity.applicationServerKey ? decodeApplicationServerKey(identity.applicationServerKey) : null);
+        if (!key) throw new Error("no application server key available to re-subscribe");
+        subscription = await self.registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+      }
+      // The installationId is what makes this a replacement rather than an
+      // append: without it the server matches on the endpoint, which by
+      // definition just changed, and the dead record survives alongside the
+      // live one.
+      const body = subscription.toJSON();
+      const response = await fetch("/api/notifications/push-subscriptions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(identity.installationId ? { ...body, installationId: identity.installationId } : body),
+      });
+      if (!response.ok) throw new Error(`re-registration rejected with ${response.status}`);
+    } catch (error) {
+      // Never rethrow: this must not take down unrelated push or message
+      // handling, and re-saving Settings remains the manual fallback.
+      console.warn("[web-push] could not re-register a rotated subscription", error);
+    }
+  })());
+});
 
 self.addEventListener("push", (event) => {
   let payload = {};

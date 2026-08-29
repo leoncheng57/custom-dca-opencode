@@ -266,6 +266,18 @@ export interface NotificationPreferences {
   parkedPermissionSeconds: number;
 }
 
+/**
+ * Safe projection of a registered PWA push device. Mirrors
+ * server/notifications/webpush.ts; it deliberately carries no endpoint or key.
+ */
+export interface PushSubscriptionSummary {
+  id: string;
+  addedAt: number;
+  label: string;
+  platform: string;
+  installationId?: string;
+}
+
 export type NotificationHistoryState = "all" | "active" | "resolved";
 
 /**
@@ -800,7 +812,7 @@ export const api = {
     }).then((r) => r.ok ? undefined : json<never>(r)),
   listPushSubscriptions: () =>
     fetch("/api/notifications/push-subscriptions")
-      .then((r) => json<{ subscriptions: Array<{ id: string; addedAt: number; label: string }> }>(r)),
+      .then((r) => json<{ subscriptions: PushSubscriptionSummary[] }>(r)),
   removePushSubscriptionById: (id: string) =>
     fetch(`/api/notifications/push-subscriptions/${encodeURIComponent(id)}`, {
       method: "DELETE",

@@ -328,6 +328,42 @@ several decisions below.
     Every push snapshots that authoritative global count; opening the app and resolving or
     reopening a record resynchronizes it. A change made on another device therefore reaches
     the phone on its next push or app open, not through a separate badge-only background job.
+18a. **A rotated subscription heals itself; the service worker's one network write is
+    re-registration.** The browser retires a push subscription on its own schedule and
+    `pushsubscriptionchange` is the only signal it gives. Without a handler the failure is
+    invisible from both ends — the push service still answers `2xx` for the dead endpoint, so
+    server-side delivery stats report success while the device receives nothing — and the only
+    recovery was a human re-opening Settings and pressing Save, which re-POSTs the subscription
+    as a side effect. The worker now re-subscribes and re-registers itself. It must carry the
+    **`installationId`** when it does: the server's endpoint-based fallback cannot match a
+    record whose endpoint just changed, so without the token a rotation appends a duplicate and
+    strands the dead record instead of replacing it. This is the sole exception to decision 18's
+    "no `fetch` handler, caches nothing" posture — it is an outbound write of the worker's own
+    subscription to one fixed same-origin route, never a request interception — and it fails
+    closed to a `console.warn`, because throwing here would take down unrelated push handling
+    and Settings remains the manual fallback.
+    A service worker cannot read `localStorage`, and this event fires with no page open to ask,
+    so the installation token and the VAPID key are mirrored into the IndexedDB store the badge
+    state already uses. `event.oldSubscription.options.applicationServerKey` is specified to
+    carry that key but is not reliably populated, so it is preferred when present and the
+    mirrored copy is the fallback. Those coordinates are duplicated in `client/public/sw.js`
+    and `client/lib/webPush.ts` — a public asset cannot import from the bundle — and are
+    dual-copy-tested like the reminder and workflow splitters, because drift would silently
+    disable healing rather than fail.
+18b. **A device summary must be able to distinguish devices.** `id`/`addedAt` were added to
+    legacy records at read time and recomputed on **every** read, so the first subsequent
+    write froze whichever `Date.now()` that read happened to see; in production this collapsed
+    four devices onto one identical millisecond and erased their real registration history.
+    Generated values are now persisted the first time they are produced, and a read of a
+    missing file backfills nothing — a read must not create state. Summaries additionally carry
+    the push service host as a platform family (`web.push.apple.com` → Apple) and echo the
+    `installationId`, reversing PR #278's decision to withhold it: the token is opaque,
+    per-installation and client-authored, so returning it discloses nothing the browser did not
+    mint for itself, and it is what lets a device mark its own row. Endpoint and keys are the
+    delivery credential and still never leave the server. A record with no token is labelled
+    `Unlinked` rather than guessed at — it predates installation tracking, so it can be neither
+    matched to a device nor replaced automatically, and it is the shape a stranded pre-18a
+    rotation leaves behind.
 19. **Human-managed children are a separate privilege lane from native tasks.** Native `task`
     delegation remains agent-initiated and keeps OpenCode's parent-session deny ceiling, task
     parts, depth accounting and hand-back. The sub-agent panel's **Launch child** action is an
