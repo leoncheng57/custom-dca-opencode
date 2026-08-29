@@ -1,8 +1,8 @@
 {
   "schemaVersion": 2,
   "prNumber": 318,
-  "sourceSha": "e9ec291c3cbe25db828e29c06181441853a020ae",
-  "capturedAt": "2026-08-29T21:43:38.235Z",
+  "sourceSha": "481ab2e390bec9503b6433bdefb3ae5a3cfb178a",
+  "capturedAt": "2026-08-29T21:50:00.027Z",
   "screenshots": [
     {
       "requestedRoute": "/sessions/ses_mock_workflow_main?directory=/tmp/mock-workflow-project",
