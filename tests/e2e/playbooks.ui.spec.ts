@@ -10,8 +10,8 @@ test.describe("Playbooks", () => {
     await expect(page).toHaveTitle("Playbooks | DCA");
     await expect(page.getByTestId("opencode-playbooks-wip-warning")).toHaveText("Playbooks is still work in progress and its UI/UX may contain bugs.");
     await expect(page.getByRole("heading", { name: "Repeatable ways to work with an agent." })).toBeVisible();
-    await expect(page.getByTestId("opencode-playbook-skill-card")).toHaveCount(13);
-    await expect(page.getByTestId("opencode-playbook-command-card")).toHaveCount(15);
+    await expect(page.getByTestId("opencode-playbook-skill-card")).toHaveCount(15);
+    await expect(page.getByTestId("opencode-playbook-command-card")).toHaveCount(17);
   });
 
   test("filters by tag and opens a skill with simulation and installation", async ({ page }) => {

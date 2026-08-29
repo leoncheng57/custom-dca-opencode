@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -59,6 +59,25 @@ describe("parseReminderMarkdown", () => {
     expect(parsed?.body).toBe("Apply the useful instruction.");
   });
 
+  it("accepts provenance from an application-owned Playbook", () => {
+    const parsed = parseReminderMarkdown("local", [
+      "---",
+      "name: local",
+      "description: A reminder documented by this application.",
+      "source_repo: https://github.com/leoncheng57/custom-dca-opencode",
+      "source_path: agent-skills/skills/local/SKILL.md",
+      "source_commit: 0123456789abcdef0123456789abcdef01234567",
+      "---",
+      "",
+      "Apply the documented instruction.",
+    ].join("\n"));
+    expect(parsed?.source).toEqual({
+      repo: "https://github.com/leoncheng57/custom-dca-opencode",
+      path: "agent-skills/skills/local/SKILL.md",
+      commit: "0123456789abcdef0123456789abcdef01234567",
+    });
+  });
+
   it("keeps triggers even though per-message injection ignores them", () => {
     const parsed = parseReminderMarkdown("duck-test", [
       "---", "name: duck-test", "description: Emit a duck.", "triggers:", "- duck", "- duck-test", "---", "", "Quack.",
@@ -94,6 +113,7 @@ describe("isValidReminderId", () => {
 
 describe("shipped catalogue", () => {
   const sourceCommit = "8b036a41f578dc6c6307ae0a8dd2857121afcabb";
+  const localSourceCommit = "fe9e5ede5f3dc749b0515372ee2e2bc2fc3b3fba";
   const importedIds = new Set([
     "ascii-diagrams",
     "background-subagent",
@@ -106,6 +126,7 @@ describe("shipped catalogue", () => {
     "parallel-research-handoff",
     "session-handoff",
   ]);
+  const locallyDocumentedIds = new Set(["cite-file-lines", "native-worktree-subagents"]);
   const dir = path.join(import.meta.dirname, "..", "reminders");
   const ids = readdirSync(dir, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name);
 
@@ -118,6 +139,13 @@ describe("shipped catalogue", () => {
     const parsedIds = reminderCatalogue().map(({ id }) => id);
     expect(new Set(parsedIds).size).toBe(parsedIds.length);
     expect(parsedIds).toHaveLength(ids.length);
+  });
+
+  it("documents every runtime reminder as a Playbook skill", () => {
+    const playbooksDir = path.join(import.meta.dirname, "..", "agent-skills", "skills");
+    for (const { id } of reminderCatalogue()) {
+      expect(existsSync(path.join(playbooksDir, id, "SKILL.md")), `agent-skills/skills/${id}/SKILL.md is missing`).toBe(true);
+    }
   });
 
   it.each(ids)("%s parses and has bounded, safe content", (id) => {
@@ -135,19 +163,32 @@ describe("shipped catalogue", () => {
 
   it("records complete, pinned provenance for every imported preset", () => {
     const catalogue = reminderCatalogue();
-    expect(catalogue.filter(({ source }) => source)).toHaveLength(importedIds.size);
+    expect(catalogue.filter(({ source }) => source)).toHaveLength(importedIds.size + locallyDocumentedIds.size);
     for (const reminder of catalogue) {
-      if (!importedIds.has(reminder.id)) {
+      if (importedIds.has(reminder.id)) {
+        expect(reminder.source).toEqual({
+          repo: "https://github.com/leoncheng57/agent-skills",
+          path: `skills/${reminder.id}/SKILL.md`,
+          commit: sourceCommit,
+        });
+        expect(reminder.body).not.toContain(sourceCommit);
+        expect(reminder.body).not.toContain(reminder.source!.repo);
+        continue;
+      }
+      if (locallyDocumentedIds.has(reminder.id)) {
+        expect(reminder.source).toEqual({
+          repo: "https://github.com/leoncheng57/custom-dca-opencode",
+          path: `agent-skills/skills/${reminder.id}/SKILL.md`,
+          commit: localSourceCommit,
+        });
+        expect(reminder.body).not.toContain(localSourceCommit);
+        expect(reminder.body).not.toContain(reminder.source!.repo);
+        continue;
+      }
+      {
         expect(reminder.source).toBeUndefined();
         continue;
       }
-      expect(reminder.source).toEqual({
-        repo: "https://github.com/leoncheng57/agent-skills",
-        path: `skills/${reminder.id}/SKILL.md`,
-        commit: sourceCommit,
-      });
-      expect(reminder.body).not.toContain(sourceCommit);
-      expect(reminder.body).not.toContain(reminder.source!.repo);
     }
   });
 

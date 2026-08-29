@@ -63,7 +63,7 @@ export function parseReminderMarkdown(id: string, markdown: string): ReminderPre
   if (sourceFields.some((value) => value !== undefined) && sourceFields.some((value) => !value)) return null;
   if (sourceFields[0] && (
     !/^https:\/\/[^\s]+$/.test(sourceFields[0])
-    || !/^skills\/[a-z0-9][a-z0-9-]*\/SKILL\.md$/.test(sourceFields[1]!)
+    || !/^(?:agent-skills\/)?skills\/[a-z0-9][a-z0-9-]*\/SKILL\.md$/.test(sourceFields[1]!)
     || !/^[0-9a-f]{40}$/.test(sourceFields[2]!)
   )) return null;
   const provenance = sourceFields[0]
