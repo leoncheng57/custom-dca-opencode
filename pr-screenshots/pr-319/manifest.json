@@ -1,8 +1,8 @@
 {
   "schemaVersion": 2,
   "prNumber": 319,
-  "sourceSha": "1c0221caad919f835ea97f8a24af1dc92882aed5",
-  "capturedAt": "2026-08-29T22:07:06.711Z",
+  "sourceSha": "bc30dc8d7eff1c6bc9a7f81a8472a355a2ae60ed",
+  "capturedAt": "2026-08-29T22:12:08.601Z",
   "screenshots": [
     {
       "requestedRoute": "/playbooks",
