@@ -30,16 +30,37 @@ export interface PlaybookInstallState {
   installedCommands: ReadonlySet<string>;
 }
 
-const EMPTY: PlaybookInstallState = {
+/** The "state nothing" value. Every failure path resolves to this. */
+export const UNKNOWN_INSTALL_STATE: PlaybookInstallState = {
   status: "unknown",
   directoryLabel: "",
   installedSkills: new Set(),
   installedCommands: new Set(),
 };
 
-function basename(directory: string): string {
+const EMPTY = UNKNOWN_INSTALL_STATE;
+
+/** Project label for the badge. Exported so the labelling rule is testable. */
+export function projectLabel(directory: string): string {
   const trimmed = directory.replace(/\/+$/u, "");
   return trimmed.slice(trimmed.lastIndexOf("/") + 1) || trimmed;
+}
+
+/**
+ * Reduce a catalogue response into install state.
+ *
+ * Split out of the hook so the fail-closed rules can be unit tested without a
+ * DOM: a blank directory, or a catalogue that could not be read, must produce
+ * `unknown` rather than an empty "not installed" claim.
+ */
+export function installStateFrom(directory: string, catalogue: CatalogResponse | null): PlaybookInstallState {
+  if (!directory || !catalogue) return UNKNOWN_INSTALL_STATE;
+  return {
+    status: "ready",
+    directoryLabel: projectLabel(directory),
+    installedSkills: new Set(catalogue.skills.map((skill) => skill.name)),
+    installedCommands: new Set(catalogue.commands.map((command) => command.name)),
+  };
 }
 
 export function usePlaybookInstallState(): PlaybookInstallState {
@@ -60,13 +81,7 @@ export function usePlaybookInstallState(): PlaybookInstallState {
     void api
       .catalog(directory, controller.signal)
       .then((catalogue: CatalogResponse) => {
-        if (cancelled) return;
-        setState({
-          status: "ready",
-          directoryLabel: basename(directory),
-          installedSkills: new Set(catalogue.skills.map((skill) => skill.name)),
-          installedCommands: new Set(catalogue.commands.map((command) => command.name)),
-        });
+        if (!cancelled) setState(installStateFrom(directory, catalogue));
       })
       .catch(() => {
         // Fail closed: an unreachable or rejected catalogue must state nothing,

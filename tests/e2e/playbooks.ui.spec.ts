@@ -150,6 +150,28 @@ test.describe("Playbooks", () => {
     await expect(page.getByTestId("opencode-playbook-source-link")).toContainText("main");
   });
 
+  test("keeps terminal inline code legible in light mode", async ({ page }) => {
+    // The terminal keeps its dark surface in both themes, but the shared inline
+    // code rule follows the theme — in light mode that painted a near-white
+    // block on the dark panel and hid the text entirely.
+    await page.addInitScript(() => localStorage.setItem("theme", "light"));
+    await page.emulateMedia({ colorScheme: "light" });
+    await page.goto("/playbooks/skills/grill-me");
+    const code = page.getByTestId("opencode-playbook-simulation").locator("code").first();
+    await expect(code).toBeVisible();
+    const { background, colour } = await code.evaluate((node) => ({
+      background: getComputedStyle(node).backgroundColor,
+      colour: getComputedStyle(node).color,
+    }));
+    const luminance = (value: string) => {
+      const [r, g, b] = value.match(/[\d.]+/gu)!.slice(0, 3).map(Number);
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    // Text and its background must not both be light; on the dark panel the
+    // code text is light, so the background has to stay dark.
+    expect(Math.abs(luminance(background) - luminance(colour))).toBeGreaterThan(60);
+  });
+
   test("states the caveat exactly once", async ({ page }) => {
     await page.goto("/playbooks/skills/grill-me");
     await expect(page.getByTestId("opencode-playbook-dialog")).toBeVisible();
