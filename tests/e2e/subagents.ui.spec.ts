@@ -26,6 +26,7 @@ const childUrl = `/sessions/${CHILD_RUNNING}?directory=${encodeURIComponent(DIR)
 test.describe("hub hierarchy", () => {
   test("collapses nested sessions by default and expands each level", async ({ page }) => {
     await page.goto(hub);
+    await page.getByTestId("opencode-sessions-picker-toggle").click();
     const rows = page.getByTestId("opencode-session-row");
     await expect(rows.first()).toContainText("Parallel investigation");
     await expect(rows.first()).toHaveAttribute("data-depth", "0");
@@ -50,6 +51,7 @@ test.describe("hub hierarchy", () => {
 
   test("marks children with a sub pill and the root with its child count", async ({ page }) => {
     await page.goto(hub);
+    await page.getByTestId("opencode-sessions-picker-toggle").click();
     const rows = page.getByTestId("opencode-session-row");
     await expect(rows.first().getByTestId("opencode-session-child-count")).toHaveText("6 sub");
     await page.getByTestId("opencode-session-list-disclosure").first().click();
@@ -87,6 +89,7 @@ test.describe("mobile hub hierarchy", () => {
 
   test("keeps disclosure touch targets and deep indentation mobile-safe", async ({ page }) => {
     await page.goto(hub);
+    await page.getByTestId("opencode-sessions-picker-toggle").click();
     const rootDisclosure = page.getByTestId("opencode-session-list-disclosure").first();
     expect((await rootDisclosure.boundingBox())?.height).toBeGreaterThanOrEqual(44);
     await rootDisclosure.click();
@@ -246,6 +249,7 @@ test.describe("subagents panel", () => {
 
   test("keeps every hub child on the neutral sub pill without managed metadata", async ({ page }) => {
     await page.goto(hub);
+    await page.getByTestId("opencode-sessions-picker-toggle").click();
     await page.getByTestId("opencode-session-list-disclosure").first().click();
     const pills = page.getByTestId("opencode-session-list").getByTestId("opencode-subagent-pill");
     await expect(pills.first()).toHaveText("sub");

@@ -4,6 +4,7 @@ import type { NotificationRecord, SessionSummary } from "../client/lib/api.js";
 import {
   attentionNotificationGroups,
   attentionRunningSessions,
+  buildAttentionRows,
   buildAttentionSummary,
 } from "../client/lib/hubAttention.js";
 
@@ -83,21 +84,55 @@ describe("attentionNotificationGroups", () => {
   });
 });
 
+describe("buildAttentionRows", () => {
+  it("merges a session that is both running and has an unresolved notification into one row", () => {
+    const recents = [session("ses-a", true, "2026-01-01T00:00:00.000Z")];
+    const records = [record({ id: "r1", kind: "permission", at: 1, sessionID: "ses-a" })];
+    const rows = buildAttentionRows(recents, records);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ key: "ses-a", running: true });
+    expect(rows[0].session?.id).toBe("ses-a");
+    expect(rows[0].notification?.key).toBe("ses-a");
+  });
+
+  it("keeps a running session with no notification as a running-only row", () => {
+    const recents = [session("ses-running", true, "2026-01-01T00:00:00.000Z")];
+    const rows = buildAttentionRows(recents, []);
+    expect(rows).toEqual([{ key: "ses-running", running: true, session: rows[0].session, notification: undefined }]);
+  });
+
+  it("keeps a notification-only session (not running) as its own row, after running rows", () => {
+    const recents = [session("ses-running", true, "2026-01-01T00:00:00.000Z")];
+    const records = [record({ id: "r1", kind: "idle", at: 1, sessionID: "ses-idle" })];
+    const rows = buildAttentionRows(recents, records);
+    expect(rows.map((row) => row.key)).toEqual(["ses-running", "ses-idle"]);
+    expect(rows[1].running).toBe(false);
+    expect(rows[1].session).toBeUndefined();
+    expect(rows[1].notification?.key).toBe("ses-idle");
+  });
+
+  it("bounds the merged total, not each half independently", () => {
+    const recents = Array.from({ length: 6 }, (_, index) =>
+      session(`running-${index}`, true, new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString()));
+    const records = Array.from({ length: 6 }, (_, index) =>
+      record({ id: `r-${index}`, kind: "idle", at: index, sessionID: `notify-${index}` }));
+    expect(buildAttentionRows(recents, records, 8)).toHaveLength(8);
+  });
+});
+
 describe("buildAttentionSummary", () => {
   it("reports empty when nothing is running and nothing is unresolved", () => {
-    expect(buildAttentionSummary([session("idle", false, "2026-01-01T00:00:00.000Z")], [])).toMatchObject({
-      running: [],
-      notificationGroups: [],
+    expect(buildAttentionSummary([session("idle", false, "2026-01-01T00:00:00.000Z")], [])).toEqual({
+      rows: [],
       isEmpty: true,
     });
   });
 
-  it("combines both bands and reports non-empty", () => {
-    const recents = [session("running", true, "2026-01-01T00:00:00.000Z")];
+  it("combines both bands, merging duplicates, and reports non-empty", () => {
+    const recents = [session("ses-a", true, "2026-01-01T00:00:00.000Z")];
     const records = [record({ id: "r1", kind: "permission", at: 1, sessionID: "ses-a" })];
     const summary = buildAttentionSummary(recents, records);
     expect(summary.isEmpty).toBe(false);
-    expect(summary.running).toHaveLength(1);
-    expect(summary.notificationGroups).toHaveLength(1);
+    expect(summary.rows).toHaveLength(1);
   });
 });

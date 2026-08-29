@@ -457,6 +457,7 @@ test("distinguishes a pre-existing managed child from a native task on load", as
 
   // And the Hub says the same thing about the same child.
   await page.goto(`/?directory=${encodeURIComponent(DIR)}`);
+  await page.getByTestId("opencode-sessions-picker-toggle").click();
   const list = page.getByTestId("opencode-session-list");
   // Earlier tests in this file add children to the other parents, so the
   // disclosure has to be named rather than picked by position.
