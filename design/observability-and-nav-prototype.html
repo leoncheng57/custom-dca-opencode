@@ -213,6 +213,47 @@
     color: var(--color-text-muted); font-size: .62rem; padding: .1rem .35rem; margin-top: .25rem;
   }
 
+  /* ── Deployment / process table ──────────────────────────────── */
+  .proc {
+    display: grid; grid-template-columns: 1fr 62px 132px 92px 78px; gap: .55rem;
+    padding: .36rem .55rem; border-bottom: 1px solid var(--color-border-default);
+    font-size: .705rem; align-items: center;
+  }
+  .proc:last-child { border-bottom: 0; }
+  .proc.head {
+    font-size: .62rem; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--color-text-muted); font-weight: 700;
+    background: var(--color-background-surface-neutral-muted);
+  }
+  .svc { font-weight: 600; font-size: .7rem; overflow-wrap: anywhere; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .66rem; }
+  .bind-open { color: var(--color-text-warning); font-weight: 700; }
+  .bind-local { color: var(--color-text-success); }
+  .dim { color: var(--color-text-muted); }
+  .kv {
+    display: grid; grid-template-columns: 132px 1fr auto; gap: .55rem; align-items: center;
+    padding: .34rem .55rem; border-bottom: 1px solid var(--color-border-default); font-size: .7rem;
+  }
+  .kv:last-child { border-bottom: 0; }
+  .k2 { color: var(--color-text-muted); font-size: .68rem; }
+  .cmd {
+    display: grid; grid-template-columns: 96px 1fr; gap: .55rem;
+    padding: .45rem .55rem; border-bottom: 1px solid var(--color-border-default); align-items: start;
+  }
+  .cmd:last-child { border-bottom: 0; }
+  .cmdname {
+    font-size: .62rem; text-transform: uppercase; letter-spacing: .05em;
+    color: var(--color-text-muted); font-weight: 700; padding-top: .12rem;
+  }
+  .dollar { color: var(--color-text-success); user-select: none; }
+
+  .tabs { display: flex; gap: .2rem; border-bottom: 1px solid var(--color-border-default); margin-top: .8rem; }
+  .tab {
+    font-size: .74rem; font-weight: 600; padding: .35rem .6rem; color: var(--color-text-muted);
+    border-bottom: 2px solid transparent; margin-bottom: -1px;
+  }
+  .tab.on { color: var(--color-text-default); border-bottom-color: var(--color-text-info); }
+
   .cap { font-size: .68rem; color: var(--color-text-muted); margin: .4rem 0 0; }
   .mobileframe { max-width: 360px; margin: 0 auto; }
   code.inline {
@@ -252,6 +293,11 @@
           <h4>Observability</h4>
           <p class="pagesub">Recent BFF log output from this host. Read-only, bounded tail.</p>
         </div>
+      </div>
+
+      <div class="tabs">
+        <span class="tab on">Logs</span>
+        <span class="tab">Deployment</span>
       </div>
 
       <div class="toolrow">
@@ -385,8 +431,116 @@
     </div>
   </div>
 
-  <!-- ══════════════ 3. NAVBAR ══════════════ -->
-  <h2>3 &nbsp;Navigation bar &mdash; before / after</h2>
+  <!-- ══════════════ 3. DEPLOYMENT & PROCESSES ══════════════ -->
+  <h2>3 &nbsp;Deployment &amp; processes &mdash; what is running right now</h2>
+  <p class="lede">
+    A log tail answers &ldquo;what happened&rdquo;. It does not answer &ldquo;what is running, on which port, and is it
+    the build I think it is&rdquo;. Most of this panel is already served by the existing
+    <code class="inline">GET /api/health</code>; only the process table needs new server work.
+  </p>
+  <div class="frame">
+    <div class="page">
+      <div class="pagehead">
+        <div>
+          <h4>Deployment</h4>
+          <p class="pagesub">Supervised services on this host, and the current runtime wiring.</p>
+        </div>
+      </div>
+
+      <div class="tabs">
+        <span class="tab">Logs</span>
+        <span class="tab on">Deployment</span>
+      </div>
+
+      <h3 style="margin-top:.9rem">Processes</h3>
+      <div class="log">
+        <div class="proc head">
+          <span>Service</span><span>PID</span><span>Bind</span><span>Reachable</span><span>Source</span>
+        </div>
+        <div class="proc">
+          <span class="svc">ai.custom-dca-opencode.bff</span>
+          <span class="mono">47322</span>
+          <span class="mono bind-open">*:3210</span>
+          <span><span class="chip ok">up</span></span>
+          <span class="mono dim">launchctl</span>
+        </div>
+        <div class="proc">
+          <span class="svc">ai.opencode.serve</span>
+          <span class="mono">83146</span>
+          <span class="mono bind-local">127.0.0.1:4097</span>
+          <span><span class="chip ok">up</span></span>
+          <span class="mono dim">launchctl</span>
+        </div>
+        <div class="proc">
+          <span class="svc dim">ai.opencode.desktop.ShipIt</span>
+          <span class="mono dim">&mdash;</span>
+          <span class="mono dim">&mdash;</span>
+          <span><span class="chip">not loaded</span></span>
+          <span class="mono dim">launchctl</span>
+        </div>
+      </div>
+      <p class="cap">
+        <b>The bind column is the point.</b> The BFF listens on <code class="inline">*:3210</code> &mdash; every interface,
+        which is what makes it reachable over Tailscale. <code class="inline">opencode serve</code> listens on loopback only.
+        That asymmetry is the security posture, and it is currently invisible from the browser.
+      </p>
+
+      <h3 style="margin-top:1rem">Runtime</h3>
+      <div class="log">
+        <div class="kv"><span class="k2">Upstream</span><span class="mono">http://127.0.0.1:4097</span><span class="chip ok">reachable</span></div>
+        <div class="kv"><span class="k2">Server version</span><span class="mono">1.18.23+dca.2</span><span class="chip ok">matches pin</span></div>
+        <div class="kv"><span class="k2">Event bus</span><span class="mono">/global/event</span><span class="chip ok">connected</span></div>
+        <div class="kv"><span class="k2">DSH</span><span class="mono">sdk 0.1.1rc2 &middot; seatbelt</span><span class="chip info">enabled</span></div>
+        <div class="kv"><span class="k2">Auto-permissions</span><span class="mono">2 directories</span><span class="chip warn">on</span></div>
+      </div>
+      <p class="cap">
+        Every row above is already present in <code class="inline">GET /api/health</code> today except auto-permissions.
+        A version mismatch against <code class="inline">EXPECTED_SERVER_VERSION</code> would render as a danger chip &mdash;
+        an accidental fallback to a stock binary reintroduces the #75 sub-agent deny bug, so it should be loud.
+      </p>
+
+      <h3 style="margin-top:1rem">Running it locally</h3>
+      <div class="log">
+        <div class="cmd">
+          <span class="cmdname">Development</span>
+          <div>
+            <p class="pre"><span class="dollar">$</span> npm run dev</p>
+            <p class="cap" style="margin:.15rem 0 0">
+              BFF on <code class="inline">:3000</code> via <code class="inline">tsx watch</code> + Vite on <code class="inline">:5173</code>.
+              Preflights <code class="inline">opencode serve</code> at <code class="inline">:4096</code> and refuses to start without it.
+              Warns on version skew.
+            </p>
+          </div>
+        </div>
+        <div class="cmd">
+          <span class="cmdname">Agent server</span>
+          <div>
+            <p class="pre"><span class="dollar">$</span> opencode serve --hostname 127.0.0.1 --port 4096</p>
+            <p class="cap" style="margin:.15rem 0 0">Not started by <code class="inline">npm run dev</code> &mdash; it is a process you supervise.</p>
+          </div>
+        </div>
+        <div class="cmd">
+          <span class="cmdname">Supervised</span>
+          <div>
+            <p class="pre"><span class="dollar">$</span> npm run service:install &nbsp;<span class="dim">|</span>&nbsp; service:status &nbsp;<span class="dim">|</span>&nbsp; service:logs</p>
+            <p class="cap" style="margin:.15rem 0 0">
+              Installs the LaunchAgent on <code class="inline">:3210</code>. <code class="inline">service:logs</code> is the
+              <code class="inline">tail -F</code> this page replaces for remote use.
+            </p>
+          </div>
+        </div>
+      </div>
+      <p class="note" style="margin-top:.6rem">
+        Note the dev/production divergence this panel makes visible: <code class="inline">npm run dev</code> defaults to
+        <code class="inline">:3000</code> talking to <code class="inline">:4096</code>, while the supervised deployment runs
+        <code class="inline">:3210</code> talking to <code class="inline">:4097</code>. Reading a log without knowing which pair
+        produced it is a real source of confusion.
+      </p>
+    </div>
+  </div>
+
+  <!-- ══════════════ 4. NAVBAR ══════════════ -->
+  <h2>4 &nbsp;Navigation bar &mdash; before / after</h2>
   <div class="cols">
     <div>
       <h3>Before</h3>
@@ -446,8 +600,8 @@
     <code class="inline">sm</code>, so adding two labelled items narrows the usable width on small screens. That is the main risk in this change.
   </p>
 
-  <!-- ══════════════ 4. MORE BUTTON ══════════════ -->
-  <h2>4 &nbsp;Conversation &ldquo;More&rdquo; &mdash; before / after</h2>
+  <!-- ══════════════ 5. MORE BUTTON ══════════════ -->
+  <h2>5 &nbsp;Conversation &ldquo;More&rdquo; &mdash; before / after</h2>
   <div class="cols">
     <div>
       <h3>Before &mdash; native &lt;details&gt;</h3>
@@ -495,8 +649,8 @@
     app's purpose-built <code class="inline">has-shadow-overlay</code>. This mockup applies it to both.
   </p>
 
-  <!-- ══════════════ 5. MOBILE ══════════════ -->
-  <h2>5 &nbsp;Mobile &mdash; 390px</h2>
+  <!-- ══════════════ 6. MOBILE ══════════════ -->
+  <h2>6 &nbsp;Mobile &mdash; 390px</h2>
   <div class="mobileframe">
     <div class="frame">
       <nav class="topbar" style="padding:0 .5rem">
