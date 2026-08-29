@@ -12,8 +12,9 @@ or mirrored diagrams: editing a repository copy would create a competing source.
 | [Notification Persistence and Delivery — 2026-08-26](https://app.notion.com/p/Notification-Persistence-and-Delivery-2026-08-26-3c8a232837d98168bd0ec3c67e0d0b26) | 2026-08-26 | Notification ingest, durable records, retention, manual resolution, and desktop, ntfy, Web Push, and app-badge delivery. | Private until manually published |
 | [Live Session Browser — 2026-08-27](https://app.notion.com/p/Live-Session-Browser-2026-08-27-3c9a232837d98154bb51f23fe99394a5) | 2026-08-27 | Live per-session interactive web browser: headless Chromium, screencast transport, capacity and memory model, and the SSRF boundary. Proposed, not implemented. | Private until manually published |
 | [Hub Homepage Redesign — 2026-08-28](https://app.notion.com/p/Hub-Homepage-Redesign-2026-08-28-3caa232837d981a188b8f59dc880437a) | 2026-08-28 | Merges composer-first and activity-first Hub layouts: a cross-project "needs attention" band, a scrollable 25-item Recents cap, and collapsed-by-default project/worktree pickers. Proposed, not implemented. | Private until manually published |
+| [Logging and Audit Persistence — 2026-08-29](https://app.notion.com/p/Logging-and-Audit-Persistence-2026-08-29-3cba232837d9813b8dc9c0e592678e01) | 2026-08-29 | Five alternatives for bounding the unrotated launchd log, and the chosen one: move notification audit lines into a BFF-owned, size- and age-bounded `audit.jsonl`. Implemented as an unmerged draft PR. | Private until manually published |
 
-All four pages are children of [Public Engineering Design Docs](https://app.notion.com/p/Public-Engineering-Design-Docs-3c8a232837d980d2b294db846b968a57) under `Custom Projects` in `Leon (Professional)`.
+All five pages are children of [Public Engineering Design Docs](https://app.notion.com/p/Public-Engineering-Design-Docs-3c8a232837d980d2b294db846b968a57) under `Custom Projects` in `Leon (Professional)`.
 
 ## Snapshot contract
 

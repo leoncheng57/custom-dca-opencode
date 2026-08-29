@@ -16,6 +16,7 @@
 
 import { createHmac, randomBytes } from "node:crypto";
 
+import { auditLogWriter } from "./auditLog.js";
 import type { SuppressionReason } from "./history.js";
 import type { NotifyEvent } from "./preferences.js";
 
@@ -145,10 +146,18 @@ export interface AuditEvent<T extends AuditEventType = AuditEventType> {
 type PayloadFor<T extends AuditEventType> = AuditEvent<T>["payload"];
 
 /**
- * Emit a structured audit log event as a single JSON line to stdout.
+ * Emit a structured audit log event as a single JSON line.
  *
- * The event is serialized with `JSON.stringify` and written via `console.log`.
- * This integrates with any log aggregator that reads JSON lines from stdout.
+ * The durable destination is `.state/logs/audit.jsonl`, a file this process
+ * owns and bounds (see `auditLog.ts`). It is deliberately NOT duplicated to
+ * stdout in production: audit lines were 83% of the unrotated launchd log, so
+ * moving them is what bounds that file without rotating a descriptor launchd
+ * holds open.
+ *
+ * Outside production the line is also echoed to stdout, because `npm run dev`
+ * runs the BFF in a terminal and silently losing audit output there would be a
+ * real regression. The supervised LaunchAgent sets NODE_ENV=production
+ * (`scripts/launchd.ts`), so the echo is off exactly where growth matters.
  */
 export function logAuditEvent<T extends AuditEventType>(
   event: T,
@@ -160,5 +169,7 @@ export function logAuditEvent<T extends AuditEventType>(
     event,
     payload,
   };
-  console.log(JSON.stringify(auditEvent));
+  const line = JSON.stringify(auditEvent);
+  if (process.env.NODE_ENV !== "production") console.log(line);
+  auditLogWriter().append(line);
 }

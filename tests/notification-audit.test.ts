@@ -1,8 +1,32 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { correlationId, logAuditEvent } from "../server/notifications/audit.js";
+import { AuditLogWriter, setAuditLogWriter } from "../server/notifications/auditLog.js";
 
 describe("notification audit", () => {
+  // logAuditEvent now persists as well as echoing to stdout. Without an
+  // explicit writer every case below would append to the real .state/logs in
+  // the repository root, so the destination is redirected for the whole file.
+  let temporaryRoot: string;
+  let writer: AuditLogWriter;
+
+  beforeEach(async () => {
+    temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "audit-log-"));
+    writer = new AuditLogWriter(path.join(temporaryRoot, "audit.jsonl"));
+    setAuditLogWriter(writer);
+  });
+
+  afterEach(async () => {
+    // append() is fire-and-forget, so pending work must settle before the
+    // directory goes away; otherwise the writer logs a swallowed EINVAL.
+    await writer.flush();
+    setAuditLogWriter(null);
+    await rm(temporaryRoot, { recursive: true, force: true });
+  });
+
   describe("correlationId", () => {
     it("returns undefined for empty values", () => {
       expect(correlationId(undefined)).toBeUndefined();
