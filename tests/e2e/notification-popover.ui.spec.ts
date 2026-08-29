@@ -249,15 +249,19 @@ for (const viewport of VIEWPORTS) {
       await stubHistory(page);
     });
 
-    test("shows the DCA brand, search and a badged bell", async ({ page }) => {
+    test("shows the DCA brand, search inside More, and a badged bell", async ({ page }) => {
       await page.goto(hub);
       await expect(page.getByTestId("opencode-nav-home")).toHaveText("DCA");
 
+      // Search is no longer a bar control; it lives in More and still opens on
+      // Cmd/Ctrl+K, which the menu row names because the trigger no longer
+      // carries aria-keyshortcuts on the bar.
+      await expect(page.getByTestId("opencode-palette-open")).toHaveCount(0);
+      await page.getByTestId("opencode-nav-more").click();
       const search = page.getByTestId("opencode-palette-open");
       await expect(search).toBeVisible();
-      await expect(search).toHaveAttribute("aria-label", "Search commands");
-      await expect(search).toHaveAttribute("aria-keyshortcuts", "Meta+K Control+K");
-      await expect(search).toHaveAttribute("title", "Search commands (Cmd/Ctrl+K)");
+      await expect(search).toContainText("Search");
+      await expect(search).toContainText("⌘K");
       await search.click();
       await expect(page.getByTestId("opencode-command-palette")).toBeVisible();
       await page.getByTestId("opencode-palette-input").press("Escape");
@@ -556,7 +560,7 @@ for (const viewport of VIEWPORTS) {
       }
     });
 
-    test("keeps Phone, Docs, Tools, Settings and Planning reachable from More", async ({ page }) => {
+    test("keeps Search, Phone, Docs, MCPs and Settings reachable from More", async ({ page }) => {
       await page.goto(hub);
       const more = page.getByTestId("opencode-nav-more");
       await expect(more).toHaveAttribute("aria-haspopup", "true");
@@ -564,20 +568,30 @@ for (const viewport of VIEWPORTS) {
       await more.click();
       await expect(more).toHaveAttribute("aria-expanded", "true");
       await expect(page.getByTestId("opencode-nav-more-menu")).toBeVisible();
-      for (const testId of ["opencode-phone-transfer-open", "opencode-nav-docs", "opencode-nav-tools", "opencode-nav-settings", "opencode-nav-planning"]) {
+      for (const testId of ["opencode-palette-open", "opencode-phone-transfer-open", "opencode-nav-docs", "opencode-nav-tools", "opencode-nav-settings"]) {
         await expect(page.getByTestId(testId)).toBeVisible();
+      }
+
+      // Playbooks and Planning were promoted to the bar and must not also
+      // appear here.
+      for (const testId of ["opencode-nav-playbooks", "opencode-nav-planning"]) {
+        await expect(page.getByTestId("opencode-nav-more-menu").getByTestId(testId)).toHaveCount(0);
       }
 
       // A disclosure over links, not an APG menu: the three destinations stay
       // real links so assistive tech still lists them as such, and Tab is the
       // traversal model.
-      for (const testId of ["opencode-nav-docs", "opencode-nav-tools", "opencode-nav-settings", "opencode-nav-planning"]) {
+      for (const testId of ["opencode-nav-docs", "opencode-nav-tools", "opencode-nav-settings"]) {
         await expect(page.getByTestId(testId)).toHaveRole("link");
       }
-      await expect(page.getByTestId("opencode-phone-transfer-open")).toHaveRole("button");
+      for (const testId of ["opencode-palette-open", "opencode-phone-transfer-open"]) {
+        await expect(page.getByTestId(testId)).toHaveRole("button");
+      }
       await expect(page.getByTestId("opencode-nav-more-menu").getByRole("menuitem")).toHaveCount(0);
 
       // Keyboard reachable: the first item takes focus, Tab walks the rest.
+      await expect(page.getByTestId("opencode-palette-open")).toBeFocused();
+      await page.keyboard.press("Tab");
       await expect(page.getByTestId("opencode-phone-transfer-open")).toBeFocused();
       await page.keyboard.press("Tab");
       await expect(page.getByTestId("opencode-nav-docs")).toBeFocused();
@@ -590,10 +604,23 @@ for (const viewport of VIEWPORTS) {
       await expect(page).toHaveURL(new RegExp(`/tools\\?directory=${encodeURIComponent(DIR)}`));
     });
 
+    test("promotes Playbooks and Planning onto the bar", async ({ page }) => {
+      await page.goto(hub);
+      const bar = page.locator("nav[aria-label='Main']");
+      for (const testId of ["opencode-nav-playbooks", "opencode-nav-planning"]) {
+        const link = bar.getByTestId(testId);
+        await expect(link).toBeVisible();
+        await expect(link).toHaveRole("link");
+      }
+      // Not directory-scoped: both are cross-project surfaces.
+      await bar.getByTestId("opencode-nav-planning").click();
+      await expect(page).toHaveURL(/\/planning$/);
+    });
+
     test("still lists the moved destinations in the command palette", async ({ page }) => {
       await page.goto(hub);
       await page.keyboard.press(shortcut);
-      for (const name of [/Docs/, /Tools/, /Settings/, /Planning/, /Notifications/, /Open on phone/]) {
+      for (const name of [/Docs/, /MCPs/, /Settings/, /Planning/, /Notifications/, /Open on phone/]) {
         await expect(page.getByRole("option", { name }).first()).toBeVisible();
       }
     });
