@@ -3,14 +3,9 @@ import { Check, ChevronDown, Circle, GitPullRequest, Image, MessageSquareText, M
 import { createPortal } from "react-dom";
 
 import type { WorkflowSummary } from "../lib/api.js";
+import { groupWorkflows } from "../lib/workflows.js";
 
 const LISTBOX_ID = "composer-workflow-listbox";
-
-const WORKFLOW_GROUPS: Array<{ label: string; ids: string[] }> = [
-  { label: "Review", ids: ["playwright-ui-review", "pr-snippet-review"] },
-  { label: "Coordinate", ids: ["session-update", "managed-child", "start-dca-session"] },
-  { label: "Document", ids: ["design-doc-prototype"] },
-];
 
 function matches(workflow: WorkflowSummary, query: string): boolean {
   const needle = query.trim().toLowerCase();
@@ -51,13 +46,9 @@ export function WorkflowPicker({
   const listRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const attachedWorkflow = catalogue.find((workflow) => workflow.id === attached);
-  const groupedWorkflows = WORKFLOW_GROUPS.map(({ label, ids }) => ({
-    label,
-    workflows: ids.map((id) => catalogue.find((workflow) => workflow.id === id)).filter((workflow): workflow is WorkflowSummary => Boolean(workflow && matches(workflow, query))),
-  })).filter(({ workflows }) => workflows.length > 0);
-  const groupedIDs = new Set(WORKFLOW_GROUPS.flatMap(({ ids }) => ids));
-  const otherWorkflows = catalogue.filter((workflow) => !groupedIDs.has(workflow.id) && matches(workflow, query));
-  if (otherWorkflows.length) groupedWorkflows.push({ label: "Other", workflows: otherWorkflows });
+  const groupedWorkflows = groupWorkflows(catalogue)
+    .map(({ label, workflows }) => ({ label, workflows: workflows.filter((workflow) => matches(workflow, query)) }))
+    .filter(({ workflows }) => workflows.length > 0);
   const visibleWorkflows = groupedWorkflows.flatMap(({ workflows }) => workflows);
   // The detach row only exists while something is attached; a "no workflow"
   // placeholder would suggest workflows are a mode rather than an action.

@@ -40,6 +40,8 @@ function documentTitle(pathname: string): string {
   if (pathname === "/playbooks") return `Playbooks | ${APP_NAME}`;
   if (pathname === "/playbooks/commands") return `Commands | Playbooks | ${APP_NAME}`;
   if (pathname.startsWith("/playbooks/commands/")) return `Command | Playbooks | ${APP_NAME}`;
+  if (pathname === "/playbooks/workflows") return `Workflows | Playbooks | ${APP_NAME}`;
+  if (pathname.startsWith("/playbooks/workflows/")) return `Workflow | Playbooks | ${APP_NAME}`;
   return APP_NAME;
 }
 

@@ -23,6 +23,7 @@ import "./styles.css";
 
 const PlaybooksPage = lazy(() => import("./pages/Playbooks.js").then((module) => ({ default: module.PlaybooksPage })));
 const CommandPlaybookPage = lazy(() => import("./pages/PlaybookDetail.js").then((module) => ({ default: module.CommandPlaybookPage })));
+const WorkflowPlaybookPage = lazy(() => import("./pages/PlaybookDetail.js").then((module) => ({ default: module.WorkflowPlaybookPage })));
 
 function playbookPage(page: ReactNode): ReactNode {
   return <Suspense fallback={<main className="p-8 text-sm text-[var(--color-text-muted)]">Loading playbooks…</main>}>{page}</Suspense>;
@@ -58,6 +59,8 @@ async function start(): Promise<void> {
                 <Route path="/playbooks" element={playbookPage(<PlaybooksPage />)} />
                 <Route path="/playbooks/commands" element={playbookPage(<PlaybooksPage />)} />
                 <Route path="/playbooks/commands/:name" element={playbookPage(<CommandPlaybookPage />)} />
+                <Route path="/playbooks/workflows" element={playbookPage(<PlaybooksPage />)} />
+                <Route path="/playbooks/workflows/:id" element={playbookPage(<WorkflowPlaybookPage />)} />
               </Route>
             </Routes>
           </NotificationCenterProvider>

@@ -922,6 +922,12 @@ several decisions below.
     attaching a reminder is a per-message action that needs no installation, and
     links through an explicit validated reminder-id-to-command mapping; name transforms
     are never guessed.
+    Workflows are the live, first-class Playbooks category: they are read only from
+    `GET /api/workflows`, including their exact trusted injector, and are never copied
+    into a client catalogue. Their picker grouping is presentation-only; unknown ids
+    fall under `Other`. Workflow-only routes never query `/api/catalog` or make command
+    installation claims, and deep-link absence is reported only after a successful
+    workflow catalogue load.
 
 ## Client conventions (inherited from the OpenHands runner, still enforced)
 

@@ -27,6 +27,9 @@ test.describe("Playbooks", () => {
     for (const command of COMMAND_NAMES) {
       await expect(page.getByTestId(`opencode-playbook-command-${command}`)).toBeVisible();
     }
+    // Workflows are the live server category, so this count is the workflow
+    // catalogue's own contract, never a repository command inventory.
+    await expect(page.getByTestId("opencode-playbook-workflow-card")).toHaveCount(6);
   });
 
   test("presents commands as human-invoked with zero at-rest context", async ({ page }) => {
@@ -51,6 +54,56 @@ test.describe("Playbooks", () => {
     await expect(page.getByTestId("opencode-playbook-simulation")).toBeVisible();
     await page.getByText("Install /grill-me", { exact: true }).click();
     await expect(page.getByText("curl -sL", { exact: false }).first()).toBeVisible();
+  });
+
+  test("renders live workflows by shared semantic group and shows the exact injector", async ({ page }) => {
+    await page.goto("/playbooks/workflows");
+    await expect(page).toHaveTitle("Workflows | Playbooks | DCA");
+    await expect(page.getByTestId("opencode-playbook-workflow-group")).toHaveCount(3);
+    await expect(page.getByTestId("opencode-playbook-workflow-card")).toHaveCount(6);
+    await page.getByTestId("opencode-playbook-workflow-start-dca-session").click();
+    await expect(page).toHaveTitle("Workflow | Playbooks | DCA");
+    await expect(page.getByTestId("opencode-playbook-workflow-injector")).toContainText("independent root session");
+    await expect(page.getByTestId("opencode-playbook-dialog").getByTestId("opencode-playbook-command-load-state")).toHaveCount(0);
+    await expect(page.getByTestId("opencode-playbook-source-link")).toHaveCount(0);
+  });
+
+  test("keeps workflow loading, failure, empty, and not-found states honest", async ({ page }) => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    await page.route("**/api/workflows", async (route) => { await held; await route.fulfill({ json: { workflows: [] } }); });
+    await page.goto("/playbooks/workflows/missing");
+    await expect(page.getByTestId("opencode-playbook-workflow-loading")).toBeVisible();
+    await expect(page.getByTestId("opencode-playbook-workflow-not-found")).toHaveCount(0);
+    release();
+    await expect(page.getByTestId("opencode-playbook-workflow-not-found")).toBeVisible();
+
+    await page.unroute("**/api/workflows");
+    await page.route("**/api/workflows", (route) => route.abort());
+    await page.goto("/playbooks/workflows/missing");
+    await expect(page.getByTestId("opencode-playbook-workflow-error")).toBeVisible();
+    await expect(page.getByTestId("opencode-playbook-workflow-not-found")).toHaveCount(0);
+    await page.goto("/playbooks");
+    await expect(page.getByTestId("opencode-playbook-workflows-error")).toBeVisible();
+    // The static commands survive a workflow failure. Derived from disk like
+    // the coverage assertion above, so adding a command never edits this.
+    await expect(page.getByTestId("opencode-playbook-command-card")).toHaveCount(COMMAND_NAMES.length);
+
+    await page.unroute("**/api/workflows");
+    await page.route("**/api/workflows", (route) => route.fulfill({ json: { workflows: [] } }));
+    await page.goto("/playbooks/workflows");
+    await expect(page.getByTestId("opencode-playbook-workflows-empty")).toBeVisible();
+  });
+
+  test("puts unknown live workflows in Other and never asks for command install state on workflow-only routes", async ({ page }) => {
+    const requests: string[] = [];
+    page.on("request", (request) => requests.push(new URL(request.url()).pathname));
+    await page.route("**/api/workflows", (route) => route.fulfill({ json: { workflows: [{ id: "future-action", title: "Future action", description: "Arrived from the server.", injector: "Use the future procedure exactly." }] } }));
+    await page.goto("/playbooks/workflows");
+    const group = page.getByTestId("opencode-playbook-workflow-group");
+    await expect(group).toHaveAccessibleName("Other");
+    await expect(group).toContainText("Future action");
+    expect(requests).not.toContain("/api/catalog");
   });
 
   test("closes a direct detail URL back to the all-playbooks catalogue", async ({ page }) => {
@@ -101,13 +154,17 @@ test.describe("Playbooks", () => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto("/playbooks/commands/grill-me");
     const simulation = page.getByTestId("opencode-playbook-simulation");
+    const context = page.getByTestId("opencode-playbook-context");
     await expect(simulation).toBeVisible();
     expect(await page.evaluate(() => getComputedStyle(document.body).overflow)).toBe("hidden");
 
     const controls = simulation.getByTestId("opencode-playbook-simulation-controls");
     const transcript = simulation.locator("ol").first();
-    const [controlsBox, transcriptBox] = await Promise.all([controls.boundingBox(), transcript.boundingBox()]);
+    const [controlsBox, transcriptBox, contextBox, simulationBox] = await Promise.all([controls.boundingBox(), transcript.boundingBox(), context.boundingBox(), simulation.boundingBox()]);
     expect(controlsBox!.y, "controls sit above the transcript they drive").toBeLessThan(transcriptBox!.y);
+    expect(simulationBox!.y, "simulation sits below Context").toBeGreaterThan(contextBox!.y + contextBox!.height);
+    expect(Math.abs(simulationBox!.x - contextBox!.x), "simulation shares Context's full width").toBeLessThanOrEqual(1);
+    expect(Math.abs(simulationBox!.width - contextBox!.width), "simulation shares Context's full width").toBeLessThanOrEqual(1);
 
     // The progress bar is always mounted, so play/pause cannot shift layout.
     await expect(simulation.getByTestId("opencode-playbook-simulation-progress")).toBeAttached();
@@ -196,5 +253,9 @@ test.describe("Playbooks", () => {
     const box = await page.getByTestId("opencode-playbook-dialog").boundingBox();
     expect(box!.width).toBeGreaterThanOrEqual(389);
     expect(box!.height).toBeGreaterThanOrEqual(739);
+    const contextBox = await page.getByTestId("opencode-playbook-context").boundingBox();
+    const simulationBox = await page.getByTestId("opencode-playbook-simulation").boundingBox();
+    expect(simulationBox!.y).toBeGreaterThan(contextBox!.y + contextBox!.height);
+    expect(Math.abs(simulationBox!.width - contextBox!.width)).toBeLessThanOrEqual(1);
   });
 });
