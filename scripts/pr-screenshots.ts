@@ -100,7 +100,7 @@ function validateRoute(route: string): void {
 
   const url = new URL(route, "http://screenshot.invalid");
   if (url.origin !== "http://screenshot.invalid") throw new Error(`route ${JSON.stringify(route)} may not specify a scheme or host`);
-  if (![/^\/$/, /^\/settings$/, /^\/settings\/notifications$/, /^\/tools$/, /^\/planning$/, /^\/observability$/, /^\/docs(?:\/[A-Za-z0-9_-]+)?$/, /^\/playbooks(?:\/commands(?:\/[A-Za-z0-9_-]+)?)?$/, /^\/sessions\/[A-Za-z0-9_-]+$/, /^\/dsh(?:\/sessions\/[A-Za-z0-9_-]+)?$/].some((pattern) => pattern.test(url.pathname))) {
+  if (![/^\/$/, /^\/settings$/, /^\/settings\/notifications$/, /^\/tools$/, /^\/planning$/, /^\/observability$/, /^\/docs(?:\/[A-Za-z0-9_-]+)?$/, /^\/playbooks(?:\/(?:commands|workflows)(?:\/[A-Za-z0-9_-]+)?)?$/, /^\/sessions\/[A-Za-z0-9_-]+$/, /^\/dsh(?:\/sessions\/[A-Za-z0-9_-]+)?$/].some((pattern) => pattern.test(url.pathname))) {
     throw new Error(`route ${JSON.stringify(route)} is not a known UI route`);
   }
 }

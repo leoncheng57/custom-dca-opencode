@@ -3,6 +3,22 @@ import { describe, expect, it } from "vitest";
 import type { DshTrajectoryPage, PlanningSnapshot } from "../client/lib/api.js";
 import { createPublicSimulator } from "../client/simulator/publicSimulator.js";
 
+describe("public simulator workflow fixtures", () => {
+  it("mirrors the six current workflow ids", async () => {
+    const response = await createPublicSimulator()("https://preview.invalid/api/workflows");
+    const payload = await response.json() as { workflows: Array<{ id: string; injector: string }> };
+    expect(payload.workflows.map(({ id }) => id)).toEqual([
+      "playwright-ui-review",
+      "pr-snippet-review",
+      "session-update",
+      "managed-child",
+      "start-dca-session",
+      "design-doc-prototype",
+    ]);
+    expect(payload.workflows.every(({ injector }) => injector.length > 0)).toBe(true);
+  });
+});
+
 describe("public simulator planning fixtures", () => {
   it("exposes a complete deterministic epic hierarchy", async () => {
     const response = await createPublicSimulator()("https://preview.invalid/api/planning/items");

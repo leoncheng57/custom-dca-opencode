@@ -18,6 +18,15 @@ test("serves an interactive, credential-free PR simulator", async ({ page }) => 
   await expect(page.getByTestId("opencode-transcript")).toContainText("All verification passed");
   await expect(page.getByTestId("opencode-todo-list")).toContainText("Review the PR deployment");
 
+  await page.goto("./#/playbooks/workflows");
+  await expect(page.getByTestId("opencode-playbook-workflow-card")).toHaveCount(6);
+  await page.getByTestId("opencode-playbook-workflow-start-dca-session").click();
+  await expect(page.getByTestId("opencode-playbook-workflow-injector")).toContainText("independent root session");
+  await page.getByTestId("opencode-playbook-close").click();
+  await expect(page).toHaveURL(/#\/playbooks\/workflows/u);
+
+  await page.goto(`./#/sessions/ses_preview_done?directory=${encodeURIComponent("/tmp/mock-project")}`);
+
   const composer = page.getByTestId("opencode-composer");
   await composer.fill("Demonstrate the simulated follow-up");
   await page.getByTestId("opencode-send").click();

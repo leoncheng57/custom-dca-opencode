@@ -27,12 +27,39 @@ export function splitWorkflowTags(input: string): SplitWorkflowMessage {
 
 // ── Workflow ids (must match the server catalogue) ──────────────────────────
 
+import type { WorkflowSummary } from "./api.js";
+
 export const PLAYWRIGHT_REVIEW_WORKFLOW_ID = "playwright-ui-review";
 export const SESSION_UPDATE_WORKFLOW_ID = "session-update";
 export const MANAGED_CHILD_WORKFLOW_ID = "managed-child";
 export const START_DCA_SESSION_WORKFLOW_ID = "start-dca-session";
 export const PR_SNIPPET_REVIEW_WORKFLOW_ID = "pr-snippet-review";
 export const DESIGN_DOC_PROTOTYPE_WORKFLOW_ID = "design-doc-prototype";
+
+export const WORKFLOW_GROUPS = [
+  { label: "Review", ids: [PLAYWRIGHT_REVIEW_WORKFLOW_ID, PR_SNIPPET_REVIEW_WORKFLOW_ID] },
+  { label: "Coordinate", ids: [SESSION_UPDATE_WORKFLOW_ID, MANAGED_CHILD_WORKFLOW_ID, START_DCA_SESSION_WORKFLOW_ID] },
+  { label: "Document", ids: [DESIGN_DOC_PROTOTYPE_WORKFLOW_ID] },
+] as const;
+
+export interface WorkflowGroup {
+  label: string;
+  workflows: WorkflowSummary[];
+}
+
+export function groupWorkflows(catalogue: WorkflowSummary[]): WorkflowGroup[] {
+  const grouped: WorkflowGroup[] = WORKFLOW_GROUPS.map(({ label, ids }) => ({
+    label,
+    workflows: ids.flatMap((id) => {
+      const workflow = catalogue.find((candidate) => candidate.id === id);
+      return workflow ? [workflow] : [];
+    }),
+  })).filter(({ workflows }) => workflows.length > 0);
+  const knownIds = new Set<string>(WORKFLOW_GROUPS.flatMap(({ ids }) => ids));
+  const other = catalogue.filter((workflow) => !knownIds.has(workflow.id));
+  if (other.length) grouped.push({ label: "Other", workflows: other });
+  return grouped;
+}
 
 export const KNOWN_APP_ROUTES = [
   "/",
@@ -58,7 +85,7 @@ export function isKnownAppRoute(value: string): boolean {
       /^\/planning$/,
       /^\/observability$/,
       /^\/docs(?:\/[A-Za-z0-9_-]+)?$/,
-      /^\/playbooks(?:\/(?:skills|commands)(?:\/[A-Za-z0-9_-]+)?)?$/,
+      /^\/playbooks(?:\/(?:commands|workflows)(?:\/[A-Za-z0-9_-]+)?)?$/,
       /^\/sessions\/[A-Za-z0-9_-]+$/,
       /^\/dsh(?:\/sessions\/[A-Za-z0-9_-]+)?$/,
     ].some((pattern) => pattern.test(url.pathname));

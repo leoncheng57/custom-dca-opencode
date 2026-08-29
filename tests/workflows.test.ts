@@ -5,6 +5,7 @@ import {
   buildPrSnippetReviewPrompt,
   captureScopeLabel,
   DESIGN_DOC_PROTOTYPE_WORKFLOW_ID,
+  groupWorkflows,
   MANAGED_CHILD_WORKFLOW_ID,
   KNOWN_APP_ROUTES,
   PLAYWRIGHT_CAPTURE_SCOPES,
@@ -26,6 +27,11 @@ import {
 } from "../server/workflows/workflows.js";
 
 describe("workflow catalogue", () => {
+  it("shares semantic picker groups and sends unknown workflows to Other", () => {
+    const catalogue = [...workflowCatalogue(), { id: "future-workflow", title: "Future", description: "New server workflow", injector: "Do the future work." }];
+    expect(groupWorkflows(catalogue).map(({ label }) => label)).toEqual(["Review", "Coordinate", "Document", "Other"]);
+    expect(groupWorkflows(catalogue).at(-1)?.workflows.map(({ id }) => id)).toEqual(["future-workflow"]);
+  });
   it("contains the shipped workflows, in picker order", () => {
     expect(workflowCatalogue().map((workflow) => workflow.id)).toEqual([
       PLAYWRIGHT_REVIEW_WORKFLOW_ID,
@@ -176,6 +182,8 @@ describe("buildPlaywrightReviewPrompt", () => {
   it("recognizes canonical app routes while leaving component descriptions distinct", () => {
     for (const route of KNOWN_APP_ROUTES) expect(isKnownAppRoute(route)).toBe(true);
     expect(isKnownAppRoute("/sessions/ses_123?directory=%2Ftmp%2Fproject")).toBe(true);
+    expect(isKnownAppRoute("/playbooks/workflows/start-dca-session")).toBe(true);
+    expect(isKnownAppRoute("/playbooks/skills/grill-me")).toBe(false);
     expect(isKnownAppRoute("the composer card")).toBe(false);
     expect(isKnownAppRoute("/not-a-route")).toBe(false);
     expect(isKnownAppRoute("https://example.com/settings")).toBe(false);
