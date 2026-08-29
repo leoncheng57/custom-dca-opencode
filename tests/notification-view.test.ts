@@ -36,9 +36,10 @@ describe("notification view preferences", () => {
   });
 
   it("groups by session and folds the groups by default", () => {
-    // Folding is only safe because a collapsed group still names the kinds
-    // waiting inside it; the chip strip is what stops this default hiding an
-    // unanswered permission behind a number.
+    // Folding is only safe because a collapsed group still says whether
+    // anything inside is waiting on a human. The "needs you" marker
+    // (blockingFor in notificationGroups.ts) is what stops this default hiding
+    // an unanswered permission behind a number.
     expect(DEFAULT_NOTIFICATION_VIEW.groupBySession).toBe(true);
     expect(DEFAULT_NOTIFICATION_VIEW.groupsCollapsed).toBe(true);
   });

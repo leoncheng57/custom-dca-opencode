@@ -267,7 +267,21 @@ export function createPublicSimulator(): typeof fetch {
       if (method === "PATCH") modelPins = Array.isArray(body.models) ? body.models : modelPins;
       return response({ models: modelPins });
     }
-    if (path === "/api/recent-sessions") return response({ sessions: sessions.slice().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 5), directories: [SIMULATOR_DIRECTORY, SECOND_DIRECTORY] });
+    if (path === "/api/recent-sessions") {
+      // Honours `session=` lookups the way the real route does. The
+      // notification popover's running/idle join asks by id with `limit=0`
+      // (client/lib/sessionRunState.ts), so a fixture that only ever returned
+      // "the newest few" would answer `unknown` for every notification and the
+      // preview would show a feature that looks broken rather than one that
+      // works.
+      const lookups = new Set(url.searchParams.getAll("session"));
+      const rawLimit = Number(url.searchParams.get("limit") ?? 5);
+      const limit = Number.isFinite(rawLimit) ? Math.max(0, Math.floor(rawLimit)) : 5;
+      const ordered = sessions.slice().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+      const selected = new Map(ordered.slice(0, limit).map((session) => [session.id, session]));
+      for (const session of ordered) if (lookups.has(session.id)) selected.set(session.id, session);
+      return response({ sessions: [...selected.values()], directories: [SIMULATOR_DIRECTORY, SECOND_DIRECTORY] });
+    }
     if (path === "/api/session-agents") return response({ agents: [
       { id: "plan", description: "Plan work without changing files." },
       { id: "build", description: "Implement and verify changes." },

@@ -23,11 +23,13 @@ export const NO_SESSION_LABEL = "No session";
 export const UNTITLED_SESSION_LABEL = "Untitled session";
 
 /**
- * Chip order: most blocking first.
+ * Kind order, most blocking first.
  *
- * Groups start collapsed, so the chip strip is the only thing a folded group
- * says about its contents. Leading with the kind that blocks an agent means the
- * first word of a folded row is the reason to open it.
+ * Still the ordering every aggregate summary of a group uses — the Hub's
+ * attention band prints these as text — even though the notification group
+ * header no longer renders them as a chip strip (issue #288). Leading with the
+ * kind that blocks an agent keeps the first thing said about a group the reason
+ * to open it.
  */
 export const CHIP_ORDER: readonly NotifyEvent[] = [
   "permission",
@@ -37,6 +39,39 @@ export const CHIP_ORDER: readonly NotifyEvent[] = [
   "abort",
   "idle",
 ];
+
+/**
+ * Kinds that mean an agent is stopped, waiting for a human.
+ *
+ * This is the safety property AGENTS.md decision 23 used to hang on the chip
+ * strip: groups ship folded, so a header showing nothing but a count could hide
+ * an unanswered permission behind a number. The strip is gone; this list is
+ * what replaces it, reduced to the single question the folded header has to
+ * answer — is something in here waiting on me?
+ *
+ * `question` is included alongside `permission` and `parked` even though issue
+ * #288 named only the latter two. An unanswered question stalls a turn exactly
+ * as an unanswered permission does, and the two failure directions are not
+ * symmetric: marking a group that turns out not to need you costs a glance,
+ * while failing to mark one that does is precisely the hiding this indicator
+ * exists to prevent. `error`, `abort` and `idle` are terminal — the work has
+ * already stopped and nothing is waiting on an answer — so they do not mark.
+ */
+export const BLOCKING_KINDS: readonly NotifyEvent[] = ["permission", "question", "parked"];
+
+/**
+ * Whether the group holds unresolved work that is waiting on a human.
+ *
+ * Resolved records are excluded deliberately: the marker's claim is "something
+ * in here still needs you", and a permission the user already dealt with does
+ * not. Without that filter the Resolved section — which groups too — would
+ * carry a permanent "needs you" on every archived request.
+ */
+export function blockingFor(records: readonly NotificationRecord[]): boolean {
+  return records.some(
+    (record) => record.resolvedAt === undefined && BLOCKING_KINDS.includes(record.kind),
+  );
+}
 
 /**
  * The in-app route for the session a record came from.
@@ -74,6 +109,8 @@ export interface SessionGroup {
   /** Newest first. */
   records: NotificationRecord[];
   chips: SessionGroupChip[];
+  /** True when an unresolved record in this group is waiting on a human. */
+  blocking: boolean;
   /** Timestamp of the newest record; the group ordering key. */
   latest: number;
 }
@@ -132,6 +169,7 @@ export function groupBySession(records: NotificationRecord[]): SessionGroup[] {
       ...(route ? { route } : {}),
       records: ordered,
       chips: chipsFor(ordered),
+      blocking: blockingFor(ordered),
       latest: newest?.at ?? 0,
     } satisfies SessionGroup;
   });
