@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { Check, ChevronDown, Circle, GitPullRequest, Image, MessageSquareText, MonitorCheck, Search, Send, Split, X, type LucideIcon } from "lucide-react";
+import { Check, ChevronDown, Circle, GitPullRequest, Image, MessageSquareText, MonitorCheck, Search, Send, Split, SquarePlus, X, type LucideIcon } from "lucide-react";
 import { createPortal } from "react-dom";
 
 import type { WorkflowSummary } from "../lib/api.js";
@@ -8,7 +8,7 @@ const LISTBOX_ID = "composer-workflow-listbox";
 
 const WORKFLOW_GROUPS: Array<{ label: string; ids: string[] }> = [
   { label: "Review", ids: ["playwright-ui-review", "pr-snippet-review"] },
-  { label: "Coordinate", ids: ["session-update", "managed-child"] },
+  { label: "Coordinate", ids: ["session-update", "managed-child", "start-dca-session"] },
   { label: "Document", ids: ["design-doc-prototype"] },
 ];
 
@@ -22,6 +22,7 @@ const WORKFLOW_ICONS: Record<string, LucideIcon> = {
   "pr-snippet-review": GitPullRequest,
   "session-update": MessageSquareText,
   "managed-child": Split,
+  "start-dca-session": SquarePlus,
   "design-doc-prototype": Image,
 };
 

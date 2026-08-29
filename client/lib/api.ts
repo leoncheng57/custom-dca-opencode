@@ -563,6 +563,21 @@ export class ApiError extends Error {
   }
 }
 
+export type RootSessionFailureStage = "worktree" | "session" | "prompt";
+
+export class RootSessionLaunchApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+    readonly stage: RootSessionFailureStage,
+    readonly session?: SessionSummary,
+    readonly directory?: string,
+  ) {
+    super(message);
+    this.name = "RootSessionLaunchApiError";
+  }
+}
+
 export type PlanningItemType = "issue" | "pull_request";
 export type PlanningItemState = "open" | "closed";
 
@@ -672,9 +687,12 @@ export const api = {
       body: JSON.stringify({ models: models.map(({ providerID, modelID }) => ({ providerID, modelID })) }),
     }).then((r) => json<{ models: ModelSelection[] }>(r)),
 
-  sessions: (directory: string, limit = 100) =>
-    fetch(scoped("/sessions", directory, { limit: String(limit) })).then((r) =>
-      json<{ sessions: SessionSummary[] }>(r),
+  sessions: (directory: string, options: { limit?: number; search?: string } = {}) =>
+    fetch(scoped("/sessions", directory, {
+      limit: String(options.limit ?? 100),
+      ...(options.search ? { search: options.search } : {}),
+    })).then((r) =>
+      json<{ sessions: SessionSummary[]; truncated: boolean }>(r),
     ),
 
   /**
@@ -791,6 +809,42 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
     }).then((r) => json<{ session: SessionSummary }>(r)),
+
+  startDcaSession: async (directory: string, input: {
+    sourceSessionID: string;
+    prompt: string;
+    mode: AgentMode;
+    model: ModelSelection;
+    authorization?: "modify";
+    isolated: boolean;
+    idempotencyKey: string;
+    workflow: string;
+  }) => {
+    const response = await fetch(scoped("/session-workflows/start", directory), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({})) as {
+        error?: string;
+        stage?: RootSessionFailureStage;
+        session?: SessionSummary;
+        directory?: string;
+      };
+      if (body.stage === "worktree" || body.stage === "session" || body.stage === "prompt") {
+        throw new RootSessionLaunchApiError(
+          response.status,
+          body.error ?? `HTTP ${response.status}`,
+          body.stage,
+          body.session,
+          body.directory,
+        );
+      }
+      throw new ApiError(response.status, body.error ?? `HTTP ${response.status}`);
+    }
+    return response.json() as Promise<{ session: SessionSummary; isolated: boolean; accepted: true }>;
+  },
 
   prompt: (
     directory: string,

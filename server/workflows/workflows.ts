@@ -86,6 +86,18 @@ const CATALOGUE: WorkflowPreset[] = [
     ].join("\n"),
   },
   {
+    id: "start-dca-session",
+    title: "Start a DCA session",
+    description:
+      "Start an independent root session in this project or an isolated worktree, after reviewing its Plan/Build mode, model, assignment, and trusted instructions.",
+    injector: [
+      'You are an independent root session started by the "Start a DCA session" workflow.',
+      "- You have no parent session, task card, Managed Child relationship, automatic hand-back, or provenance link to the session that started you.",
+      "- Work only on the assignment below under the Plan or Build mode selected at launch.",
+      "- End with a clear summary of outcomes, verification performed, remaining risks, and suggested next steps.",
+    ].join("\n"),
+  },
+  {
     id: "design-doc-prototype",
     title: "Capture a Durable Design Prototype",
     description:

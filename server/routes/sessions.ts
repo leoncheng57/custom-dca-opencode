@@ -87,6 +87,34 @@ class HttpError extends Error {
   }
 }
 
+type RootSessionFailureStage = "worktree" | "session" | "prompt";
+
+class RootSessionLaunchError extends Error {
+  constructor(
+    readonly stage: RootSessionFailureStage,
+    message: string,
+    readonly directory?: string,
+    readonly session?: Awaited<ReturnType<typeof createSession>>,
+  ) {
+    super(message);
+  }
+}
+
+class RootSessionIdempotencyError extends Error {
+  constructor() {
+    super("idempotency key was already used for a different root session launch");
+  }
+}
+
+interface RootLaunchEntry {
+  fingerprint: string;
+  promise: Promise<{ session: Awaited<ReturnType<typeof createSession>>; isolated: boolean; accepted: true }>;
+  settled: boolean;
+}
+
+const rootLaunches = new Map<string, RootLaunchEntry>();
+const ROOT_LAUNCH_LIMIT = 500;
+
 function promptAttachments(value: unknown): Array<{ filename: string; mime: string; url: string }> {
   if (value === undefined) return [];
   if (!Array.isArray(value) || value.length > 4) throw new HttpError(400, "at most four image attachments are allowed");
@@ -205,6 +233,24 @@ function fail(res: Response, error: unknown, options: { notFoundOn5xx?: boolean 
     res.status(error.status).json({ error: error.message });
     return;
   }
+  if (error instanceof RootSessionIdempotencyError) {
+    res.status(409).json({ error: error.message, code: "ROOT_SESSION_IDEMPOTENCY_CONFLICT" });
+    return;
+  }
+  if (error instanceof RootSessionLaunchError) {
+    res.status(502).json({
+      error: error.message,
+      code: error.stage === "worktree"
+        ? "ROOT_SESSION_WORKTREE_FAILED"
+        : error.stage === "session"
+          ? "ROOT_SESSION_CREATION_FAILED"
+          : "ROOT_SESSION_PROMPT_REJECTED",
+      stage: error.stage,
+      ...(error.directory ? { directory: error.directory } : {}),
+      ...(error.session ? { session: error.session } : {}),
+    });
+    return;
+  }
   if (error instanceof ModePolicyActivationError) {
     res.status(502).json({ error: error.message });
     return;
@@ -314,12 +360,15 @@ export function sessionRoutes(
     asyncRoute(async (req, res) => {
       const directory = await directoryOf(req);
       const limit = Number(req.query.limit ?? 100);
+      if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+        throw new HttpError(400, "limit must be an integer between 1 and 100");
+      }
       const sessions = await listSessions(config, directory, {
-        limit: Number.isFinite(limit) ? limit : 100,
+        limit: limit + 1,
         rootsOnly: req.query.roots === "true",
         search: typeof req.query.search === "string" ? req.query.search : undefined,
       });
-      res.json({ sessions });
+      res.json({ sessions: sessions.slice(0, limit), truncated: sessions.length > limit });
     }),
   );
 
@@ -345,6 +394,99 @@ export function sessionRoutes(
         await prompt(config, directory, session.id, { text: initialPrompt, mode, model: validatedModel });
       }
       res.status(201).json({ session });
+    }),
+  );
+
+  router.post(
+    "/session-workflows/start",
+    asyncRoute(async (req, res) => {
+      const projectDirectory = await directoryOf(req);
+      const body = req.body;
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
+        throw new HttpError(400, "body must describe a root session launch");
+      }
+      const allowed = new Set(["sourceSessionID", "prompt", "mode", "model", "authorization", "isolated", "idempotencyKey", "workflow"]);
+      for (const key of Object.keys(body)) {
+        if (!allowed.has(key)) throw new HttpError(400, `unsupported root session field '${key}'`);
+      }
+      if (typeof body.sourceSessionID !== "string" || !body.sourceSessionID) {
+        throw new HttpError(400, "sourceSessionID is required");
+      }
+      await ownedSession(projectDirectory, body.sourceSessionID);
+      if (typeof body.prompt !== "string" || !body.prompt.trim() || body.prompt.length > 100_000) {
+        throw new HttpError(400, "prompt must be a non-empty string of at most 100000 characters");
+      }
+      if (body.mode !== "plan" && body.mode !== "build") {
+        throw new HttpError(400, "mode must be 'plan' or 'build'");
+      }
+      if (body.mode === "build" && body.authorization !== "modify") {
+        throw new HttpError(400, "Build requires explicit modify authorization");
+      }
+      if (body.mode === "plan" && body.authorization !== undefined) {
+        throw new HttpError(400, "Plan does not accept modify authorization");
+      }
+      if (typeof body.isolated !== "boolean") throw new HttpError(400, "isolated must be a boolean");
+      if (typeof body.idempotencyKey !== "string" || !/^[A-Za-z0-9._:-]{1,128}$/u.test(body.idempotencyKey)) {
+        throw new HttpError(400, "idempotencyKey must contain 1-128 safe characters");
+      }
+      const workflow = promptWorkflow(body.workflow);
+      if (workflow?.id !== "start-dca-session") {
+        throw new HttpError(400, "workflow must be 'start-dca-session'");
+      }
+      const model = await selectedModel(config, projectDirectory, body.model);
+      if (!model) throw new HttpError(400, "model is required");
+
+      const key = `${projectDirectory}\0${body.sourceSessionID}\0${body.idempotencyKey}`;
+      const fingerprint = JSON.stringify({
+        sourceSessionID: body.sourceSessionID,
+        prompt: body.prompt.trim(),
+        mode: body.mode,
+        model,
+        isolated: body.isolated,
+        workflow: workflow.id,
+      });
+      const existing = rootLaunches.get(key);
+      if (existing) {
+        if (existing.fingerprint !== fingerprint) throw new RootSessionIdempotencyError();
+        res.status(201).json(await existing.promise);
+        return;
+      }
+      if (rootLaunches.size >= ROOT_LAUNCH_LIMIT) {
+        const settled = [...rootLaunches].find(([, entry]) => entry.settled)?.[0];
+        if (settled) rootLaunches.delete(settled);
+        else throw new HttpError(503, "too many root session launches are still in progress");
+      }
+
+      const entry: RootLaunchEntry = {
+        fingerprint,
+        settled: false,
+        promise: Promise.resolve(undefined as never),
+      };
+      entry.promise = (async () => {
+        let targetDirectory = projectDirectory;
+        if (body.isolated) {
+          try {
+            targetDirectory = (await createWorktree(config, bus, projectDirectory)).directory;
+          } catch (error) {
+            throw new RootSessionLaunchError("worktree", `Isolated worktree creation failed: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        }
+        let session: Awaited<ReturnType<typeof createSession>>;
+        try {
+          session = await createSession(config, { directory: targetDirectory, agent: body.mode, model });
+        } catch (error) {
+          throw new RootSessionLaunchError("session", `Session creation failed: ${error instanceof Error ? error.message : String(error)}`, targetDirectory);
+        }
+        try {
+          await prompt(config, targetDirectory, session.id, { text: body.prompt.trim(), mode: body.mode, model, workflow });
+        } catch (error) {
+          throw new RootSessionLaunchError("prompt", `Opening prompt was rejected: ${error instanceof Error ? error.message : String(error)}`, targetDirectory, session);
+        }
+        return { session, isolated: body.isolated, accepted: true as const };
+      })();
+      rootLaunches.set(key, entry);
+      void entry.promise.finally(() => { entry.settled = true; }).catch(() => undefined);
+      res.status(201).json(await entry.promise);
     }),
   );
 

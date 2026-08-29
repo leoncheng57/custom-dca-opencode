@@ -108,7 +108,7 @@ export function AppShell() {
 
     setPaletteStatus("Loading conversations...");
     void api
-      .sessions(directory, 100)
+      .sessions(directory, { limit: 100 })
       .then(({ sessions }) => {
         if (request !== paletteRequest.current) return;
         setPaletteSessions(sessions);
