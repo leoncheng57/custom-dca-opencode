@@ -687,27 +687,13 @@ for (const viewport of VIEWPORTS) {
       await expect(group).toHaveAttribute("data-group-key", "ses_mock_done");
       await expect(group.getByTestId("opencode-notification-group-count")).toHaveText(String(ACTIVE_COUNT));
 
-      // The chip strip is the only thing a folded group says about its
-      // contents, so without it this default would hide unanswered permissions
-      // behind a number.
-      await expect(group.getByTestId("opencode-notification-group-chip-permission")).toContainText("permission");
-      await expect(group.getByTestId("opencode-notification-group-chip-permission")).toContainText(
-        String(ACTIVE_COUNT),
-      );
-      const chipMetrics = await group.getByTestId("opencode-notification-group-chip-permission").evaluate((chip) => {
-        const style = getComputedStyle(chip);
-        return {
-          fontSize: Number.parseFloat(style.fontSize),
-          paddingLeft: Number.parseFloat(style.paddingLeft),
-          paddingTop: Number.parseFloat(style.paddingTop),
-        };
-      });
-      // Aggregate chips can appear six at a time. They are intentionally ~40%
-      // smaller than the normal 12px / 10px-padded row status badges so a
-      // folded mobile group stays compact without shrinking row actions.
-      expect(chipMetrics.fontSize).toBeLessThanOrEqual(8);
-      expect(chipMetrics.paddingLeft).toBeLessThanOrEqual(6);
-      expect(chipMetrics.paddingTop).toBeLessThanOrEqual(1);
+      // A folded group has to say whether anything inside is waiting on a
+      // human, or this default would hide unanswered permissions behind a
+      // number. Issue #288 replaced the per-kind chip strip with that one bit;
+      // the strip is gone, the guarantee is not (AGENTS.md decision 23).
+      await expect(group.getByTestId("opencode-notification-group-chips")).toHaveCount(0);
+      await expect(group.getByTestId("opencode-notification-group-chip-permission")).toHaveCount(0);
+      await expect(group.getByTestId("opencode-notification-group-blocking")).toHaveText(/needs you/);
 
       // The header names the session, truncated, with the whole title kept in
       // the tooltip.
@@ -777,6 +763,124 @@ for (const viewport of VIEWPORTS) {
 
       await popover(page).getByTestId("opencode-notification-link").first().click();
       await expect(page).toHaveURL(new RegExp(`/sessions/ses_mock_done\\?directory=${encodeURIComponent(DIR)}`));
+    });
+
+    test("says nothing needs you when a folded group holds only finished work", async ({ page }) => {
+      // Every resolved fixture record is `idle` — work that already stopped —
+      // so the marker must stay off. An indicator that is always on says
+      // nothing, and a permanent "needs you" over the archive would be a
+      // standing falsehood about requests the user already dealt with.
+      await page.goto(hub);
+      await bell(page).click();
+      await expandResolved(page);
+
+      const resolvedGroups = page
+        .getByTestId("opencode-notification-popover-resolved")
+        .getByTestId("opencode-notification-group");
+      await expect(resolvedGroups.first()).toHaveAttribute("data-expanded", "false");
+      await expect(
+        resolvedGroups.first().getByTestId("opencode-notification-group-blocking"),
+      ).toHaveCount(0);
+    });
+
+    test("says whether the session is still working, without claiming to know when it does not", async ({ page }) => {
+      await page.goto(hub);
+      await bell(page).click();
+
+      // ses_mock_done exists in the mock's session list and is absent from
+      // /session/status, so the fan-out answers it: a real, positive "idle".
+      const group = groups(page).first();
+      await expect(group.getByTestId("opencode-status-pill")).toHaveAttribute("data-status", "idle");
+
+      // Grouped rows do not repeat it: the header already said it once for the
+      // whole session, and status is a fact about the session rather than the
+      // record. Repeating it on every row is the duplication grouping exists to
+      // remove — the same reason a grouped row drops the session title.
+      await group.getByTestId("opencode-notification-group-toggle").click();
+      const row = popover(page).getByTestId("opencode-notification-record").first();
+      await expect(row.getByTestId("opencode-status-pill")).toHaveCount(0);
+
+      // With grouping off there is no header to carry it, so the row does.
+      await page.getByTestId("opencode-notification-filter-group-session").uncheck();
+      await expect(
+        popover(page).getByTestId("opencode-notification-record").first().getByTestId("opencode-status-pill"),
+      ).toHaveAttribute("data-status", "idle");
+    });
+
+    test("never renders a confident idle for a session the fan-out cannot answer for", async ({ page }) => {
+      // ses_mock_unowned is not in the mock's session list at all — the shape
+      // a session takes once the process that ran it is gone. /session/status
+      // is process-local, so `idle` here would be a confident falsehood.
+      await stubHistory(page, [
+        {
+          id: "ntf_unowned",
+          kind: "permission",
+          at: Date.UTC(2026, 7, 22, 12, 0, 0),
+          directory: DIR,
+          sessionID: "ses_mock_unowned",
+          sessionTitle: "Work from a process that has since exited",
+          title: "OpenCode needs permission",
+          body: "bash: npm test",
+          displayBody: "Needs approval to run bash",
+          delivery: { ntfy: "off", desktop: "off" },
+        },
+      ]);
+      await page.goto(hub);
+      await bell(page).click();
+
+      const pill = groups(page).first().getByTestId("opencode-status-pill");
+      await expect(pill).toHaveAttribute("data-status", "unknown");
+      // Styled apart from idle rather than sharing its treatment, so "we do
+      // not know" cannot be read as "nothing is happening".
+      await expect(pill).toHaveCSS("border-style", "dashed");
+    });
+
+    test("makes Open a real button-sized target that still behaves like a link", async ({ page }) => {
+      await page.goto(hub);
+      await bell(page).click();
+      await groups(page).first().getByTestId("opencode-notification-group-toggle").click();
+
+      const open = popover(page).getByTestId("opencode-notification-link").first();
+      // Still an anchor: middle-click, cmd-click and "copy link address" are
+      // properties of the element, and a button calling navigate() loses them.
+      await expect(open).toHaveJSProperty("tagName", "A");
+      await expect(open).toHaveAttribute(
+        "href",
+        `/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`,
+      );
+
+      // The point of the change: a tap target, not a ~13px run of underlined
+      // heading text.
+      const box = await open.boundingBox();
+      expect(box?.height ?? 0).toBeGreaterThanOrEqual(40);
+
+      // Distinct from Resolve beside it. Primary is this app's green action
+      // token and is already spent there, so two solid buttons in one colour
+      // would have to be decoded.
+      const resolve = popover(page).getByTestId("opencode-notification-record").first()
+        .getByTestId("opencode-notification-resolved");
+      const [openColor, resolveColor] = await Promise.all([
+        open.evaluate((node) => getComputedStyle(node).backgroundColor),
+        resolve.evaluate((node) => getComputedStyle(node).backgroundColor),
+      ]);
+      expect(openColor).not.toBe(resolveColor);
+    });
+
+    test("keeps the row readable once the actions no longer fit one line", async ({ page }) => {
+      // A kind badge, readable text and two 44px actions do not fit a 390px
+      // line. The row wraps rather than letting the text column absorb the
+      // whole deficit, which truncated headings to a few characters.
+      await page.goto(hub);
+      await bell(page).click();
+      await groups(page).first().getByTestId("opencode-notification-group-toggle").click();
+
+      const row = popover(page).getByTestId("opencode-notification-record").first();
+      await expect(row.getByTestId("opencode-notification-action")).toHaveText("Needs approval to run bash 0");
+      const heading = await row.getByTestId("opencode-notification-action").boundingBox();
+      expect(heading?.width ?? 0).toBeGreaterThan(100);
+      // Nothing may push the panel into a horizontal scrollbar at any width.
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth))
+        .toBeLessThanOrEqual(1);
     });
 
     test("expands every group at once and remembers that choice", async ({ page }) => {

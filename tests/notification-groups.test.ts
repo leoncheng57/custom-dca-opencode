@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  BLOCKING_KINDS,
   CHIP_ORDER,
   NO_SESSION_KEY,
   NO_SESSION_LABEL,
@@ -91,8 +92,9 @@ describe("notification session grouping", () => {
   });
 
   it("tallies chips blocking-first, omitting absent kinds", () => {
-    // The chip strip is all a folded group says about its contents, so the
-    // kind that blocks an agent has to come first.
+    // The group header no longer renders these as a strip (issue #288), but
+    // they remain the aggregate summary the Hub's attention band prints, and
+    // the kind that blocks an agent still has to come first.
     const groups = groupBySession([
       record({ id: "a", at: 40, sessionID: "ses_1", kind: "idle" }),
       record({ id: "b", at: 30, sessionID: "ses_1", kind: "idle" }),
@@ -114,6 +116,49 @@ describe("notification session grouping", () => {
 
     expect(groups[0]?.chips.map((chip) => chip.kind)).toEqual([...CHIP_ORDER]);
     expect(groups[0]?.chips).toHaveLength(CHIP_ORDER.length);
+  });
+
+  describe("the folded header's blocking marker", () => {
+    // Groups ship folded, so this flag is the whole of what stops a collapsed
+    // header hiding an unanswered permission behind a count. It replaced the
+    // chip strip in issue #288; AGENTS.md decision 23 records the swap.
+    it("marks a group holding unresolved work that is waiting on a human", () => {
+      for (const kind of BLOCKING_KINDS) {
+        const [group] = groupBySession([record({ id: "a", at: 10, sessionID: "ses_1", kind })]);
+        expect(group?.blocking, `${kind} should mark`).toBe(true);
+      }
+    });
+
+    it("leaves terminal kinds unmarked, so the marker's presence still means something", () => {
+      // error/abort/idle describe work that already stopped. Nothing is
+      // waiting on an answer, and an indicator that is always on says nothing.
+      for (const kind of CHIP_ORDER.filter((entry) => !BLOCKING_KINDS.includes(entry))) {
+        const [group] = groupBySession([record({ id: "a", at: 10, sessionID: "ses_1", kind })]);
+        expect(group?.blocking, `${kind} should not mark`).toBe(false);
+      }
+    });
+
+    it("ignores resolved records, so the Resolved section never claims it needs you", () => {
+      const [group] = groupBySession([
+        record({ id: "a", at: 20, sessionID: "ses_1", kind: "permission", resolvedAt: 25, resolvedBy: "checked" }),
+        record({ id: "b", at: 10, sessionID: "ses_1", kind: "idle" }),
+      ]);
+
+      expect(group?.blocking).toBe(false);
+      // The chips still tally it: the strip's descendants describe what is in
+      // the group, while the marker describes what is still owed.
+      expect(group?.chips.map((chip) => chip.kind)).toEqual(["permission", "idle"]);
+    });
+
+    it("marks a mixed group on the strength of its one unresolved blocker", () => {
+      const [group] = groupBySession([
+        record({ id: "a", at: 30, sessionID: "ses_1", kind: "idle" }),
+        record({ id: "b", at: 20, sessionID: "ses_1", kind: "permission", resolvedAt: 25 }),
+        record({ id: "c", at: 10, sessionID: "ses_1", kind: "question" }),
+      ]);
+
+      expect(group?.blocking).toBe(true);
+    });
   });
 
   it("hoists an in-app session route onto the group so rows stop repeating it", () => {

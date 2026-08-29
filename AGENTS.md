@@ -517,10 +517,27 @@ several decisions below.
     contributes several titles as it is renamed and two unrelated sessions can share
     one; keying on it would both split a session and merge strangers. Records with no
     session fall into one bucket that always sorts last. Groups ship **on and folded**,
-    which is only safe because the header carries a kind chip strip ordered
-    blocking-first: with a bare count, a default-collapsed group would hide an
+    which is only safe because the header itself says whether anything inside is
+    waiting on a human: with a bare count, a default-collapsed group would hide an
     unanswered permission behind a number, and that hiding is the exact failure the
-    "outside this view" notices exist to prevent. Expansion state is **one persisted
+    "outside this view" notices exist to prevent. That guarantee was first carried by
+    an aggregate **kind chip strip** ordered blocking-first. Issue #288 replaced the
+    strip with a single **`needs you` marker**, and the swap is a narrowing, not a
+    relaxation: the strip spent a line of every folded header enumerating up to six
+    kinds, but only one bit of it — is something in here blocked on me? — ever changed
+    what a folded reader did next, and `error`/`abort`/`idle` chips restated work that
+    had already stopped. The marker renders only when an **unresolved** `permission`,
+    `question` or `parked` record is inside, so its presence is the signal; an
+    indicator that is always on says nothing. `question` is in that set although #288
+    named only permission and parked, because an unanswered question stalls a turn
+    identically and the two error directions are not symmetric — a marker on a group
+    that did not need you costs a glance, a missing one costs the guarantee. Resolved
+    records never mark, or the Resolved section would carry a permanent "needs you" on
+    every request the user already dealt with. Anything that removes the marker without
+    replacing it reintroduces the original failure and must not ship folded.
+    The header also carries the session's **running/idle status** and, since #288, an
+    `Open` **button** rather than an underlined link — see decision 30 for both.
+    Expansion state is **one persisted
     boolean plus in-memory per-group toggles** — session ids are unbounded and outlive
     their sessions, so a persisted set of them would grow forever and accumulate ids of
     deleted work. Grouping happens **inside** the Active/Resolved split, never across
@@ -549,7 +566,9 @@ several decisions below.
     `all` rather than erroring, and the pills `replace` rather than push so Back keeps
     meaning "the page I came from". Resolution is a **button with `aria-pressed`**, not
     a checkbox: it is the row's only action and a 13px target was wrong for it,
-    especially in a thumb-driven popover. It stays reversible.
+    especially in a thumb-driven popover. It stays reversible. Since #288 it is no
+    longer the row's *only* action — `Open` is a button beside it — but the reasoning
+    that made it a button is unchanged and now applies to both.
 24. **The server decides who gets pinged; the browser is not allowed a second opinion.**
     `useNotifyWatcher` used to re-derive notification kind from raw upstream events, so
     it had no view of session lineage: every delegated child's turn produced a desktop
@@ -740,6 +759,47 @@ several decisions below.
     truncating again to `NTFY_BODY_LIMIT` (140 chars) for the outbound body. Applies to
     `idle` only — permission/question/error/parked bodies already carry their own
     dynamic, non-agent-authored content and are unchanged.
+30. **A notification says something happened; session status says whether it is still
+    happening — and `unknown` is one of the answers.** A notification could not tell you
+    whether that session was still working, so deciding "open it now or let it finish"
+    meant leaving the popover for the Hub (#288, absorbing #249). Status is **joined,
+    never re-fetched per row**: `SessionSummary.running` already exists, so the centre
+    asks `/api/recent-sessions` — the one route that already fans out across projects,
+    and already bounded at 40 directories / 50 lookup ids with limited concurrency
+    (decision 12) — with `limit=0` so the explicit `session=` lookups do all the
+    selecting and the "newest few" half of that route is not paid for. It polls on
+    recents' 60s timer, not the 10s session poll, and re-runs only when the candidate
+    *set* changes rather than on every history refresh. Candidates are taken
+    **unresolved-first**: resolution is manual-only, so a large resolved archive shares
+    the window with the few rows that still need action and would otherwise consume the
+    id budget that matters. The join lives in `useNotificationCenter` for the reason
+    `isGroupExpanded` does — the popover and the history page render the same rows, and
+    two independent answers to "is it still running?" could disagree while both are
+    mounted. It shows in **both** row variants, since the question is identical on the
+    popover and the history page — but a **grouped row suppresses it**, because the
+    header already said it once for that session. Status describes the session, not the
+    record, so repeating it down every row is the same duplication grouping exists to
+    remove, and it is dropped for the same reason a grouped row drops the session title.
+    Three states, not two. `/session/status` is **process-local**, so absence is not
+    proof of idle (the same reason sub-agent state has a first-class `unknown`,
+    decision 13). The distinction is drawn by **presence in the fan-out's answer**, not
+    by the flag: a session the fan-out returned reports `running`/`idle` from its own
+    field; a session it never covered — past the caps, owned by nobody, or a failed
+    fetch — reports `unknown`, styled apart from `idle` (dashed, unfilled) so "we do not
+    know" cannot be read as "nothing is happening". Every failure path degrades to
+    `unknown`; a confident `idle` on a session that is in fact mid-turn is the one
+    outcome this is engineered against.
+    `Open` is a **button**, not the underlined heading text it used to be: it is the
+    row's main action and was simultaneously its least prominent control, at roughly a
+    13px tap target. It stays an `<a>` via `Link` — middle-click, cmd-click and "copy
+    link address" belong to the anchor, and a `<button>` calling `navigate()` silently
+    takes all three away — wearing real button styling through the exported
+    `buttonClasses()` so a link-shaped button cannot drift from a real one. It is
+    `info` (blue), not `primary`: this app's primary token is **green** and is already
+    spent on `Resolve` beside it, so two solid same-coloured buttons would have to be
+    decoded. The row `flex-wrap`s with a floor on its text column, because a kind badge
+    plus readable text plus two 44px actions does not fit a 390px line and letting the
+    text absorb the deficit truncated headings to a few characters.
 
 ## Client conventions (inherited from the OpenHands runner, still enforced)
 

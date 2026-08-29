@@ -5,6 +5,12 @@ import { api, type NotificationRecord, type SuppressedActiveCounts } from "./api
 import { DIRECTORY_STORAGE_KEY, resolvePaletteDirectory } from "./palette.js";
 import { syncAppBadge } from "./appBadge.js";
 import {
+  runStateFor,
+  runStateMap,
+  statusCandidates,
+  type SessionRunState,
+} from "./sessionRunState.js";
+import {
   DEFAULT_NOTIFICATION_VIEW,
   loadNotificationView,
   saveNotificationView,
@@ -28,6 +34,16 @@ interface NotificationCenter {
    */
   isGroupExpanded: (key: string) => boolean;
   toggleGroup: (key: string) => void;
+  /**
+   * Whether the session behind a record is working right now. Held here for
+   * the same reason `isGroupExpanded` is: the popover and the history page
+   * render the same rows, and two independently fetched answers to "is it
+   * still running?" could disagree while both are mounted.
+   *
+   * Always safe to call — an unknown session, a failed fetch and a session the
+   * bounded fan-out never covered all answer `unknown`.
+   */
+  sessionStatus: (sessionID?: string) => SessionRunState;
   /**
    * Sets the persisted default and drops every per-group override, so
    * "Expand all" cannot leave a group folded behind its own toggle.
@@ -63,6 +79,27 @@ export const ACTIVE_SET_EVENTS = new Set([
  * 500, so this asks for the whole retained log rather than a page of it.
  */
 const HISTORY_LIMIT = 1000;
+
+/**
+ * How often the running/idle join refreshes.
+ *
+ * 60s, matching the Hub's RECENTS_POLL_MS rather than the 10s session poll,
+ * because this rides the same cross-project fan-out and AGENTS.md decision 12
+ * put recents on a slower timer precisely so a capped fan-out is not paid for
+ * at conversation cadence.
+ */
+const STATUS_POLL_MS = 60_000;
+
+/**
+ * Ask only about the sessions we named.
+ *
+ * `/api/recent-sessions` returns the newest `limit` sessions in the pool PLUS
+ * every session matched by an explicit `session=` lookup. This join wants only
+ * the second half — the newest sessions across a project are irrelevant unless
+ * a notification points at them — so the limit is zero and the lookup ids do
+ * all the selecting.
+ */
+const STATUS_RECENTS_LIMIT = 0;
 
 export function NotificationCenterProvider({ children }: { children: ReactNode }) {
   const location = useLocation();
@@ -157,6 +194,61 @@ export function NotificationCenterProvider({ children }: { children: ReactNode }
     };
   }, [refresh]);
 
+  // Running/idle state for the sessions the current window has records for.
+  // Absent ids are `unknown`, so an empty map — first paint, a failed fetch, a
+  // session past the fan-out caps — degrades to claiming nothing.
+  const [runStates, setRunStates] = useState<ReadonlyMap<string, SessionRunState>>(() => new Map());
+
+  const candidates = useMemo(() => statusCandidates(records), [records]);
+  // Serialized so the effect re-runs when the candidate SET changes rather than
+  // on every history refresh that returns the same sessions. Same technique the
+  // Hub uses for its own recents scope, for the same reason.
+  const statusDirectoryKey = candidates.directories.join("\n");
+  const statusSessionKey = candidates.sessionIDs.join("\n");
+
+  useEffect(() => {
+    const directories = statusDirectoryKey ? statusDirectoryKey.split("\n") : [];
+    const sessionIDs = statusSessionKey ? statusSessionKey.split("\n") : [];
+    if (directories.length === 0 || sessionIDs.length === 0) {
+      setRunStates(new Map());
+      return;
+    }
+    let cancelled = false;
+    const load = () => {
+      api
+        .recentSessions(directories, sessionIDs, STATUS_RECENTS_LIMIT)
+        .then((result) => {
+          if (!cancelled) setRunStates(runStateMap(result.sessions));
+        })
+        // Fail to `unknown`, never to `idle`. A status join that cannot reach
+        // the server knows nothing, and saying nothing is the honest failure —
+        // an "idle" pill on a session that is in fact mid-turn is the one
+        // outcome worth engineering against.
+        .catch(() => {
+          if (!cancelled) setRunStates(new Map());
+        });
+    };
+    load();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") load();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    const timer = setInterval(() => {
+      if (document.visibilityState === "hidden") return;
+      load();
+    }, STATUS_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [statusDirectoryKey, statusSessionKey]);
+
+  const sessionStatus = useCallback(
+    (sessionID?: string) => runStateFor(runStates, sessionID),
+    [runStates],
+  );
+
   const setResolved = useCallback(
     async (id: string, resolved: boolean) => {
       const target = records.find((record) => record.id === id);
@@ -224,6 +316,7 @@ export function NotificationCenterProvider({ children }: { children: ReactNode }
       isGroupExpanded,
       toggleGroup,
       setAllGroupsCollapsed,
+      sessionStatus,
       loading,
       error,
       refresh: () => void refresh(),
@@ -239,6 +332,7 @@ export function NotificationCenterProvider({ children }: { children: ReactNode }
       isGroupExpanded,
       toggleGroup,
       setAllGroupsCollapsed,
+      sessionStatus,
       loading,
       error,
       refresh,
@@ -265,6 +359,8 @@ export function useNotificationCenter(): NotificationCenter {
       isGroupExpanded: () => !DEFAULT_NOTIFICATION_VIEW.groupsCollapsed,
       toggleGroup: () => {},
       setAllGroupsCollapsed: () => {},
+      // No provider means no fan-out has run, so there is nothing to claim.
+      sessionStatus: () => "unknown" as SessionRunState,
       loading: false,
       error: "",
       refresh: () => {},

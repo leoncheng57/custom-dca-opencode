@@ -92,6 +92,30 @@ const sizeClasses: Record<"sm" | "md" | "lg", string> = {
   lg: "h-10 px-6 text-base pointer-coarse:h-11",
 };
 
+const BASE =
+  "inline-flex items-center justify-center rounded-[6px] font-semibold cursor-pointer transition-[color,background-color,border-color,box-shadow] duration-150 " +
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)] " +
+  "disabled:pointer-events-none disabled:opacity-40 disabled:cursor-default";
+
+/**
+ * The exact classes `Button` renders, for the cases that must be an anchor.
+ *
+ * React Router's `Link` renders its own `<a>`, and a navigation control has to
+ * stay an anchor: middle-click, cmd-click and "copy link" are properties of the
+ * element, not of the click handler, and a `<button>` that calls `navigate()`
+ * silently loses all three. Exported rather than reimplemented at the call site
+ * so a link-shaped button cannot drift from a real one — the alternative is
+ * pasting variant tokens into components, which is what the design-system
+ * convention exists to prevent.
+ */
+export function buttonClasses({
+  variant = "primary",
+  size = "md",
+  className,
+}: { variant?: ButtonVariant; size?: "sm" | "md" | "lg"; className?: string } = {}): string {
+  return cn(BASE, variantClasses[variant], sizeClasses[size], className);
+}
+
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant = "primary", size = "md", disabled, trackingId, trackingContext, onClick, ...props }, ref) => {
     // Analytics tracking stripped in the standalone runner; trackingId /
@@ -105,14 +129,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     return (
       <button
         ref={ref}
-        className={cn(
-          "inline-flex items-center justify-center rounded-[6px] font-semibold cursor-pointer transition-[color,background-color,border-color,box-shadow] duration-150",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]",
-          "disabled:pointer-events-none disabled:opacity-40 disabled:cursor-default",
-          variantClasses[variant],
-          sizeClasses[size],
-          className,
-        )}
+        className={buttonClasses({ variant, size, className })}
         disabled={disabled}
         onClick={handleClick}
         {...props}

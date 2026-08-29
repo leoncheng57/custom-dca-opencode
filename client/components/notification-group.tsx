@@ -2,20 +2,30 @@ import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { Link } from "react-router-dom";
 
-import { Badge } from "../ds/badge.js";
-import { Button } from "../ds/button.js";
+import { Button, buttonClasses } from "../ds/button.js";
 import { cn } from "../ds/utils.js";
-import type { SessionGroup } from "../lib/notificationGroups.js";
-import { KIND_VARIANT, NotificationRecordRow, truncateSessionTitle } from "./notification-record-row.js";
+import { NO_SESSION_KEY, type SessionGroup } from "../lib/notificationGroups.js";
+import { useNotificationCenter } from "../lib/useNotificationCenter.js";
+import { NotificationRecordRow, truncateSessionTitle } from "./notification-record-row.js";
+import { StatusPill } from "./status-pill.js";
 
 /**
  * One session's notifications behind a collapsible header.
  *
  * Groups start folded, so the header has to carry enough to triage without
- * opening: the session it belongs to, how many rows are inside, and the chip
- * strip naming which kinds are waiting. Without that last part a folded group
- * would hide an unanswered permission behind a number, which is the failure
- * this whole surface exists to prevent.
+ * opening: the session it belongs to, whether it is still working, how many
+ * rows are inside, and — critically — whether any of them is waiting on a
+ * human. Without that last part a folded group would hide an unanswered
+ * permission behind a number, which is the failure this whole surface exists
+ * to prevent.
+ *
+ * That guarantee used to be carried by an aggregate chip strip naming every
+ * kind present. Issue #288 removed the strip: six kinds' worth of chips spent a
+ * whole line restating things a folded reader could not act on, and only one
+ * bit of it ever changed a decision. What replaced it is that single bit — a
+ * "needs you" marker shown only when an unresolved permission, question or
+ * parked escalation is inside. The safety property is unchanged; the line is
+ * gone. AGENTS.md decision 23 records the swap.
  *
  * The count is the rows this group renders, not the session's lifetime total.
  * The section around it already declares how much of the log is outside the
@@ -44,6 +54,11 @@ export function NotificationGroup({
   onNavigate?: () => void;
 }) {
   const [resolvePending, setResolvePending] = useState(false);
+  const { sessionStatus } = useNotificationCenter();
+  // A group is exactly one session, so the header can carry its status once
+  // instead of every row repeating it. The no-session bucket has nothing to
+  // report on and gets no pill at all.
+  const status = group.key === NO_SESSION_KEY ? undefined : sessionStatus(group.key);
   const bodyId = `opencode-notification-group-body-${group.key}`;
   const label = truncateSessionTitle(group.label, compact ? 38 : 64);
   const activeIDs = group.records.filter((record) => record.resolvedAt === undefined).map((record) => record.id);
@@ -91,29 +106,24 @@ export function NotificationGroup({
             >
               {label}
             </span>
-            {/* The only thing a folded group says about its contents. */}
-            <span
-              className="mt-0.5 flex flex-wrap items-center gap-1"
-              data-testid="opencode-notification-group-chips"
-            >
-              {group.chips.map((chip) => (
-                <Badge
-                  key={chip.kind}
-                  variant={KIND_VARIANT[chip.kind]}
-                  // Group headers can carry six kinds. The DS badge is right
-                  // for a row's primary status, but at that density it made a
-                  // folded mobile group taller than the information it held.
-                  // This is deliberately ~40% smaller in text and padding,
-                  // scoped only to the aggregate chip strip — individual row
-                  // statuses stay at the normal touch-readable size.
-                  className="px-1.5 py-px text-[8px] leading-none"
-                  data-testid={`opencode-notification-group-chip-${chip.kind}`}
-                >
-                  {chip.kind}
-                  {chip.count > 1 && <span className="ml-1 tabular-nums">{chip.count}</span>}
-                </Badge>
-              ))}
-            </span>
+            {/* What a folded group says about its contents, reduced to the one
+                thing a folded reader can act on. Rendered only when something
+                unresolved is actually waiting, so its presence is the signal —
+                an indicator that is always there says nothing. */}
+            {(group.blocking || status) && (
+              <span className="mt-0.5 flex flex-wrap items-center gap-1">
+                {group.blocking && (
+                  <span
+                    className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[var(--color-background-surface-warning-muted)] px-1.5 py-px text-[10px] font-semibold text-[var(--color-text-warning)]"
+                    data-testid="opencode-notification-group-blocking"
+                  >
+                    <span aria-hidden="true">●</span>
+                    needs you
+                  </span>
+                )}
+                {status && <StatusPill status={status} className="px-1.5 text-[10px]" />}
+              </span>
+            )}
           </span>
           <span
             className="shrink-0 pt-0.5 text-xs tabular-nums text-[var(--color-text-muted)]"
@@ -128,7 +138,15 @@ export function NotificationGroup({
             the disclosure button because a link cannot nest inside one. */}
         {group.route && (
           <Link
-            className="shrink-0 pt-0.5 text-xs underline underline-offset-2"
+            className={buttonClasses({
+              variant: "info",
+              size: "sm",
+              // 40px in the popover rather than the row's 44px: this is the
+              // design system's own coarse-pointer floor, and spending the
+              // extra 4px on every folded header is a cost the whole list
+              // pays for a secondary affordance.
+              className: cn("shrink-0 font-medium", compact ? "min-h-10 px-2.5 text-[11px]" : "min-h-11 px-3 text-xs"),
+            })}
             to={group.route}
             onClick={onNavigate}
             aria-label={`Open session ${group.label}`}
