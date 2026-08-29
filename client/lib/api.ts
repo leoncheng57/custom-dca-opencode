@@ -254,6 +254,13 @@ export interface CatalogResponse {
   servers: Record<string, McpStatus>;
   skills: CatalogSkill[];
   commands: CatalogCommand[];
+  /**
+   * Tool ids the connected process reports as invocable. Built-ins only —
+   * a connected MCP server contributes nothing here, so its tools cannot be
+   * enumerated. `null` means the registry was unreadable, which is not the
+   * same as an empty registry.
+   */
+  tools: string[] | null;
   refreshedAt: string;
 }
 
@@ -423,6 +430,8 @@ export interface ReminderSummary {
   title: string;
   description: string;
   triggers: string[];
+  /** Retrieval tags mirrored from the reminder's Playbook skill. */
+  tags: string[];
 }
 
 export interface WorkflowSummary {
@@ -981,8 +990,10 @@ export const api = {
     fetch(scoped(`/sessions/${encodeURIComponent(sessionId)}/questions/${encodeURIComponent(requestId)}/reject`, directory), {
       method: "POST",
     }).then((r) => json<{ rejected: boolean }>(r)),
-  reminders: () =>
-    fetch("/api/reminders").then((r) => json<{ reminders: ReminderSummary[] }>(r)),
+  // Directory-scoped: a reminder may be restricted to one repository, so the
+  // server needs to know which project is selected before it will list it.
+  reminders: (directory: string) =>
+    fetch(`/api/reminders?directory=${encodeURIComponent(directory)}`).then((r) => json<{ reminders: ReminderSummary[] }>(r)),
   workflows: () =>
     fetch("/api/workflows").then((r) => json<{ workflows: WorkflowSummary[] }>(r)),
 

@@ -1077,6 +1077,64 @@ test.describe("composer", () => {
     await expect(picker).toContainText("unknown");
   });
 
+  test("filters reminders by tag and by id, and clears back to the full list", async ({ page }) => {
+    await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
+    const picker = page.getByTestId("composer-reminder-select");
+    await picker.click();
+    const options = page.getByTestId("composer-reminder-option");
+    await expect(options).toHaveCount(12);
+
+    // Tags come from the reminder's Playbook skill; "worktrees" is on exactly
+    // native-worktree-subagents and parallel-research-handoff.
+    const worktrees = page.locator('[data-testid="composer-reminder-tag"][data-reminder-tag="worktrees"]');
+    await expect(worktrees).toHaveAttribute("aria-pressed", "false");
+    await worktrees.click();
+    await expect(worktrees).toHaveAttribute("aria-pressed", "true");
+    await expect(options).toHaveCount(2);
+    await expect(page.locator('[data-testid="composer-reminder-option"][data-reminder-id="native-worktree-subagents"]')).toBeVisible();
+
+    // Toggling the same tag off restores the full catalogue.
+    await worktrees.click();
+    await expect(options).toHaveCount(12);
+
+    // Searching by id works even though no title contains the hyphenated form.
+    await page.getByTestId("composer-reminder-search").fill("cite-file-lines");
+    await expect(options).toHaveCount(1);
+    await expect(page.getByTestId("composer-reminder-title")).toContainText("Cite File Lines");
+
+    // Tag + text together are an AND, and an impossible pair shows the empty state.
+    await page.getByTestId("composer-reminder-search").fill("grill");
+    await page.locator('[data-testid="composer-reminder-tag"][data-reminder-tag="worktrees"]').click();
+    await expect(options).toHaveCount(0);
+    await expect(page.getByTestId("composer-reminder-empty")).toBeVisible();
+
+    // Escape must still close the picker while a chip holds focus: the chip
+    // guard covers activation keys only.
+    await expect(page.locator('[data-testid="composer-reminder-tag"][data-reminder-tag="worktrees"]')).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("composer-reminder-panel")).toHaveCount(0);
+  });
+
+  test("searches workflows and keeps the confirmation promise visible", async ({ page }) => {
+    await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
+    await page.getByTestId("composer-workflow-select").click();
+    await expect(page.getByTestId("composer-workflow-search")).toBeFocused();
+    await expect(page.getByTestId("composer-workflow-option")).toHaveCount(5);
+    // Decision 21: this promise must survive the header gaining a search box.
+    await expect(page.getByTestId("composer-workflow-panel")).toContainText("Nothing is sent or launched until you confirm.");
+
+    await page.getByTestId("composer-workflow-search").fill("pull request");
+    await expect(page.getByTestId("composer-workflow-option")).toHaveCount(1);
+    await expect(page.getByTestId("composer-workflow-option")).toContainText("Post a snippet-by-snippet PR review");
+
+    // A zero-match query must not divide by zero in the index math.
+    await page.getByTestId("composer-workflow-search").fill("zzzz-no-such-workflow");
+    await expect(page.getByTestId("composer-workflow-empty")).toBeVisible();
+    await page.getByTestId("composer-workflow-search").press("ArrowDown");
+    await page.getByTestId("composer-workflow-search").press("End");
+    await expect(page.getByTestId("composer-workflow-panel")).toBeVisible();
+  });
+
   test("round-trips two imported reminders by ID and resets the picker", async ({ page }) => {
     const sent: Array<Record<string, unknown>> = [];
     await page.route("**/api/sessions/*/prompt?*", async (route) => {

@@ -77,6 +77,45 @@ third-party credentials to the client. Preserve directory canonicalization and p
 proxy restrictions when changing routes that touch the host filesystem or local
 services.
 
+### What the MCP, skill, and command catalog can and cannot tell you
+
+The Catalog panel and the Tools page report **what the connected OpenCode process says**.
+None of it is proof that a capability ran, and the distinction matters when debugging
+(issue [#55](https://github.com/leoncheng57/custom-dca-opencode/issues/55)):
+
+| State | Means | Does **not** mean |
+|---|---|---|
+| configured | present in a config file | the process read it |
+| connected | the MCP transport handshake succeeded | any tool on it works |
+| loaded | read from disk at startup | it was invoked |
+| registered | present in the tool registry, so invocable | it has been invoked in this session |
+
+Two facts, verified against OpenCode 1.18.23, that make this unavoidable rather than a
+UI shortcut:
+
+- **`/experimental/tool/ids` lists built-in tools only.** A connected MCP server
+  contributes nothing to it. There is no endpoint anywhere that enumerates a connected
+  server's tools, so no surface can honestly show which of them work.
+- **MCP state is process-local.** `needs_auth` and `failed` describe the environment of
+  the running `opencode serve`, not your shell. A server that resolves from your terminal
+  can still fail in the process when it was launched without the same environment — a
+  LaunchAgent inherits a minimal `PATH` and no exported secrets. Restarting the service
+  after changing environment is usually the fix:
+
+```bash
+npm run service:install && npm run service:status
+curl --fail http://127.0.0.1:3210/api/health
+```
+
+Skills and custom commands are read **at startup**, so installing one and expecting the
+running process to notice will not work. Restart OpenCode.
+
+**What remains unverified by design.** Nothing in CI invokes a real MCP tool or a real
+slash command: the E2E suite runs against deterministic mocks with no agent and no LLM
+spend, and asserting against private services from CI is out of the question. Coverage
+therefore proves the plumbing and the wording, not live capability. Confirming a specific
+MCP tool actually works is still a manual step against a real instance.
+
 ## Follow repository conventions
 
 - Keep TypeScript strict and match the surrounding module style.

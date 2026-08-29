@@ -34,8 +34,26 @@ describe("parseReminderMarkdown", () => {
       description: "Cite code as file:line.",
       body: "Body one.\n\nBody two.",
       triggers: [],
+      tags: [],
       source: undefined,
     });
+  });
+
+  it("parses a comma-separated tag list, deduplicated and lowercased", () => {
+    const parsed = parseReminderMarkdown("tagged", [
+      "---", "name: tagged", "description: A tagged reminder.", "tags: Research, subagents , research", "---", "", "Body.",
+    ].join("\n"));
+    expect(parsed?.tags).toEqual(["research", "subagents"]);
+  });
+
+  it("rejects a preset whose tags are malformed or overlong", () => {
+    const withTags = (tags: string) => parseReminderMarkdown("tagged", [
+      "---", "name: tagged", "description: A tagged reminder.", `tags: ${tags}`, "---", "", "Body.",
+    ].join("\n"));
+    // Rejecting beats silently shipping an unfilterable reminder.
+    expect(withTags("Not A Tag")).toBeNull();
+    expect(withTags("trailing-")).toBeNull();
+    expect(withTags("one, two, three, four")).toBeNull();
   });
 
   it("parses provenance without adding it to the reminder body", () => {
@@ -145,6 +163,21 @@ describe("shipped catalogue", () => {
     const playbooksDir = path.join(import.meta.dirname, "..", "agent-skills", "skills");
     for (const { id } of reminderCatalogue()) {
       expect(existsSync(path.join(playbooksDir, id, "SKILL.md")), `agent-skills/skills/${id}/SKILL.md is missing`).toBe(true);
+    }
+  });
+
+  it("mirrors each reminder's tags from its Playbook skill", () => {
+    // Reminder tags are a copy, not a second taxonomy. Copying is only safe if
+    // divergence is a build failure, so compare against the Playbook source of
+    // truth rather than against a hardcoded list. The vocabulary itself stays
+    // enforced by agent-skills/src/lib/skills.test.ts.
+    const playbooksDir = path.join(import.meta.dirname, "..", "agent-skills", "skills");
+    for (const { id, tags } of reminderCatalogue()) {
+      const skill = readFileSync(path.join(playbooksDir, id, "SKILL.md"), "utf8");
+      const declared = /^\s+tags:\s*(.*)$/m.exec(skill)?.[1] ?? "";
+      const expected = declared.replace(/^["']|["']$/g, "").split(",").map((tag) => tag.trim().toLowerCase()).filter(Boolean);
+      expect(tags, `reminders/${id} tags drifted from agent-skills/skills/${id}`).toEqual(expected);
+      expect(tags.length, `reminders/${id} declares no tags`).toBeGreaterThan(0);
     }
   });
 

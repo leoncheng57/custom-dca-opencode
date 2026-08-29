@@ -2,6 +2,7 @@
 name: session-handoff
 title: Hand Off to a New Session
 description: Launch one standalone session with an explicit cold-start packet, runtime settings, ownership, and stop condition.
+tags: subagents, planning
 source_repo: https://github.com/leoncheng57/agent-skills
 source_path: skills/session-handoff/SKILL.md
 source_commit: 8b036a41f578dc6c6307ae0a8dd2857121afcabb

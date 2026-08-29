@@ -2,6 +2,7 @@
 name: native-worktree-subagents
 title: Native Worktree Subagents
 description: Run mutating OpenCode Task children in isolated sibling worktrees while preserving parent/child session behavior.
+tags: worktrees, subagents
 source_repo: https://github.com/leoncheng57/custom-dca-opencode
 source_path: agent-skills/skills/native-worktree-subagents/SKILL.md
 source_commit: fe9e5ede5f3dc749b0515372ee2e2bc2fc3b3fba

@@ -26,6 +26,15 @@ export function ToolsPage() {
       <header>
         <h1 className="text-xl font-bold">MCP tools</h1>
         <p className="text-sm text-[var(--color-text-muted)]">Connect and disconnect affect this running OpenCode instance only.</p>
+        <p className="mt-2 text-xs leading-relaxed text-[var(--color-text-muted)]" data-testid="opencode-mcp-status-caveat">
+          A status describes the connection, not the tools behind it.{" "}
+          <strong>Connected</strong> means the transport handshake succeeded; it does not mean any
+          tool has been invoked, and OpenCode does not enumerate a connected server&apos;s tools, so
+          neither this page nor the session catalog can show which of them work.{" "}
+          <strong>needs_auth</strong> and <strong>failed</strong> are reported by the running
+          process and usually mean a missing environment variable or an unreachable host — both are
+          process-local, so they can differ from what your shell can reach.
+        </p>
       </header>
       {!directory && <Alert variant="warning">Open a project on the home page first.</Alert>}
       {error && <Alert variant="danger">{error}</Alert>}

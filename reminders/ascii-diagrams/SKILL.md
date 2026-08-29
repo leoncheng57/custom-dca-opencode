@@ -2,6 +2,7 @@
 name: ascii-diagrams
 title: Draw an ASCII Diagram
 description: Replace a prose wall with a compact annotated file tree, data flow, or UI sketch when structure matters.
+tags: diagrams, docs, output-style
 source_repo: https://github.com/leoncheng57/agent-skills
 source_path: skills/ascii-diagrams/SKILL.md
 source_commit: 8b036a41f578dc6c6307ae0a8dd2857121afcabb
