@@ -15,7 +15,7 @@ const commandFiles = Object.fromEntries(
 
 const commands = loadCommandsFromFiles(commandFiles)
 
-describe('Wave C design commands', () => {
+describe('design commands', () => {
   it('loads exactly the three self-contained commands', () => {
     expect(commands.map((command) => command.name)).toEqual([...names])
     expect(commands.every((command) => command.description.length > 10)).toBe(true)

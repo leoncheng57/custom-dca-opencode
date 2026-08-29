@@ -1,5 +1,5 @@
 ---
-title: Selecting a mixed-state orchestration review package
+title: Selecting a mixed-state queue review package
 trigger: /system-design-artifacts
 caveat: >-
   The transcript shows package selection and evidence discipline, not the many
