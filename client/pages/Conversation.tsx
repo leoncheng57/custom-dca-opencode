@@ -326,17 +326,34 @@ export function ConversationPage() {
     }
   }, [currentModel, modelCatalogue, selectedModel, session?.model, sessionLoaded, stream.loaded, stream.messages]);
 
+  // Reminders are directory-scoped, so this must re-run when the project
+  // changes. With an empty dependency array a repository-scoped reminder
+  // fetched for project A stayed on screen after switching to project B.
   useEffect(() => {
     let cancelled = false;
-    void api.reminders().then((result) => {
+    if (!directory) {
+      setReminderCatalogue([]);
+      return;
+    }
+    void api.reminders(directory).then((result) => {
       if (!cancelled) setReminderCatalogue(result.reminders);
     }).catch(() => {
-      // A missing catalogue is optional; keep the picker hidden.
+      // Fail closed: dropping the stale catalogue is the safe outcome, because
+      // keeping it would leave another project's scoped reminders on screen.
+      if (!cancelled) setReminderCatalogue([]);
     });
+    return () => {
+      cancelled = true;
+    };
+  }, [directory]);
+
+  useEffect(() => {
+    let cancelled = false;
     void api.workflows().then((result) => {
       if (!cancelled) setWorkflowCatalogue(result.workflows);
     }).catch(() => {
-      // Same as reminders: an unreachable catalogue only hides the picker.
+      // Workflows are not directory-scoped; an unreachable catalogue only
+      // hides the picker.
     });
     return () => {
       cancelled = true;

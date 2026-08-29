@@ -983,8 +983,10 @@ export const api = {
     fetch(scoped(`/sessions/${encodeURIComponent(sessionId)}/questions/${encodeURIComponent(requestId)}/reject`, directory), {
       method: "POST",
     }).then((r) => json<{ rejected: boolean }>(r)),
-  reminders: () =>
-    fetch("/api/reminders").then((r) => json<{ reminders: ReminderSummary[] }>(r)),
+  // Directory-scoped: a reminder may be restricted to one repository, so the
+  // server needs to know which project is selected before it will list it.
+  reminders: (directory: string) =>
+    fetch(`/api/reminders?directory=${encodeURIComponent(directory)}`).then((r) => json<{ reminders: ReminderSummary[] }>(r)),
   workflows: () =>
     fetch("/api/workflows").then((r) => json<{ workflows: WorkflowSummary[] }>(r)),
 
