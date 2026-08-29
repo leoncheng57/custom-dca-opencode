@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { ChevronDown, Ellipsis, FolderOpen, GitPullRequest, Globe, Info, MessageSquareText, OctagonX, Waves } from "lucide-react";
+import { Boxes, ChevronDown, Ellipsis, FolderOpen, GitPullRequest, Globe, Info, MessageSquareText, OctagonX, Share2, Waves, WrapText } from "lucide-react";
 
 import { Alert } from "../ds/alert.js";
 import { Badge } from "../ds/badge.js";
@@ -45,6 +45,18 @@ import {
 
 const WRAP_KEY = "opencode.wrapOutput.v1";
 const APP_NAME = "DCA";
+
+/**
+ * Session overflow items. Mirrors `nav-overflow-menu.tsx` so the two overflow
+ * surfaces in the app look and behave the same; the class string is duplicated
+ * rather than shared because `client/ds/` has no dropdown primitive yet and
+ * extracting one would also have to absorb the notification popover and the
+ * picker dialogs. See the pull request body for that follow-up.
+ */
+const SESSION_MENU_ITEM_CLASS =
+  "flex min-h-11 w-full items-center gap-2 rounded px-2 text-sm text-[var(--color-text-default)] " +
+  "hover:bg-[var(--color-background-surface-neutral-muted)] " +
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]";
 
 export function ConversationPage() {
   const { id = "" } = useParams();
@@ -114,6 +126,33 @@ export function ConversationPage() {
   const stopTriggerRef = useRef<HTMLButtonElement | null>(null);
   const stopDialogRef = useRef<HTMLElement | null>(null);
   const [parent, setParent] = useState<SessionSummary | null>(null);
+  const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
+  const sessionMenuRef = useRef<HTMLDivElement | null>(null);
+  const sessionMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const sessionMenuPanelRef = useRef<HTMLDivElement | null>(null);
+  const sessionMenuPanelId = useId();
+
+  // Unlike the navigation menu, every item here either stays on this page or
+  // hands off to a dialog that captures `document.activeElement` when it mounts,
+  // so the trigger is always the right place to leave focus.
+  const closeSessionMenu = () => {
+    setSessionMenuOpen(false);
+    sessionMenuTriggerRef.current?.focus();
+  };
+
+  useEffect(() => {
+    if (!sessionMenuOpen) return;
+    sessionMenuPanelRef.current?.querySelector<HTMLElement>("a, button")?.focus();
+  }, [sessionMenuOpen]);
+
+  useEffect(() => {
+    if (!sessionMenuOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!sessionMenuRef.current?.contains(event.target as Node)) setSessionMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => document.removeEventListener("pointerdown", onPointerDown, true);
+  }, [sessionMenuOpen]);
 
   useEffect(() => {
     if (session?.title) document.title = `${session.title} | ${APP_NAME}`;
@@ -669,27 +708,88 @@ export function ConversationPage() {
               </Button>
             }
           />
-          <details className="relative" data-testid="opencode-mobile-session-menu">
-            <summary className="flex min-h-11 min-w-12 cursor-pointer list-none items-center justify-center rounded-md text-[var(--color-text-muted)] hover:bg-[var(--hh-row-hover)] [&::-webkit-details-marker]:hidden" aria-label="More session actions" title="More session actions">
+          <div
+            className="relative"
+            ref={sessionMenuRef}
+            onKeyDown={(event) => {
+              if (event.key !== "Escape" || !sessionMenuOpen) return;
+              event.stopPropagation();
+              closeSessionMenu();
+            }}
+            data-testid="opencode-mobile-session-menu"
+          >
+            <Button
+              size="md"
+              variant="ghost"
+              className="min-h-11 min-w-12 px-0"
+              aria-controls={sessionMenuOpen ? sessionMenuPanelId : undefined}
+              aria-expanded={sessionMenuOpen}
+              aria-haspopup="true"
+              aria-label="More session actions"
+              onClick={() => (sessionMenuOpen ? closeSessionMenu() : setSessionMenuOpen(true))}
+              ref={sessionMenuTriggerRef}
+              title="More session actions"
+              type="button"
+              data-testid="opencode-mobile-session-menu-trigger"
+            >
               <Ellipsis aria-hidden="true" className="h-3.5 w-3.5" />
-            </summary>
-            <div className="absolute right-0 z-30 mt-1 grid min-w-40 overflow-hidden rounded-lg border border-[var(--color-border-default)] bg-[var(--color-background-surface)] p-1 shadow-xl">
-              <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); toggleWrap(); }} data-testid="opencode-mobile-wrap-toggle">{wrap ? "Disable wrapping" : "Enable wrapping"}</button>
-              <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => {
-                const menu = event.currentTarget.closest("details");
-                menu?.removeAttribute("open");
-                menu?.querySelector<HTMLElement>("summary")?.focus();
-                setShareTarget({ kind: "session" });
-              }} data-testid="opencode-mobile-share-export-open">Share</button>
-              <button type="button" className="min-h-11 rounded px-3 text-left text-sm hover:bg-[var(--hh-row-hover)]" onClick={(event) => {
-                const menu = event.currentTarget.closest("details");
-                menu?.removeAttribute("open");
-                menu?.querySelector<HTMLElement>("summary")?.focus();
-                setRequestedInspectorTab("catalog");
-                setInspectorOpen(true);
-              }} data-testid="opencode-mobile-catalog-open">Catalog</button>
-            </div>
-          </details>
+            </Button>
+            {sessionMenuOpen && (
+              <div
+                aria-label="More session actions"
+                className="absolute right-0 top-full z-50 mt-1 w-52 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-background-surface)] p-1 shadow-xl"
+                id={sessionMenuPanelId}
+                ref={sessionMenuPanelRef}
+                data-testid="opencode-mobile-session-menu-panel"
+              >
+                <ul>
+                  <li>
+                    <button
+                      className={SESSION_MENU_ITEM_CLASS}
+                      onClick={() => {
+                        closeSessionMenu();
+                        toggleWrap();
+                      }}
+                      type="button"
+                      data-testid="opencode-mobile-wrap-toggle"
+                    >
+                      <WrapText aria-hidden="true" size={15} />
+                      {wrap ? "Disable wrapping" : "Enable wrapping"}
+                    </button>
+                  </li>
+                  <li>
+                    <button
+                      className={SESSION_MENU_ITEM_CLASS}
+                      onClick={() => {
+                        closeSessionMenu();
+                        setShareTarget({ kind: "session" });
+                      }}
+                      type="button"
+                      data-testid="opencode-mobile-share-export-open"
+                    >
+                      <Share2 aria-hidden="true" size={15} />
+                      Share
+                    </button>
+                  </li>
+                  <li>
+                    <button
+                      className={SESSION_MENU_ITEM_CLASS}
+                      onClick={() => {
+                        closeSessionMenu();
+                        setRequestedInspectorTab("catalog");
+                        setInspectorOpen(true);
+                      }}
+                      type="button"
+                      data-testid="opencode-mobile-catalog-open"
+                    >
+                      <Boxes aria-hidden="true" size={15} />
+                      Catalog
+                    </button>
+                  </li>
+                </ul>
+              </div>
+            )}
+          </div>
           </div>
         </div>
 

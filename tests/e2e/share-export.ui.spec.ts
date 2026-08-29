@@ -6,7 +6,7 @@ const paginatedConversation = `/sessions/ses_mock_paginated?directory=${encodeUR
 const MOCK_URL = `http://127.0.0.1:${process.env.MOCK_OPENCODE_PORT || 4599}`;
 
 async function openSessionShare(page: Page): Promise<Locator> {
-  const menuTrigger = page.getByTestId("opencode-mobile-session-menu").locator(":scope > summary");
+  const menuTrigger = page.getByTestId("opencode-mobile-session-menu-trigger");
   await menuTrigger.click();
   const trigger = page.getByTestId("opencode-mobile-share-export-open");
   await trigger.focus();
