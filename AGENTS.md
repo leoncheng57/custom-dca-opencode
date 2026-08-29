@@ -800,6 +800,27 @@ several decisions below.
     decoded. The row `flex-wrap`s with a floor on its text column, because a kind badge
     plus readable text plus two 44px actions does not fit a 390px line and letting the
     text absorb the deficit truncated headings to a few characters.
+31. **Playbooks reports installation, it never performs it, and every claim names
+    the project it is about.** The catalogue is a build-time, repository-owned
+    inventory compiled from `agent-skills/` into the bundle; whether a playbook is
+    actually *loaded* is a per-directory runtime fact only `/api/catalog` knows.
+    Those are different questions and the page now answers both without conflating
+    them. Installation itself stays external: the UI only ever copies a shell
+    command the human runs, and it says so rather than leaving "Install grill-me"
+    to imply the app did something. The load-state badge is **always labelled with
+    the project**, because `/playbooks` is a global route while installation is
+    per-directory — a bare "Loaded" would be false in any other project, which is
+    worse than saying nothing. Since the route carries no `?directory=`, the last
+    selected project is resolved through the same `resolvePaletteDirectory` seam
+    the palette and notification centre use. Every failure — no directory, an
+    unreachable BFF, a rejected directory — renders **no claim at all** rather than
+    defaulting to "not installed", so the badge's absence means "unknown" and never
+    "absent". Source links follow the default branch and now say `main` out loud:
+    what GitHub shows can be newer than the bundle being read, and looking pinned
+    while tracking a moving target is the dishonest option. Related but distinct,
+    and stated on the page because the composer's reminder picker deep-links here:
+    attaching a reminder is a per-message action that needs no installation, and
+    shares only a name with the skill of the same id.
 
 ## Client conventions (inherited from the OpenHands runner, still enforced)
 
