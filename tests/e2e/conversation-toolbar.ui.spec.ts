@@ -41,7 +41,7 @@ test.describe("mobile conversation action bar", () => {
       page.getByTestId("opencode-mobile-runlog-open"),
       page.getByTestId("opencode-mobile-auto-permissions-toggle"),
       page.getByTestId("opencode-mobile-auto-permissions-info"),
-      page.getByTestId("opencode-mobile-session-menu").locator(":scope > summary"),
+      page.getByTestId("opencode-mobile-session-menu-trigger"),
     ];
     for (const control of controls) {
       const rect = await box(control);
@@ -133,7 +133,7 @@ test.describe("mobile conversation action bar", () => {
     await page.goto(conversation);
 
     const menu = page.getByTestId("opencode-mobile-session-menu");
-    await menu.locator(":scope > summary").click();
+    await page.getByTestId("opencode-mobile-session-menu-trigger").click();
     for (const id of ["opencode-mobile-wrap-toggle", "opencode-mobile-share-export-open", "opencode-mobile-catalog-open"]) {
       const item = page.getByTestId(id);
       await expect(item).toBeVisible();
@@ -195,7 +195,7 @@ test.describe("desktop conversation action bar", () => {
     await surface.getByTestId("opencode-desktop-inspector-close").click();
     await expect(reviews).toBeFocused();
 
-    await page.getByTestId("opencode-mobile-session-menu").locator(":scope > summary").click();
+    await page.getByTestId("opencode-mobile-session-menu-trigger").click();
     await page.getByTestId("opencode-mobile-catalog-open").click();
     await expect(surface.getByTestId("opencode-catalog")).toBeVisible();
   });
