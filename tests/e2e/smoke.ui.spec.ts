@@ -60,6 +60,8 @@ test.describe("hub", () => {
 
   test("lists sessions for the directory", async ({ page }) => {
     await page.goto(hub);
+    // "3. Existing sessions" is collapsed by default; expand it first.
+    await page.getByTestId("opencode-sessions-picker-toggle").click();
     await expect(page.getByTestId("opencode-session-list")).toBeVisible();
     const rows = page.getByTestId("opencode-session-row");
     expect(await rows.count()).toBeGreaterThanOrEqual(2);
@@ -69,31 +71,48 @@ test.describe("hub", () => {
 
   test("shows a running pill for the busy session", async ({ page }) => {
     await page.goto(hub);
+    await page.getByTestId("opencode-sessions-picker-toggle").click();
     const pills = page.getByTestId("opencode-session-list").getByTestId("opencode-status-pill");
     await expect(pills.filter({ hasText: "running" })).toHaveCount(1);
   });
 
-  test("needs attention shows running sessions and unresolved notification sessions, and hides entirely when empty", async ({ page }) => {
+  test("needs attention merges a session that is both running and notifying into one row, and hides entirely when empty", async ({ page }) => {
     // Constrain recents to the one known-running fixture so the running band
     // is deterministic regardless of other tests' cross-project activity.
     await pinRecentsTo(page, ["ses_mock_running"]);
     await page.route("**/api/notifications/history*", async (route) => {
       await route.fulfill({
         json: {
-          records: [{
-            id: "ntf_attention_1",
-            kind: "permission",
-            at: Date.UTC(2026, 7, 28, 12, 0, 0),
-            directory: DIR,
-            sessionID: "ses_mock_done",
-            sessionTitle: "Add a health endpoint",
-            title: "OpenCode needs permission",
-            body: "bash: npm test",
-            displayBody: "Needs approval to run bash",
-            delivery: { ntfy: "off", desktop: "off" },
-          }],
-          activeCount: 1,
-          appBadgeCount: 1,
+          records: [
+            {
+              id: "ntf_attention_1",
+              kind: "permission",
+              at: Date.UTC(2026, 7, 28, 12, 0, 0),
+              directory: DIR,
+              sessionID: "ses_mock_done",
+              sessionTitle: "Add a health endpoint",
+              title: "OpenCode needs permission",
+              body: "bash: npm test",
+              displayBody: "Needs approval to run bash",
+              delivery: { ntfy: "off", desktop: "off" },
+            },
+            // Same session as the running fixture (ses_mock_running): this
+            // must merge into the running row, not render as a second row.
+            {
+              id: "ntf_attention_2",
+              kind: "idle",
+              at: Date.UTC(2026, 7, 28, 12, 1, 0),
+              directory: DIR,
+              sessionID: "ses_mock_running",
+              sessionTitle: "Refactor the parser",
+              title: "Session finished",
+              body: "seeded",
+              displayBody: "Finished its turn and is waiting for you",
+              delivery: { ntfy: "off", desktop: "off" },
+            },
+          ],
+          activeCount: 2,
+          appBadgeCount: 2,
           appBadgeRevision: 1,
           suppressedActive: { "auto-permissions": 0, subagent: 0, "preference-off": 0 },
         },
@@ -103,16 +122,27 @@ test.describe("hub", () => {
 
     const attention = page.getByTestId("opencode-needs-attention");
     await expect(attention).toBeVisible();
-    const runningRow = attention.getByTestId("opencode-attention-running-row");
-    await expect(runningRow).toHaveCount(1);
-    await expect(runningRow).toContainText("Refactor the parser");
-    const notificationRow = attention.getByTestId("opencode-attention-notification-row");
-    await expect(notificationRow).toHaveCount(1);
-    await expect(notificationRow).toContainText("Add a health endpoint");
-    await expect(notificationRow).toContainText("permission");
+    const rows = attention.getByTestId("opencode-attention-row");
+    await expect(rows).toHaveCount(2);
 
-    // Clicking a notification row navigates to the session that produced it.
-    await notificationRow.click();
+    // The running + notifying session merges into one row with both markers.
+    const merged = rows.filter({ hasText: "Refactor the parser" });
+    await expect(merged).toHaveCount(1);
+    await expect(merged).toHaveAttribute("data-running", "true");
+    await expect(merged).toHaveAttribute("data-notify", "true");
+    await expect(merged.getByTestId("opencode-status-pill")).toContainText("running");
+    await expect(merged).toContainText("notif active");
+    await expect(merged).toContainText("idle");
+
+    // The notification-only session is its own row, with no running pill.
+    const notifyOnly = rows.filter({ hasText: "Add a health endpoint" });
+    await expect(notifyOnly).toHaveCount(1);
+    await expect(notifyOnly).toHaveAttribute("data-running", "false");
+    await expect(notifyOnly).toHaveAttribute("data-notify", "true");
+    await expect(notifyOnly).toContainText("permission");
+
+    // Clicking a notify-only row navigates to the session that produced it.
+    await notifyOnly.click();
     await expect(page).toHaveURL(/\/sessions\/ses_mock_done\?/);
 
     await page.goto(hub);
@@ -255,6 +285,7 @@ test.describe("hub", () => {
 
   test("navigating to a session keeps the directory scope", async ({ page }) => {
     await page.goto(hub);
+    await page.getByTestId("opencode-sessions-picker-toggle").click();
     await page.getByTestId("opencode-session-row").first().click();
     await expect(page).toHaveURL(/\/sessions\/.*directory=/);
     await expect(page.getByTestId("opencode-conversation")).toBeVisible();
@@ -265,10 +296,14 @@ test.describe("hub", () => {
     // assertions stay about opened-vs-active, not about project merging.
     await pinRecentsTo(page, ["ses_mock_done", "ses_mock_running", "ses_mock_unknown_model"]);
     await page.goto(hub);
+    // The sessions picker is collapsed by default and resets on every Hub
+    // remount, so it needs re-expanding after each "back to Sessions" navigation.
+    await page.getByTestId("opencode-sessions-picker-toggle").click();
     const sessions = page.getByTestId("opencode-session-list");
 
     await sessions.getByText("Add a health endpoint", { exact: true }).click();
     await page.getByRole("link", { name: "Sessions" }).click();
+    await page.getByTestId("opencode-sessions-picker-toggle").click();
     await sessions.getByText("Refactor the parser", { exact: true }).click();
     await page.getByRole("link", { name: "Sessions" }).click();
 
@@ -1113,10 +1148,11 @@ test.describe("mobile", () => {
 
   test("hub is usable on a phone", async ({ page }) => {
     await page.goto(hub);
-    await expect(page.getByTestId("opencode-session-list")).toBeVisible();
-    // The project picker is collapsed by default; its toggle is what should be
-    // reachable without scrolling on a phone, not the (hidden) list inside it.
+    // The project picker and the sessions list are both collapsed by default;
+    // their toggles are what should be reachable without scrolling on a
+    // phone, not the (hidden) lists inside them.
     await expect(page.getByTestId("opencode-project-picker-toggle")).toBeVisible();
+    await expect(page.getByTestId("opencode-sessions-picker-toggle")).toBeVisible();
     await expect(page.getByTestId("opencode-hub-mode")).toBeVisible();
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,

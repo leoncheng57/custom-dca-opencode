@@ -20,6 +20,7 @@ import {
 import type { AgentMode } from "../lib/agentMode.js";
 import { buildAttentionSummary } from "../lib/hubAttention.js";
 import { catalogueDefault, sameModel, type ModelCatalogue, type ModelSelection } from "../lib/models.js";
+import { splitProjectWorkspace } from "../lib/projectPath.js";
 import {
   MAX_VISIBLE_RECENT_SESSIONS,
   readRecentSessionOpens,
@@ -463,41 +464,51 @@ export function HubPage() {
             Needs attention
           </h2>
           <ul>
-            {attention.running.map((session) => (
-              <li key={session.id} data-testid="opencode-attention-running-row">
-                <Link
-                  to={`/sessions/${session.id}?directory=${encodeURIComponent(session.directory)}`}
-                  className="flex min-h-11 items-center gap-2 border-b border-[var(--color-text-warning)] px-4 py-2 text-sm last:border-b-0 hover:bg-[var(--hh-row-hover)]"
-                >
-                  <StatusPill running />
-                  <span className="min-w-0 flex-1 truncate">{session.title}</span>
-                  <span className="max-w-[35%] shrink-0 truncate text-[11px] text-[var(--color-text-muted)]" title={session.directory}>
-                    {projectLabel(session.directory)}
-                  </span>
-                </Link>
-              </li>
-            ))}
-            {attention.notificationGroups.map((group) => (
-              <li key={group.key} data-testid="opencode-attention-notification-row">
-                {group.route ? (
-                  <Link
-                    to={group.route}
-                    className="flex min-h-11 items-center gap-2 border-b border-[var(--color-text-warning)] px-4 py-2 text-sm last:border-b-0 hover:bg-[var(--hh-row-hover)]"
-                  >
-                    <span className="inline-flex shrink-0 items-center rounded-full bg-[var(--color-background-surface-danger-muted)] px-2 py-0.5 text-[11px] font-medium text-[var(--color-text-danger)]">notify</span>
-                    <span className="min-w-0 flex-1 truncate">{group.label}</span>
+            {attention.rows.map((row) => {
+              // One row per session: a session that is both running and has
+              // an unresolved notification carries both `session` and
+              // `notification` here, rendered together rather than as two
+              // separate rows.
+              const title = row.session?.title ?? row.notification?.label ?? "";
+              const route = row.session
+                ? `/sessions/${row.session.id}?directory=${encodeURIComponent(row.session.directory)}`
+                : row.notification?.route;
+              const content = (
+                <>
+                  {row.running && <StatusPill running />}
+                  {row.notification && (
+                    <span className="inline-flex shrink-0 items-center rounded-full bg-[var(--color-background-surface-danger-muted)] px-2 py-0.5 text-[11px] font-medium text-[var(--color-text-danger)]">notif active</span>
+                  )}
+                  <span className="min-w-0 flex-1 truncate">{title}</span>
+                  {row.notification && (
                     <span className="shrink-0 text-[11px] text-[var(--color-text-muted)]">
-                      {group.chips.map((chip) => `${chip.count} ${chip.kind}`).join(", ")}
+                      {row.notification.chips.map((chip) => `${chip.count} ${chip.kind}`).join(", ")}
                     </span>
-                  </Link>
-                ) : (
-                  <div className="flex min-h-11 items-center gap-2 border-b border-[var(--color-text-warning)] px-4 py-2 text-sm last:border-b-0">
-                    <span className="inline-flex shrink-0 items-center rounded-full bg-[var(--color-background-surface-danger-muted)] px-2 py-0.5 text-[11px] font-medium text-[var(--color-text-danger)]">notify</span>
-                    <span className="min-w-0 flex-1 truncate">{group.label}</span>
-                  </div>
-                )}
-              </li>
-            ))}
+                  )}
+                  {row.session && (
+                    <span className="max-w-[35%] shrink-0 truncate text-[11px] text-[var(--color-text-muted)]" title={row.session.directory}>
+                      {projectLabel(row.session.directory)}
+                    </span>
+                  )}
+                </>
+              );
+              return (
+                <li key={row.key} data-testid="opencode-attention-row" data-running={row.running} data-notify={Boolean(row.notification)}>
+                  {route ? (
+                    <Link
+                      to={route}
+                      className="flex min-h-11 items-center gap-2 border-b border-[var(--color-text-warning)] px-4 py-2 text-sm last:border-b-0 hover:bg-[var(--hh-row-hover)]"
+                    >
+                      {content}
+                    </Link>
+                  ) : (
+                    <div className="flex min-h-11 items-center gap-2 border-b border-[var(--color-text-warning)] px-4 py-2 text-sm last:border-b-0">
+                      {content}
+                    </div>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </section>
       )}
@@ -521,11 +532,17 @@ export function HubPage() {
 
       <section className="rounded-xl border border-[var(--color-border-default)] p-4 sm:p-5" data-testid="opencode-new-task">
         <h2 className="mb-3 text-sm font-semibold">New task</h2>
-        {directory && (
-          <p className="mb-3 truncate text-xs text-[var(--color-text-muted)]" title={directory} data-testid="opencode-selected-directory">
-            {selectedProject?.relativePath ?? directory}
-          </p>
-        )}
+        {directory && (() => {
+          const { project, workspace } = splitProjectWorkspace(selectedProject?.relativePath ?? directory);
+          return (
+            <div className="mb-3 text-xs text-[var(--color-text-muted)]" data-testid="opencode-selected-directory" title={directory}>
+              <p className="truncate">Project: <span className="text-[var(--color-text-default)]">{project}</span></p>
+              {workspace && (
+                <p className="truncate" data-testid="opencode-selected-workspace">Workspace: <span className="text-[var(--color-text-default)]">{workspace}</span></p>
+              )}
+            </div>
+          );
+        })()}
         <textarea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
@@ -607,7 +624,7 @@ export function HubPage() {
 
       <details className="rounded-xl border border-[var(--color-border-default)]" data-testid="opencode-project-picker">
         <summary className="cursor-pointer list-none p-4 sm:p-5" data-testid="opencode-project-picker-toggle">
-          <h2 className="inline text-sm font-semibold">Choose a project</h2>
+          <h2 className="inline text-sm font-semibold">1. Project</h2>
           <span className="ml-2 text-xs text-[var(--color-text-muted)]">{visibleProjects.length} projects</span>
           <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">Pinned projects stay first on every device.</p>
         </summary>
@@ -706,7 +723,7 @@ export function HubPage() {
       {directory && worktrees.length > 0 && (
         <details className="rounded-xl border border-[var(--color-border-default)]" data-testid="opencode-worktree-list">
           <summary className="cursor-pointer list-none border-b border-[var(--color-border-default)] px-4 py-2 text-sm font-semibold" data-testid="opencode-worktree-list-toggle">
-            Isolated workspaces <span className="font-normal text-[var(--color-text-muted)]">({worktrees.length})</span>
+            2. Workspace <span className="font-normal text-[var(--color-text-muted)]">({worktrees.length})</span>
           </summary>
           <ul className="max-h-72 divide-y divide-[var(--color-border-default)] overflow-y-auto">
             {worktrees.map((worktree) => (
@@ -720,26 +737,30 @@ export function HubPage() {
         </details>
       )}
 
-      <section className="rounded-xl border border-[var(--color-border-default)]">
-        <div className="border-b border-[var(--color-border-default)] px-4 py-2 text-sm font-semibold">
-          Sessions
-        </div>
-        {!directory ? (
-          <p className="p-6 text-sm text-[var(--color-text-muted)]">
-            Pick a project directory to list its sessions.
-          </p>
-        ) : sessions === null ? (
-          <div className="p-6">
-            <LoadingIndicator />
-          </div>
-        ) : sessions.length === 0 ? (
-          <p className="p-6 text-sm text-[var(--color-text-muted)]" data-testid="opencode-sessions-empty">
-            No sessions in this directory yet — start one above.
-          </p>
-        ) : (
-          <SessionTreeList sessions={sessions} testId="opencode-session-list" showCost />
-        )}
-      </section>
+      {!directory ? (
+        <p className="rounded-xl border border-[var(--color-border-default)] p-6 text-sm text-[var(--color-text-muted)]">
+          Pick a project directory to list its sessions.
+        </p>
+      ) : (
+        <details className="rounded-xl border border-[var(--color-border-default)]" data-testid="opencode-sessions-picker">
+          <summary className="cursor-pointer list-none border-b border-[var(--color-border-default)] px-4 py-2 text-sm font-semibold" data-testid="opencode-sessions-picker-toggle">
+            3. Existing sessions {sessions !== null && <span className="font-normal text-[var(--color-text-muted)]">({sessions.length})</span>}
+          </summary>
+          {sessions === null ? (
+            <div className="p-6">
+              <LoadingIndicator />
+            </div>
+          ) : sessions.length === 0 ? (
+            <p className="p-6 text-sm text-[var(--color-text-muted)]" data-testid="opencode-sessions-empty">
+              No sessions in this directory yet — start one above.
+            </p>
+          ) : (
+            <div className="max-h-72 overflow-y-auto">
+              <SessionTreeList sessions={sessions} testId="opencode-session-list" showCost />
+            </div>
+          )}
+        </details>
+      )}
     </main>
   );
 }
