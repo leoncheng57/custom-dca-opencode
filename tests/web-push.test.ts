@@ -513,6 +513,156 @@ async function runServiceWorker(options: {
   };
 }
 
+interface FakeNotification {
+  title: string;
+  body: string;
+  closed: boolean;
+  close: () => void;
+}
+
+/**
+ * Runs the real sw.js push handler against stub notification APIs, so the
+ * collapsing behaviour is exercised rather than asserted from the source text.
+ */
+async function runPushWorker(options: {
+  existing?: Array<{ title: string; body: string }>;
+  getNotificationsThrows?: boolean;
+} = {}): Promise<{
+  push: (payload: unknown) => Promise<void>;
+  shown: Array<{ title: string; body: string; tag?: string }>;
+  notifications: FakeNotification[];
+}> {
+  const vm = await import("node:vm");
+  const source = await readFile(path.resolve("client/public/sw.js"), "utf8");
+  const listeners = new Map<string, (event: unknown) => void>();
+  const shown: Array<{ title: string; body: string; tag?: string }> = [];
+  const notifications: FakeNotification[] = (options.existing ?? []).map((n) => ({
+    ...n,
+    closed: false,
+    close() { this.closed = true; },
+  }));
+
+  const openRequest = () => {
+    const request: Record<string, unknown> = { onsuccess: null, onerror: null, onupgradeneeded: null };
+    queueMicrotask(() => {
+      request.result = {
+        transaction: () => ({
+          objectStore: () => ({
+            get: () => {
+              const get: Record<string, unknown> = { result: undefined, onsuccess: null, onerror: null };
+              queueMicrotask(() => (get.onsuccess as (() => void) | null)?.());
+              return get;
+            },
+            put: () => undefined,
+          }),
+          oncomplete: null,
+          onerror: null,
+        }),
+        close: () => undefined,
+      };
+      (request.onsuccess as (() => void) | null)?.();
+    });
+    return request;
+  };
+
+  const sandbox = {
+    indexedDB: { open: openRequest },
+    atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+    console: { warn: () => undefined },
+    setTimeout, clearTimeout, queueMicrotask,
+    fetch: async () => ({ ok: true, status: 204 }),
+    self: {
+      addEventListener: (type: string, handler: (event: unknown) => void) => listeners.set(type, handler),
+      location: { origin: "https://app.test" },
+      navigator: {},
+      registration: {
+        pushManager: { subscribe: async () => ({ toJSON: () => ({}) }) },
+        getNotifications: async () => {
+          if (options.getNotificationsThrows) throw new Error("not permitted");
+          return notifications.filter((n) => !n.closed);
+        },
+        showNotification: async (title: string, opts: { body: string; tag?: string }) => {
+          shown.push({ title, body: opts.body, ...(opts.tag ? { tag: opts.tag } : {}) });
+          notifications.push({ title, body: opts.body, closed: false, close() { this.closed = true; } });
+        },
+      },
+    },
+  };
+
+  vm.runInNewContext(source, sandbox);
+
+  return {
+    shown,
+    notifications,
+    push: async (payload: unknown) => {
+      const handler = listeners.get("push");
+      if (!handler) throw new Error("sw.js registered no push listener");
+      let waited: Promise<unknown> = Promise.resolve();
+      handler({ data: { json: () => payload }, waitUntil: (v: Promise<unknown>) => { waited = v; } });
+      await waited;
+    },
+  };
+}
+
+describe("duplicate push notifications", () => {
+  it("leaves exactly one card when the same content arrives twice", async () => {
+    // iOS ignores `tag`, so a repeat stacks instead of replacing. Verified on
+    // device: two pushes seconds apart with an identical tag produced two cards.
+    const worker = await runPushWorker();
+
+    await worker.push({ title: "Session", body: "All three done.", tag: "ses_1" });
+    await worker.push({ title: "Session", body: "All three done.", tag: "ses_1" });
+
+    // Both pushes show — userVisibleOnly demands it — but the earlier card is
+    // closed first, so only one is left on screen.
+    expect(worker.shown).toHaveLength(2);
+    expect(worker.notifications.filter((n) => !n.closed)).toHaveLength(1);
+    expect(worker.notifications.filter((n) => n.closed)).toHaveLength(1);
+  });
+
+  it("never resolves without showing a notification", async () => {
+    // The subscription is userVisibleOnly: a push handler that shows nothing
+    // invites the browser's own "updated in the background" notification, so
+    // suppressing a duplicate outright would trade a useful card for a useless
+    // one.
+    const worker = await runPushWorker();
+    await worker.push({ title: "Session", body: "Same", tag: "ses_1" });
+    await worker.push({ title: "Session", body: "Same", tag: "ses_1" });
+    await worker.push({ title: "Session", body: "Same", tag: "ses_1" });
+    expect(worker.shown).toHaveLength(3);
+  });
+
+  it("keeps a different notification from the same session", async () => {
+    // The tag is session-scoped, so two distinct records share one. Matching on
+    // tag would wrongly close a card the user has not seen.
+    const worker = await runPushWorker();
+
+    await worker.push({ title: "Session", body: "First result", tag: "ses_1" });
+    await worker.push({ title: "Session", body: "Second result", tag: "ses_1" });
+
+    const open = worker.notifications.filter((n) => !n.closed);
+    expect(open.map((n) => n.body).sort()).toEqual(["First result", "Second result"]);
+  });
+
+  it("does not close an unrelated notification", async () => {
+    const worker = await runPushWorker({ existing: [{ title: "Other session", body: "Needs approval" }] });
+
+    await worker.push({ title: "Session", body: "Done", tag: "ses_1" });
+
+    expect(worker.notifications.find((n) => n.title === "Other session")?.closed).toBe(false);
+  });
+
+  it("still shows the card when getNotifications is unavailable", async () => {
+    // Failing here must never cost a notification; a duplicate is the cheaper
+    // mistake.
+    const worker = await runPushWorker({ getNotificationsThrows: true });
+
+    await worker.push({ title: "Session", body: "Done", tag: "ses_1" });
+
+    expect(worker.shown).toEqual([{ title: "Session", body: "Done", tag: "ses_1" }]);
+  });
+});
+
 describe("rotated push subscriptions", () => {
   it("re-subscribes with the mirrored key and re-registers under the same installation", async () => {
     const worker = await runServiceWorker({
