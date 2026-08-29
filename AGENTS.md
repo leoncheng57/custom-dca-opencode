@@ -606,6 +606,17 @@ several decisions below.
     that actually receives these notifications nothing is collapsed. Decision 24b
     is the first application of that rule. When judging whether a second
     notification is acceptable, assume it will be shown.
+    Where a repeat cannot be prevented upstream, the worker performs the
+    replacement itself: before showing, it closes any card already displaying the
+    same title and body. It matches on **content, not tag** — the tag is
+    session-scoped, so two distinct records share one, and a repeat of a single
+    record can arrive with no tag at all. It is close-then-show rather than
+    skip-if-duplicate because the subscription is `userVisibleOnly`: a push
+    handler that resolves without showing anything invites the browser's own
+    "updated in the background" notification, so suppressing our card could
+    replace a useful notification with a useless one. Any failure falls through
+    to showing the card, because a duplicate is a far cheaper mistake than
+    silence.
 24b. **A stopped session is not a finished one, and Stop must produce one
     notification.** Pressing Stop makes upstream emit the abort and then
     `session.idle` — captured 5 ms apart — and both were delivered. The second

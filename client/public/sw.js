@@ -201,16 +201,52 @@ self.addEventListener("push", (event) => {
   // two into one popup instead of buzzing the device twice for one event.
   const tag = typeof payload.tag === "string" && payload.tag ? payload.tag : null;
   event.waitUntil(Promise.all([
-    self.registration.showNotification(title, {
-      body,
-      icon: "/icon.svg",
-      badge: "/icon.svg",
-      data: { click },
-      ...(tag ? { tag, renotify: false } : {}),
-    }),
+    showCollapsed(title, body, click, tag),
     badge.catch(() => undefined),
   ]));
 });
+
+/**
+ * Shows exactly one card for a given piece of content.
+ *
+ * `tag` is supposed to make a later notification replace an earlier one with
+ * the same tag. Measured on an installed iOS PWA, it does not: two pushes sent
+ * seconds apart with an identical tag and `renotify: false` produced two cards.
+ * So on the platform this app is mainly read on, the replacement contract the
+ * tag was chosen for simply does not hold, and any repeat stacks.
+ *
+ * This does the replacement by hand — find cards already showing this exact
+ * title and body, close them, then show the new one.
+ *
+ * Deliberately close-then-show rather than skip-if-duplicate: the subscription
+ * is `userVisibleOnly`, so a push handler that resolves without showing
+ * anything invites the browser's own "this site was updated in the background"
+ * notification. Suppressing our card could therefore replace a useful
+ * notification with a useless one. Showing exactly one is the only safe shape.
+ *
+ * Failure here must never cost a notification, so any error falls through to
+ * showing the card — a duplicate is a far cheaper mistake than silence.
+ */
+async function showCollapsed(title, body, click, tag) {
+  try {
+    // Matching on content, not tag: the whole problem is that a distinct
+    // record can carry the same tag while a repeat of one record can arrive
+    // with no tag at all.
+    const existing = await self.registration.getNotifications();
+    for (const notification of existing) {
+      if (notification.title === title && notification.body === body) notification.close();
+    }
+  } catch {
+    // getNotifications is unavailable or refused; fall through and show.
+  }
+  return self.registration.showNotification(title, {
+    body,
+    icon: "/icon.svg",
+    badge: "/icon.svg",
+    data: { click },
+    ...(tag ? { tag, renotify: false } : {}),
+  });
+}
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
