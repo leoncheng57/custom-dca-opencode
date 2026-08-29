@@ -1,7 +1,7 @@
-import { Search } from "lucide-react";
+import { Search, Sparkles, TerminalSquare } from "lucide-react";
 import type { ReactNode } from "react";
-import { useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useLocation } from "react-router-dom";
 
 import { filterCommands, invocation } from "../../agent-skills/src/lib/commands.js";
 import { COMMAND_SCOPES } from "../../agent-skills/src/lib/commandInstall.js";
@@ -15,8 +15,8 @@ export type CatalogKind = "all" | "skills" | "commands";
 
 function SkillCard({ skill, onTag }: { skill: Skill; onTag: (tag: string) => void }) {
   return (
-    <article className={styles.card} data-testid="opencode-playbook-skill-card">
-      <div className={styles.cardTop}><span className={styles.type}>Skill</span><span className={styles.meta}>{skill.readingTimeMinutes} min</span></div>
+    <article className={`${styles.card} ${styles.cardSkill}`} data-playbook-kind="skill" data-testid="opencode-playbook-skill-card">
+      <div className={styles.cardTop}><span className={`${styles.type} ${styles.typeSkill}`}><Sparkles aria-hidden="true" size={10} /> Skill · model-selected</span><span className={styles.meta}>{skill.readingTimeMinutes} min</span></div>
       <h2 className={styles.cardTitle}>{skill.title}</h2>
       <p className={styles.cardCopy}>{skill.summary}</p>
       <div className={styles.cardTags}>{skill.tags.map((tag) => <button className={styles.tag} data-testid="opencode-playbook-tag" key={tag} onClick={() => onTag(tag)} type="button">#{tag}</button>)}</div>
@@ -27,8 +27,8 @@ function SkillCard({ skill, onTag }: { skill: Skill; onTag: (tag: string) => voi
 
 function CommandCard({ command }: { command: Command }) {
   return (
-    <article className={styles.card} data-testid="opencode-playbook-command-card">
-      <div className={styles.cardTop}><span className={styles.type}>Command</span><span className={styles.meta}>{command.subtask ? "subtask" : "session"}</span></div>
+    <article className={`${styles.card} ${styles.cardCommand}`} data-playbook-kind="command" data-testid="opencode-playbook-command-card">
+      <div className={styles.cardTop}><span className={`${styles.type} ${styles.typeCommand}`}><TerminalSquare aria-hidden="true" size={10} /> Command · human-invoked</span><span className={styles.meta}>{command.subtask ? "subtask" : "session"}</span></div>
       <h2 className={styles.cardTitle}>{invocation(command.name, command.takesArguments)}</h2>
       <p className={styles.cardCopy}>{command.description}</p>
       <div className={styles.cardTags}>{command.runsShell && <span>shell input</span>}{command.relatedSkills.map((skill) => <span key={skill}>{skill}</span>)}</div>
@@ -58,6 +58,11 @@ function ScopeTable({ kind }: { kind: "skills" | "commands" }) {
 export function PlaybooksPage({ kind = "all", detail }: { kind?: CatalogKind; detail?: ReactNode }) {
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const mainRef = useRef<HTMLElement>(null);
+  // A closing modal whose opener is gone asks for focus here, so keyboard users
+  // land on the catalogue instead of being dropped to <body>.
+  const focusCatalog = (useLocation().state as { focusCatalog?: boolean } | null)?.focusCatalog === true;
+  useEffect(() => { if (focusCatalog) mainRef.current?.focus(); }, [focusCatalog]);
   const visibleSkills = useMemo(() => kind === "commands" ? [] : filterSkills(skills, query), [kind, query]);
   const visibleCommands = useMemo(() => kind === "skills" ? [] : filterCommands(commands, query), [kind, query]);
   const tags = useMemo(() => allTags(skills), []);
@@ -65,7 +70,7 @@ export function PlaybooksPage({ kind = "all", detail }: { kind?: CatalogKind; de
   const selectTag = (tag: string) => { setQuery(tag); inputRef.current?.focus(); };
 
   return (
-    <main className={styles.page} data-testid="opencode-playbooks">
+    <main className={styles.page} data-testid="opencode-playbooks" ref={mainRef} tabIndex={-1}>
       <div className={styles.content}>
         <Alert className={styles.wipWarning} data-testid="opencode-playbooks-wip-warning" variant="warning">Playbooks is still work in progress and its UI/UX may contain bugs.</Alert>
         <header className={styles.hero}>
@@ -73,9 +78,9 @@ export function PlaybooksPage({ kind = "all", detail }: { kind?: CatalogKind; de
           <aside className={styles.typeStats} aria-label="Playbook types"><div className={styles.typeStat}><strong>{skills.length}</strong><span>Skills</span></div><div className={styles.typeStat}><strong>{commands.length}</strong><span>Commands</span></div><div className={styles.typeStat}><strong>Next</strong><span>Workflows</span></div></aside>
         </header>
         <section className={styles.catalog} aria-labelledby="playbook-catalog-heading">
-          <div className={styles.catalogHead}><div><div className={styles.eyebrow}>Catalogue</div><h2 className={styles.sectionTitle} id="playbook-catalog-heading">{count} matching playbooks <span className={styles.count}>{kind}</span></h2></div><label className={styles.filter}><Search aria-hidden="true" size={14} /><span className={styles.filterLabel}>filter</span><input className={styles.filterInput} data-testid="opencode-playbook-filter" onChange={(event) => setQuery(event.target.value)} placeholder="name, tag, or trigger phrase" ref={inputRef} type="search" value={query} />{query && <button aria-label="Clear filter" className={styles.clear} onClick={() => { setQuery(""); inputRef.current?.focus(); }} type="button">×</button>}</label></div>
-          <nav className={styles.tabs} aria-label="Playbook types">{KINDS.map((item) => <Link className={`${styles.tab} ${item.kind === kind ? styles.tabActive : ""}`} key={item.kind} to={item.href}>{item.label}</Link>)}</nav>
-          {kind !== "commands" && <div className={styles.tags}><span>try:</span>{tags.map((tag) => <button className={styles.tag} key={tag} onClick={() => selectTag(tag)} type="button">#{tag}</button>)}</div>}
+          <div className={styles.catalogHead}><div><div className={styles.eyebrow}>Catalogue</div><h2 className={styles.sectionTitle} id="playbook-catalog-heading">{count} matching playbooks <span className={styles.count}>{kind}</span></h2></div><label className={styles.filter}><Search aria-hidden="true" size={14} /><span className={styles.filterLabel}>filter</span><input className={styles.filterInput} data-testid="opencode-playbook-filter" onChange={(event) => setQuery(event.target.value)} placeholder="name, tag, or trigger phrase" ref={inputRef} type="search" value={query} />{query && <button aria-label="Clear filter" className={styles.clear} data-testid="opencode-playbook-filter-clear" onClick={() => { setQuery(""); inputRef.current?.focus(); }} type="button">×</button>}</label></div>
+          <nav className={styles.tabs} aria-label="Playbook types">{KINDS.map((item) => <Link className={`${styles.tab} ${item.kind === kind ? styles.tabActive : ""}`} data-testid={`opencode-playbook-kind-${item.kind}`} key={item.kind} to={item.href}>{item.label}</Link>)}</nav>
+          {kind !== "commands" && <div className={styles.tags}><span>try:</span>{tags.map((tag) => <button className={styles.tag} data-testid="opencode-playbook-hero-tag" key={tag} onClick={() => selectTag(tag)} type="button">#{tag}</button>)}</div>}
           {count ? <div className={styles.grid}>{visibleSkills.map((skill) => <SkillCard key={skill.name} onTag={selectTag} skill={skill} />)}{visibleCommands.map((command) => <CommandCard command={command} key={command.name} />)}</div> : <p className={styles.empty}>No playbook matches <code>{query.trim()}</code>.</p>}
         </section>
         {kind === "skills" && <ScopeTable kind="skills" />}{kind === "commands" && <ScopeTable kind="commands" />}
