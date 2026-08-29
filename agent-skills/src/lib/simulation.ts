@@ -1,4 +1,4 @@
-import { parseFrontmatter, stripLeadingHeading } from './frontmatter'
+import { parseFrontmatter, stripLeadingHeading } from './frontmatter.js'
 
 /**
  * A short, content-authored transcript of a command firing in practice.

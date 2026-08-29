@@ -1,0 +1,76 @@
+name: Publish agent skills catalogue
+
+on:
+  push:
+    branches: [main]
+    # Issue #109 asks for agent-skills/**, and that is what this watches. The
+    # narrower "only the files we render" set was wrong twice over: it would
+    # miss a new parser file under src/lib/, and it buys nothing, because a
+    # change to an unrendered simulation regenerates byte-identical output and
+    # the publish step exits 0 on an empty diff.
+    paths:
+      - agent-skills/**
+      - scripts/agent-skills-site.ts
+      - scripts/generate-agent-skills-site.ts
+      - scripts/stage-agent-skills-site.ts
+      - package.json
+      - package-lock.json
+      - .github/workflows/publish-agent-skills.yml
+
+concurrency:
+  group: pr-screenshot-publication
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out trusted main
+        uses: actions/checkout@v4
+        with:
+          path: source
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: source/package-lock.json
+
+      - name: Install dependencies
+        working-directory: source
+        run: npm ci
+
+      - name: Build commands-only catalogue
+        working-directory: source
+        run: npm run build:agent-skills-site
+
+      - name: Check out current gh-pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git clone --no-checkout "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" site
+          cd site
+          if git show-ref --verify --quiet refs/remotes/origin/gh-pages; then
+            git switch --track origin/gh-pages
+          else
+            git switch --orphan gh-pages
+            git rm -rf . || true
+          fi
+
+      - name: Validate manifest and stage only agent-skills
+        working-directory: source
+        run: npx tsx scripts/stage-agent-skills-site.ts --build dist/agent-skills-site --destination ../site/agent-skills --commands agent-skills/commands
+
+      - name: Publish agent-skills subtree
+        working-directory: site
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add --all agent-skills
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Publish OpenCode command catalogue at ${GITHUB_SHA}"
+          git push origin gh-pages

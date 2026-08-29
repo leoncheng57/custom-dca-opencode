@@ -1,5 +1,5 @@
-import { parseFrontmatter } from './frontmatter'
-import type { Simulation } from './simulation'
+import { parseFrontmatter } from './frontmatter.js'
+import type { Simulation } from './simulation.js'
 
 /**
  * An OpenCode custom command: `commands/<name>.md`, invoked by a human typing
@@ -50,6 +50,21 @@ const SHELL_PATTERN = /!`[^`]+`/
 
 export function isValidCommandName(name: string): boolean {
   return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)
+}
+
+/**
+ * The one ordering for command names.
+ *
+ * `localeCompare` is locale- and ICU-dependent: it can treat `-` as a weak
+ * separator, so `build-waves` and `buildwaves` may order differently on two
+ * machines. The static catalogue cross-checks its manifest against a plain
+ * code-unit sort of the source directory, so a locale-sensitive comparator
+ * here would eventually make a publication fail on the runner while passing
+ * locally. Compare code units, everywhere.
+ */
+export function compareCommandNames(left: string, right: string): number {
+  if (left < right) return -1
+  return left > right ? 1 : 0
 }
 
 export function commandNameFromPath(path: string): string {
@@ -114,7 +129,7 @@ export function loadCommandsFromFiles(
       })
     )
     .filter((command): command is Command => command !== null)
-    .sort((left, right) => left.name.localeCompare(right.name))
+    .sort((left, right) => compareCommandNames(left.name, right.name))
 }
 
 /**
