@@ -1,10 +1,10 @@
 import { expect, test } from "@playwright/test";
 
 test.describe("Playbooks", () => {
-  test("is first-class navigation beside Docs and Planning", async ({ page }) => {
+  test("is first-class navigation on the bar beside Planning", async ({ page }) => {
     await page.goto("/");
-    await page.getByTestId("opencode-nav-more").click();
-    await page.getByTestId("opencode-nav-playbooks").click();
+    // Promoted out of the More menu onto the bar itself.
+    await page.locator("nav[aria-label='Main']").getByTestId("opencode-nav-playbooks").click();
 
     await expect(page).toHaveURL("/playbooks");
     await expect(page).toHaveTitle("Playbooks | DCA");

@@ -132,7 +132,7 @@ function CatalogPanel({ catalogue, loading, error, directory, onRefresh }: {
                 ))}
               </ul>
             )}
-            <Link className="mt-2 inline-flex min-h-11 items-center text-xs font-semibold text-[var(--color-text-info)] lg:min-h-0" to={toolsPath} data-testid="opencode-catalog-tools-link">Manage connections and authentication in Tools</Link>
+            <Link className="mt-2 inline-flex min-h-11 items-center text-xs font-semibold text-[var(--color-text-info)] lg:min-h-0" to={toolsPath} data-testid="opencode-catalog-tools-link">Manage connections and authentication in MCPs</Link>
           </section>
           <section data-testid="opencode-catalog-skills">
             <h2 className="mb-2 text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]">Skills ({catalogue.skills.length})</h2>

@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { BookOpen, LibraryBig, ListTodo, MoreHorizontal, Settings, Smartphone, Wrench } from "lucide-react";
+import { BookOpen, MoreHorizontal, Search, Settings, Smartphone, Wrench } from "lucide-react";
 import { NavLink } from "react-router-dom";
 
 import { Button } from "../ds/button.js";
@@ -10,28 +10,37 @@ const ITEM_CLASS =
   "hover:bg-[var(--color-background-surface-neutral-muted)] " +
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]";
 
+// The route is still /tools; only the label changed. "MCPs" is what the page
+// itself is about — its own heading already reads "MCP tools" — and "Tools"
+// collided with the agent tool catalogue elsewhere in the app.
 const LINKS = [
   { to: "/docs", label: "Docs", testId: "opencode-nav-docs", Icon: BookOpen },
-  { to: "/tools", label: "Tools", testId: "opencode-nav-tools", Icon: Wrench },
+  { to: "/tools", label: "MCPs", testId: "opencode-nav-tools", Icon: Wrench },
   { to: "/settings", label: "Settings", testId: "opencode-nav-settings", Icon: Settings },
 ] as const;
 
 /**
  * Secondary navigation. These destinations stay reachable — and stay in the
  * command palette unchanged — but they no longer compete with the brand,
- * search and the notification centre for the top bar.
+ * the primary destinations and the notification centre for the top bar.
+ *
+ * Search moved in here from the bar. It keeps working on Cmd/Ctrl+K, which is
+ * how it is actually reached; the bar button was a discoverability affordance
+ * for a shortcut, and it was outbidding a real destination for that space.
  *
  * Deliberately a disclosure over a list of links, not an APG menu button:
- * three of the four entries are navigation and were announced as links before
+ * three of the five entries are navigation and were announced as links before
  * this menu existed. role="menuitem" would drop them out of the links list
  * assistive tech offers, and swap Tab for an arrow-key model nobody expects
  * from nav. The menu pattern is for commands.
  */
 export function NavOverflowMenu({
   scopedPath,
+  onOpenPalette,
   onOpenPhoneTransfer,
 }: {
   scopedPath: (path: string) => string;
+  onOpenPalette: () => void;
   onOpenPhoneTransfer: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -98,6 +107,27 @@ export function NavOverflowMenu({
             <li>
               <button
                 className={ITEM_CLASS}
+                // Restores focus, unlike the entries below: the palette
+                // captures `document.activeElement` when it mounts and returns
+                // focus there on close. Closing without restoring would hand it
+                // `<body>`, so dismissing the palette would drop focus entirely.
+                onClick={() => {
+                  close();
+                  onOpenPalette();
+                }}
+                type="button"
+                data-testid="opencode-palette-open"
+              >
+                <Search aria-hidden="true" size={15} />
+                Search
+                {/* The shortcut still works globally, but the trigger no longer
+                    sits on the bar carrying aria-keyshortcuts, so name it here. */}
+                <span className="ml-auto text-xs text-[var(--color-text-muted)]">⌘K</span>
+              </button>
+            </li>
+            <li>
+              <button
+                className={ITEM_CLASS}
                 onClick={() => {
                   close(false);
                   onOpenPhoneTransfer();
@@ -122,28 +152,6 @@ export function NavOverflowMenu({
                 </NavLink>
               </li>
             ))}
-            <li>
-              <NavLink
-                className={({ isActive }) => cn(ITEM_CLASS, isActive && "bg-[var(--color-background-surface-neutral-muted)] font-semibold")}
-                data-testid="opencode-nav-playbooks"
-                onClick={() => close(false)}
-                to="/playbooks"
-              >
-                <LibraryBig aria-hidden="true" size={15} />
-                Playbooks
-              </NavLink>
-            </li>
-            <li>
-              <NavLink
-                className={({ isActive }) => cn(ITEM_CLASS, isActive && "bg-[var(--color-background-surface-neutral-muted)] font-semibold")}
-                data-testid="opencode-nav-planning"
-                onClick={() => close(false)}
-                to="/planning"
-              >
-                <ListTodo aria-hidden="true" size={15} />
-                Planning
-              </NavLink>
-            </li>
           </ul>
         </div>
       )}

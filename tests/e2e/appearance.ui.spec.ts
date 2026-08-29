@@ -37,19 +37,27 @@ test.describe("appearance", () => {
     expect(await page.evaluate(() => localStorage.getItem("theme"))).toBe("dark");
   });
 
-  test("keeps Refresh app between search and appearance controls", async ({ page }) => {
+  test("keeps Refresh app between the brand and the appearance control", async ({ page }) => {
     await page.goto("/");
     const refresh = page.getByTestId("opencode-nav-refresh");
     await expect(refresh).toHaveAccessibleName("Refresh app");
     await expect(refresh).toHaveAttribute("title", "Refresh app");
     const order = await page.locator("nav[aria-label='Main'] > *").evaluateAll((items) => items.map((item) => item.getAttribute("data-testid")));
     expect(order).toEqual(expect.arrayContaining([
-      "opencode-palette-open",
+      "opencode-nav-home",
       "opencode-nav-refresh",
       "opencode-nav-theme-toggle",
+      "opencode-nav-playbooks",
+      "opencode-nav-planning",
     ]));
-    expect(order.indexOf("opencode-palette-open")).toBeLessThan(order.indexOf("opencode-nav-refresh"));
+    // Search moved into More and is reached by Cmd/Ctrl+K, so it is no longer
+    // a direct child of the bar. The More menu is a wrapper with no testid,
+    // hence the `null` entries in this array.
+    expect(order).not.toContain("opencode-palette-open");
+    expect(order.indexOf("opencode-nav-home")).toBeLessThan(order.indexOf("opencode-nav-refresh"));
     expect(order.indexOf("opencode-nav-refresh")).toBeLessThan(order.indexOf("opencode-nav-theme-toggle"));
+    expect(order.indexOf("opencode-nav-theme-toggle")).toBeLessThan(order.indexOf("opencode-nav-playbooks"));
+    expect(order.indexOf("opencode-nav-playbooks")).toBeLessThan(order.indexOf("opencode-nav-planning"));
   });
 
   test("asks before discarding an unsent conversation draft", async ({ page }) => {

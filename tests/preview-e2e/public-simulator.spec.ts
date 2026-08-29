@@ -31,8 +31,7 @@ test("serves an interactive, credential-free PR simulator", async ({ page }) => 
     .toHaveText("Simulated application preview");
   await page.getByTestId("opencode-workspace-close").click();
 
-  await page.getByTestId("opencode-nav-more").click();
-  await page.getByTestId("opencode-nav-planning").click();
+  await page.locator("nav[aria-label='Main']").getByTestId("opencode-nav-planning").click();
   await expect(page).toHaveURL(/#\/planning/u);
   await expect(page.getByTestId("opencode-planning-list")).toContainText("Use GitHub's deployment infra");
 
