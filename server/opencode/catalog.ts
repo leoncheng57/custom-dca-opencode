@@ -180,14 +180,20 @@ export function parseCommands(value: unknown): ParsedCommands {
       const source = optional("source", MAX_METADATA);
       const agent = optional("agent", MAX_NAME);
       const model = optional("model", MAX_NAME);
-      if (command.subtask !== undefined && typeof command.subtask !== "boolean") throw new Error("invalid subtask");
+      // `null` is OpenCode's own representation of "not set" here (verified
+      // live: every command without an explicit subtask flag reports
+      // `subtask: null`, not an omitted key) -- treat it as absent, the same
+      // way `stringOf` already treats `null` as absent for optional strings,
+      // rather than rejecting the entry over a field it never set.
+      const hasSubtask = command.subtask !== undefined && command.subtask !== null;
+      if (hasSubtask && typeof command.subtask !== "boolean") throw new Error("invalid subtask");
       return {
         name: stringOf(command.name, "name", MAX_NAME, true)!,
         ...(description ? { description } : {}),
         ...(source ? { source } : {}),
         ...(agent ? { agent } : {}),
         ...(model ? { model } : {}),
-        ...(command.subtask !== undefined ? { subtask: command.subtask } : {}),
+        ...(hasSubtask ? { subtask: command.subtask as boolean } : {}),
       };
     });
     if (result.ok) commands.push(result.value);

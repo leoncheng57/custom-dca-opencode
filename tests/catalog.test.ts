@@ -14,6 +14,18 @@ describe("safe catalog parsing", () => {
     });
   });
 
+  it("treats a null subtask as absent, not invalid", () => {
+    // Verified live against OpenCode 1.18.23: every command without an
+    // explicit subtask flag reports `subtask: null`, not an omitted key.
+    // Before this, that shape was rejected as "invalid subtask" -- degrading
+    // gracefully under issue #297's fix, rather than throwing, but still an
+    // unforced drop of a perfectly normal command.
+    expect(parseCommands([{ name: "worktree-up", description: "Create a worktree.", subtask: null }])).toEqual({
+      commands: [{ name: "worktree-up", description: "Create a worktree." }],
+      omitted: [],
+    });
+  });
+
   it("accepts every supported MCP status", () => {
     expect(parseMcpServers({
       one: { status: "connected" },
