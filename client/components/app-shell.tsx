@@ -34,6 +34,7 @@ function documentTitle(pathname: string): string {
   if (pathname === "/docs") return `Docs | ${APP_NAME}`;
   if (pathname.startsWith("/docs/")) return `${getDoc(pathname.slice("/docs/".length))?.title ?? "Document"} | ${APP_NAME}`;
   if (pathname === "/planning") return `Planning | ${APP_NAME}`;
+  if (pathname === "/observability") return `Observability | ${APP_NAME}`;
   if (pathname === "/dsh") return `DSH Lab | ${APP_NAME}`;
   if (pathname.startsWith("/dsh/sessions/")) return `DSH Session | ${APP_NAME}`;
   if (pathname === "/playbooks") return `Playbooks | ${APP_NAME}`;
@@ -145,6 +146,7 @@ export function AppShell() {
       },
       { id: "settings", title: "Settings", to: scopedPath("/settings") },
       { id: "planning", title: "Planning", to: "/planning", keywords: ["issues", "pull requests", "roadmap", "github"] },
+      { id: "observability", title: "Observability", to: "/observability", keywords: ["logs", "audit", "deployment", "health", "processes"] },
       ...(dshEnabled ? [{ id: "dsh", title: "DSH lab", to: "/dsh", keywords: ["deepseek", "harness", "experiment"] }] : []),
       { id: "playbooks", title: "Playbooks", to: "/playbooks", keywords: ["skills", "commands", "workflows", "procedures"] },
     ],

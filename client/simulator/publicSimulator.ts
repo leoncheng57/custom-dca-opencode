@@ -409,6 +409,54 @@ export function createPublicSimulator(): typeof fetch {
     if (path === "/api/worktrees") return response({ worktrees: [{ name: "preview-pipeline", branch: "feat/pr-preview-pipeline", directory: `${SIMULATOR_DIRECTORY}.worktrees/preview-pipeline` }] });
 
     if (path === "/api/planning/items") return response({ repository: { owner: "leoncheng57", repo: "custom-dca-opencode", url: "https://github.com/leoncheng57/custom-dca-opencode" }, items: planningItems, truncated: false, epicsTruncated: false, fetchedAt: new Date().toISOString() });
+    if (path.startsWith("/api/observability/logs")) {
+      const source = new URLSearchParams(path.split("?")[1] ?? "").get("source") ?? "audit";
+      const now = new Date();
+      const at = (offset: number) => new Date(now.getTime() - offset).toISOString();
+      const audit = [
+        { kind: "audit", id: "audit-0", ts: at(90_000), event: "auto_approval_restore_completed", fields: [{ key: "restoredCount", value: "12" }, { key: "outcome", value: "success" }] },
+        { kind: "audit", id: "audit-1", ts: at(60_000), event: "permission_asked_observed", fields: [{ key: "directoryCorrelation", value: "dcd9225d2c65dad8" }, { key: "autoApprovalEnabled", value: "true" }] },
+        { kind: "audit", id: "audit-2", ts: at(30_000), event: "notification_decided", fields: [{ key: "kind", value: "permission" }, { key: "outcome", value: "suppressed" }, { key: "suppressionReason", value: "auto-permissions" }] },
+        { kind: "audit", id: "audit-3", ts: at(5_000), event: "webpush_delivery_finished", fields: [{ key: "sent", value: "4" }, { key: "failed", value: "0" }, { key: "expired", value: "0" }] },
+      ];
+      const stdout = [
+        { kind: "text", id: "stdout-0", prefix: "bff", text: "listening on :3210 -> opencode http://127.0.0.1:4097", severity: "info" },
+      ];
+      const stderr = [
+        { kind: "text", id: "stderr-0", prefix: "bus", text: "fetch failed", severity: "warn" },
+        { kind: "text", id: "stderr-1", text: "BadRequestError: request aborted", severity: "error", frames: ["at IncomingMessage.onAborted (raw-body/index.js:245:10)", "at IncomingMessage.emit (node:events:509:20)"] },
+      ];
+      const entries = source === "stdout" ? stdout : source === "stderr" ? stderr : audit;
+      return response({
+        source,
+        file: `/simulated/.state/logs/${source === "audit" ? "audit.jsonl" : `bff.launchd.${source === "stdout" ? "out" : "err"}.log`}`,
+        exists: true,
+        sizeBytes: source === "audit" ? 8762 : 158_000,
+        modifiedAt: now.toISOString(),
+        entries,
+        truncated: source !== "audit",
+        readAt: now.toISOString(),
+      });
+    }
+    if (path.startsWith("/api/observability/deployment")) {
+      return response({
+        platform: "darwin",
+        servicesAvailable: true,
+        services: [
+          { label: "ai.custom-dca-opencode.bff", role: "bff", loaded: true, pid: 47322, restartCost: "safe", restartNote: "Rebuilds before swapping; browsers reconnect briefly. Active agent turns are unaffected." },
+          { label: "ai.opencode.serve", role: "opencode", loaded: true, pid: 83146, restartCost: "destructive", restartNote: "Interrupts the running turn. Session history survives but nothing resumes automatically." },
+        ],
+        assets: [
+          { path: "/sw.js", ok: true, status: 200, contentType: "text/javascript; charset=utf-8", bytes: 11944 },
+          { path: "/manifest.webmanifest", ok: true, status: 200, contentType: "application/manifest+json; charset=utf-8", bytes: 378 },
+        ],
+        assetsVerdict: "ok",
+        assetsNote: "Service worker and manifest are being served with the correct content types.",
+        bundle: { indexHtmlSha1: "ed4f47c26eacfdc55d5cf062f154cf72e222a376", hasServiceWorker: true, hasManifest: true, directory: "/simulated/dist/client" },
+        busySessions: { count: 1, directoriesChecked: 2, note: "Across 2 pinned projects. Session status is process-local, so zero is not proof of idle." },
+        readAt: new Date().toISOString(),
+      });
+    }
     if (path === "/api/planning/labels") return response({ labels: ["deployment", "documentation", "frontend", "priority:high", "priority:medium", "priority:low"].map((name) => ({ name, description: `${name} work` })), truncated: false });
     if (path === "/api/planning/issues" && method === "POST") {
       const issue: PlanningItem = { id: `sim-${planningItems.length}`, number: 900 + planningItems.length, type: "issue", title: String(body.title), state: "open", merged: false, labels: body.labels || [], author: "preview-user", url: "https://github.com/leoncheng57/custom-dca-opencode/issues", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), commentCount: 0, childCount: 0, completedChildCount: 0, parentNumber: null };

@@ -484,6 +484,74 @@ export type ApiErrorCode =
   | "SESSION_AGENT_UNAVAILABLE"
   | "TURN_DIFF_TOO_LARGE";
 
+/** Mirrors `server/logs.ts`. */
+export type LogSource = "audit" | "stdout" | "stderr";
+
+export interface AuditLogEntry {
+  kind: "audit";
+  id: string;
+  ts: string;
+  event: string;
+  fields: Array<{ key: string; value: string }>;
+}
+
+export interface TextLogEntry {
+  kind: "text";
+  id: string;
+  prefix?: string;
+  text: string;
+  frames?: string[];
+  framesTruncated?: boolean;
+  severity: "error" | "warn" | "info";
+}
+
+export type LogEntry = AuditLogEntry | TextLogEntry;
+
+export interface LogSnapshot {
+  source: LogSource;
+  file: string;
+  exists: boolean;
+  sizeBytes: number;
+  modifiedAt: string | null;
+  entries: LogEntry[];
+  truncated: boolean;
+  readAt: string;
+}
+
+/** Mirrors `server/deployment.ts`. */
+export interface ServiceStatus {
+  label: string;
+  role: "bff" | "opencode";
+  loaded: boolean;
+  pid: number | null;
+  restartCost: "safe" | "destructive";
+  restartNote: string;
+}
+
+export interface ServedAsset {
+  path: string;
+  ok: boolean;
+  status: number | null;
+  contentType: string | null;
+  bytes: number | null;
+  problem?: string;
+}
+
+export type AssetsVerdict = "ok" | "corrupted" | "not-built";
+
+export interface DeploymentSnapshot {
+  platform: string;
+  servicesAvailable: boolean;
+  servicesNote?: string;
+  services: ServiceStatus[];
+  assets: ServedAsset[];
+  assetsVerdict: AssetsVerdict;
+  assetsNote: string;
+  bundle: { indexHtmlSha1: string | null; hasServiceWorker: boolean; hasManifest: boolean; directory: string };
+  busySessions: { count: number | null; directoriesChecked: number; note: string };
+  readAt: string;
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -1010,6 +1078,18 @@ export const api = {
     fetch(`/api/reminders?directory=${encodeURIComponent(directory)}`).then((r) => json<{ reminders: ReminderSummary[] }>(r)),
   workflows: () =>
     fetch("/api/workflows").then((r) => json<{ workflows: WorkflowSummary[] }>(r)),
+
+  /**
+   * Not project-scoped: these describe this host, not a project. The log
+   * source is an enum the server resolves to a fixed path; the browser never
+   * names a file (see `server/logs.ts`).
+   */
+  observabilityLogs: (source: LogSource, refresh = false) =>
+    fetch(`/api/observability/logs?source=${encodeURIComponent(source)}${refresh ? "&refresh=1" : ""}`).then((r) =>
+      json<LogSnapshot>(r),
+    ),
+  observabilityDeployment: (refresh = false) =>
+    fetch(`/api/observability/deployment${refresh ? "?refresh=1" : ""}`).then((r) => json<DeploymentSnapshot>(r)),
 
   /** SSE endpoint URL — consumed by EventSource, not fetch. */
   eventsUrl: (directory?: string) =>

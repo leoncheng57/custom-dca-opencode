@@ -1,6 +1,6 @@
 import { defineConfig } from "@playwright/test";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 
 import { e2eStateFiles, prepareE2EStateFiles } from "./tests/e2e/state-files.js";
 
@@ -35,6 +35,44 @@ const stateFiles =
   process.env.TEST_WORKER_INDEX === undefined
     ? prepareE2EStateFiles({ lane: PORT, runID: process.pid })
     : e2eStateFiles(process.pid);
+
+// The observability page reads real files, so the lane needs real ones. These
+// are deterministic fixtures rewritten on every run rather than accumulated,
+// which is why they are not routed through tests/e2e/state-files.ts: that
+// module deliberately only knows how to own and delete `.json` files, and
+// weakening that guard for log fixtures would trade a real safety property for
+// convenience. Same path per lane, overwritten, never globbed or deleted.
+const LOG_DIR = `/tmp/custom-dca-opencode-e2e-logs-${PORT}`;
+if (process.env.TEST_WORKER_INDEX === undefined) {
+  mkdirSync(LOG_DIR, { recursive: true });
+  const at = (offsetMs: number) => new Date(Date.UTC(2026, 7, 29, 12, 0, 0) + offsetMs).toISOString();
+  writeFileSync(
+    `${LOG_DIR}/audit.jsonl`,
+    [
+      { ts: at(0), audit: "notification", event: "auto_approval_restore_completed", payload: { restoredCount: 3, outcome: "success" } },
+      { ts: at(1_000), audit: "notification", event: "permission_asked_observed", payload: { directoryCorrelation: "dcd9225d2c65dad8", autoApprovalEnabled: true } },
+      { ts: at(2_000), audit: "notification", event: "notification_decided", payload: { kind: "permission", outcome: "suppressed", suppressionReason: "auto-permissions" } },
+      { ts: at(3_000), audit: "notification", event: "webpush_delivery_finished", payload: { sent: 4, failed: 0, expired: 0 } },
+    ]
+      .map((entry) => JSON.stringify(entry))
+      .join("\n") + "\n",
+  );
+  writeFileSync(
+    `${LOG_DIR}/bff.launchd.out.log`,
+    "[bff] listening on :3210 -> opencode http://127.0.0.1:4097\n",
+  );
+  // A header plus its frames, so the folding path has something to fold.
+  writeFileSync(
+    `${LOG_DIR}/bff.launchd.err.log`,
+    [
+      "[bus] fetch failed",
+      "BadRequestError: request aborted",
+      "    at IncomingMessage.onAborted (raw-body/index.js:245:10)",
+      "    at IncomingMessage.emit (node:events:509:20)",
+      "",
+    ].join("\n"),
+  );
+}
 
 // The three services are exported by name so playwright.docker.config.ts can
 // reuse this exact wiring — above all the BFF's env block — instead of keeping a
@@ -75,6 +113,7 @@ export const appServer = {
     NOTIFICATION_HISTORY_FILE: stateFiles.NOTIFICATION_HISTORY_FILE,
     INSTRUCTION_AUDIT_FILE: stateFiles.INSTRUCTION_AUDIT_FILE,
     AUTO_APPROVE_STATE_FILE: stateFiles.AUTO_APPROVE_STATE_FILE,
+    LOG_DIR,
     PREVIEW_ALLOWED_PORTS: String(PREVIEW_PORT),
     PUBLIC_APP_URL: "https://ide.e2e.example.test:8443",
     GITHUB_API_URL: `http://127.0.0.1:${PREVIEW_PORT}`,

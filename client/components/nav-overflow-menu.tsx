@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { BookOpen, MoreHorizontal, Search, Settings, Smartphone, Wrench } from "lucide-react";
+import { Activity, BookOpen, MoreHorizontal, Search, Settings, Smartphone, Wrench } from "lucide-react";
 import { NavLink } from "react-router-dom";
 
 import { Button } from "../ds/button.js";
@@ -17,6 +17,11 @@ const LINKS = [
   { to: "/docs", label: "Docs", testId: "opencode-nav-docs", Icon: BookOpen },
   { to: "/tools", label: "MCPs", testId: "opencode-nav-tools", Icon: Wrench },
   { to: "/settings", label: "Settings", testId: "opencode-nav-settings", Icon: Settings },
+] as const;
+
+// Host-scoped, so unlike LINKS above it is never given a ?directory=.
+const UNSCOPED_LINKS = [
+  { to: "/observability", label: "Observability", testId: "opencode-nav-observability", Icon: Activity },
 ] as const;
 
 /**
@@ -145,6 +150,19 @@ export function NavOverflowMenu({
                   className={({ isActive }) => cn(ITEM_CLASS, isActive && "bg-[var(--color-background-surface-neutral-muted)] font-semibold")}
                   onClick={() => close(false)}
                   to={scopedPath(to)}
+                  data-testid={testId}
+                >
+                  <Icon aria-hidden="true" size={15} />
+                  {label}
+                </NavLink>
+              </li>
+            ))}
+            {UNSCOPED_LINKS.map(({ to, label, testId, Icon }) => (
+              <li key={to}>
+                <NavLink
+                  className={({ isActive }) => cn(ITEM_CLASS, isActive && "bg-[var(--color-background-surface-neutral-muted)] font-semibold")}
+                  onClick={() => close(false)}
+                  to={to}
                   data-testid={testId}
                 >
                   <Icon aria-hidden="true" size={15} />

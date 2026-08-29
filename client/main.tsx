@@ -10,6 +10,7 @@ import { NotificationsPage } from "./pages/Notifications.js";
 import { ToolsPage } from "./pages/Tools.js";
 import { DocsPage } from "./pages/Docs.js";
 import { DocPage } from "./pages/DocPage.js";
+import { ObservabilityPage } from "./pages/Observability.js";
 import { PlanningPage } from "./pages/Planning.js";
 import { DshPage } from "./pages/Dsh.js";
 import { DshConversationPage } from "./pages/DshConversation.js";
@@ -52,6 +53,7 @@ async function start(): Promise<void> {
                 <Route path="/docs" element={<DocsPage />} />
                 <Route path="/docs/:slug" element={<DocPage />} />
                 <Route path="/planning" element={<PlanningPage />} />
+        <Route path="/observability" element={<ObservabilityPage />} />
                 <Route path="/dsh" element={<DshPage />} />
                 <Route path="/dsh/sessions/:id" element={<DshConversationPage />} />
                 <Route path="/playbooks" element={playbookPage(<PlaybooksPage />)} />
