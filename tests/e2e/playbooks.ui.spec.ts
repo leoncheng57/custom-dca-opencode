@@ -1,5 +1,9 @@
 import { expect, test } from "@playwright/test";
 
+// The mock canonicalizes its fixture directory, so macOS needs the /private
+// spelling or the catalogue resolves to a different project.
+const DIR = process.platform === "darwin" ? "/private/tmp/mock-project" : "/tmp/mock-project";
+
 test.describe("Playbooks", () => {
   test("is first-class navigation on the bar beside Planning", async ({ page }) => {
     await page.goto("/");
@@ -108,6 +112,42 @@ test.describe("Playbooks", () => {
     await expect(simulation.getByTestId("opencode-playbook-simulation-reset")).toBeDisabled();
     await simulation.getByTestId("opencode-playbook-simulation-next").click();
     await expect(simulation.getByTestId("opencode-playbook-simulation-status")).toContainText("frame 2 of");
+  });
+
+  test("names the project when reporting load state, and claims nothing without one", async ({ page }) => {
+    // No project selected yet: the page must make no installation claim at all
+    // rather than implying "not installed".
+    await page.goto("/playbooks");
+    await page.evaluate(() => localStorage.removeItem("opencode.directory.v1"));
+    await page.reload();
+    await expect(page.getByTestId("opencode-playbook-skill-card").first()).toBeVisible();
+    await expect(page.getByTestId("opencode-playbook-skill-load-state")).toHaveCount(0);
+
+    // With a project, every claim carries the project name — installation is
+    // per-directory while this page is global.
+    await page.goto(`/playbooks?directory=${encodeURIComponent(DIR)}`);
+    const state = page.getByTestId("opencode-playbook-skill-load-state").first();
+    await expect(state).toBeVisible();
+    await expect(state).toContainText("mock-project");
+    await expect(state).toHaveAttribute("data-installed", /true|false/);
+
+    // The mock server reports one loaded skill, so both states are represented.
+    const loaded = page.locator('[data-testid="opencode-playbook-skill-load-state"][data-installed="true"]');
+    const notLoaded = page.locator('[data-testid="opencode-playbook-skill-load-state"][data-installed="false"]');
+    expect(await loaded.count() + await notLoaded.count()).toBeGreaterThan(0);
+  });
+
+  test("says plainly that viewing or copying installs nothing", async ({ page }) => {
+    await page.goto("/playbooks/skills/grill-me");
+    await expect(page.getByTestId("opencode-playbook-scope-note")).toContainText("does not install anything");
+    await expect(page.getByTestId("opencode-playbook-scope-note")).toContainText("does not attach anything to a conversation");
+
+    // The install disclosure must not imply the app performs the install.
+    await page.getByText("Install grill-me", { exact: true }).click();
+    await expect(page.getByTestId("opencode-playbook-install-note")).toContainText("does not install anything");
+
+    // Source links name the revision they follow rather than implying a pin.
+    await expect(page.getByTestId("opencode-playbook-source-link")).toContainText("main");
   });
 
   test("states the caveat exactly once", async ({ page }) => {

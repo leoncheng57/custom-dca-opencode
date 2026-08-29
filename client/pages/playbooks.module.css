@@ -73,6 +73,12 @@
    than only a word. */
 .typeSkill { border-color: var(--playbooks-accent); background: var(--playbooks-accent-soft); color: var(--playbooks-accent); }
 .typeCommand { border-color: var(--playbooks-line); background: var(--playbooks-terminal); color: var(--playbooks-terminal-ink); }
+/* Always carries the project name: installation is per-directory while this
+   page is global, so an unlabelled badge would be false elsewhere. */
+.loadState { align-self: flex-start; margin-top: .55rem; border: 1px solid var(--playbooks-line); padding: .18rem .4rem; font: .55rem ui-monospace, monospace; letter-spacing: .04em; }
+.loadStateOn { border-color: var(--playbooks-accent); color: var(--playbooks-accent); }
+.loadStateOff { color: var(--playbooks-muted); }
+.scopeNote { margin: 1.5rem 0 0; border-left: 3px solid var(--playbooks-line); padding: .55rem .85rem; color: var(--playbooks-muted); font-size: .76rem; line-height: 1.5; }
 .cardSkill { border-left-width: 6px; border-left-color: var(--playbooks-accent); }
 .cardCommand { border-left-width: 6px; border-left-color: var(--playbooks-terminal); }
 .cardTitle { margin: 1.3rem 0 .45rem; font-size: 1.55rem; line-height: 1; }.cardCopy { margin: 0; flex: 1; color: var(--playbooks-muted); font-size: .88rem; line-height: 1.45; }.cardTags { display: flex; flex-wrap: wrap; gap: .25rem; margin-top: .7rem; }.cardTags span { font: .58rem ui-monospace, monospace; color: var(--playbooks-muted); }.cardLink { margin-top: 1.25rem; color: var(--playbooks-accent); font: 700 .68rem ui-monospace, monospace; text-decoration: none; }.cardLink:hover, .source:hover { text-decoration: underline; }
