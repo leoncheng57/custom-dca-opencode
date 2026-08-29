@@ -1156,9 +1156,14 @@ test.describe("composer", () => {
     await expect(details).toHaveAttribute("href", "/playbooks/skills/human-verification-steps");
     await expect(details).toHaveAttribute("target", "_blank");
     await expect(details).toHaveAccessibleName("Open Write Human Verification Steps details in a new tab");
-    const detailsBox = await details.boundingBox();
-    expect(detailsBox?.width, "the details link stays a small touch target, not the whole row").toBeLessThanOrEqual(28);
-    expect(detailsBox?.height).toBeLessThanOrEqual(28);
+    // The details link is a real touch target in its own right (matching
+    // this app's usual ~44px convention) but must still stay a minority of
+    // the tile's width -- the button beside it is the large target, not this.
+    const tile = page.locator('[data-testid="composer-reminder-tile"][data-reminder-id="human-verification-steps"]');
+    const [detailsBox, tileBox] = await Promise.all([details.boundingBox(), tile.boundingBox()]);
+    expect(detailsBox?.width, "details link is a real touch target").toBeGreaterThanOrEqual(40);
+    expect(detailsBox?.height, "details link is a real touch target").toBeGreaterThanOrEqual(40);
+    expect(detailsBox?.width, "the details link stays a minority of the tile, not the whole row").toBeLessThan((tileBox?.width ?? 0) / 2);
     await page.getByTestId("composer-reminder-search").fill("Grill");
     await expect(page.getByTestId("composer-reminder-option")).toHaveCount(1);
     await expect(page.getByTestId("composer-reminder-title")).toContainText("Grill the Design");
