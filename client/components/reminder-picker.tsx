@@ -104,10 +104,12 @@ export function ReminderPicker({
     setActive((index) => (index + delta + options.length) % options.length);
   };
   const handleKeyDown = (event: KeyboardEvent) => {
-    // Tag chips are real buttons inside the dialog. Without this the dialog's
-    // Enter handler would swallow the activation and attach the active reminder
-    // instead of toggling the filter the user is standing on.
-    if ((event.target as HTMLElement | null)?.closest("[data-reminder-tag]")) return;
+    // Tag chips are real buttons inside the dialog. Let the browser's own
+    // activation of a focused chip win, or Enter would attach the active
+    // reminder instead of toggling the filter the user is standing on. Scoped
+    // to the activation keys: Escape must still close the picker from a chip.
+    const onChip = Boolean((event.target as HTMLElement | null)?.closest("[data-reminder-tag]"));
+    if (onChip && (event.key === "Enter" || event.key === " ")) return;
     switch (event.key) {
       case "Escape": event.preventDefault(); close(); break;
       case "ArrowDown": event.preventDefault(); move(1); break;

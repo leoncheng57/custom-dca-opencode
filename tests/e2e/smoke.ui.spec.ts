@@ -1107,6 +1107,12 @@ test.describe("composer", () => {
     await page.locator('[data-testid="composer-reminder-tag"][data-reminder-tag="worktrees"]').click();
     await expect(options).toHaveCount(0);
     await expect(page.getByTestId("composer-reminder-empty")).toBeVisible();
+
+    // Escape must still close the picker while a chip holds focus: the chip
+    // guard covers activation keys only.
+    await expect(page.locator('[data-testid="composer-reminder-tag"][data-reminder-tag="worktrees"]')).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("composer-reminder-panel")).toHaveCount(0);
   });
 
   test("searches workflows and keeps the confirmation promise visible", async ({ page }) => {
