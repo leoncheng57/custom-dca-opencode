@@ -404,7 +404,7 @@ test.describe("workflow picker UI", () => {
     expect(payload.agent).toBe("build");
   });
 
-  test("start DCA session: prompt failure identifies the surviving session and retry does not duplicate", async ({ page }) => {
+  test("start DCA session: structured failure identifies the surviving session and disables retry", async ({ page }) => {
     const marker = `WF-ROOT-FAIL-${Date.now()}`;
     await fetch(`${MOCK_URL}/test/root-workflow-failure`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ stage: "prompt", directory: DIR }) });
     const createsBefore = (await (await fetch(`${MOCK_URL}/test/session-payloads`)).json() as unknown[]).length;
@@ -418,10 +418,29 @@ test.describe("workflow picker UI", () => {
     await dialog.getByTestId("composer-workflow-root-start").click();
     await expect(dialog.getByTestId("composer-workflow-root-failure-stage")).toContainText("opening prompt submission");
     await expect(dialog.getByTestId("composer-workflow-open-partial-session")).toBeVisible();
-    await dialog.getByTestId("composer-workflow-root-start").click();
-    await expect(dialog.getByTestId("composer-workflow-root-failure-stage")).toBeVisible();
+    await expect(dialog.getByTestId("composer-workflow-root-attempt-guidance")).toContainText("Do not retry blindly");
+    await expect(dialog.getByTestId("composer-workflow-root-attempt-guidance")).toContainText("does not survive a BFF restart");
+    await expect(dialog.getByTestId("composer-workflow-root-start")).toBeDisabled();
     const createsAfter = (await (await fetch(`${MOCK_URL}/test/session-payloads`)).json() as unknown[]).length;
     expect(createsAfter - createsBefore).toBe(1);
+  });
+
+  test("start DCA session: ambiguous network failure disables retry and gives inspection guidance", async ({ page }) => {
+    await page.goto(mainSession);
+    await page.getByTestId("composer-workflow-select").click();
+    await page.locator('[data-testid="composer-workflow-option"][data-workflow-id="start-dca-session"]').click();
+    const dialog = page.getByTestId("composer-workflow-dialog");
+    await dialog.getByTestId("composer-workflow-root-assignment").fill(`WF-ROOT-NETWORK-${Date.now()}`);
+    await dialog.getByTestId("composer-workflow-root-isolated").uncheck();
+    await dialog.getByTestId("composer-workflow-preview").click();
+    await page.route("**/api/session-workflows/start?*", (route) => route.abort("connectionfailed"), { times: 1 });
+    await dialog.getByTestId("composer-workflow-root-start").click();
+    await expect(dialog.getByTestId("composer-workflow-error")).toBeVisible();
+    const guidance = dialog.getByTestId("composer-workflow-root-attempt-guidance");
+    await expect(guidance).toContainText("result is ambiguous");
+    await expect(guidance).toContainText("Inspect the Hub, session list, and project worktrees first");
+    await expect(guidance).toContainText("close and reopen");
+    await expect(dialog.getByTestId("composer-workflow-root-start")).toBeDisabled();
   });
 
   test("managed child: Explore launches read-only with no authorization step", async ({ page }) => {

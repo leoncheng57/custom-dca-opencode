@@ -110,7 +110,9 @@ export function WorkflowDialog({
   const [rootSession, setRootSession] = useState<SessionSummary | null>(null);
   const [rootDirectory, setRootDirectory] = useState<string | null>(null);
   const [rootFailureStage, setRootFailureStage] = useState<"worktree" | "session" | "prompt" | null>(null);
+  const [rootAttempted, setRootAttempted] = useState(false);
   const [rootIdempotencyKey] = useState(() => crypto.randomUUID());
+  const rootAttemptedRef = useRef(false);
 
   const dialogRef = useRef<HTMLElement>(null);
   const firstFieldRef = useRef<HTMLElement | null>(null);
@@ -236,9 +238,10 @@ export function WorkflowDialog({
 
   const confirmReady = formValid && !busy
     && (workflow.id !== MANAGED_CHILD_WORKFLOW_ID || !requiresChildAuthorization || confirmedBuild)
-    && (workflow.id !== START_DCA_SESSION_WORKFLOW_ID || rootMode !== "build" || rootConfirmedBuild);
+    && (workflow.id !== START_DCA_SESSION_WORKFLOW_ID || (!rootAttempted && (rootMode !== "build" || rootConfirmedBuild)));
 
   const submit = async (action: "send" | "launch") => {
+    if (workflow.id === START_DCA_SESSION_WORKFLOW_ID && rootAttemptedRef.current) return;
     setBusy(true);
     setError(null);
     try {
@@ -263,6 +266,8 @@ export function WorkflowDialog({
       }
       if (workflow.id === START_DCA_SESSION_WORKFLOW_ID) {
         if (!rootModel) return;
+        rootAttemptedRef.current = true;
+        setRootAttempted(true);
         const result = await api.startDcaSession(directory, {
           sourceSessionID: sessionID,
           prompt: generatedPrompt,
@@ -660,7 +665,12 @@ export function WorkflowDialog({
               </label>
             )}
             {error && <Alert variant="danger" data-testid="composer-workflow-error">{error}</Alert>}
-            {rootFailureStage && <p className="text-xs text-[var(--color-text-danger)]" data-testid="composer-workflow-root-failure-stage">Failed during {rootFailureStage === "worktree" ? "worktree creation" : rootFailureStage === "session" ? "session creation" : "opening prompt submission"}. Repeating this launch checks the same idempotent outcome and will not create a duplicate.</p>}
+            {rootAttempted && error && <p className="text-xs text-[var(--color-text-danger)]" data-testid="composer-workflow-root-attempt-guidance">
+              {rootFailureStage
+                ? <>Failed during <span data-testid="composer-workflow-root-failure-stage">{rootFailureStage === "worktree" ? "worktree creation" : rootFailureStage === "session" ? "session creation" : "opening prompt submission"}</span>. </>
+                : <>The launch result is ambiguous, so a worktree or session may already exist. </>}
+              Do not retry blindly. Inspect the Hub, session list, and project worktrees first. This form permits one launch attempt; close and reopen it only when you intend to make an explicit new attempt. Same-process duplicate submissions share one cached outcome, but that cache does not survive a BFF restart.
+            </p>}
             {rootSession && rootFailureStage === "prompt" && <Link to={sessionLink(rootSession.id, rootDirectory ?? rootSession.directory)} className="inline-flex min-h-11 items-center rounded-md border border-[var(--color-border-default)] px-3 text-sm underline-offset-2 hover:underline" data-testid="composer-workflow-open-partial-session">Open the session that may remain</Link>}
             <div className="flex flex-wrap justify-end gap-2 border-t border-[var(--color-border-default)] pt-4">
               <Button type="button" variant="ghost" disabled={busy} onClick={() => { setError(null); setStage("form"); }} data-testid="composer-workflow-back">Back</Button>
