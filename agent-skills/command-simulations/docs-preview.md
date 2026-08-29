@@ -46,5 +46,5 @@ a number inside an image rots silently.
 The renderer and preview are the guard. Hand-writing Mermaid and saying "it
 should render" is precisely the failure the command exists to prevent.
 
-If this were TechDocs, the command would first prove the site's MkDocs plugin
-supports Mermaid instead of assuming GitHub behavior carries over.
+If this were a static docs site, the command would first prove that site's
+plugin chain supports Mermaid instead of assuming GitHub behavior carries over.

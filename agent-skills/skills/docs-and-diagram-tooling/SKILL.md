@@ -1,6 +1,6 @@
 ---
 name: docs-and-diagram-tooling
-description: Choose the right visual medium when writing documentation and use the diagram and preview tooling actually installed on this machine, instead of hand-writing Mermaid into a file nobody renders. Covers when a diagram beats prose, a table or a list; picking ASCII vs Mermaid vs rendered SVG based on where the doc will be read (terminal, PR description, GitHub, Backstage TechDocs); the mermaid MCP render tools and the diagram subagent; cmux markdown live preview; and deepctl techdocs serve for Backstage TechDocs. Use when asked to "write docs", "document this", "add a diagram to the README", "make an architecture doc", "render this diagram", or "how do I preview these docs".
+description: Choose the right visual medium when writing documentation and use the diagram and preview tooling actually installed on this machine, instead of hand-writing Mermaid into a file nobody renders. Covers when a diagram beats prose, a table or a list; picking ASCII vs Mermaid vs rendered SVG based on where the doc will be read (terminal, PR description, GitHub README or wiki); the mermaid MCP render tools and the diagram subagent; and cmux markdown live preview. Use when asked to "write docs", "document this", "add a diagram to the README", "make an architecture doc", "render this diagram", or "how do I preview these docs".
 metadata:
   tags: "diagrams, docs"
 ---
@@ -29,7 +29,7 @@ does the reader open this?"**
 | A PR description or code review comment | **ASCII** | GitHub renders Mermaid in markdown, but reviewers read diffs and emails in monospace; ASCII survives both |
 | A commit message, `AGENTS.md`, a code comment | **ASCII** | No renderer exists at all |
 | A GitHub/GitLab README or wiki | **Mermaid** | Renders natively; stays diffable as text |
-| Backstage TechDocs | **Mermaid**, if the site supports it | Keeps docs-as-code — but verify first, see below |
+| A docs site (MkDocs, Docusaurus, etc.) | **Mermaid**, only if the site's plugin chain renders it | Keeps docs-as-code — but verify first, see below |
 | A slide, an issue attachment, an external doc | **SVG** | Fixed layout, scales, no renderer dependency |
 
 Rules of thumb that follow from that table:
@@ -70,7 +70,7 @@ ASCII — you do the writing.
 
 ### `mermaid` MCP server
 
-`~/Documents/Projects/beautiful-mermaid-custom-mcp`, three tools:
+A locally installed Mermaid rendering MCP server, three tools:
 
 | Tool | Args | Returns |
 |---|---|---|
@@ -78,8 +78,7 @@ ASCII — you do the writing.
 | `render_mermaid_ascii` | `code`, `useAscii` | Unicode (or pure-ASCII) art inline |
 | `list_themes` | — | 15 themes |
 
-Default output dir is `MERMAID_OUTPUT_DIR`
-(`~/Documents/Projects/dynamic-workflows/mermaid-output`) — pass `outputDir`
+Default output dir comes from `MERMAID_OUTPUT_DIR` — pass `outputDir`
 explicitly to land the SVG next to the doc that references it. Themes include
 `zinc-dark` (good default for dark terminals), `zinc-light`, `github-light`,
 `tokyo-night`, `catppuccin-mocha`, `nord`. Pick a light theme for anything
@@ -105,43 +104,24 @@ This is the fastest way to check that tables, nesting and fenced blocks came
 out right — but note it renders **markdown**, so a Mermaid block shows as a
 code block, not a diagram. It verifies structure, not Mermaid output.
 
-### Backstage TechDocs
+### Static docs sites
 
-Two independent paths:
+**Mermaid on a docs site is not guaranteed.** A `mermaid` fence renders only if
+that site's plugin chain includes Mermaid support, and plugin bundles are often
+opaque from the docs repository alone. Do not assume: put one small Mermaid
+block in a page, build or serve the site locally with whatever generator it
+uses, and look. If it renders as a code block, fall back to ASCII, or render an
+SVG and reference it as an image.
 
-```bash
-deepctl techdocs serve                  # local preview, --mode backstage (default) or mkdocs
-deepctl techdocs serve --mode mkdocs    # faster, closer to raw mkdocs
-```
-
-The `deepctl-mcp` server exposes the same thing as tools — `techdocs_serve`
-(returns a task), plus `techdocs_logs` / `techdocs_logs_read` for build errors
-and `techdocs_stop`. Use the logs tools when the preview comes up blank; the
-mkdocs build failure will be in there rather than in the browser.
-
-**Mermaid in TechDocs is not guaranteed.** TechDocs is MkDocs underneath, so a
-`mermaid` fence renders only if the site's plugin chain includes Mermaid
-support. DeepL sites use a single `deepl-techdocs-core` plugin in `mkdocs.yml`
-whose contents are opaque from the repo. Do not assume: put one small Mermaid
-block in a page, run `deepctl techdocs serve`, and look. If it renders as a
-code block, use ASCII, or render an SVG and reference it as an image.
-
-For docs that already exist in the catalog, the `backstage` MCP server reads
-them without a local build: `techdocs_list_pages` then `techdocs_get_content`
-for an `entityRef` like `component:default/my-service`. Use that to check house
-style and cross-link targets before writing a new page — cheaper and more
-accurate than guessing at conventions.
-
-The Backstage catalog tools (`catalog_list_entities`, `catalog_get_entity`,
-`catalog_get_related_entities`) are the authoritative source for ownership,
-system membership and dependencies. Read those rather than inferring an
-architecture diagram from imports.
+Whatever the generator, read an existing published page before writing a new
+one. House style and cross-link conventions are cheaper to copy than to guess
+at, and a site's own navigation config is the authoritative source for where a
+new page belongs.
 
 ### Also present, situationally
 
-- **`excalidraw` MCP** (`~/Documents/Projects/excalidraw-mcp`) — hand-drawn
-  style diagrams; for design docs where the diagram is illustrative rather than
-  normative.
+- **`excalidraw` MCP** — hand-drawn style diagrams; for design docs where the
+  diagram is illustrative rather than normative.
 - **`figma` MCP** — `get_figma_data` / `download_figma_images`. When a design
   already exists, pull the real frame instead of mocking up a UI diagram.
 - **`chrome-devtools` MCP** — `take_screenshot` (`fullPage`) for documenting
@@ -154,16 +134,18 @@ session. Check your available tools before promising output from one.
 
 ## Writing the doc
 
-1. **Find the house style first.** An existing doc in the same repo or TechDocs
-   site is worth more than any generic template. Read one before writing.
+1. **Find the house style first.** An existing doc in the same repo or on the
+   same docs site is worth more than any generic template. Read one before
+   writing.
 2. **Structure before prose.** Tables for comparisons, lists for sequences,
    diagrams for topology, prose only for the reasoning that connects them.
 3. **Cite `file:line`.** A doc that names the code it describes stays checkable
    as the code moves; one that paraphrases silently rots.
 4. **Say what is *not* true.** The limitation, the trap, the thing that looks
    like it should work — that is what a reader cannot get from the source.
-5. **Preview before claiming it is done.** `cmux markdown open` for markdown,
-   `deepctl techdocs serve` for TechDocs. "It should render" is not verification.
+5. **Preview before claiming it is done.** `cmux markdown open` for markdown;
+   for a docs site, build or serve it locally with its own generator. "It
+   should render" is not verification.
 
 ## Related skills
 
