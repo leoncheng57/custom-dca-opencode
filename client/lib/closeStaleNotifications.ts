@@ -3,6 +3,15 @@
 // Close OS-level push notification cards when the user resolves records in-app.
 // Web Push cannot be recalled by the server; only the client can close an
 // already-shown notification.
+//
+// Deliberately scoped to an explicit resolve action only. An earlier version
+// also reconciled passively inside `refresh()`, closing any visible card whose
+// tag was absent from the freshly-fetched unresolved set. That ran on every
+// mounted client for every `notification.recorded` event anywhere — not just
+// for the device or session that had been acted on — and correlated with
+// notifications disappearing from a phone before they were read. Closing a
+// card is not recoverable, so this now only runs where the user actually
+// resolved something.
 
 /**
  * Compute the OS notification tag for a record, matching the server's exact
@@ -43,43 +52,5 @@ export async function closeNotificationsForTag(tag: string): Promise<void> {
   } catch {
     // Swallow all failures — this is best-effort cleanup that must never break
     // the resolve action it's attached to.
-  }
-}
-
-/**
- * Close any visible OS notifications whose sessions are no longer unresolved.
- *
- * Reconciles on app foreground: after a user resolves notifications on another
- * device or in another tab, the OS notification center on this device may still
- * show stale cards. This compares currently-visible notifications against the
- * current unresolved set and closes any that are stale.
- */
-export async function reconcileStaleNotifications(
-  unresolvedRecords: Array<{ id: string; sessionID?: string }>,
-): Promise<void> {
-  try {
-    if (!navigator.serviceWorker) return;
-    
-    const registration = await navigator.serviceWorker.ready;
-    // Get ALL currently-visible notifications (no tag filter).
-    const visibleNotifications = await registration.getNotifications();
-    
-    // Build the set of tags for currently-unresolved records.
-    const unresolvedTags = new Set(unresolvedRecords.map(sessionTag));
-    
-    // Close any visible notification whose tag is NOT in the unresolved set.
-    for (const notification of visibleNotifications) {
-      // Notifications shown via showNotification() with a tag have that tag in
-      // the `tag` property. Untagged notifications have `tag === ""` or
-      // `tag === undefined`. We only show tagged notifications in this app, so
-      // any untagged one is either stale from a previous version or shouldn't
-      // be there — close it. A non-empty tag that's not in the unresolved set
-      // is also stale — close it too.
-      if (!notification.tag || !unresolvedTags.has(notification.tag)) {
-        notification.close();
-      }
-    }
-  } catch {
-    // Best-effort cleanup, never break the refresh flow.
   }
 }

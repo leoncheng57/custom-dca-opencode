@@ -10,7 +10,7 @@ import {
   saveNotificationView,
   type NotificationViewPreferences,
 } from "./notificationView.js";
-import { sessionTag, closeNotificationsForTag, reconcileStaleNotifications } from "./closeStaleNotifications.js";
+import { sessionTag, closeNotificationsForTag } from "./closeStaleNotifications.js";
 
 const NO_SUPPRESSED_ACTIVE: SuppressedActiveCounts = { "auto-permissions": 0, subagent: 0, "preference-off": 0 };
 
@@ -127,12 +127,6 @@ export function NotificationCenterProvider({ children }: { children: ReactNode }
         setSuppressedActive(result.suppressedActive ?? NO_SUPPRESSED_ACTIVE);
         void syncAppBadge(result.appBadgeCount, navigator, result.appBadgeRevision);
         setError("");
-        
-        // Reconcile OS notification cards: close any that are stale (resolved
-        // on another device/tab, or removed by retention). Best-effort cleanup
-        // that never breaks the refresh flow.
-        const unresolvedRecords = result.records.filter((record) => !record.resolvedAt);
-        void reconcileStaleNotifications(unresolvedRecords);
       })
       .catch((e: Error) => {
         if (request !== generation.current) return;
