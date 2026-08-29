@@ -6,11 +6,14 @@ import {
   captureScopeLabel,
   DESIGN_DOC_PROTOTYPE_WORKFLOW_ID,
   MANAGED_CHILD_WORKFLOW_ID,
+  KNOWN_APP_ROUTES,
   PLAYWRIGHT_CAPTURE_SCOPES,
   PLAYWRIGHT_REVIEW_WORKFLOW_ID,
   PR_SNIPPET_REVIEW_WORKFLOW_ID,
   parsePullRequestNumber,
   SESSION_UPDATE_WORKFLOW_ID,
+  START_DCA_SESSION_WORKFLOW_ID,
+  isKnownAppRoute,
   splitWorkflowTags as clientSplitWorkflowTags,
 } from "../client/lib/workflows.js";
 import { withReminderTag } from "../server/reminders/reminders.js";
@@ -29,6 +32,7 @@ describe("workflow catalogue", () => {
       PR_SNIPPET_REVIEW_WORKFLOW_ID,
       SESSION_UPDATE_WORKFLOW_ID,
       MANAGED_CHILD_WORKFLOW_ID,
+      START_DCA_SESSION_WORKFLOW_ID,
       DESIGN_DOC_PROTOTYPE_WORKFLOW_ID,
     ]);
   });
@@ -69,6 +73,13 @@ describe("workflow catalogue", () => {
     expect(preset.injector).toMatch(/independent transcript/);
     expect(preset.injector).toMatch(/no automatic hand-back/i);
     expect(preset.injector).toMatch(/no native task card/i);
+  });
+
+  it("states that a started DCA session is an independent root", () => {
+    const preset = workflowCatalogue().find((workflow) => workflow.id === START_DCA_SESSION_WORKFLOW_ID)!;
+    expect(preset.injector).toMatch(/independent root session/i);
+    expect(preset.injector).toMatch(/no parent session/i);
+    expect(preset.injector).toMatch(/provenance link/i);
   });
 
   it("forbids full deployment and full screenshot regeneration in the playwright injector", () => {
@@ -160,6 +171,14 @@ describe("buildPlaywrightReviewPrompt", () => {
 
   it("offers exactly the two capture scopes", () => {
     expect(PLAYWRIGHT_CAPTURE_SCOPES.map((scope) => scope.id)).toEqual(["interaction", "targeted-screenshots"]);
+  });
+
+  it("recognizes canonical app routes while leaving component descriptions distinct", () => {
+    for (const route of KNOWN_APP_ROUTES) expect(isKnownAppRoute(route)).toBe(true);
+    expect(isKnownAppRoute("/sessions/ses_123?directory=%2Ftmp%2Fproject")).toBe(true);
+    expect(isKnownAppRoute("the composer card")).toBe(false);
+    expect(isKnownAppRoute("/not-a-route")).toBe(false);
+    expect(isKnownAppRoute("https://example.com/settings")).toBe(false);
   });
 });
 

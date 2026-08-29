@@ -30,8 +30,42 @@ export function splitWorkflowTags(input: string): SplitWorkflowMessage {
 export const PLAYWRIGHT_REVIEW_WORKFLOW_ID = "playwright-ui-review";
 export const SESSION_UPDATE_WORKFLOW_ID = "session-update";
 export const MANAGED_CHILD_WORKFLOW_ID = "managed-child";
+export const START_DCA_SESSION_WORKFLOW_ID = "start-dca-session";
 export const PR_SNIPPET_REVIEW_WORKFLOW_ID = "pr-snippet-review";
 export const DESIGN_DOC_PROTOTYPE_WORKFLOW_ID = "design-doc-prototype";
+
+export const KNOWN_APP_ROUTES = [
+  "/",
+  "/settings",
+  "/settings/notifications",
+  "/tools",
+  "/planning",
+  "/observability",
+  "/docs",
+  "/playbooks",
+] as const;
+
+export function isKnownAppRoute(value: string): boolean {
+  const route = value.trim();
+  if (!route.startsWith("/") || route.startsWith("//") || /[\s\u0000-\u001f\u007f\\]/u.test(route)) return false;
+  try {
+    const url = new URL(route, "http://workflow.invalid");
+    return url.origin === "http://workflow.invalid" && [
+      /^\/$/,
+      /^\/settings$/,
+      /^\/settings\/notifications$/,
+      /^\/tools$/,
+      /^\/planning$/,
+      /^\/observability$/,
+      /^\/docs(?:\/[A-Za-z0-9_-]+)?$/,
+      /^\/playbooks(?:\/(?:skills|commands)(?:\/[A-Za-z0-9_-]+)?)?$/,
+      /^\/sessions\/[A-Za-z0-9_-]+$/,
+      /^\/dsh(?:\/sessions\/[A-Za-z0-9_-]+)?$/,
+    ].some((pattern) => pattern.test(url.pathname));
+  } catch {
+    return false;
+  }
+}
 
 // ── Design prototype prompt ─────────────────────────────────────────────────
 //

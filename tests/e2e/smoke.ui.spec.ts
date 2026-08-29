@@ -1119,7 +1119,7 @@ test.describe("composer", () => {
     await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
     await page.getByTestId("composer-workflow-select").click();
     await expect(page.getByTestId("composer-workflow-search")).toBeFocused();
-    await expect(page.getByTestId("composer-workflow-option")).toHaveCount(5);
+    await expect(page.getByTestId("composer-workflow-option")).toHaveCount(6);
     // Decision 21: this promise must survive the header gaining a search box.
     await expect(page.getByTestId("composer-workflow-panel")).toContainText("Nothing is sent or launched until you confirm.");
 

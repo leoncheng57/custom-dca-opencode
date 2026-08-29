@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 
 import { Alert } from "../ds/alert.js";
 import { Button } from "../ds/button.js";
 import {
   api,
+  RootSessionLaunchApiError,
   type ManagedChildAgent,
   type ManagedChildAgentSummary,
   type SessionSummary,
@@ -18,12 +19,15 @@ import {
   DESIGN_DOC_PROTOTYPE_PROMPT,
   DESIGN_DOC_PROTOTYPE_WORKFLOW_ID,
   MANAGED_CHILD_WORKFLOW_ID,
+  KNOWN_APP_ROUTES,
   PLAYWRIGHT_CAPTURE_SCOPES,
   PLAYWRIGHT_REVIEW_WORKFLOW_ID,
   PR_SNIPPET_REVIEW_WORKFLOW_ID,
   buildPrSnippetReviewPrompt,
   parsePullRequestNumber,
   SESSION_UPDATE_WORKFLOW_ID,
+  START_DCA_SESSION_WORKFLOW_ID,
+  isKnownAppRoute,
   type PlaywrightCaptureScope,
 } from "../lib/workflows.js";
 import { ModelPicker } from "./model-picker.js";
@@ -35,10 +39,10 @@ const fieldClass =
 
 /**
  * The workflow form + preview dialog (issue #167). Every workflow starts here
- * as a form; the ONLY paths out are Cancel, "Apply to composer" (which fills
- * the composer and never sends), or the explicit Send / Launch on the preview
- * stage. The preview always shows the exact generated prompt and the trusted
- * server-resolved injector before anything is submitted.
+ * as a form. Cancel never mutates; workflows that support "Apply to composer"
+ * only fill the draft; and an explicit Send / Launch / Start on the preview is
+ * the only mutation. The preview always shows the exact generated prompt and
+ * the trusted server-resolved injector before anything is submitted.
  */
 export function WorkflowDialog({
   workflow,
@@ -62,19 +66,24 @@ export function WorkflowDialog({
   onApplyToComposer: (draft: string, workflowID: string) => void;
   onSent: () => void;
 }) {
+  const location = useLocation();
+  const currentPageRoute = `${location.pathname}${location.search}`;
   const [stage, setStage] = useState<Stage>("form");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Playwright review fields.
   const [pullRequest, setPullRequest] = useState("");
-  const [route, setRoute] = useState("");
+  const [route, setRoute] = useState(() => workflow.id === PLAYWRIGHT_REVIEW_WORKFLOW_ID ? currentPageRoute : "");
   const [target, setTarget] = useState("");
   const [scope, setScope] = useState<PlaywrightCaptureScope>("targeted-screenshots");
 
   // Session update fields.
   const [sessions, setSessions] = useState<SessionSummary[] | null>(null);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
+  const [sessionsTruncated, setSessionsTruncated] = useState(false);
+  const [sessionQuery, setSessionQuery] = useState("");
+  const deferredSessionQuery = useDeferredValue(sessionQuery);
   const [targetID, setTargetID] = useState("");
   const [message, setMessage] = useState("");
 
@@ -91,6 +100,19 @@ export function WorkflowDialog({
   const [confirmedBuild, setConfirmedBuild] = useState(false);
   const [idempotencyKey] = useState(() => crypto.randomUUID());
   const [child, setChild] = useState<SessionSummary | null>(null);
+
+  // Independent root session fields.
+  const [rootAssignment, setRootAssignment] = useState("");
+  const [rootMode, setRootMode] = useState<AgentMode>("plan");
+  const [rootModel, setRootModel] = useState<ModelSelection | undefined>(() => defaultModel);
+  const [rootIsolated, setRootIsolated] = useState(true);
+  const [rootConfirmedBuild, setRootConfirmedBuild] = useState(false);
+  const [rootSession, setRootSession] = useState<SessionSummary | null>(null);
+  const [rootDirectory, setRootDirectory] = useState<string | null>(null);
+  const [rootFailureStage, setRootFailureStage] = useState<"worktree" | "session" | "prompt" | null>(null);
+  const [rootAttempted, setRootAttempted] = useState(false);
+  const [rootIdempotencyKey] = useState(() => crypto.randomUUID());
+  const rootAttemptedRef = useRef(false);
 
   const dialogRef = useRef<HTMLElement>(null);
   const firstFieldRef = useRef<HTMLElement | null>(null);
@@ -109,16 +131,19 @@ export function WorkflowDialog({
   useEffect(() => {
     if (workflow.id !== SESSION_UPDATE_WORKFLOW_ID) return;
     let cancelled = false;
-    api.sessions(directory)
+    setSessions(null);
+    setSessionsError(null);
+    api.sessions(directory, { limit: 25, search: deferredSessionQuery.trim() || undefined })
       .then((result) => {
         if (cancelled) return;
         setSessions(result.sessions.filter((session) => session.id !== sessionID));
+        setSessionsTruncated(result.truncated);
       })
       .catch((cause: unknown) => {
         if (!cancelled) setSessionsError(cause instanceof Error ? cause.message : String(cause));
       });
     return () => { cancelled = true; };
-  }, [directory, sessionID, workflow.id]);
+  }, [deferredSessionQuery, directory, sessionID, workflow.id]);
 
   useEffect(() => {
     if (workflow.id !== MANAGED_CHILD_WORKFLOW_ID) return;
@@ -145,6 +170,24 @@ export function WorkflowDialog({
     if (!childModel && modelCatalogue) setChildModel(defaultModel ?? catalogueDefault(modelCatalogue));
   }, [childModel, defaultModel, modelCatalogue]);
 
+  const rootModelValid = Boolean(rootModel && modelCatalogue?.models.some((model) =>
+    model.providerID === rootModel.providerID
+    && model.modelID === rootModel.modelID
+    && model.status !== "disabled"
+    && model.status !== "unavailable"
+    && (!rootModel.variant || model.variants.includes(rootModel.variant))));
+
+  useEffect(() => {
+    if (workflow.id !== START_DCA_SESSION_WORKFLOW_ID || !modelCatalogue || !rootModel) return;
+    const available = modelCatalogue.models.some((model) =>
+      model.providerID === rootModel.providerID
+      && model.modelID === rootModel.modelID
+      && model.status !== "disabled"
+      && model.status !== "unavailable"
+      && (!rootModel.variant || model.variants.includes(rootModel.variant)));
+    if (!available) setRootModel(undefined);
+  }, [modelCatalogue, rootModel, workflow.id]);
+
   const targetSession = sessions?.find((session) => session.id === targetID);
   // Send in the TARGET session's own mode: a hardcoded "build" would restore
   // write access to a session its owner left in Plan. A target whose agent is
@@ -162,6 +205,7 @@ export function WorkflowDialog({
   // Only the number survives parsing, so a pasted link from another repository
   // cannot redirect the review or the posted comment (see parsePullRequestNumber).
   const pullRequestNumber = parsePullRequestNumber(pullRequest);
+  const routeInvalid = route.trim().startsWith("/") && !isKnownAppRoute(route);
 
   const generatedPrompt =
     workflow.id === PLAYWRIGHT_REVIEW_WORKFLOW_ID
@@ -172,6 +216,8 @@ export function WorkflowDialog({
         ? DESIGN_DOC_PROTOTYPE_PROMPT
       : workflow.id === SESSION_UPDATE_WORKFLOW_ID
         ? message.trim()
+        : workflow.id === START_DCA_SESSION_WORKFLOW_ID
+          ? rootAssignment.trim()
         : objective.trim();
 
   const formValid =
@@ -185,13 +231,17 @@ export function WorkflowDialog({
         ? true
       : workflow.id === SESSION_UPDATE_WORKFLOW_ID
         ? Boolean(targetSession && message.trim())
+      : workflow.id === START_DCA_SESSION_WORKFLOW_ID
+        ? Boolean(rootAssignment.trim() && rootAssignment.length <= 100_000 && rootModelValid)
         // No catalogue means no verified agent, so there is nothing safe to launch.
         : Boolean(objective.trim() && objective.length <= 100_000 && childModel && selectedChildAgent);
 
   const confirmReady = formValid && !busy
-    && (workflow.id !== MANAGED_CHILD_WORKFLOW_ID || !requiresChildAuthorization || confirmedBuild);
+    && (workflow.id !== MANAGED_CHILD_WORKFLOW_ID || !requiresChildAuthorization || confirmedBuild)
+    && (workflow.id !== START_DCA_SESSION_WORKFLOW_ID || (!rootAttempted && (rootMode !== "build" || rootConfirmedBuild)));
 
   const submit = async (action: "send" | "launch") => {
+    if (workflow.id === START_DCA_SESSION_WORKFLOW_ID && rootAttemptedRef.current) return;
     setBusy(true);
     setError(null);
     try {
@@ -214,6 +264,26 @@ export function WorkflowDialog({
         setStage("done");
         return;
       }
+      if (workflow.id === START_DCA_SESSION_WORKFLOW_ID) {
+        if (!rootModel) return;
+        rootAttemptedRef.current = true;
+        setRootAttempted(true);
+        const result = await api.startDcaSession(directory, {
+          sourceSessionID: sessionID,
+          prompt: generatedPrompt,
+          mode: rootMode,
+          model: rootModel,
+          ...(rootMode === "build" ? { authorization: "modify" as const } : {}),
+          isolated: rootIsolated,
+          idempotencyKey: rootIdempotencyKey,
+          workflow: workflow.id,
+        });
+        setRootSession(result.session);
+        setRootDirectory(result.session.directory);
+        onSent();
+        setStage("done");
+        return;
+      }
       if (action === "launch") {
         if (!selectedChildAgent) return;
         const result = await api.createManagedChild(directory, sessionID, {
@@ -232,13 +302,18 @@ export function WorkflowDialog({
         setStage("done");
       }
     } catch (cause) {
+      if (cause instanceof RootSessionLaunchApiError) {
+        setRootFailureStage(cause.stage);
+        setRootSession(cause.session ?? null);
+        setRootDirectory(cause.directory ?? cause.session?.directory ?? null);
+      }
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setBusy(false);
     }
   };
 
-  const sessionLink = (id: string) => `/sessions/${encodeURIComponent(id)}?directory=${encodeURIComponent(directory)}`;
+  const sessionLink = (id: string, targetDirectory = directory) => `/sessions/${encodeURIComponent(id)}?directory=${encodeURIComponent(targetDirectory)}`;
 
   return createPortal(
     <div className="fixed inset-0 z-[95] flex items-end justify-center sm:items-center sm:p-4" data-testid="composer-workflow-dialog" data-workflow={workflow.id}>
@@ -300,6 +375,21 @@ export function WorkflowDialog({
                   className={fieldClass}
                   data-testid="composer-workflow-field-route"
                 />
+                <span className="mt-2 flex flex-wrap gap-2">
+                  <Button type="button" size="sm" variant="secondary" onClick={() => setRoute(currentPageRoute)} data-testid="composer-workflow-use-current-page">Use current page</Button>
+                  <select
+                    aria-label="Known app route"
+                    value={KNOWN_APP_ROUTES.includes(route as (typeof KNOWN_APP_ROUTES)[number]) ? route : ""}
+                    onChange={(event) => { if (event.target.value) setRoute(event.target.value); }}
+                    className="min-h-11 rounded-md border border-[var(--color-border-default)] bg-transparent px-2 text-sm"
+                    data-testid="composer-workflow-known-route"
+                  >
+                    <option value="">Choose a known route</option>
+                    {KNOWN_APP_ROUTES.map((knownRoute) => <option key={knownRoute} value={knownRoute}>{knownRoute}</option>)}
+                  </select>
+                </span>
+                <span className="mt-1 block text-[11px] font-normal text-[var(--color-text-muted)]">Use a known root-relative route, or enter a component description when navigation is not the point.</span>
+                {routeInvalid && <span className="mt-1 block text-[11px] font-normal text-[var(--color-text-danger)]" data-testid="composer-workflow-route-invalid">This is not a known app route. Use a listed route or enter a component description without a leading slash.</span>}
               </label>
               <label className="block text-sm font-medium">
                 Desired state or interaction <span className="font-normal text-[var(--color-text-muted)]">(required)</span>
@@ -340,21 +430,43 @@ export function WorkflowDialog({
             )}
 
             {workflow.id === SESSION_UPDATE_WORKFLOW_ID && <>
-              <label className="block text-sm font-medium">
-                Target session <span className="font-normal text-[var(--color-text-muted)]">(required)</span>
-                <select
-                  ref={(node) => { firstFieldRef.current = node; }}
-                  value={targetID}
-                  onChange={(event) => setTargetID(event.target.value)}
-                  className={fieldClass}
-                  data-testid="composer-workflow-field-session"
-                >
-                  <option value="">{sessions === null ? "Loading sessions…" : "Choose a session"}</option>
+              <div>
+                <label className="block text-sm font-medium">Target session <span className="font-normal text-[var(--color-text-muted)]">(required, current project only)</span>
+                  <input
+                    ref={(node) => { firstFieldRef.current = node; }}
+                    type="search"
+                    value={sessionQuery}
+                    onChange={(event) => setSessionQuery(event.target.value)}
+                    placeholder="Search session title or id"
+                    className={fieldClass}
+                    data-testid="composer-workflow-session-search"
+                  />
+                </label>
+                <div className="mt-2 max-h-52 space-y-1 overflow-y-auto" role="listbox" aria-label="Matching sessions" data-testid="composer-workflow-session-results">
+                  {sessions === null && <p className="p-3 text-sm text-[var(--color-text-muted)]">Loading sessions…</p>}
                   {(sessions ?? []).map((session) => (
-                    <option key={session.id} value={session.id}>{session.title} ({session.id})</option>
+                    <button
+                      key={session.id}
+                      type="button"
+                      role="option"
+                      aria-selected={targetID === session.id}
+                      onClick={() => setTargetID(session.id)}
+                      className={`w-full rounded-md border p-3 text-left ${targetID === session.id ? "border-[var(--color-border-info)] bg-[var(--color-background-surface-info-muted)]" : "border-[var(--color-border-default)]"}`}
+                      data-testid="composer-workflow-session-option"
+                      data-session-id={session.id}
+                    >
+                      <span className="block truncate text-sm font-medium">{session.title}</span>
+                      <span className="mt-1 flex flex-wrap gap-x-2 text-[11px] text-[var(--color-text-muted)]">
+                        <span className="font-mono">{session.id}</span>
+                        <span>{session.parentID ? "Child" : "Root"}</span>
+                        <span>{session.running ? "Running" : "Idle"}</span>
+                        <time dateTime={session.updatedAt}>{new Date(session.updatedAt).toLocaleString()}</time>
+                      </span>
+                    </button>
                   ))}
-                </select>
-              </label>
+                </div>
+                {sessionsTruncated && <p className="mt-1 text-xs text-[var(--color-text-warning)]" data-testid="composer-workflow-sessions-truncated">Showing the first 25 matches. Refine your search to find sessions outside this bounded result.</p>}
+              </div>
               {sessionsError && <Alert variant="danger">Could not list sessions: {sessionsError}</Alert>}
               {sessions?.length === 0 && <p className="text-xs text-[var(--color-text-muted)]">No other sessions exist in this project.</p>}
               <label className="block text-sm font-medium">
@@ -368,6 +480,53 @@ export function WorkflowDialog({
                   data-testid="composer-workflow-field-message"
                 />
               </label>
+            </>}
+
+            {workflow.id === START_DCA_SESSION_WORKFLOW_ID && <>
+              <label className="block text-sm font-medium">Assignment <span className="font-normal text-[var(--color-text-muted)]">(required, becomes the new root session's first prompt)</span>
+                <textarea
+                  ref={(node) => { firstFieldRef.current = node; }}
+                  value={rootAssignment}
+                  onChange={(event) => setRootAssignment(event.target.value)}
+                  rows={6}
+                  maxLength={100_000}
+                  className={`${fieldClass} min-h-32 resize-y`}
+                  placeholder="Describe the independent work to complete…"
+                  data-testid="composer-workflow-root-assignment"
+                />
+              </label>
+              <div className="rounded-md border border-[var(--color-border-default)] p-3 text-sm" data-testid="composer-workflow-root-directory">
+                <p className="font-medium">Project directory (locked)</p>
+                <p className="mt-1 break-all font-mono text-xs text-[var(--color-text-muted)]">{directory}</p>
+                <p className="mt-1 text-xs text-[var(--color-text-muted)]">The browser cannot choose another path in this workflow.</p>
+              </div>
+              <label className="flex min-h-11 items-center gap-3 rounded-md border border-[var(--color-border-default)] p-3 text-sm">
+                <input type="checkbox" checked={rootIsolated} onChange={(event) => setRootIsolated(event.target.checked)} className="h-5 w-5" data-testid="composer-workflow-root-isolated" />
+                <span><strong>Isolated workspace</strong> (recommended and enabled by default)</span>
+              </label>
+              <fieldset>
+                <legend className="text-sm font-medium">Mode</legend>
+                <div className="mt-1.5 grid grid-cols-2 gap-2">
+                  {(["plan", "build"] as const).map((candidate) => <button
+                    key={candidate}
+                    type="button"
+                    aria-pressed={rootMode === candidate}
+                    onClick={() => { setRootMode(candidate); setRootConfirmedBuild(false); }}
+                    className={`min-h-11 rounded-md border px-3 text-sm font-semibold ${rootMode === candidate ? "border-[var(--color-border-info)] bg-[var(--color-background-surface-info-muted)] text-[var(--color-text-info)]" : "border-[var(--color-border-default)] text-[var(--color-text-muted)]"}`}
+                    data-testid={`composer-workflow-root-mode-${candidate}`}
+                  >{candidate === "plan" ? "Plan · read-only" : "Build · can modify"}</button>)}
+                </div>
+              </fieldset>
+              <div>
+                <p className="mb-1.5 text-sm font-medium">Model <span className="font-normal text-[var(--color-text-muted)]">(defaults to the current composer model)</span></p>
+                <ModelPicker catalogue={modelCatalogue} value={rootModel} onChange={setRootModel} testId="composer-workflow-root-model" label="Root session model" disabled={busy} portalLayer="nested" />
+                {!rootModelValid && <Alert variant="danger" data-testid="composer-workflow-root-model-invalid">The current composer model is unavailable for this project. Select an available model before continuing.</Alert>}
+              </div>
+              <ul className="list-disc space-y-1 pl-5 text-xs text-[var(--color-text-muted)]">
+                <li>Creates an independent root session with no parentID.</li>
+                <li>Does not change or navigate away from this source session.</li>
+                <li>No task card, Managed Child relationship, provenance record, or automatic hand-back is created.</li>
+              </ul>
             </>}
 
             {workflow.id === MANAGED_CHILD_WORKFLOW_ID && <>
@@ -438,7 +597,7 @@ export function WorkflowDialog({
 
             <div className="flex flex-wrap justify-end gap-2 border-t border-[var(--color-border-default)] pt-4">
               <Button type="button" variant="secondary" disabled={busy} onClick={onClose} data-testid="composer-workflow-cancel">Cancel</Button>
-              <Button type="submit" disabled={!formValid || busy} data-testid="composer-workflow-preview">Preview and confirm</Button>
+              <Button type="submit" disabled={!formValid || busy || routeInvalid} data-testid="composer-workflow-preview">Preview and confirm</Button>
             </div>
           </form>
         )}
@@ -457,6 +616,14 @@ export function WorkflowDialog({
                 <p data-testid="composer-workflow-agent-summary"><span className="font-medium text-[var(--color-text-default)]">Agent:</span> {selectedChildAgent ? childAgentLabel(selectedChildAgent) : "unavailable"} (fixed at creation)</p>
                 <p className="mt-1"><span className="font-medium text-[var(--color-text-default)]">Model:</span> {childModel ? `${childModel.providerID}/${childModel.modelID}${childModel.variant ? `/${childModel.variant}` : ""}` : "project default"}</p>
                 <p className="mt-1">Independent transcript · no native task card · no automatic hand-back.</p>
+              </div>
+            )}
+            {workflow.id === START_DCA_SESSION_WORKFLOW_ID && (
+              <div className="rounded-md border border-[var(--color-border-default)] p-3 text-xs text-[var(--color-text-muted)]" data-testid="composer-workflow-root-summary">
+                <p><span className="font-medium text-[var(--color-text-default)]">Root session:</span> no parentID</p>
+                <p className="mt-1"><span className="font-medium text-[var(--color-text-default)]">Directory:</span> {rootIsolated ? "new isolated worktree under this project" : directory}</p>
+                <p className="mt-1"><span className="font-medium text-[var(--color-text-default)]">Mode:</span> {rootMode}</p>
+                <p className="mt-1"><span className="font-medium text-[var(--color-text-default)]">Model:</span> {rootModel ? `${rootModel.providerID}/${rootModel.modelID}${rootModel.variant ? `/${rootModel.variant}` : ""}` : "unavailable"}</p>
               </div>
             )}
             <div>
@@ -491,7 +658,20 @@ export function WorkflowDialog({
                 <span>This child may modify files even when this session is in Plan. I am authorizing that independent {selectedChildAgent ? childAgentLabel(selectedChildAgent) : "modify"} access.</span>
               </label>
             )}
+            {workflow.id === START_DCA_SESSION_WORKFLOW_ID && rootMode === "build" && (
+              <label className="flex min-h-11 items-start gap-3 rounded-md border border-[var(--color-border-default)] bg-[var(--color-background-surface-warning-muted)] p-3 text-sm" data-testid="composer-workflow-root-build-confirmation">
+                <input type="checkbox" checked={rootConfirmedBuild} onChange={(event) => setRootConfirmedBuild(event.target.checked)} className="mt-0.5 h-5 w-5 shrink-0" data-testid="composer-workflow-root-build-confirm" />
+                <span>This independent root session may modify files. I authorize Build access in its selected workspace.</span>
+              </label>
+            )}
             {error && <Alert variant="danger" data-testid="composer-workflow-error">{error}</Alert>}
+            {rootAttempted && error && <p className="text-xs text-[var(--color-text-danger)]" data-testid="composer-workflow-root-attempt-guidance">
+              {rootFailureStage
+                ? <>Failed during <span data-testid="composer-workflow-root-failure-stage">{rootFailureStage === "worktree" ? "worktree creation" : rootFailureStage === "session" ? "session creation" : "opening prompt submission"}</span>. </>
+                : <>The launch result is ambiguous, so a worktree or session may already exist. </>}
+              Do not retry blindly. Inspect the Hub, session list, and project worktrees first. This form permits one launch attempt; close and reopen it only when you intend to make an explicit new attempt. Same-process duplicate submissions share one cached outcome, but that cache does not survive a BFF restart.
+            </p>}
+            {rootSession && rootFailureStage === "prompt" && <Link to={sessionLink(rootSession.id, rootDirectory ?? rootSession.directory)} className="inline-flex min-h-11 items-center rounded-md border border-[var(--color-border-default)] px-3 text-sm underline-offset-2 hover:underline" data-testid="composer-workflow-open-partial-session">Open the session that may remain</Link>}
             <div className="flex flex-wrap justify-end gap-2 border-t border-[var(--color-border-default)] pt-4">
               <Button type="button" variant="ghost" disabled={busy} onClick={() => { setError(null); setStage("form"); }} data-testid="composer-workflow-back">Back</Button>
               <Button type="button" variant="secondary" disabled={busy} onClick={onClose} data-testid="composer-workflow-cancel">Cancel</Button>
@@ -504,6 +684,9 @@ export function WorkflowDialog({
               )}
               {workflow.id === MANAGED_CHILD_WORKFLOW_ID && (
                 <Button type="button" disabled={!confirmReady} onClick={() => void submit("launch")} data-testid="composer-workflow-launch">{busy ? "Launching…" : "Launch Managed Child"}</Button>
+              )}
+              {workflow.id === START_DCA_SESSION_WORKFLOW_ID && (
+                <Button type="button" disabled={!confirmReady} onClick={() => void submit("launch")} data-testid="composer-workflow-root-start">{busy ? "Starting…" : "Start session"}</Button>
               )}
             </div>
           </div>
@@ -521,12 +704,20 @@ export function WorkflowDialog({
                 Managed child launched: "{child.title}" ({child.id}). It runs in its own transcript with its policy fixed at creation; no task card was added here and no automatic hand-back will occur.
               </Alert>
             )}
+            {workflow.id === START_DCA_SESSION_WORKFLOW_ID && rootSession && (
+              <Alert variant="success">
+                Root session accepted: "{rootSession.title}" ({rootSession.id}) in {rootSession.directory}. It has no parent and runs independently; this source session was not changed or navigated away.
+              </Alert>
+            )}
             <div className="flex flex-wrap justify-end gap-2 border-t border-[var(--color-border-default)] pt-4">
               {workflow.id === SESSION_UPDATE_WORKFLOW_ID && targetSession && (
                 <Link to={sessionLink(targetSession.id)} className="inline-flex min-h-11 items-center rounded-md border border-[var(--color-border-default)] px-3 text-sm underline-offset-2 hover:underline" data-testid="composer-workflow-open-session" onClick={onClose}>Open target session</Link>
               )}
               {workflow.id === MANAGED_CHILD_WORKFLOW_ID && child && (
                 <Link to={sessionLink(child.id)} className="inline-flex min-h-11 items-center rounded-md border border-[var(--color-border-default)] px-3 text-sm underline-offset-2 hover:underline" data-testid="composer-workflow-open-session" onClick={onClose}>Open child session</Link>
+              )}
+              {workflow.id === START_DCA_SESSION_WORKFLOW_ID && rootSession && (
+                <Link to={sessionLink(rootSession.id, rootSession.directory)} className="inline-flex min-h-11 items-center rounded-md border border-[var(--color-border-default)] px-3 text-sm underline-offset-2 hover:underline" data-testid="composer-workflow-open-session" onClick={onClose}>Open new root session</Link>
               )}
               <Button type="button" onClick={onClose} data-testid="composer-workflow-done-close">Close</Button>
             </div>

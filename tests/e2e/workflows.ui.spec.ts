@@ -43,6 +43,7 @@ test.describe("workflow catalogue API", () => {
       "pr-snippet-review",
       "session-update",
       "managed-child",
+      "start-dca-session",
       "design-doc-prototype",
     ]);
     for (const workflow of payload.workflows) {
@@ -77,6 +78,37 @@ test.describe("workflow catalogue API", () => {
     expect(response.status()).toBe(400);
     expect((await response.json()).error).toContain("unknown workflow");
   });
+
+  test("validates root workflow input before mutation and identifies worktree/session failures", async ({ request }) => {
+    const launch = (data: Record<string, unknown>) => request.post(`/api/session-workflows/start?directory=${encodeURIComponent(DIR)}`, { data: {
+      sourceSessionID: MAIN,
+      prompt: `api-root-${Date.now()}`,
+      mode: "plan",
+      model: { providerID: "anthropic", modelID: "claude-opus-5" },
+      isolated: false,
+      idempotencyKey: `api-root-${crypto.randomUUID()}`,
+      workflow: "start-dca-session",
+      ...data,
+    } });
+
+    const invalidModel = await launch({ model: { providerID: "missing", modelID: "missing" } });
+    expect(invalidModel.status()).toBe(400);
+    expect((await invalidModel.json()).error).toContain("unknown or disabled model");
+
+    const unauthorized = await launch({ mode: "build" });
+    expect(unauthorized.status()).toBe(400);
+    expect((await unauthorized.json()).error).toContain("explicit modify authorization");
+
+    await fetch(`${MOCK_URL}/test/root-workflow-failure`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ stage: "worktree", directory: DIR }) });
+    const worktree = await launch({ isolated: true });
+    expect(worktree.status()).toBe(502);
+    await expect(worktree.json()).resolves.toMatchObject({ stage: "worktree", code: "ROOT_SESSION_WORKTREE_FAILED" });
+
+    await fetch(`${MOCK_URL}/test/root-workflow-failure`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ stage: "session", directory: DIR }) });
+    const session = await launch({ isolated: false });
+    expect(session.status()).toBe(502);
+    await expect(session.json()).resolves.toMatchObject({ stage: "session", code: "ROOT_SESSION_CREATION_FAILED", directory: DIR });
+  });
 });
 
 test.describe("workflow picker UI", () => {
@@ -90,15 +122,16 @@ test.describe("workflow picker UI", () => {
 
     // The chooser offers exactly the initial catalogue, in order.
     const options = page.getByTestId("composer-workflow-option");
-    await expect(options).toHaveCount(5);
+    await expect(options).toHaveCount(6);
     await expect(page.getByTestId("composer-workflow-group")).toHaveCount(3);
     await expect(page.getByTestId("composer-workflow-group").nth(0)).toHaveAccessibleName("Review");
-    await expect(page.getByTestId("composer-workflow-icon")).toHaveCount(5);
+    await expect(page.getByTestId("composer-workflow-icon")).toHaveCount(6);
     await expect(options.nth(0)).toContainText("Review a UI change with Playwright");
     await expect(options.nth(1)).toContainText("Post a snippet-by-snippet PR review");
     await expect(options.nth(2)).toContainText("Send an update to another session");
     await expect(options.nth(3)).toContainText("Launch a Managed Child");
-    await expect(options.nth(4)).toContainText("Capture a Durable Design Prototype");
+    await expect(options.nth(4)).toContainText("Start a DCA session");
+    await expect(options.nth(5)).toContainText("Capture a Durable Design Prototype");
 
     // Choosing a workflow opens its form — it never sends.
     await page.locator('[data-testid="composer-workflow-option"][data-workflow-id="playwright-ui-review"]').click();
@@ -106,6 +139,14 @@ test.describe("workflow picker UI", () => {
     await expect(dialog).toBeVisible();
     await expect(dialog).toHaveAttribute("data-workflow", "playwright-ui-review");
     await expect(dialog).toContainText("without a full deployment or a complete screenshot regeneration");
+    await expect(dialog.getByTestId("composer-workflow-field-route")).toHaveValue(mainSession);
+    await dialog.getByTestId("composer-workflow-known-route").selectOption("/settings");
+    await expect(dialog.getByTestId("composer-workflow-field-route")).toHaveValue("/settings");
+    await dialog.getByTestId("composer-workflow-use-current-page").click();
+    await expect(dialog.getByTestId("composer-workflow-field-route")).toHaveValue(mainSession);
+    await dialog.getByTestId("composer-workflow-field-route").fill("/not-a-real-route");
+    await expect(dialog.getByTestId("composer-workflow-route-invalid")).toBeVisible();
+    await expect(dialog.getByTestId("composer-workflow-preview")).toBeDisabled();
     await dialog.getByTestId("composer-workflow-field-route").fill("/sessions/demo?directory=/tmp/example");
     await dialog.getByTestId("composer-workflow-field-target").fill(marker);
     await dialog.getByTestId("composer-workflow-field-scope").selectOption("interaction");
@@ -195,10 +236,13 @@ test.describe("workflow picker UI", () => {
     const dialog = page.getByTestId("composer-workflow-dialog");
 
     // The current session is not offered as its own target.
-    const select = dialog.getByTestId("composer-workflow-field-session");
-    await expect(select.locator(`option[value="${TARGET}"]`)).toHaveText(`Workflow update target (${TARGET})`);
-    await expect(select.locator(`option[value="${MAIN}"]`)).toHaveCount(0);
-    await select.selectOption(TARGET);
+    const results = dialog.getByTestId("composer-workflow-session-results");
+    await expect(results.locator(`[data-session-id="${TARGET}"]`)).toContainText("Workflow update target");
+    await expect(results.locator(`[data-session-id="${TARGET}"]`)).toContainText("Root");
+    await expect(results.locator(`[data-session-id="${MAIN}"]`)).toHaveCount(0);
+    await dialog.getByTestId("composer-workflow-session-search").fill("update target");
+    await expect(results.locator(`[data-session-id="${TARGET}"]`)).toBeVisible();
+    await results.locator(`[data-session-id="${TARGET}"]`).click();
     await dialog.getByTestId("composer-workflow-field-message").fill(marker);
     await dialog.getByTestId("composer-workflow-preview").click();
 
@@ -221,6 +265,38 @@ test.describe("workflow picker UI", () => {
     expect(text).toContain("204");
     await dialog.getByTestId("composer-workflow-done-close").click();
     await expect(dialog).toHaveCount(0);
+  });
+
+  test("session update states bounded search truncation honestly", async ({ page }) => {
+    await page.route("**/api/sessions?*", async (route) => {
+      const url = new URL(route.request().url());
+      if (url.pathname !== "/api/sessions") return route.continue();
+      return route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          truncated: true,
+          sessions: Array.from({ length: 25 }, (_, index) => ({
+            id: `ses_search_${index}`,
+            title: `Duplicate title ${index}`,
+            directory: DIR,
+            childCount: 0,
+            cost: 0,
+            tokens: { input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0 },
+            createdAt: new Date(0).toISOString(),
+            updatedAt: new Date(index * 1000).toISOString(),
+            archived: false,
+            running: index === 0,
+          })),
+        }),
+      });
+    });
+    await page.goto(mainSession);
+    await page.getByTestId("composer-workflow-select").click();
+    await page.locator('[data-testid="composer-workflow-option"][data-workflow-id="session-update"]').click();
+    const dialog = page.getByTestId("composer-workflow-dialog");
+    await expect(dialog.getByTestId("composer-workflow-session-option")).toHaveCount(25);
+    await expect(dialog.getByTestId("composer-workflow-sessions-truncated")).toContainText("first 25 matches");
+    await expect(dialog.getByTestId("composer-workflow-session-option").first()).toContainText("Running");
   });
 
   test("managed child: explains the contract, launches only on explicit confirm", async ({ page }) => {
@@ -268,6 +344,103 @@ test.describe("workflow picker UI", () => {
     expect(created!.parentID).toBe(MAIN);
     expect(created!.agent).toBe("plan");
     await dialog.getByTestId("composer-workflow-done-close").click();
+  });
+
+  test("start DCA session: defaults isolated and Plan, uses the composer model, and creates one root", async ({ page }) => {
+    const marker = `WF-ROOT-${Date.now()}`;
+    const beforeUrl = mainSession;
+    await page.goto(beforeUrl);
+    await page.getByTestId("composer-workflow-select").click();
+    await page.locator('[data-testid="composer-workflow-option"][data-workflow-id="start-dca-session"]').click();
+    const dialog = page.getByTestId("composer-workflow-dialog");
+    await expect(dialog.getByTestId("composer-workflow-root-assignment")).toBeFocused();
+    await expect(dialog.getByTestId("composer-workflow-root-isolated")).toBeChecked();
+    await expect(dialog.getByTestId("composer-workflow-root-mode-plan")).toHaveAttribute("aria-pressed", "true");
+    await expect(dialog.getByTestId("composer-workflow-root-model")).toHaveAttribute("value", "anthropic/claude-opus-5");
+    await expect(dialog.getByTestId("composer-workflow-root-directory")).toContainText(DIR);
+    await dialog.getByTestId("composer-workflow-root-assignment").fill(marker);
+    await dialog.getByTestId("composer-workflow-preview").click();
+    await expect(dialog.getByTestId("composer-workflow-root-summary")).toContainText("no parentID");
+    await expect(dialog.getByTestId("composer-workflow-injector")).toContainText("independent root session");
+    await expect(dialog.getByTestId("composer-workflow-apply")).toHaveCount(0);
+    await dialog.getByTestId("composer-workflow-root-start").click();
+    await expect(dialog.getByTestId("composer-workflow-done")).toContainText("no parent");
+    await expect(dialog.getByTestId("composer-workflow-open-session")).toHaveAttribute("href", /mock-workflow-project\.worktrees/);
+    expect(page.url()).toContain(beforeUrl);
+
+    const creates = await (await fetch(`${MOCK_URL}/test/session-payloads`)).json() as Array<Record<string, unknown>>;
+    const created = creates.filter((item) => item.agent === "plan" && item.parentID === undefined).at(-1)!;
+    expect(created).toBeDefined();
+    expect(created.parentID).toBeUndefined();
+    expect(created.model).toMatchObject({ providerID: "anthropic", id: "claude-opus-5" });
+    const payload = await expectPromptPayloadContaining(marker);
+    expect(payload.sessionID).not.toBe(MAIN);
+    expect(payload.agent).toBe("plan");
+    expect(promptText(payload)).toContain('<workflow name="start-dca-session">');
+  });
+
+  test("start DCA session: existing-directory Build requires authorization", async ({ page }) => {
+    const marker = `WF-ROOT-BUILD-${Date.now()}`;
+    await page.goto(mainSession);
+    await page.getByTestId("composer-workflow-select").click();
+    await page.locator('[data-testid="composer-workflow-option"][data-workflow-id="start-dca-session"]').click();
+    const dialog = page.getByTestId("composer-workflow-dialog");
+    await dialog.getByTestId("composer-workflow-root-assignment").fill(marker);
+    await dialog.getByTestId("composer-workflow-root-isolated").uncheck();
+    await dialog.getByTestId("composer-workflow-root-mode-build").click();
+    await dialog.getByTestId("composer-workflow-preview").click();
+    await expect(dialog.getByTestId("composer-workflow-root-start")).toBeDisabled();
+    await dialog.getByTestId("composer-workflow-root-build-confirm").check();
+    await page.route("**/api/session-workflows/start?*", async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      await route.continue();
+    }, { times: 1 });
+    const start = dialog.getByTestId("composer-workflow-root-start");
+    await start.click();
+    await expect(start).toHaveText("Starting…");
+    await expect(start).toBeDisabled();
+    await expect(dialog.getByTestId("composer-workflow-done")).toContainText(DIR);
+    const payload = await expectPromptPayloadContaining(marker);
+    expect(payload.agent).toBe("build");
+  });
+
+  test("start DCA session: structured failure identifies the surviving session and disables retry", async ({ page }) => {
+    const marker = `WF-ROOT-FAIL-${Date.now()}`;
+    await fetch(`${MOCK_URL}/test/root-workflow-failure`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ stage: "prompt", directory: DIR }) });
+    const createsBefore = (await (await fetch(`${MOCK_URL}/test/session-payloads`)).json() as unknown[]).length;
+    await page.goto(mainSession);
+    await page.getByTestId("composer-workflow-select").click();
+    await page.locator('[data-testid="composer-workflow-option"][data-workflow-id="start-dca-session"]').click();
+    const dialog = page.getByTestId("composer-workflow-dialog");
+    await dialog.getByTestId("composer-workflow-root-assignment").fill(marker);
+    await dialog.getByTestId("composer-workflow-root-isolated").uncheck();
+    await dialog.getByTestId("composer-workflow-preview").click();
+    await dialog.getByTestId("composer-workflow-root-start").click();
+    await expect(dialog.getByTestId("composer-workflow-root-failure-stage")).toContainText("opening prompt submission");
+    await expect(dialog.getByTestId("composer-workflow-open-partial-session")).toBeVisible();
+    await expect(dialog.getByTestId("composer-workflow-root-attempt-guidance")).toContainText("Do not retry blindly");
+    await expect(dialog.getByTestId("composer-workflow-root-attempt-guidance")).toContainText("does not survive a BFF restart");
+    await expect(dialog.getByTestId("composer-workflow-root-start")).toBeDisabled();
+    const createsAfter = (await (await fetch(`${MOCK_URL}/test/session-payloads`)).json() as unknown[]).length;
+    expect(createsAfter - createsBefore).toBe(1);
+  });
+
+  test("start DCA session: ambiguous network failure disables retry and gives inspection guidance", async ({ page }) => {
+    await page.goto(mainSession);
+    await page.getByTestId("composer-workflow-select").click();
+    await page.locator('[data-testid="composer-workflow-option"][data-workflow-id="start-dca-session"]').click();
+    const dialog = page.getByTestId("composer-workflow-dialog");
+    await dialog.getByTestId("composer-workflow-root-assignment").fill(`WF-ROOT-NETWORK-${Date.now()}`);
+    await dialog.getByTestId("composer-workflow-root-isolated").uncheck();
+    await dialog.getByTestId("composer-workflow-preview").click();
+    await page.route("**/api/session-workflows/start?*", (route) => route.abort("connectionfailed"), { times: 1 });
+    await dialog.getByTestId("composer-workflow-root-start").click();
+    await expect(dialog.getByTestId("composer-workflow-error")).toBeVisible();
+    const guidance = dialog.getByTestId("composer-workflow-root-attempt-guidance");
+    await expect(guidance).toContainText("result is ambiguous");
+    await expect(guidance).toContainText("Inspect the Hub, session list, and project worktrees first");
+    await expect(guidance).toContainText("close and reopen");
+    await expect(dialog.getByTestId("composer-workflow-root-start")).toBeDisabled();
   });
 
   test("managed child: Explore launches read-only with no authorization step", async ({ page }) => {
@@ -473,6 +646,23 @@ test.describe("mobile composer collapse guard", () => {
     await expect(collapsed).toHaveCount(0);
     await page.getByTestId("composer-workflow-close").tap();
     await expect(composer).toBeVisible();
+  });
+
+  test("the independent-root form remains usable as a mobile sheet", async ({ page }) => {
+    await page.goto(mainSession);
+    await page.getByTestId("composer-workflow-select").tap();
+    await page.locator('[data-testid="composer-workflow-option"][data-workflow-id="start-dca-session"]').tap();
+    const dialog = page.getByTestId("composer-workflow-dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByTestId("composer-workflow-root-assignment")).toBeFocused();
+    await expect(dialog.getByTestId("composer-workflow-root-directory")).toContainText(DIR);
+    await expect(dialog.getByTestId("composer-workflow-root-isolated")).toBeChecked();
+    await dialog.getByTestId("composer-workflow-root-assignment").fill("Mobile root preview only");
+    await dialog.getByTestId("composer-workflow-preview").tap();
+    await expect(dialog.getByTestId("composer-workflow-root-start")).toBeVisible();
+    await dialog.getByTestId("composer-workflow-cancel").tap();
+    await expect(dialog).toHaveCount(0);
+    await expect(page).toHaveURL(mainSession);
   });
 });
 

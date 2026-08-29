@@ -494,6 +494,24 @@ several decisions below.
     dead button. Its `ModelPicker` must pass `portalLayer="nested"`: the default `z-[90]`
     portal renders *behind* this `z-[95]` dialog, and "nested" is also what inerts and
     `aria-hidden`s the parent so focus cannot land underneath the open picker.
+21b. **Starting a DCA session creates an independent root, not a Managed Child.** The
+    workflow locks its project to the source session's canonical directory, defaults to
+    an isolated worktree and the current composer model, and offers only Plan or explicitly
+    authorized Build. It creates no `parentID`, task card, provenance record or automatic
+    hand-back, and success leaves the source route, draft, transcript, mode and policy
+    untouched. The dedicated BFF endpoint validates the source session, exact body keys,
+    workflow id, model/variant, mode and authorization before mutation; the browser never
+    supplies a path field or trusted injector body. Within one BFF process, each
+    source-directory/session/key tuple caches one fingerprinted promise, including failures,
+    so duplicate submissions share the same outcome. This is not durable idempotency across
+    BFF restarts: a process can die after creating a worktree or root but before returning its
+    response. The client therefore permits exactly one Start attempt per open dialog, including
+    after structured or ambiguous failures; the human must inspect the Hub, session list and
+    worktrees, then close and reopen the form for an explicit new attempt and fresh key.
+    Failures distinguish worktree setup, session creation and opening-prompt rejection; the
+    latter returns the surviving session so the UI can link to it honestly. Unlike review
+    workflows this workflow has no Apply-to-composer path: previewing mutates nothing and only
+    **Start session** launches it.
 22. **PR previews are static simulators, never public agent servers.** GitHub Pages cannot
     host the Express BFF or `opencode serve`, and putting either on a public endpoint would
     require credentials and expose host-level agent authority. `VITE_PUBLIC_SIMULATOR=true`

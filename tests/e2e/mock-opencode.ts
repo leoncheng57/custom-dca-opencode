@@ -316,6 +316,7 @@ const messages = new Map<string, unknown[]>([
 const promptPayloads: Array<Record<string, unknown> & { sessionID: string }> = [];
 let sessionListRequests = 0;
 let createdSessionSequence = 0;
+const rootWorkflowFailures = new Map<string, "worktree" | "session" | "prompt">();
 let mobileRunning = true;
 const sessionPayloads: Array<Record<string, unknown>> = [];
 const toolIDs = [
@@ -1189,6 +1190,18 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     return;
   }
   if (pathname === "/test/session-payloads") return json(res, 200, sessionPayloads);
+  if (pathname === "/test/root-workflow-failure" && req.method === "POST") {
+    void body(req).then((input) => {
+      const stage = input.stage;
+      const failureDirectory = typeof input.directory === "string" ? input.directory : "";
+      if (!failureDirectory || (stage !== "worktree" && stage !== "session" && stage !== "prompt")) {
+        return json(res, 400, { error: "directory and stage are required" });
+      }
+      rootWorkflowFailures.set(failureDirectory, stage);
+      json(res, 200, { stage, directory: failureDirectory });
+    });
+    return;
+  }
   if (pathname === "/test/sharing/reset" && req.method === "POST") {
     // Scoped by session on purpose. `share` lives on the fixture objects this one
     // mock process serves to every Playwright worker, and Playwright runs spec
@@ -1406,9 +1419,13 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
   if (pathname === "/experimental/worktree") {
     if (req.method === "GET") return json(res, 200, worktrees);
     if (req.method === "POST") {
+      if (directory && rootWorkflowFailures.get(directory) === "worktree") {
+        rootWorkflowFailures.delete(directory);
+        return json(res, 503, { error: "mock root worktree failure" });
+      }
       void body(req).then((input) => {
         const name = typeof input.name === "string" ? input.name : `mock-${Date.now()}`;
-        const directory = `${MOCK_DIRECTORY}.worktrees/${name}`;
+        const directory = `${url.searchParams.get("directory") ?? MOCK_DIRECTORY}.worktrees/${name}`;
         mkdirSync(directory, { recursive: true });
         worktrees.push(directory);
         const value = { name, branch: name, directory };
@@ -1432,10 +1449,18 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
   if (pathname === "/session" && req.method === "GET") {
     sessionListRequests += 1;
     if (!directory) return json(res, 400, { error: "directory required" });
-    return json(res, 200, SESSIONS.filter((s) => s.directory === directory));
+    const search = url.searchParams.get("search")?.toLowerCase();
+    const limit = Number(url.searchParams.get("limit") ?? 100);
+    const matching = SESSIONS.filter((s) => s.directory === directory)
+      .filter((s) => !search || `${s.title} ${s.id}`.toLowerCase().includes(search));
+    return json(res, 200, matching.slice(0, Number.isFinite(limit) ? limit : 100));
   }
 
   if (pathname === "/session" && req.method === "POST") {
+    if (directory && rootWorkflowFailures.get(directory) === "session") {
+      rootWorkflowFailures.delete(directory);
+      return json(res, 503, { error: "mock root session creation failure" });
+    }
     let raw = "";
     req.on("data", (chunk) => (raw += chunk));
     req.on("end", () => {
@@ -1503,6 +1528,10 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
         const text = parts.find((part) => part.type === "text")?.text;
         if (text === "FAIL_MANAGED_PROMPT") {
           return json(res, 503, { error: "mock managed prompt failure" });
+        }
+        if (session.directory && rootWorkflowFailures.get(session.directory) === "prompt") {
+          rootWorkflowFailures.delete(session.directory);
+          return json(res, 503, { error: "mock root opening prompt failure" });
         }
         if (typeof text === "string") {
           const now = Date.now();
