@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 2,
+  "prNumber": 295,
+  "sourceSha": "37ebcbd1e65961018bdd05109854704b8183bf55",
+  "capturedAt": "2026-08-29T17:14:18.382Z",
+  "screenshots": [
+    {
+      "requestedRoute": "/?directory=/tmp/mock-project",
+      "fullPage": false,
+      "captures": {
+        "desktop": {
+          "filename": "01-home-directory-tmp-mock-project-cd94ccea--desktop.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 800
+          },
+          "bytes": 78296,
+          "sha256": "66a6d534a6e85dd25644a87da468c368999a07de6d3691095845e32e14b2f4a2"
+        },
+        "mobile": {
+          "filename": "01-home-directory-tmp-mock-project-abda7d68--mobile.png",
+          "dimensions": {
+            "width": 390,
+            "height": 740
+          },
+          "bytes": 54452,
+          "sha256": "cd3b9a4b4ffbc94fd9ff1a1f30d5326ec40ce09e93c6c1b2ca179139cc30c4d0"
+        }
+      }
+    },
+    {
+      "requestedRoute": "/settings/notifications?directory=/tmp/mock-project",
+      "fullPage": true,
+      "captures": {
+        "desktop": {
+          "filename": "02-settings-notifications-directory-tmp-mock-project-1d8c4655--desktop--full.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 2210
+          },
+          "bytes": 226927,
+          "sha256": "61d52145213e8f77c04ff48d3f667d4690a810a7850806b71f0f8c0d133b68e8"
+        },
+        "mobile": {
+          "filename": "02-settings-notifications-directory-tmp-mock-project-831e19be--mobile--full.png",
+          "dimensions": {
+            "width": 390,
+            "height": 3346
+          },
+          "bytes": 221337,
+          "sha256": "e0fb3ab0a3006042ce5571930fb8f3c565133b7c6543139232e0c320bea74c32"
+        }
+      }
+    }
+  ]
+}
