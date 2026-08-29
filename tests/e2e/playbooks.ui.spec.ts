@@ -1,8 +1,16 @@
 import { expect, test } from "@playwright/test";
+import { readdirSync } from "node:fs";
 
 // The mock canonicalizes its fixture directory, so macOS needs the /private
 // spelling or the catalogue resolves to a different project.
 const DIR = process.platform === "darwin" ? "/private/tmp/mock-project" : "/tmp/mock-project";
+// Derived from the catalogue on disk rather than a fixed list or total, so a
+// command added by any branch is covered without editing this assertion.
+const COMMAND_NAMES = readdirSync(new URL("../../agent-skills/commands/", import.meta.url), {
+  withFileTypes: true,
+})
+  .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
+  .map((entry) => entry.name.replace(/\.md$/, ""));
 
 test.describe("Playbooks", () => {
   test("is first-class navigation on the bar beside Planning", async ({ page }) => {
@@ -14,7 +22,9 @@ test.describe("Playbooks", () => {
     await expect(page).toHaveTitle("Playbooks | DCA");
     await expect(page.getByTestId("opencode-playbooks-wip-warning")).toHaveText("Playbooks is still work in progress and its UI/UX may contain bugs.");
     await expect(page.getByRole("heading", { name: "Repeatable work, invoked on purpose." })).toBeVisible();
-    for (const command of ["dca", "goal", "leaving-now-wrap-up"]) {
+    expect(COMMAND_NAMES).toContain("goal");
+    expect(COMMAND_NAMES).toContain("system-design-artifacts");
+    for (const command of COMMAND_NAMES) {
       await expect(page.getByTestId(`opencode-playbook-command-${command}`)).toBeVisible();
     }
   });
