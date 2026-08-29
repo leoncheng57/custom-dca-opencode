@@ -4,9 +4,10 @@ agent: build
 ---
 
 Use DCA's BFF API for `$ARGUMENTS`. This is the agent-facing HTTP workflow for
-creating, prompting, and observing sessions. It is distinct from issue #216's
-human-only composer workflow: that UI asks a human to review and launch a
-session, while this command calls already-authorized BFF endpoints directly.
+creating, prompting, and observing sessions. It is distinct from DCA's
+human-only "Start a DCA session" composer workflow: that UI asks a human to
+review and launch a session, while this command calls already-authorized BFF
+endpoints directly.
 
 First establish the boundary:
 

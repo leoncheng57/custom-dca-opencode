@@ -10,7 +10,7 @@ caveat: >-
 
 ## user
 
-/leaving-now-wrap-up post what you have to PR #412
+/leaving-now-wrap-up post what you have to the current pull request
 
 ## assistant
 
@@ -52,7 +52,7 @@ https://github.com/acme/app/pull/412
 
 ## assistant
 
-Posted to PR #412 and refreshed `.agent-status.json` at
+Posted to the current pull request and refreshed `.agent-status.json` at
 `2026-08-29T20:14:05Z`.
 
 - Branch: `feat/retry-policy`
