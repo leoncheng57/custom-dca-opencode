@@ -1,0 +1,104 @@
+{
+  "schemaVersion": 2,
+  "prNumber": 319,
+  "sourceSha": "14d0e5c95c63c51958be35db59a6f4e06cf684ab",
+  "capturedAt": "2026-08-29T21:54:30.265Z",
+  "screenshots": [
+    {
+      "requestedRoute": "/playbooks",
+      "fullPage": false,
+      "captures": {
+        "desktop": {
+          "filename": "01-playbooks-03d0309b--desktop.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 800
+          },
+          "bytes": 91598,
+          "sha256": "d8c08e566d4f8a4bf502165edc5983136c3289c01c7131a99dae173cf02833dd"
+        },
+        "mobile": {
+          "filename": "01-playbooks-f11cb8cf--mobile.png",
+          "dimensions": {
+            "width": 390,
+            "height": 740
+          },
+          "bytes": 55411,
+          "sha256": "b2dc958e8aae402e818c916a761e94de172a1dee10ff19b7f0e7a167d2e38e12"
+        }
+      }
+    },
+    {
+      "requestedRoute": "/playbooks/commands/verify",
+      "fullPage": false,
+      "captures": {
+        "desktop": {
+          "filename": "02-playbooks-commands-verify-072d1d49--desktop.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 800
+          },
+          "bytes": 87960,
+          "sha256": "cd77f33b197e3e7fb35b4ed7555663bd3a2b26da2f0ff23718796c60e995fe3c"
+        },
+        "mobile": {
+          "filename": "02-playbooks-commands-verify-c4ba2af6--mobile.png",
+          "dimensions": {
+            "width": 390,
+            "height": 740
+          },
+          "bytes": 49082,
+          "sha256": "c131de0aefc486966ac031637d419f591a5b7e5d91925fe02934fa4a03125b71"
+        }
+      }
+    },
+    {
+      "requestedRoute": "/playbooks/commands/diagram",
+      "fullPage": false,
+      "captures": {
+        "desktop": {
+          "filename": "03-playbooks-commands-diagram-2a80a1d6--desktop.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 800
+          },
+          "bytes": 91020,
+          "sha256": "809acd25abc9c198378615656ffc5e24013a54e0b4308ad60944ade4e2258001"
+        },
+        "mobile": {
+          "filename": "03-playbooks-commands-diagram-6f50dbf4--mobile.png",
+          "dimensions": {
+            "width": 390,
+            "height": 740
+          },
+          "bytes": 49698,
+          "sha256": "5b86a521e3d377ea4734e837a6cb9029b6eccc8607c2865a9325ed24c51e9b4d"
+        }
+      }
+    },
+    {
+      "requestedRoute": "/playbooks/commands/docs-preview",
+      "fullPage": false,
+      "captures": {
+        "desktop": {
+          "filename": "04-playbooks-commands-docs-preview-1b24a8ab--desktop.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 800
+          },
+          "bytes": 96249,
+          "sha256": "dee056437c7bdcb787ecf26d8a54732194a1c1e49724156e12cd4a6740cb82e9"
+        },
+        "mobile": {
+          "filename": "04-playbooks-commands-docs-preview-24b3f318--mobile.png",
+          "dimensions": {
+            "width": 390,
+            "height": 740
+          },
+          "bytes": 53172,
+          "sha256": "caeefe8d5053201b1a85cb4b4d82eaa1b65122787cc02494405fe1eee8b62aa4"
+        }
+      }
+    }
+  ]
+}
