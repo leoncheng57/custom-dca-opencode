@@ -527,8 +527,10 @@ interface FakeNotification {
 async function runPushWorker(options: {
   existing?: Array<{ title: string; body: string }>;
   getNotificationsThrows?: boolean;
+  failShowOnce?: boolean;
 } = {}): Promise<{
   push: (payload: unknown) => Promise<void>;
+  pushConcurrent: (payload: unknown) => Promise<unknown>;
   shown: Array<{ title: string; body: string; tag?: string }>;
   notifications: FakeNotification[];
 }> {
@@ -582,6 +584,10 @@ async function runPushWorker(options: {
           return notifications.filter((n) => !n.closed);
         },
         showNotification: async (title: string, opts: { body: string; tag?: string }) => {
+          if (options.failShowOnce && shown.length === 0) {
+            shown.push({ title, body: opts.body, ...(opts.tag ? { tag: opts.tag } : {}) });
+            throw new Error("show failed");
+          }
           shown.push({ title, body: opts.body, ...(opts.tag ? { tag: opts.tag } : {}) });
           notifications.push({ title, body: opts.body, closed: false, close() { this.closed = true; } });
         },
@@ -601,6 +607,14 @@ async function runPushWorker(options: {
       handler({ data: { json: () => payload }, waitUntil: (v: Promise<unknown>) => { waited = v; } });
       await waited;
     },
+    /** Dispatches without awaiting, so two handlers can be made to overlap. */
+    pushConcurrent: (payload: unknown) => {
+      const handler = listeners.get("push");
+      if (!handler) throw new Error("sw.js registered no push listener");
+      let waited: Promise<unknown> = Promise.resolve();
+      handler({ data: { json: () => payload }, waitUntil: (v: Promise<unknown>) => { waited = v; } });
+      return waited;
+    },
   };
 }
 
@@ -618,6 +632,45 @@ describe("duplicate push notifications", () => {
     expect(worker.shown).toHaveLength(2);
     expect(worker.notifications.filter((n) => !n.closed)).toHaveLength(1);
     expect(worker.notifications.filter((n) => n.closed)).toHaveLength(1);
+  });
+
+  it("leaves one card when duplicates arrive together, not seconds apart", async () => {
+    // The real failure. showCollapsed is check-then-act, so two handlers
+    // running concurrently both read an empty list before either has shown,
+    // neither closes anything, and two cards appear. Observed on device:
+    // pushes 8s apart collapsed correctly while a duplicate arriving within
+    // milliseconds did not.
+    const worker = await runPushWorker();
+    const payload = { title: "Session", body: "Sent - five pushes", tag: "ses_1" };
+
+    await Promise.all([worker.pushConcurrent(payload), worker.pushConcurrent(payload)]);
+
+    expect(worker.shown).toHaveLength(2);
+    expect(worker.notifications.filter((n) => !n.closed)).toHaveLength(1);
+  });
+
+  it("keeps concurrent distinct notifications", async () => {
+    // Serializing must not collapse genuinely different content.
+    const worker = await runPushWorker();
+
+    await Promise.all([
+      worker.pushConcurrent({ title: "Session", body: "First", tag: "ses_1" }),
+      worker.pushConcurrent({ title: "Session", body: "Second", tag: "ses_1" }),
+    ]);
+
+    expect(worker.notifications.filter((n) => !n.closed).map((n) => n.body).sort())
+      .toEqual(["First", "Second"]);
+  });
+
+  it("keeps showing notifications after one fails", async () => {
+    // The queue chains through rejection as well as fulfilment, so a single
+    // failure must not wedge every later notification.
+    const worker = await runPushWorker({ failShowOnce: true });
+
+    await worker.push({ title: "Session", body: "Fails", tag: "ses_1" }).catch(() => undefined);
+    await worker.push({ title: "Session", body: "Succeeds", tag: "ses_1" });
+
+    expect(worker.shown.some((n) => n.body === "Succeeds")).toBe(true);
   });
 
   it("never resolves without showing a notification", async () => {
