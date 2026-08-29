@@ -24,7 +24,21 @@ Current flag value:
 6. Report the type, scope, and returned `task_id`, then end the turn. Do not
    poll, sleep, or begin the same work "while it runs".
 
-Never claim the task is complete when it has only been launched.
+Never claim the task is complete when it has only been launched. A background
+result is not shown directly to the user; relay it when it returns.
 
-For preconditions, context-restatement rules, resuming via `task_id`, and the
-full failure-mode table, load the `background-subagent` skill.
+Do not background work when you need its result this turn, the task needs
+back-and-forth, it takes only a handful of tool calls, it overlaps files or a
+shared resource you will touch, or this session is already a subagent. The
+usual `subagent_depth` limit is one.
+
+If the user corrects a running task, pass its `task_id` with the added context;
+that continues the same task. Reusing a finished `task_id` resumes its session.
+
+| Failure | Response |
+|---|---|
+| Background flag is unavailable | Offer foreground execution or an OpenCode restart; never silently block |
+| Depth limit or unknown agent type | Stop; do not bypass the limit, and inspect the roster |
+| Prompt is ambiguous | Ask before launch; a child cannot recover through dialogue |
+| Files or shared state overlap | Keep the work inline or assign disjoint ownership |
+| Result arrives | Verify and relay it; do not assume the launch response was completion |

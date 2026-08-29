@@ -27,7 +27,20 @@ and a self-contained handoff packet.
    and that the first reply understood the packet. A successful process start
    proves what was requested, not what the provider accepted.
 
-Use cmux only as an optional presentation wrapper and never steal focus.
+Use cmux only as an optional presentation wrapper and never steal focus. Store
+the packet outside every worktree and keep secrets out of it: prompt text can
+surface in shell history or process arguments. Require the child's first reply
+to restate its path, branch, objective, ownership, agent, model, variant,
+permission posture, and stop condition before work begins.
 
-For the mechanism comparison, launch forms, safety rules, and verification
-failures, load the `session-handoff` skill.
+| Failure | Response |
+|---|---|
+| Child edits instead of planning | Relaunch with `--agent plan`; prose is not mode control |
+| History was copied unexpectedly | Use a fresh TUI or run without continuation/fork flags |
+| Child opens the wrong repository | Pass an absolute project path or `--dir` |
+| Parent and child overwrite one another | Assign disjoint ownership and stop one writer |
+| Secret appears in process arguments | Stop, remove it, and rotate the exposed credential |
+| Provider ignores the reasoning variant | Mark acceptance UNVERIFIED until reported |
+
+After launch, report what started and end the parent turn. Do not begin the
+child's assigned work.

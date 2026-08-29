@@ -3,6 +3,7 @@ import { ArrowRightLeft, Bird, BookOpen, Check, ChevronDown, Circle, ExternalLin
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 
+import { commandForReminder } from "../../agent-skills/src/lib/reminderCommands.js";
 import type { ReminderSummary } from "../lib/api.js";
 
 const LISTBOX_ID = "composer-reminder-listbox";
@@ -235,7 +236,7 @@ export function ReminderPicker({
                 {isSelected && <Check aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-[var(--color-text-info)]" />}
                   </button>
                   <Link
-                    to={`/playbooks/skills/${reminder.id}`}
+                    to={`/playbooks/commands/${commandForReminder(reminder.id)}`}
                     target="_blank"
                     rel="noreferrer"
                     className="flex h-full w-11 shrink-0 items-center justify-center border-l border-[var(--color-border-default)] text-[var(--color-text-link)] hover:bg-[var(--hh-row-hover)]"

@@ -58,9 +58,8 @@ prompt means re-reading a lot of the repository, and all of that reading happene
 in a subagent — the parent session got back one file path and the finished text
 instead of thirty tool results.
 
-That is the strongest argument for a command over a skill in a long session:
-the expensive part runs somewhere else and never touches the context you are
-trying to preserve.
+That is the strongest argument for this command in a long session: the expensive
+part runs somewhere else and never touches the context you are preserving.
 
 The command stops before firing. Showing the prompt is the last cheap moment to
 correct scope.

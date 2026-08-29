@@ -3,7 +3,7 @@ title: Duck rules reasserted after a long session
 trigger: /duck-mode
 caveat: >-
   Two turns cannot demonstrate durability. This remains model-mediated behavior;
-  only the plugin described by the skill can make framing deterministic.
+  only an output plugin such as the one described by the command can make framing deterministic.
 ---
 
 # Worked example

@@ -32,6 +32,6 @@ and the exact verification command it must run before committing and pushing.
 
 ## note
 
-For the inherited Plan-deny risk, containment rules, parallel-ownership
-limits, and the full failure-mode table, load the `native-worktree-subagents`
-skill.
+The command itself carries the inherited Plan-deny risk, containment rules,
+parallel-ownership limits, and failure handling; there is no second source to
+load or drift.

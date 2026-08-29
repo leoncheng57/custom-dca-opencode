@@ -19,8 +19,15 @@ From this reply onward:
 
 This command re-injects the instruction late in a long session; it does not
 make the behavior deterministic. A model-mediated command can still decay or
-fail after compaction. If duck framing must be guaranteed, use the output hook
-described by the full skill instead.
+fail after compaction.
 
-For the measured reliability results, plugin tradeoffs, and known limitations,
-load the `duck-mode` skill.
+If framing must be guaranteed, use an output plugin on
+`experimental.text.complete`, pin its behavior with a test, and accept that the
+hook is undocumented and fires once per text part rather than once per response.
+Such a plugin can guarantee duck presence but cannot stop the model discussing
+them. Use persistent agent instructions for that generation rule. Never claim
+post-compaction, interactive-TUI, cross-model, or future-version behavior was
+verified unless it was exercised directly.
+
+Always-on behavior belongs in a plugin, hook, or agent instructions rather than
+in a command. This command is appropriate only for explicit, on-demand use.

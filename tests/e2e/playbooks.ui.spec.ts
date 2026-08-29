@@ -13,45 +13,37 @@ test.describe("Playbooks", () => {
     await expect(page).toHaveURL("/playbooks");
     await expect(page).toHaveTitle("Playbooks | DCA");
     await expect(page.getByTestId("opencode-playbooks-wip-warning")).toHaveText("Playbooks is still work in progress and its UI/UX may contain bugs.");
-    await expect(page.getByRole("heading", { name: "Repeatable ways to work with an agent." })).toBeVisible();
-    await expect(page.getByTestId("opencode-playbook-skill-card")).toHaveCount(15);
+    await expect(page.getByRole("heading", { name: "Repeatable work, invoked on purpose." })).toBeVisible();
     await expect(page.getByTestId("opencode-playbook-command-card")).toHaveCount(17);
   });
 
-  test("distinguishes model-selected skills from human-invoked commands", async ({ page }) => {
+  test("presents commands as human-invoked with zero at-rest context", async ({ page }) => {
     await page.goto("/playbooks");
-    // The distinction is the load-bearing fact on this page, so it must be on
-    // the card itself rather than only in the hero prose.
-    const skill = page.getByTestId("opencode-playbook-skill-card").first();
     const command = page.getByTestId("opencode-playbook-command-card").first();
-    await expect(skill).toContainText("model-selected");
     await expect(command).toContainText("human-invoked");
-    await expect(skill).toHaveAttribute("data-playbook-kind", "skill");
     await expect(command).toHaveAttribute("data-playbook-kind", "command");
-    // Colour, not just wording: the two chips must not render identically.
-    const chipColour = (root: typeof skill) => root.locator("span").first().evaluate((node) => getComputedStyle(node).backgroundColor);
-    expect(await chipColour(skill)).not.toBe(await chipColour(command));
+    await expect(page.getByText("At-rest tokens")).toBeVisible();
   });
 
-  test("filters by tag and opens a skill with simulation and installation", async ({ page }) => {
-    await page.goto("/playbooks/skills");
-    await page.getByTestId("opencode-playbook-filter").fill("critique");
-    await expect(page.getByTestId("opencode-playbook-skill-card")).toHaveCount(2);
+  test("filters commands and opens one with simulation and installation", async ({ page }) => {
+    await page.goto("/playbooks/commands");
+    await page.getByTestId("opencode-playbook-filter").fill("design tree");
+    await expect(page.getByTestId("opencode-playbook-command-card")).toHaveCount(1);
 
-    await page.getByTestId("opencode-playbook-skill-grill-me").click();
-    await expect(page).toHaveURL("/playbooks/skills/grill-me");
-    await expect(page).toHaveTitle("Skill | Playbooks | DCA");
+    await page.getByTestId("opencode-playbook-command-grill-me").click();
+    await expect(page).toHaveURL("/playbooks/commands/grill-me");
+    await expect(page).toHaveTitle("Command | Playbooks | DCA");
     await expect(page.getByTestId("opencode-playbook-dialog")).toBeVisible();
     await expect(page.getByTestId("opencode-playbook-dialog").getByTestId("opencode-playbooks-wip-warning")).toHaveText("Playbooks is still work in progress and its UI/UX may contain bugs.");
     await expect(page.getByTestId("opencode-playbooks")).toBeVisible();
     await expect(page.getByTestId("opencode-playbook-simulation")).toBeVisible();
-    await page.getByText("Install grill-me", { exact: true }).click();
-    await expect(page.getByText("npx skills add", { exact: false }).first()).toBeVisible();
+    await page.getByText("Install /grill-me", { exact: true }).click();
+    await expect(page.getByText("curl -sL", { exact: false }).first()).toBeVisible();
   });
 
   test("closes a direct detail URL back to the all-playbooks catalogue", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
-    await page.goto("/playbooks/skills/ascii-diagrams");
+    await page.goto("/playbooks/commands/diagram");
     const dialog = page.getByTestId("opencode-playbook-dialog");
     await expect(dialog).toBeVisible();
     const box = await dialog.boundingBox();
@@ -65,14 +57,14 @@ test.describe("Playbooks", () => {
 
   test("dismisses with Escape and with a backdrop click", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
-    await page.goto("/playbooks/skills/ascii-diagrams");
+    await page.goto("/playbooks/commands/diagram");
     const dialog = page.getByTestId("opencode-playbook-dialog");
     await expect(dialog).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(page).toHaveURL("/playbooks");
     await expect(dialog).toHaveCount(0);
 
-    await page.goto("/playbooks/skills/ascii-diagrams");
+    await page.goto("/playbooks/commands/diagram");
     await expect(dialog).toBeVisible();
     // Click the ::backdrop region, which is the dialog element itself.
     await page.mouse.click(6, 6);
@@ -82,7 +74,7 @@ test.describe("Playbooks", () => {
 
   test("keeps focus in the document after the modal closes", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
-    await page.goto("/playbooks/skills/ascii-diagrams");
+    await page.goto("/playbooks/commands/diagram");
     const dialog = page.getByTestId("opencode-playbook-dialog");
     await expect(dialog).toBeVisible();
     await expect(dialog.getByTestId("opencode-playbook-close")).toBeFocused();
@@ -95,7 +87,7 @@ test.describe("Playbooks", () => {
 
   test("puts simulation controls above the transcript and locks background scroll", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
-    await page.goto("/playbooks/skills/grill-me");
+    await page.goto("/playbooks/commands/grill-me");
     const simulation = page.getByTestId("opencode-playbook-simulation");
     await expect(simulation).toBeVisible();
     expect(await page.evaluate(() => getComputedStyle(document.body).overflow)).toBe("hidden");
@@ -120,30 +112,29 @@ test.describe("Playbooks", () => {
     await page.goto("/playbooks");
     await page.evaluate(() => localStorage.removeItem("opencode.directory.v1"));
     await page.reload();
-    await expect(page.getByTestId("opencode-playbook-skill-card").first()).toBeVisible();
-    await expect(page.getByTestId("opencode-playbook-skill-load-state")).toHaveCount(0);
+    await expect(page.getByTestId("opencode-playbook-command-card").first()).toBeVisible();
+    await expect(page.getByTestId("opencode-playbook-command-load-state")).toHaveCount(0);
 
     // With a project, every claim carries the project name — installation is
     // per-directory while this page is global.
     await page.goto(`/playbooks?directory=${encodeURIComponent(DIR)}`);
-    const state = page.getByTestId("opencode-playbook-skill-load-state").first();
+    const state = page.getByTestId("opencode-playbook-command-load-state").first();
     await expect(state).toBeVisible();
     await expect(state).toContainText("mock-project");
     await expect(state).toHaveAttribute("data-installed", /true|false/);
 
-    // The mock server reports one loaded skill, so both states are represented.
-    const loaded = page.locator('[data-testid="opencode-playbook-skill-load-state"][data-installed="true"]');
-    const notLoaded = page.locator('[data-testid="opencode-playbook-skill-load-state"][data-installed="false"]');
+    const loaded = page.locator('[data-testid="opencode-playbook-command-load-state"][data-installed="true"]');
+    const notLoaded = page.locator('[data-testid="opencode-playbook-command-load-state"][data-installed="false"]');
     expect(await loaded.count() + await notLoaded.count()).toBeGreaterThan(0);
   });
 
   test("says plainly that viewing or copying installs nothing", async ({ page }) => {
-    await page.goto("/playbooks/skills/grill-me");
+    await page.goto("/playbooks/commands/grill-me");
     await expect(page.getByTestId("opencode-playbook-scope-note")).toContainText("does not install anything");
     await expect(page.getByTestId("opencode-playbook-scope-note")).toContainText("does not attach anything to a conversation");
 
     // The install disclosure must not imply the app performs the install.
-    await page.getByText("Install grill-me", { exact: true }).click();
+    await page.getByText("Install /grill-me", { exact: true }).click();
     await expect(page.getByTestId("opencode-playbook-install-note")).toContainText("does not install anything");
 
     // Source links name the revision they follow rather than implying a pin.
@@ -156,7 +147,7 @@ test.describe("Playbooks", () => {
     // block on the dark panel and hid the text entirely.
     await page.addInitScript(() => localStorage.setItem("theme", "light"));
     await page.emulateMedia({ colorScheme: "light" });
-    await page.goto("/playbooks/skills/grill-me");
+    await page.goto("/playbooks/commands/grill-me");
     const code = page.getByTestId("opencode-playbook-simulation").locator("code").first();
     await expect(code).toBeVisible();
     const { background, colour } = await code.evaluate((node) => ({
@@ -173,19 +164,20 @@ test.describe("Playbooks", () => {
   });
 
   test("states the caveat exactly once", async ({ page }) => {
-    await page.goto("/playbooks/skills/grill-me");
+    await page.goto("/playbooks/commands/grill-me");
     await expect(page.getByTestId("opencode-playbook-dialog")).toBeVisible();
     await expect(page.getByText("Caveat:", { exact: false })).toHaveCount(1);
     await expect(page.getByText("Simulation disclosure")).toHaveCount(0);
   });
 
-  test("shows command relationships and remains usable on a phone", async ({ page }) => {
+  test("shows the complete command procedure and remains usable on a phone", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 740 });
     await page.goto("/playbooks/commands/verify");
 
     await expect(page).toHaveTitle("Command | Playbooks | DCA");
     await expect(page.getByTestId("opencode-playbook-dialog").getByRole("heading", { name: "/verify <arguments>" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "human-verification-steps" })).toBeVisible();
+    await page.getByText("Command template", { exact: true }).click();
+    await expect(page.getByTestId("opencode-playbook-dialog")).toContainText("Failure");
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 
     // Full-screen on a phone, not a centred card with unreachable backdrop.

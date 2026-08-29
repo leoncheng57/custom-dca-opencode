@@ -27,5 +27,4 @@ trusted body (`server/routes/sessions.ts:118-119`).
 ## note
 
 The line range came from reading the file, not from guessing at the function
-name. For the full citation-selection rules and failure-mode table, load the
-`cite-file-lines` skill.
+name. The command itself carries the citation-selection and failure rules.

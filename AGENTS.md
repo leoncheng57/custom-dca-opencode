@@ -53,10 +53,10 @@ several decisions below.
 - `reminders/<id>/SKILL.md` is read at runtime, not emitted by `tsc`. Keep the root
   catalogue beside `dist/` in deployments. Per-message injection accepts an ID only;
   the BFF resolves the body and appends the `<reminder name="id">` sentinel.
-- `agent-skills/` holds portable skill, command, and simulation Markdown migrated from
-  `leoncheng57/agent-skills`; it is content, not a second app. The Runner renders it
-  natively under `/playbooks`. This remains separate from runtime reminders and the
-  installed-skill `/api/catalog`, which reports what the connected OpenCode loaded.
+- `agent-skills/` holds repository-owned OpenCode commands, simulations, and supporting
+  docs; it is content, not a second app. The Runner renders it natively under
+  `/playbooks`. This remains separate from runtime reminders and `/api/catalog`, which
+  reports external skills and commands loaded by the connected OpenCode process.
 
 ## Agent working conventions
 
@@ -893,9 +893,16 @@ several decisions below.
     worth reaching. Its wording is duplicated in the outside-window notice, which tells
     the reader to use it by name — change the two together or the notice points at a
     control that is not on screen.
-31. **Playbooks reports installation, it never performs it, and every claim names
-    the project it is about.** The catalogue is a build-time, repository-owned
-    inventory compiled from `agent-skills/` into the bundle; whether a playbook is
+31. **Repository Playbooks are commands-first, while connected-process skills remain
+    a separate inventory.** The catalogue is a build-time, repository-owned command
+    inventory compiled from `agent-skills/` into the bundle. Commands require explicit
+    human invocation and contribute zero at-rest retrieval context, so each command owns
+    its complete procedure, safety boundaries and failure handling. This repository ships
+    no skills. Runtime reminders under root `reminders/` are also separate: they remain
+    application-owned per-message prompt bodies and are never sourced from commands.
+    The runtime `/skill` Catalog panel still reports whatever external skills and
+    commands the connected OpenCode process loaded; do not remove or narrow
+    `server/opencode/catalog.ts`. Whether a repository command is
     actually *loaded* is a per-directory runtime fact only `/api/catalog` knows.
     Those are different questions and the page now answers both without conflating
     them. Installation itself stays external: the UI only ever copies a shell
@@ -913,7 +920,8 @@ several decisions below.
     while tracking a moving target is the dishonest option. Related but distinct,
     and stated on the page because the composer's reminder picker deep-links here:
     attaching a reminder is a per-message action that needs no installation, and
-    shares only a name with the skill of the same id.
+    links through an explicit validated reminder-id-to-command mapping; name transforms
+    are never guessed.
 
 ## Client conventions (inherited from the OpenHands runner, still enforced)
 

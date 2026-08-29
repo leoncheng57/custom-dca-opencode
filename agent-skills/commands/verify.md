@@ -39,5 +39,22 @@ shown in the diff, scoped to `$ARGUMENTS` when it names a surface:
 - End with a disposition: Ready to ship, Fixes required, Partially verified, or
   Blocked on human access.
 
-For the full procedure and its failure modes, load the
-`human-verification-steps` skill.
+Research the changed routes, help text, API contracts, tests, start commands,
+ports, fixtures, roles, flags, and deployment target yourself. Ask the user only
+for access or product intent that the repository cannot establish. Do not use
+implementation-detail checks; verify what a user can see or accomplish.
+
+A screenshot proves one visual instant, not focus movement, persistence, time,
+keyboard operation, or error handling. Exercise those behaviors directly.
+
+After execution, list `VERIFIED`, `FAILED`, and `UNVERIFIED` separately, keeping
+empty categories visible. End with exactly one disposition: **Ready to ship**,
+**Fixes required**, **Partially verified**, or **Blocked on human access**.
+
+| Failure | Response |
+|---|---|
+| Project commands differ from those above | Stop and report the shell-injection limitation; use the repository's real checks in a revised command |
+| Automation is red | Stop with Fixes required |
+| Infrastructure prevents a check | Mark it UNVERIFIED, never passed |
+| A step lacks URL, data, viewport, role, or expected output | Add the missing setup before handing it to a human |
+| Checklist exceeds 12 steps | Remove automated or low-information duplication |

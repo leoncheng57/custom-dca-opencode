@@ -17,19 +17,18 @@ caveat: >-
 Three questions on the frontier. Q4 (install instructions) depends on Q2, so it
 waits for round 2.
 
-Q1 - **Do commands get their own route, or share the skills grid?** A shared
-grid keeps one search box, but commands and skills answer different questions
-and mixing them buries the smaller set.
+Q1 - **Do commands get a dedicated route as well as the catalogue index?** A
+single canonical route is simpler, but `/playbooks/commands` makes the content
+type explicit in links and leaves room for later Playbook types.
 
--> Separate route. The two have different install paths and different
-portability guarantees, and a visitor looking for one is not browsing the other.
+-> Keep both `/playbooks` and `/playbooks/commands`, rendering one catalogue.
 
 Q2 - **Where do command worked-examples live?** Beside the command is the
 obvious answer, but `commands/` is a namespace: OpenCode registers every `.md`
 in it, so a sibling file becomes a bogus slash command.
 
--> Separate `command-simulations/` directory. It breaks symmetry with skills,
-which is a real cost, but the alternative pollutes the user's autocomplete.
+-> Separate `command-simulations/` directory. The alternative pollutes the
+user's autocomplete.
 
 Q3 - **Ship Claude Code variants?** Claude Code reads `.claude/commands/` with
 a different frontmatter dialect.
@@ -48,5 +47,5 @@ prerequisite is still open forces a hypothetical answer that settles nothing.
 the plan agent has edit and bash set to ask, so a grilling cannot quietly start
 implementing its own recommendations.
 
-The turn ends here, waiting. That is the skill's actual behaviour, and a
+The turn ends here, waiting. That is the command's actual behaviour, and a
 transcript that answered its own questions would misrepresent it.

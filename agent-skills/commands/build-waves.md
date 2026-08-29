@@ -36,5 +36,22 @@ During the run:
 Stop only for a real product/scope/safety decision, an unassessed verification
 failure, or every wave including final verification being green.
 
-For context-budget rules, fan-out limits, audit queries, and stopping failures,
-load the `build-waves` skill.
+Keep fan-out flat and capped around five tasks. Prefer read-only children while
+the parent owns coherent writes. Every task must name owned files, forbidden
+files and shared resources, its input, its output, and its acceptance check.
+
+Persist load-bearing findings and the next-wave brief in the plan file; chat is
+not durable across compaction. A standalone CMUX child cannot wake this parent
+by writing status or notifying the human, so never promise unattended progress
+without a tested, serialized supervisor.
+
+Afterward, use child session records only as provenance and cost evidence, not
+as a substitute for the planned final verification.
+
+| Failure | Response |
+|---|---|
+| Children repeat research | Tighten artifact and directory boundaries |
+| Two tasks touch a lockfile, port, database, or generated output | Sequence them or give integration to the parent |
+| Context compacts or the model changes | Restore the plan file and synchronized task list |
+| Final checks fail | Add a bounded fix wave, then rerun affected and aggregate checks |
+| A standalone child finishes | Resume only on a real inbound turn; status and CMUX alerts are not callbacks |

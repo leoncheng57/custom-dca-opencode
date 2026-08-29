@@ -57,9 +57,9 @@ The four shell blocks are not the assistant deciding to run things. They are
 `` !`command` `` interpolations in the template: they executed before the model
 saw the prompt, so their output was already in the turn.
 
-That ordering is the guard. A skill has to *decide* to run the checks and can
-skip them; the command cannot, because the output arrives whether the model
-wants it or not. The reward is that a red build never reaches a human.
+That ordering is the guard. The command cannot skip the checks because their
+output arrives before the model handles the procedure. The reward is that a red
+build never reaches a human.
 
 Note the honest split at the end. Running the commands is not the same as
 looking at the page, and the report says so rather than claiming a pass.

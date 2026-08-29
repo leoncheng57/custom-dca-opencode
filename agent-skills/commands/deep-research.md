@@ -27,5 +27,20 @@ If it qualifies:
 Do not dispatch sequential questions whose later shape depends on an earlier
 answer, and do not let research agents mutate state.
 
-For escalation signals, prompt anatomy, fan-out limits, and synthesis failures,
-load the `deep-research-subagents` skill.
+Use a flat fan-out: the usual subagent depth is one. Cap the batch at five;
+above that overlap and synthesis cost usually erase the gain. A `general` agent
+must be told READ-ONLY at both the start and end of its prompt; prefer the
+enforced read-only `explore` agent whenever its tools are sufficient.
+
+Specify a bounded deliverable, such as one answer-first section per numbered
+question under 800 words. If a live API is in scope, allow GET only and request
+the verbatim schema rather than a paraphrase.
+
+| Failure | Response |
+|---|---|
+| Reports repeat each other | Split by artifact or directory and name exclusions |
+| Reports are essays without evidence | Ask numbered questions and require citations |
+| A report contains invented certainty | Merge `UNVERIFIED` lists and spot-check its load-bearing claim |
+| A child mutates state | Stop it; use enforced read-only delegation |
+| Calls ran sequentially | Relaunch independent axes concurrently or keep the work inline |
+| Synthesis is longer than the reports | Answer first, reconcile conflicts, preserve only decisive evidence |

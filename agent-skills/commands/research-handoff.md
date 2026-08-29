@@ -24,7 +24,23 @@ Three phases, in order:
    choices are answered.
 
 Use plain ASCII in prompt files, and do not recreate a baseline from a stale
-local default branch.
+local default branch. Research axes must be independent, read-only, and large
+enough to justify delegation; a needle lookup stays inline. State READ-ONLY at
+both ends of each prompt. Restrict live API probes to GET and preserve verbatim
+response shapes.
 
-For live probing, prompt hygiene, worktree setup, and the complete phase gates,
-load the `parallel-research-handoff` skill.
+For later launch, fetch first, create sibling worktrees from the remote default
+branch, install dependencies in each, and prove a baseline before allowing
+edits. Enumerate fixed ports, writable state, databases, generated output, and
+lockfiles in every receiving prompt. Only one worker may own a shared resource.
+Never steal focus when creating a session.
+
+| Failure | Response |
+|---|---|
+| Research agent starts implementing | Stop it and strengthen the read-only boundary |
+| Receiving agent re-greps everything | Add `file:line` evidence and explicit negative findings |
+| Scope is relitigated | Preserve the decision's rationale and evidence |
+| Both workers bind one port or state directory | Keep stack-free checks parallel; serialize the shared stack |
+| First test is red | Establish whether baseline or worker caused it before proceeding |
+| Prompt is mangled | Store plain-ASCII text in a file; do not inline multiline shell arguments |
+| Live feature silently no-ops | Probe its actual gate or API before writing the handoff |

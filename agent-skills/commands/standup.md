@@ -34,5 +34,5 @@ Rules:
 - `$ARGUMENTS` may narrow the scope to one project or topic; if it does, drop
   everything else.
 
-This command has no skill behind it deliberately: it is a small, self-contained
-utility that does not need a permanent slot in the agent's retrieval context.
+This small utility is deliberately self-contained and adds no retrieval context
+until a human invokes it.

@@ -9,7 +9,7 @@ import { DIRECTORY_STORAGE_KEY, resolvePaletteDirectory } from "./palette.js";
  * for the project the user last selected (issue #232).
  *
  * The Playbooks catalogue is a build-time, repository-owned inventory; whether
- * a skill is *installed* is a per-directory runtime fact from `/api/catalog`.
+ * a command is *installed* is a per-directory runtime fact from `/api/catalog`.
  * Playbooks routes carry no `?directory=`, so the last selected project is
  * resolved the same way the palette and notification centre resolve it.
  *
@@ -26,7 +26,6 @@ export interface PlaybookInstallState {
   status: PlaybookInstallStatus;
   /** Basename of the resolved project, for labelling the claim. */
   directoryLabel: string;
-  installedSkills: ReadonlySet<string>;
   installedCommands: ReadonlySet<string>;
 }
 
@@ -34,7 +33,6 @@ export interface PlaybookInstallState {
 export const UNKNOWN_INSTALL_STATE: PlaybookInstallState = {
   status: "unknown",
   directoryLabel: "",
-  installedSkills: new Set(),
   installedCommands: new Set(),
 };
 
@@ -58,7 +56,6 @@ export function installStateFrom(directory: string, catalogue: CatalogResponse |
   return {
     status: "ready",
     directoryLabel: projectLabel(directory),
-    installedSkills: new Set(catalogue.skills.map((skill) => skill.name)),
     installedCommands: new Set(catalogue.commands.map((command) => command.name)),
   };
 }

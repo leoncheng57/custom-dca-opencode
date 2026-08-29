@@ -1153,7 +1153,7 @@ test.describe("composer", () => {
     const humanVerification = page.locator('[data-testid="composer-reminder-option"][data-reminder-id="human-verification-steps"]');
     await expect(humanVerification).toHaveAccessibleName("Attach Write Human Verification Steps");
     const details = page.locator('[data-testid="composer-reminder-details"][data-reminder-id="human-verification-steps"]');
-    await expect(details).toHaveAttribute("href", "/playbooks/skills/human-verification-steps");
+    await expect(details).toHaveAttribute("href", "/playbooks/commands/verify");
     await expect(details).toHaveAttribute("target", "_blank");
     await expect(details).toHaveAccessibleName("Open Write Human Verification Steps details in a new tab");
     // The details link is a real touch target in its own right (matching

@@ -7,7 +7,6 @@ import {
   parseCommand,
 } from './commands'
 import { commands as realCommands } from './commandsSource'
-import { skills as realSkills } from './skillsSource'
 
 const COMMAND_MD = [
   '---',
@@ -64,42 +63,6 @@ describe('parseCommand', () => {
   it('reads subtask as a boolean', () => {
     const sub = parseCommand('../../commands/x.md', '---\ndescription: d\nsubtask: true\n---\nbody')!
     expect(sub.subtask).toBe(true)
-  })
-
-  it('derives the related skill from the deferral in the template', () => {
-    // Not from name equality: `/red-team` defers to `red-team-this`, because
-    // nobody wants to type a skill's full name as a slash command.
-    const linked = parseCommand(
-      '../../commands/red-team.md',
-      '---\ndescription: d\n---\nDo the thing.\n\nLoad the `red-team-this` skill for the rest.',
-      { skillNames: new Set(['red-team-this']) }
-    )!
-    expect(linked.relatedSkills).toEqual(['red-team-this'])
-  })
-
-  it('records several references in template order', () => {
-    const composite = parseCommand(
-      '../../commands/handoff.md',
-      '---\ndescription: d\n---\nSee `parallel-research-handoff`, then `session-handoff`.',
-      { skillNames: new Set(['session-handoff', 'parallel-research-handoff']) }
-    )!
-    expect(composite.relatedSkills).toEqual(['parallel-research-handoff', 'session-handoff'])
-  })
-
-  it('reports no relation when the template names no skill', () => {
-    const standalone = parseCommand('../../commands/standup.md', '---\ndescription: d\n---\nbody', {
-      skillNames: new Set(['grill-me']),
-    })!
-    expect(standalone.relatedSkills).toEqual([])
-  })
-
-  it('ignores a skill name that only appears inside a shell interpolation', () => {
-    const shelled = parseCommand(
-      '../../commands/x.md',
-      '---\ndescription: d\n---\n!`grill-me --version`\n',
-      { skillNames: new Set(['grill-me']) }
-    )!
-    expect(shelled.relatedSkills).toEqual([])
   })
 
   it('rejects a command with an empty template', () => {
@@ -165,49 +128,23 @@ describe('the shipped commands', () => {
   )
 
   it.each(realCommands.map((c) => [c.name, c] as const))(
-    '%s only references skills that exist',
+    '%s is self-contained and never defers to a repository skill',
     (_name, command) => {
-      for (const skill of command.relatedSkills) {
-        expect(realSkills.some((s) => s.name === skill)).toBe(true)
-      }
+      expect(command.body).not.toMatch(/load (?:the )?`[^`]+` skill|full skill/i)
     }
   )
 
-  it.each(realCommands.map((c) => [c.name, c] as const))(
-    '%s never restates a skill failure-mode table',
-    (_name, command) => {
-      // The house rule: a command carries the happy path, the skill carries
-      // the failure modes. Two copies of a failure-mode table drift.
-      expect(command.body).not.toMatch(/\|\s*Symptom\s*\|/)
-    }
-  )
+  it('allows standalone commands with no paired content or naming convention', () => {
+    const standalone = parseCommand('../../commands/new-utility.md', '---\ndescription: A standalone command.\n---\nDo the complete thing.')
+    expect(standalone?.name).toBe('new-utility')
+  })
 
   it('showcases every distinctive command capability at least once', () => {
-    // The catalogue exists to demonstrate what a command can do that a skill
-    // cannot. Losing the last example of one of these would make the point
-    // silently unprovable.
+    // Keep the catalogue's command-specific interpolation and routing features
+    // exercised by at least one real entry.
     expect(realCommands.some((c) => c.takesArguments)).toBe(true)
     expect(realCommands.some((c) => c.runsShell)).toBe(true)
     expect(realCommands.some((c) => c.subtask)).toBe(true)
     expect(realCommands.some((c) => c.agent === 'plan')).toBe(true)
-    expect(realCommands.some((c) => c.relatedSkills.length === 1)).toBe(true)
-    expect(realCommands.some((c) => c.relatedSkills.length > 1)).toBe(true)
-    expect(realCommands.some((c) => c.relatedSkills.length === 0)).toBe(true)
-  })
-
-  it('gives every shipped skill its own one-to-one command', () => {
-    const uncovered = realSkills
-      .filter(
-        (skill) =>
-          !realCommands.some(
-            (command) =>
-              command.relatedSkills.length === 1 && command.relatedSkills[0] === skill.name,
-          ),
-      )
-      .map((skill) => skill.name)
-
-    // Composite commands do not count. `/handoff` names two skills, so both
-    // still need dedicated short forms whose reverse links can be unambiguous.
-    expect(uncovered).toEqual([])
   })
 })

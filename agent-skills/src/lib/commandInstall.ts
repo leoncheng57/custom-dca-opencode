@@ -9,9 +9,8 @@ export interface CommandInstallMethod {
 }
 
 /**
- * Installing a command is copying **one file**, which is why none of the
- * directory-shaped methods used for skills (`degit`, sparse checkout) appear
- * here — they would clone a tree to place a single markdown file.
+ * Installing a command is copying one file; cloning a content tree just to
+ * place one Markdown file would add unnecessary machinery.
  */
 export function commandInstallMethods(name: string): CommandInstallMethod[] {
   const raw = `https://raw.githubusercontent.com/${REPO_SLUG}/${DEFAULT_BRANCH}/${CONTENT_ROOT}/commands/${name}.md`
@@ -65,9 +64,8 @@ export interface CommandScope {
 /**
  * Where a command file has to live to be discovered.
  *
- * Deliberately shorter than the skills table, and that is the point: a skill
- * has six discovery paths across three agent families, a command has two — both
- * OpenCode. Claude Code's `.claude/commands/` is listed so the difference is
+ * A repository command has two OpenCode discovery paths. Claude Code's
+ * `.claude/commands/` is listed so the difference is
  * visible rather than implied, but this repository does not ship that dialect.
  */
 export const COMMAND_SCOPES: CommandScope[] = [

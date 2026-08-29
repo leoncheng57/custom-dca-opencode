@@ -1,6 +1,6 @@
 # Credits
 
-One skill in this repository is adapted from another open-source project.
+One command in this repository is adapted from another open-source project.
 The original author retains copyright; their licence terms are reproduced below.
 
 ---
@@ -14,17 +14,16 @@ The original author retains copyright; their licence terms are reproduced below.
 
 ### Adapted, not vendored
 
-No file in this repository is a copy of upstream. The one skill that derives
+No file in this repository is a copy of upstream. The command that derives
 from it is an original rewrite:
 
-[`skills/grill-me/SKILL.md`](skills/grill-me/SKILL.md) adopts the
+[`commands/grill-me.md`](commands/grill-me.md) adopts the
 rounds-and-frontier model from upstream `skills/productivity/grilling/SKILL.md`
 @ `0ab1b63`, including its round output format. It differs deliberately:
 
-- Upstream ships a `grill-me` → `grilling` wrapper pair, where `grill-me` sets
-  `disable-model-invocation: true`. OpenCode ignores that key, so the split
-  would produce two always-loaded descriptions for one behaviour. This repo
-  ships **one** model-invoked skill named `grill-me`.
+- Upstream ships a `grill-me` → `grilling` skill pair. This repository adapts
+  the behavior into one explicitly invoked `/grill-me` command with no
+  retrieval description resident in agent context.
 - A closing step offering to emit the outcome as a handoff document or an ADR is
   added; upstream has no equivalent.
 

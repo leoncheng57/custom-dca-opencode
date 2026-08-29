@@ -22,7 +22,6 @@ import { PUBLIC_SIMULATOR } from "./lib/runtime.js";
 import "./styles.css";
 
 const PlaybooksPage = lazy(() => import("./pages/Playbooks.js").then((module) => ({ default: module.PlaybooksPage })));
-const SkillPlaybookPage = lazy(() => import("./pages/PlaybookDetail.js").then((module) => ({ default: module.SkillPlaybookPage })));
 const CommandPlaybookPage = lazy(() => import("./pages/PlaybookDetail.js").then((module) => ({ default: module.CommandPlaybookPage })));
 
 function playbookPage(page: ReactNode): ReactNode {
@@ -57,9 +56,7 @@ async function start(): Promise<void> {
                 <Route path="/dsh" element={<DshPage />} />
                 <Route path="/dsh/sessions/:id" element={<DshConversationPage />} />
                 <Route path="/playbooks" element={playbookPage(<PlaybooksPage />)} />
-                <Route path="/playbooks/skills" element={playbookPage(<PlaybooksPage kind="skills" />)} />
-                <Route path="/playbooks/skills/:name" element={playbookPage(<SkillPlaybookPage />)} />
-                <Route path="/playbooks/commands" element={playbookPage(<PlaybooksPage kind="commands" />)} />
+                <Route path="/playbooks/commands" element={playbookPage(<PlaybooksPage />)} />
                 <Route path="/playbooks/commands/:name" element={playbookPage(<CommandPlaybookPage />)} />
               </Route>
             </Routes>

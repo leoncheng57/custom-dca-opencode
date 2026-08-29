@@ -107,8 +107,8 @@ npm run service:install && npm run service:status
 curl --fail http://127.0.0.1:3210/api/health
 ```
 
-Skills and custom commands are read **at startup**, so installing one and expecting the
-running process to notice will not work. Restart OpenCode.
+Repository Playbooks commands, and external skills or commands reported by the connected
+process, are read **at startup**. Restart OpenCode after installing one.
 
 **What remains unverified by design.** Nothing in CI invokes a real MCP tool or a real
 slash command: the E2E suite runs against deterministic mocks with no agent and no LLM

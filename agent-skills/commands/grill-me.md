@@ -26,5 +26,16 @@ Format each question as:
 
 Hold your position if I give an answer you believe is wrong, and say why.
 
-For the stop condition and how to persist the outcome as a handoff doc or an
-ADR, load the `grill-me` skill.
+The session is complete only when the frontier is empty. Then summarize every
+agreed decision and wait for confirmation before acting. Once confirmed, offer
+to persist the result as either a decision-closed handoff document or an ADR
+with context, decision, and consequences.
+
+| Failure | Response |
+|---|---|
+| An answer depends on another open question | Move it to a later round |
+| The exchange becomes one-question-at-a-time | Recompute and ask the whole frontier |
+| A factual lookup stalls the round | Delegate the lookup; ask unaffected decisions now |
+| Recommendations carry no reasoning | State the tradeoff and why you prefer one option |
+| Build relitigates settled decisions | Persist the confirmed outcome with rationale |
+| Questions stop but assumptions remain | Recompute unvisited branches; the frontier is not empty |
