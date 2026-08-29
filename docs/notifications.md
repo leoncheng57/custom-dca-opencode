@@ -59,6 +59,12 @@ not offline-capable, and live sessions, questions, permissions, and API response
 come from the network. A newly installed worker waits until the app displays its update
 notice. **Update** activates it and reloads; **Later** retains the current worker.
 
+The app asks the browser to re-fetch `sw.js` whenever it returns to the foreground and
+hourly while it stays open. Without that, an installed PWA resumed from memory never
+performs the navigation the browser needs to notice a new worker, so the update notice
+never appears and the device runs a stale worker indefinitely. Checking only downloads
+and installs; activation still waits for your explicit **Update** tap.
+
 Browsers retire push subscriptions on their own schedule. The worker listens for
 `pushsubscriptionchange` and re-registers the device in place, so delivery recovers
 without anyone re-saving Settings. This is the only network write the worker makes: one

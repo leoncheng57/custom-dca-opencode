@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { Button } from "../ds/button.js";
+import { scheduleSwUpdateChecks } from "../lib/swUpdateCheck.js";
 
 export function ServiceWorkerUpdate() {
   const [waiting, setWaiting] = useState<ServiceWorker | null>(null);
@@ -8,6 +9,8 @@ export function ServiceWorkerUpdate() {
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
     let refreshing = false;
+    let disposed = false;
+    let stopUpdateChecks: (() => void) | undefined;
     const onControllerChange = () => {
       if (refreshing) return;
       refreshing = true;
@@ -15,6 +18,7 @@ export function ServiceWorkerUpdate() {
     };
     navigator.serviceWorker.addEventListener("controllerchange", onControllerChange);
     void navigator.serviceWorker.register("/sw.js").then((registration) => {
+      if (disposed) return;
       if (registration.waiting) setWaiting(registration.waiting);
       registration.addEventListener("updatefound", () => {
         const installing = registration.installing;
@@ -22,8 +26,17 @@ export function ServiceWorkerUpdate() {
           if (installing.state === "installed" && navigator.serviceWorker.controller) setWaiting(installing);
         });
       });
+      // Registration alone re-fetches sw.js only on a full navigation, which
+      // an installed PWA resumed from memory never performs — so without an
+      // explicit check the Update banner never appears on the platform that
+      // needs it most. Activation still waits for the user's tap.
+      stopUpdateChecks = scheduleSwUpdateChecks(registration);
     }).catch(() => undefined);
-    return () => navigator.serviceWorker.removeEventListener("controllerchange", onControllerChange);
+    return () => {
+      disposed = true;
+      navigator.serviceWorker.removeEventListener("controllerchange", onControllerChange);
+      stopUpdateChecks?.();
+    };
   }, []);
 
   if (!waiting) return null;
