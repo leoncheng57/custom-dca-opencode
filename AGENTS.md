@@ -592,6 +592,37 @@ several decisions below.
     escalates, and the eventual idle overwrites whatever was left. Collapsing is
     presentation only: the per-record dedupe still governs sound and speech, so a
     distinct record is never silently skipped.
+24a. **iOS does not honour the tag, so tag collapsing is a desktop-only mitigation
+    and must never be load-bearing.** Measured directly on an installed iOS PWA:
+    two pushes sent seconds apart carrying an identical `tag`, with
+    `renotify: false`, produced **two** notification cards rather than one
+    replacing the other. Decision 24's "one replaceable slot per session" therefore
+    describes the intended contract, not observed iOS behaviour — on iPhone the
+    stale-card pile it was written to prevent still accumulates, and every
+    notification the server sends is a card the user must dismiss. The tag is kept:
+    it costs nothing, it works where it is honoured, and iOS may honour it later.
+    The real consequence is a design rule. **Anything that would be "collapsed
+    anyway" must be prevented from being sent at all**, because on the platform
+    that actually receives these notifications nothing is collapsed. Decision 24b
+    is the first application of that rule. When judging whether a second
+    notification is acceptable, assume it will be shown.
+24b. **A stopped session is not a finished one, and Stop must produce one
+    notification.** Pressing Stop makes upstream emit the abort and then
+    `session.idle` — captured 5 ms apart — and both were delivered. The second
+    claimed "Finished its turn and is waiting for you", which is not what
+    happened, and because the idle carries the *previous* turn's excerpt (decision
+    26/29) it rendered on a phone as a verbatim duplicate of the notification
+    immediately above it. An aborted session is idle by definition, so the pair is
+    one occurrence described twice. `session.idle` arriving within 30s of an abort
+    **for that same session** is therefore dropped. The window is generous because
+    anything genuinely new needs a fresh prompt, which cannot land inside it; the
+    key is directory + session id, so stopping one session never silences another
+    that legitimately finished at the same moment. It is **dropped, not recorded as
+    suppressed**: the suppression categories exist so "why was I never told?" stays
+    answerable, and here the user *was* told — by the abort for that very stop — so
+    a record whose only content restates its neighbour is clutter, not an audit
+    trail. This matches the existing echo dedupe, which also returns without
+    recording.
 25. **A kind switched off in every channel is suppressed, not silently badged.**
     Preferences used to gate delivery only, so turning a kind off silenced the ping but
     still wrote a permanent unresolved record — and `abort` ships disabled, so every

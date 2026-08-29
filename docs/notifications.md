@@ -74,6 +74,10 @@ warns to the console and the manual re-save still works.
 - Delivery stops after changing VAPID keys: disable/save, enable/save, and grant a fresh
   subscription on every device.
 - Provider returns 404 or 410: the BFF removes that expired subscription automatically.
+- Two cards on iPhone for one event: iOS does not honour the Web Push `tag`, so
+  notifications that are designed to replace one another stack instead. Pressing
+  Stop used to be the common cause (it emitted both an abort and an idle); that
+  pair is now collapsed server-side. Other stacking is a platform limitation.
 - Delivery silently stops on one device while the server reports success: the subscription
   rotated. This now self-heals; if it persists, re-save Settings on that device and remove
   any leftover `Unlinked` row.

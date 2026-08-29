@@ -253,6 +253,61 @@ describe("root session notification filtering", () => {
     return { bus, history, service };
   }
 
+  const abort = (directory: string, sessionID: string) => ({
+    type: "session.error",
+    directory,
+    properties: { sessionID, error: { name: "MessageAbortedError" } },
+  });
+
+  it("does not report a stopped session as having finished its turn", async () => {
+    // Pressing Stop makes upstream emit the abort and session.idle back to
+    // back. Both were delivered, so one action produced two notifications —
+    // and because the idle reuses the previous turn's excerpt, the second read
+    // as a verbatim duplicate of the one before it on a phone.
+    const fetchMock = vi.fn(async () => new Response("ok", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { bus, history, service } = startService(vi.fn(rootSession));
+
+    bus.emit("event", abort("/tmp/root", "ses_stopped"));
+    await vi.waitFor(async () => expect(await history.list()).toHaveLength(1));
+    bus.emit("event", idle("/tmp/root", "ses_stopped"));
+    // Give the idle a chance to be (wrongly) recorded before asserting absence.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const records = await history.list();
+    expect(records).toHaveLength(1);
+    expect(records[0].kind).toBe("abort");
+    service.stop();
+  });
+
+  it("still reports a session that goes idle without being stopped", async () => {
+    const fetchMock = vi.fn(async () => new Response("ok", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { bus, history, service } = startService(vi.fn(rootSession));
+
+    bus.emit("event", idle("/tmp/root", "ses_finished"));
+
+    await vi.waitFor(async () => expect(await history.list()).toHaveLength(1));
+    expect((await history.list())[0].kind).toBe("idle");
+    service.stop();
+  });
+
+  it("scopes the abort window to the session that was stopped", async () => {
+    // A stop in one session must not silence a different session that
+    // legitimately finished at the same moment.
+    const fetchMock = vi.fn(async () => new Response("ok", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { bus, history, service } = startService(vi.fn(rootSession));
+
+    bus.emit("event", abort("/tmp/root", "ses_stopped"));
+    await vi.waitFor(async () => expect(await history.list()).toHaveLength(1));
+    bus.emit("event", idle("/tmp/root", "ses_other"));
+
+    await vi.waitFor(async () => expect(await history.list()).toHaveLength(2));
+    expect((await history.list()).map((r) => r.kind).sort()).toEqual(["abort", "idle"]);
+    service.stop();
+  });
+
   it("records and delivers root session notifications", async () => {
     const fetchMock = vi.fn(async () => new Response("ok", { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
