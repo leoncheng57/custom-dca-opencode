@@ -1609,7 +1609,9 @@ test.describe("settings and tools UI", () => {
     // real target.
     const resolved = row.getByTestId("opencode-notification-resolved");
     await expect(resolved).toHaveAttribute("aria-pressed", "false");
-    await expect(resolved).toHaveText("Resolve");
+    // Icon-only, so the state lives in aria-pressed and the name in aria-label
+    // rather than in visible text.
+    await expect(resolved).toHaveAttribute("aria-label", "Resolve");
     const countBefore = await unresolvedCount();
     await resolved.click();
     if (countBefore > 1) {

@@ -355,7 +355,12 @@ for (const viewport of VIEWPORTS) {
       const notice = page.getByTestId("opencode-notification-popover-active-outside-window");
       await expect(notice).toBeVisible();
       await expect(notice).toContainText(`${outside} older unresolved records are outside this view`);
-      await expect(notice).toContainText("full notification history");
+      // The notice points at the footer link, so it has to name what that link
+      // actually says. Asserting the shared wording keeps the two from drifting
+      // into an instruction for a control that is not on screen.
+      const footerLabel = "See all notifications and settings";
+      await expect(notice).toContainText(footerLabel);
+      await expect(page.getByTestId("opencode-notification-popover-history")).toHaveText(footerLabel);
 
       // The history page reconciles its own badge the same way.
       await page.goto(`/settings/notifications?directory=${encodeURIComponent(DIR)}`);
@@ -850,9 +855,15 @@ for (const viewport of VIEWPORTS) {
       );
 
       // The point of the change: a tap target, not a ~13px run of underlined
-      // heading text.
+      // heading text. Icon-only dropped the label but must not have dropped
+      // the target with it, so both axes are asserted, not just the height.
       const box = await open.boundingBox();
       expect(box?.height ?? 0).toBeGreaterThanOrEqual(40);
+      expect(box?.width ?? 0).toBeGreaterThanOrEqual(40);
+      // No visible label left, so the accessible name is the only thing naming
+      // the destination. Losing it would make the control unusable by anyone
+      // not looking at the icon.
+      await expect(open).toHaveAttribute("aria-label", new RegExp("^Open session "));
 
       // Distinct from Resolve beside it. Primary is this app's green action
       // token and is already spent there, so two solid buttons in one colour
@@ -881,6 +892,31 @@ for (const viewport of VIEWPORTS) {
       // Nothing may push the panel into a horizontal scrollbar at any width.
       expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth))
         .toBeLessThanOrEqual(1);
+    });
+
+    test("keeps the group resolve control one width whatever its count", async ({ page }) => {
+      // This is the only control on the surface whose label embeds a number, so
+      // it was the only one that changed size as the number did: a group going
+      // from 9 to 10 shifted its own header, and two stacked groups with
+      // different counts never lined up. The two seeded sessions differ by a
+      // digit, which is exactly the case that used to diverge.
+      await page.goto(hub);
+      await bell(page).click();
+      await page.getByTestId("opencode-notification-filter-subagent").uncheck();
+
+      const resolves = popover(page).getByTestId("opencode-notification-group-resolve");
+      await expect(resolves).toHaveCount(2);
+      const [first, second] = await Promise.all([
+        resolves.nth(0).boundingBox(),
+        resolves.nth(1).boundingBox(),
+      ]);
+      // Different counts, identical box.
+      await expect(resolves.nth(0)).toHaveText(String(ACTIVE_COUNT));
+      await expect(resolves.nth(1)).toHaveText(String(SUBAGENT_COUNT));
+      expect(first?.width).toBe(second?.width);
+      // Wide enough to hold the largest count the window can produce without
+      // the digits colliding with the icon.
+      expect(first?.width ?? 0).toBeGreaterThanOrEqual(56);
     });
 
     test("expands every group at once and remembers that choice", async ({ page }) => {
@@ -969,9 +1005,13 @@ for (const viewport of VIEWPORTS) {
       // thumb-driven popover.
       await expect(control).toHaveRole("button");
       await expect(control).toHaveAttribute("aria-pressed", "false");
-      await expect(control).toHaveText("Resolve");
+      // Icon-only: the visible word is gone, so the accessible name is what
+      // has to carry it, and the target has to hold on both axes rather than
+      // collapsing to the width of an icon.
+      await expect(control).toHaveAttribute("aria-label", "Resolve");
       const box = await control.boundingBox();
       expect(box?.height ?? 0).toBeGreaterThanOrEqual(40);
+      expect(box?.width ?? 0).toBeGreaterThanOrEqual(40);
       const colors = await control.evaluate((element) => {
         const style = getComputedStyle(element);
         const primary = getComputedStyle(document.documentElement).getPropertyValue("--color-background-action-primary").trim();
@@ -997,15 +1037,16 @@ for (const viewport of VIEWPORTS) {
 
       const group = page.getByTestId("opencode-notification-group").first();
       const resolve = group.getByTestId("opencode-notification-group-resolve");
-      await expect(resolve).toHaveText(`Resolve all (${ACTIVE_COUNT})`);
+      // The control is icon + count now, so the count it acts on is asserted
+      // through the accessible name rather than a visible sentence.
+      await expect(resolve).toHaveText(String(ACTIVE_COUNT));
+      await expect(resolve).toHaveAttribute("aria-label", new RegExp(`^Resolve all ${ACTIVE_COUNT} for `));
       await resolve.click();
 
       await expect(page.getByTestId("opencode-notification-popover-active-count")).toHaveText(String(SUBAGENT_COUNT));
       const childGroup = page.getByTestId("opencode-notification-group").filter({ hasText: "Audit the delegated worktree" });
       await expect(childGroup).toHaveCount(1);
-      await expect(childGroup.getByTestId("opencode-notification-group-resolve")).toHaveText(
-        `Resolve all (${SUBAGENT_COUNT})`,
-      );
+      await expect(childGroup.getByTestId("opencode-notification-group-resolve")).toHaveText(String(SUBAGENT_COUNT));
       // The resolved archive retains the evidence; this only changed the
       // selected session, never a destructive global clear.
       await expandResolved(page);

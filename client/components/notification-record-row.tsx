@@ -1,4 +1,4 @@
-import { Check, Circle } from "lucide-react";
+import { Check, ExternalLink } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { Badge, type BadgeVariant } from "../ds/badge.js";
@@ -144,11 +144,12 @@ export function NotificationRecordRow({
     <li
       className={cn(
         // Wraps rather than squeezing. Two 44px actions plus a kind badge plus
-        // readable text do not fit one 390px line, and letting the text column
-        // absorb the whole deficit truncated headings to a few characters. With
-        // `flex-wrap` and a floor on the text column the action cluster drops to
-        // its own right-aligned line on a phone and stays inline on a desktop
-        // popover, with no breakpoint to keep in sync.
+        // readable text still do not reliably fit one 390px line — icon-only
+        // labels bought the cluster roughly 60px, not a guarantee — and letting
+        // the text column absorb the deficit truncated headings to a few
+        // characters. With `flex-wrap` and a floor on the text column the action
+        // cluster drops to its own right-aligned line on a phone and stays
+        // inline on a desktop popover, with no breakpoint to keep in sync.
         "flex flex-wrap items-start gap-3 border-b border-[var(--color-border-default)] last:border-0",
         compact ? "gap-x-2 gap-y-1.5 p-2" : "p-3",
       )}
@@ -264,14 +265,19 @@ export function NotificationRecordRow({
             className={buttonClasses({
               variant: "info",
               size: "sm",
-              className: cn("min-h-11 shrink-0 font-medium", compact ? "px-2.5 text-[11px]" : "px-3 text-xs"),
+              // Square rather than text-width. Icon-only is what buys the row
+              // its horizontal space back, but the tap target must not shrink
+              // with the label: `size-11` pins both axes at the 44px floor the
+              // text variant only guaranteed vertically.
+              className: "size-11 shrink-0 p-0",
             })}
             to={route}
             onClick={onNavigate}
             aria-label={`Open session ${record.sessionTitle ?? record.title}`}
+            title={`Open session ${record.sessionTitle ?? record.title}`}
             data-testid="opencode-notification-link"
           >
-            Open
+            <ExternalLink aria-hidden="true" size={15} />
           </Link>
         )}
         {/* A button rather than a checkbox: a 13px checkbox was a poor target
@@ -283,17 +289,24 @@ export function NotificationRecordRow({
           size="sm"
           variant={active ? "primary" : "ghost"}
           aria-pressed={!active}
+          aria-label={active ? "Resolve" : "Resolved"}
           className={cn(
-            "min-h-11 shrink-0 gap-1.5 font-medium",
-            compact ? "px-2 text-[11px]" : "px-3 text-xs",
+            // Same 44px square as Open beside it, for the same reason.
+            "size-11 shrink-0 p-0",
             !active && "text-[var(--color-text-muted)]",
           )}
           onClick={() => onResolvedChange(record.id, active)}
           title={active ? "Mark this resolved" : "Mark this unresolved again"}
           data-testid="opencode-notification-resolved"
         >
-          {active ? <Circle aria-hidden="true" size={13} /> : <Check aria-hidden="true" size={13} />}
-          {active ? "Resolve" : "Resolved"}
+          {/* One icon for both states, because the icon names the *action* and
+              the action is always "resolve". The state is carried by the
+              variant (solid = still to do, ghost = already done) and by
+              `aria-pressed`. The unresolved state used to draw an empty
+              `Circle`, which only read as "not done yet" while the word
+              "Resolve" sat next to it; alone on a solid green button it says
+              nothing about what pressing it would do. */}
+          <Check aria-hidden="true" size={15} />
         </Button>
       </div>
     </li>
