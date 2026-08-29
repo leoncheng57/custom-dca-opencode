@@ -89,7 +89,7 @@ with a `file:line`, because a number inside a diagram rots silently while a
 cited one stays checkable.
 
 Rendering to ASCII rather than SVG was a verification step, not the artifact —
-the file gets the Mermaid fence. Had this been a TechDocs page instead, the
-fence could not be assumed to render at all: TechDocs is MkDocs underneath and
-Mermaid support depends on the site's plugin chain, so it has to be tried and
-looked at before being relied on.
+the file gets the Mermaid fence. Had this been a static docs-site page instead,
+the fence could not be assumed to render at all: Mermaid support depends on
+that site's plugin chain, so it has to be tried and looked at before being
+relied on.
