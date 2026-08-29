@@ -944,6 +944,34 @@ several decisions below.
     The published catalogue is commands-only: the live **Workflows** category above is
     read from `GET /api/workflows` at runtime and is deliberately absent from this
     static output, which has no BFF to read it from.
+    **The staging destination is constrained in code, not by the YAML that calls it.**
+    Staging clears its destination before copying, so that one argument is the only
+    thing in this feature that can destroy unrelated published work: `--destination
+    ../site` is perfectly non-overlapping and would have removed an entire `gh-pages`
+    checkout, `.git` included. The function therefore requires the destination's leaf
+    name to be `agent-skills`, refuses a filesystem root or any path through `.git`,
+    and refuses **before** reading the manifest so a rejected destination is never
+    touched. The workflow literal is a convenience, never the boundary.
+    **The workflow's own safety is asserted structurally against a parsed document.**
+    Substring assertions over the YAML text were not a security check: `git push origin
+    +HEAD:gh-pages` force-pushes while containing neither `--force` nor `-f`, and an
+    added trigger or a second job-level `permissions:` block is invisible to `toContain`.
+    `scripts/publish-workflow-audit.ts` walks the parsed workflow and reports violations
+    — exact trigger set, no permission anywhere beyond `contents: write`, every `git add`
+    pathspec-scoped to `agent-skills`, no force flag or `+` refspec, and the expected
+    `--destination`. The test drives it with hostile mutations, so an audit that stops
+    catching an escalation fails rather than silently passing.
+    Trigger paths are `agent-skills/**`, matching issue #109's wording rather than the
+    narrower "only the files we render" set: that set would miss a new parser file under
+    `src/lib/`, and it buys nothing, because a change to an unrendered simulation
+    regenerates byte-identical output and the publish step exits 0 on an empty diff.
+    Source reads are guarded asymmetrically. A symlink or non-regular file in
+    `commands/` is fatal, because the publisher would otherwise render whatever it
+    points at, including content from outside the repository. A Markdown file that
+    merely is not a command is skipped with a warning, because failing the whole
+    publication over one stray `README.md` turns an editorial mistake into an outage.
+    The generator and the staging cross-check share one reader, so the manifest is
+    always compared against exactly the set the generator was allowed to render.
 
 ## Client conventions (inherited from the OpenHands runner, still enforced)
 
@@ -960,6 +988,13 @@ several decisions below.
   declares. `koffi` arrives transitively, is Windows-only (`kernel32.dll`, behind a
   dynamic `import`), and its install script is not approved here, so no native build runs
   and the module is never loaded on macOS or Linux.
+- `yaml` is a **devDependency only**, used by `tests/agent-skills-site.test.ts` to parse
+  the publication workflow so its triggers, permissions, pathspecs and push flags are
+  asserted structurally (decision 32). It ships in no bundle and no runtime path. It was
+  added rather than hand-rolled because the thing being checked is a security boundary,
+  and a regex approximation of YAML is exactly how `+HEAD:gh-pages` passed for a
+  force-push check. It is already an optional peer of `vite`, so it is not a new
+  ecosystem.
 - `mermaid` is the lazy-loaded diagram parser and layout engine for repository-owned
   in-app docs only. It runs with Mermaid strict security, then its generated SVG is
   stripped of links, executable DOM, embedded resources and unsafe CSS before mounting.

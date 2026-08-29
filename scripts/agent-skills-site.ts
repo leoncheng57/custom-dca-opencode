@@ -12,6 +12,7 @@ import {
 import path from "node:path";
 
 import {
+  compareCommandNames,
   invocation,
   isValidCommandName,
   loadCommandsFromFiles,
@@ -19,6 +20,18 @@ import {
 } from "../agent-skills/src/lib/commands.js";
 
 export const SITE_BASE_PATH = "/custom-dca-opencode/agent-skills/";
+
+/**
+ * The only directory name this publisher is ever allowed to delete and rewrite.
+ *
+ * Staging clears its destination before copying, so the destination is the one
+ * argument that can destroy unrelated published work. The overlap check alone
+ * does not constrain it: `--destination ../site` is non-overlapping and would
+ * remove an entire `gh-pages` checkout, `.git` included. Requiring the leaf
+ * name here means the workflow YAML is no longer the only thing standing
+ * between a typo and the rest of the site.
+ */
+const PUBLISH_DIRECTORY_NAME = "agent-skills";
 const MAX_FILES = 512;
 const MAX_FILE_BYTES = 1024 * 1024;
 const MAX_TOTAL_BYTES = 10 * 1024 * 1024;
@@ -90,6 +103,49 @@ function walk(root: string, directory = root): AgentSkillsSiteFile[] {
   return files;
 }
 
+/**
+ * Reads `commands/*.md` from the trusted source directory.
+ *
+ * Two rules, deliberately asymmetric. A symlink or non-regular file is fatal:
+ * the publisher would otherwise follow it and render whatever it points at,
+ * including content from outside the repository. A Markdown file that simply
+ * is not a command — a `README.md`, notes someone dropped in — is skipped with
+ * a warning, because refusing to publish every good command over one stray
+ * file turns an editorial mistake into an outage.
+ *
+ * The generator and the staging cross-check both call this, so the manifest is
+ * compared against exactly the set the generator was allowed to render.
+ */
+export function readCommandSource(
+  sourceDirectory: string,
+  options: { warn?: (message: string) => void } = {},
+): Command[] {
+  const sourceRoot = path.resolve(sourceDirectory);
+  const warn = options.warn ?? (() => {});
+  const commandFiles: Record<string, string> = {};
+  const markdownNames: string[] = [];
+
+  for (const name of readdirSync(sourceRoot).sort(compareCommandNames)) {
+    if (!name.endsWith(".md")) continue;
+    const absolute = path.join(sourceRoot, name);
+    const stat = lstatSync(absolute);
+    if (stat.isSymbolicLink()) throw new Error(`Command source contains a symbolic link: ${name}`);
+    if (!stat.isFile()) throw new Error(`Command source contains a non-file entry: ${name}`);
+    markdownNames.push(name);
+    commandFiles[`commands/${name}`] = readFileSync(absolute, "utf8");
+  }
+
+  const commands = loadCommandsFromFiles(commandFiles);
+  const rendered = new Set(commands.map(({ name }) => name));
+  for (const fileName of markdownNames) {
+    if (!rendered.has(fileName.slice(0, -3))) {
+      warn(`[agent-skills-site] skipping ${fileName}: not a valid OpenCode command file`);
+    }
+  }
+  if (commands.length === 0) throw new Error(`No valid command Markdown files in ${sourceRoot}`);
+  return commands;
+}
+
 function expectedPaths(commands: readonly string[]): Set<string> {
   return new Set([
     "assets/site.css",
@@ -106,7 +162,7 @@ function validateManifest(manifest: AgentSkillsSiteManifest): void {
   if (!Array.isArray(manifest.commands) || manifest.commands.length === 0) {
     throw new Error("Site manifest must contain commands");
   }
-  const sortedCommands = [...manifest.commands].sort();
+  const sortedCommands = [...manifest.commands].sort(compareCommandNames);
   if (
     sortedCommands.some((name) => !isValidCommandName(name)) ||
     new Set(sortedCommands).size !== sortedCommands.length ||
@@ -193,13 +249,7 @@ export function generateAgentSkillsSite(
     throw new Error("Command source and site output must not overlap");
   }
 
-  const markdownNames = readdirSync(sourceRoot).filter((name) => name.endsWith(".md")).sort();
-  const commandFiles = Object.fromEntries(markdownNames.map((name) => [
-    `commands/${name}`,
-    readFileSync(path.join(sourceRoot, name), "utf8"),
-  ]));
-  const commands = loadCommandsFromFiles(commandFiles);
-  if (commands.length !== markdownNames.length) throw new Error("Every command Markdown file must parse as a valid command");
+  const commands = readCommandSource(sourceRoot, { warn: (message) => console.warn(message) });
 
   const siteRoot = path.join(outputRoot, "agent-skills");
   rmSync(outputRoot, { recursive: true, force: true });
@@ -233,6 +283,16 @@ export function validateAndStageAgentSkillsSite(
   const buildRoot = path.resolve(buildDirectory);
   const destinationRoot = path.resolve(destinationDirectory);
   const commandSourceRoot = path.resolve(commandSourceDirectory);
+  // Refuse before reading anything, so a rejected destination is never touched.
+  if (path.basename(destinationRoot) !== PUBLISH_DIRECTORY_NAME) {
+    throw new Error(`Destination must be an "${PUBLISH_DIRECTORY_NAME}" directory: ${destinationRoot}`);
+  }
+  if (path.dirname(destinationRoot) === destinationRoot) {
+    throw new Error(`Destination must not be a filesystem root: ${destinationRoot}`);
+  }
+  if (destinationRoot.split(path.sep).includes(".git")) {
+    throw new Error(`Destination must not be inside a Git directory: ${destinationRoot}`);
+  }
   if (
     buildRoot === destinationRoot ||
     buildRoot.startsWith(`${destinationRoot}${path.sep}`) ||
@@ -247,10 +307,7 @@ export function validateAndStageAgentSkillsSite(
   }
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as AgentSkillsSiteManifest;
   validateManifest(manifest);
-  const sourceCommands = readdirSync(commandSourceRoot)
-    .filter((name) => name.endsWith(".md"))
-    .map((name) => name.slice(0, -3))
-    .sort();
+  const sourceCommands = readCommandSource(commandSourceRoot).map(({ name }) => name);
   if (JSON.stringify(sourceCommands) !== JSON.stringify(manifest.commands)) {
     throw new Error("Site manifest commands do not match the trusted source inventory");
   }

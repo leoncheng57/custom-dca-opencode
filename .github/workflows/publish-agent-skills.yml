@@ -3,11 +3,13 @@ name: Publish agent skills catalogue
 on:
   push:
     branches: [main]
+    # Issue #109 asks for agent-skills/**, and that is what this watches. The
+    # narrower "only the files we render" set was wrong twice over: it would
+    # miss a new parser file under src/lib/, and it buys nothing, because a
+    # change to an unrendered simulation regenerates byte-identical output and
+    # the publish step exits 0 on an empty diff.
     paths:
-      - agent-skills/commands/**
-      - agent-skills/src/lib/commands.ts
-      - agent-skills/src/lib/frontmatter.ts
-      - agent-skills/src/lib/simulation.ts
+      - agent-skills/**
       - scripts/agent-skills-site.ts
       - scripts/generate-agent-skills-site.ts
       - scripts/stage-agent-skills-site.ts
