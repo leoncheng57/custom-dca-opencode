@@ -1,0 +1,558 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<title>Observability page + navigation refinements (static mockup — not wired to the app)</title>
+<style>
+  /* Token values copied verbatim from client/theme/tokens.css (.dark block).
+     Dark is used because it is the appearance the reported screenshots show. */
+  :root {
+    --color-background-surface: #16181d;
+    --color-background-surface-neutral-muted: #22252c;
+    --color-background-surface-info-muted: #172554;
+    --color-background-surface-success-muted: #052e1d;
+    --color-background-surface-warning-muted: #3b2a06;
+    --color-background-surface-danger-muted: #3f1414;
+    --color-background-surface-danger: #ef4444;
+    --color-text-on-danger: #1a0505;
+    --color-background-action-ghost-hover: #22252c;
+    --color-text-action-ghost: #d1d5db;
+    --color-text-default: #e8eaed;
+    --color-text-muted: #9aa0a6;
+    --color-text-info: #93c5fd;
+    --color-text-success: #6ee7a8;
+    --color-text-warning: #fcd34d;
+    --color-text-danger: #fca5a5;
+    --color-border-default: #2c3038;
+    --color-border-focus: #22c55e;
+    --color-border-overlay: #4b525f;
+    --color-syntax-comment: #aab4c3;
+    --color-syntax-keyword: #d8b4fe;
+    --color-syntax-name: #7dd3fc;
+    --color-syntax-string: #86efac;
+    --color-syntax-number: #fcd34d;
+    --hh-row-hover: #1c1f25;
+    --radius-8: 0.5rem;
+    --radius-6: 6px;
+  }
+  /* Verbatim from tokens.css — the app's purpose-built floating-panel elevation. */
+  .has-shadow-overlay {
+    box-shadow:
+      0 0 0 1px var(--color-border-overlay),
+      0 10px 20px -5px rgb(0 0 0 / 0.7),
+      0 28px 52px -12px rgb(0 0 0 / 0.65),
+      inset 0 1px 0 0 rgb(255 255 255 / 0.06);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--color-background-surface);
+    color: var(--color-text-default);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 60rem; margin: 0 auto; padding: 1.25rem 1.25rem 3rem; }
+  h1 { font-size: 1.4rem; font-weight: 800; margin: 0 0 .2rem; letter-spacing: -0.01em; }
+  h2 {
+    font-size: .78rem; font-weight: 700; margin: 2rem 0 .7rem;
+    text-transform: uppercase; letter-spacing: .07em; color: var(--color-text-muted);
+    border-bottom: 1px solid var(--color-border-default); padding-bottom: .4rem;
+  }
+  h3 { font-size: .8rem; font-weight: 700; margin: 0 0 .45rem; color: var(--color-text-muted); }
+  .lede { color: var(--color-text-muted); margin: 0 0 .25rem; font-size: .82rem; line-height: 1.5; }
+  .note {
+    font-size: .72rem; color: var(--color-text-muted); line-height: 1.5;
+    border-left: 2px solid var(--color-border-default); padding-left: .6rem; margin: .5rem 0 0;
+  }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: .9rem; }
+  @media (max-width: 720px) { .cols { grid-template-columns: 1fr; } }
+
+  /* ── App chrome replica ─────────────────────────────────────────── */
+  .frame {
+    border: 1px solid var(--color-border-default); border-radius: var(--radius-8);
+    overflow: hidden; background: var(--color-background-surface);
+  }
+  nav.topbar {
+    display: flex; align-items: center; gap: .25rem; height: 44px;
+    border-bottom: 1px solid var(--color-border-default); padding: 0 .75rem;
+  }
+  .brand { font-size: .82rem; font-weight: 700; letter-spacing: -0.01em; margin-right: auto; }
+  .navbtn {
+    display: inline-flex; align-items: center; justify-content: center; gap: .35rem;
+    height: 32px; min-width: 32px; padding: 0 .5rem; border-radius: var(--radius-6);
+    border: 1px solid transparent; background: transparent;
+    color: var(--color-text-action-ghost); font-size: .75rem; font-weight: 600;
+  }
+  .navbtn.icon { padding: 0; width: 32px; }
+  .navbtn.on {
+    background: var(--color-background-surface-neutral-muted);
+    border-color: var(--color-border-overlay); color: var(--color-text-default);
+  }
+  .navbtn.active { background: var(--color-background-surface-info-muted); color: var(--color-text-info); }
+  .glyph { font-size: .82rem; line-height: 1; }
+  .bell-wrap { position: relative; display: inline-flex; }
+  .bell-badge {
+    position: absolute; top: -2px; right: -3px; min-width: 15px; height: 15px;
+    border-radius: 999px; background: var(--color-background-surface-danger);
+    color: var(--color-text-on-danger); font-size: .58rem; font-weight: 800;
+    display: flex; align-items: center; justify-content: center; padding: 0 3px;
+  }
+
+  /* ── Dropdown panel (matches nav-overflow-menu.tsx:92 + tokens.css) ── */
+  .panel {
+    border: 1px solid var(--color-border-default); border-radius: var(--radius-8);
+    background: var(--color-background-surface); padding: .25rem; width: 13rem;
+  }
+  .panel.narrow { width: 11rem; }
+  .item {
+    display: flex; align-items: center; gap: .5rem; width: 100%;
+    min-height: 34px; padding: 0 .5rem; border-radius: 4px;
+    font-size: .78rem; color: var(--color-text-default); background: transparent;
+  }
+  .item.hover { background: var(--color-background-surface-neutral-muted); }
+  .item.crude { padding: 0 .75rem; gap: 0; color: var(--color-text-default); }
+  .item .ic { width: 15px; text-align: center; opacity: .85; font-size: .78rem; }
+
+  /* ── Observability page ─────────────────────────────────────────── */
+  .page { padding: .9rem 1rem 1.1rem; }
+  .pagehead { display: flex; align-items: flex-end; gap: .6rem; flex-wrap: wrap; margin-bottom: .1rem; }
+  .pagehead h4 { font-size: 1.05rem; font-weight: 800; margin: 0; letter-spacing: -0.01em; }
+  .pagesub { color: var(--color-text-muted); font-size: .74rem; margin: .15rem 0 0; }
+  .toolrow { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; margin: .8rem 0 .6rem; }
+  .seg { display: inline-flex; border: 1px solid var(--color-border-default); border-radius: var(--radius-6); overflow: hidden; }
+  .seg button {
+    background: transparent; border: 0; color: var(--color-text-muted);
+    font-size: .72rem; font-weight: 600; padding: .32rem .6rem; display: inline-flex; gap: .35rem; align-items: center;
+  }
+  .seg button.on { background: var(--color-background-surface-neutral-muted); color: var(--color-text-default); }
+  .seg button .ct { font-size: .64rem; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+  .chip {
+    font-size: .64rem; font-weight: 700; padding: .12rem .4rem; border-radius: 999px;
+    background: var(--color-background-surface-neutral-muted); color: var(--color-text-muted);
+    display: inline-flex; align-items: center; gap: .25rem;
+  }
+  .chip.warn { background: var(--color-background-surface-warning-muted); color: var(--color-text-warning); }
+  .chip.ok   { background: var(--color-background-surface-success-muted); color: var(--color-text-success); }
+  .chip.info { background: var(--color-background-surface-info-muted); color: var(--color-text-info); }
+  .chip.dang { background: var(--color-background-surface-danger-muted); color: var(--color-text-danger); }
+  .spacer { margin-left: auto; }
+  .follow {
+    display: inline-flex; align-items: center; gap: .4rem; font-size: .72rem; color: var(--color-text-muted);
+  }
+  .switch {
+    width: 30px; height: 17px; border-radius: 999px; background: var(--color-background-surface-success-muted);
+    border: 1px solid var(--color-text-success); position: relative;
+  }
+  .switch::after {
+    content: ""; position: absolute; top: 1px; right: 1px; width: 13px; height: 13px;
+    border-radius: 999px; background: var(--color-text-success);
+  }
+
+  /* Banner */
+  .banner {
+    display: flex; gap: .5rem; align-items: flex-start;
+    border: 1px solid var(--color-border-default); border-left: 3px solid var(--color-text-warning);
+    background: var(--color-background-surface-warning-muted);
+    border-radius: var(--radius-6); padding: .5rem .6rem; font-size: .72rem; line-height: 1.45;
+    margin-bottom: .6rem; color: var(--color-text-default);
+  }
+  .banner b { color: var(--color-text-warning); }
+
+  /* Log rows */
+  .log { border: 1px solid var(--color-border-default); border-radius: var(--radius-6); overflow: hidden; }
+  .logrow {
+    display: grid; grid-template-columns: 74px 205px 1fr; gap: .55rem;
+    padding: .34rem .55rem; border-bottom: 1px solid var(--color-border-default);
+    font-size: .705rem; align-items: baseline;
+  }
+  .logrow > * { min-width: 0; }
+  .logrow:last-child { border-bottom: 0; }
+  .logrow:nth-child(even) { background: var(--color-1f, #191c22); }
+  .ts {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--color-text-muted); font-size: .66rem; font-variant-numeric: tabular-nums;
+  }
+  .ev { font-weight: 700; font-size: .68rem; letter-spacing: -0.005em; overflow-wrap: anywhere; }
+  .ev.decided { color: var(--color-text-info); }
+  .ev.observed { color: var(--color-syntax-name); }
+  .ev.reply { color: var(--color-text-warning); }
+  .ev.push { color: var(--color-text-success); }
+  .ev.restore { color: var(--color-syntax-keyword); }
+  .fields { display: flex; flex-wrap: wrap; gap: .3rem .55rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .66rem; }
+  .f { white-space: nowrap; }
+  .f .k { color: var(--color-syntax-comment); }
+  .f .v { color: var(--color-syntax-string); }
+  .f .v.num { color: var(--color-syntax-number); }
+  .f .v.hash { color: var(--color-text-muted); }
+  .f .v.bad { color: var(--color-text-danger); }
+
+  /* Plain rows */
+  .plainrow {
+    display: grid; grid-template-columns: 74px 1fr; gap: .55rem;
+    padding: .3rem .55rem; border-bottom: 1px solid var(--color-border-default); font-size: .7rem;
+  }
+  .plainrow:last-child { border-bottom: 0; }
+  .pre {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .66rem;
+    white-space: pre-wrap; word-break: break-word; color: var(--color-text-default); margin: 0;
+  }
+  .pre.muted { color: var(--color-text-muted); }
+  .pre.err { color: var(--color-text-danger); }
+  .prefix {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .66rem;
+    color: var(--color-text-warning); font-weight: 700;
+  }
+  .stack {
+    margin: .2rem 0 0; padding: .3rem .5rem; border-left: 2px solid var(--color-border-default);
+    color: var(--color-text-muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: .62rem; line-height: 1.5; white-space: pre; overflow-x: auto;
+  }
+  .foldbtn {
+    background: transparent; border: 1px solid var(--color-border-default); border-radius: 4px;
+    color: var(--color-text-muted); font-size: .62rem; padding: .1rem .35rem; margin-top: .25rem;
+  }
+
+  .cap { font-size: .68rem; color: var(--color-text-muted); margin: .4rem 0 0; }
+  .mobileframe { max-width: 360px; margin: 0 auto; }
+  code.inline {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em;
+    background: var(--color-background-surface-neutral-muted); padding: .05rem .25rem; border-radius: 3px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Observability page + navigation refinements</h1>
+  <p class="lede">
+    Static mockup for issue #284 plus two navigation changes. Not wired to the app; token values are copied
+    verbatim from <code class="inline">client/theme/tokens.css</code>. Sample log rows are real lines taken from the
+    live deployment's <code class="inline">.state/logs/</code> on 2026-08-29.
+  </p>
+
+  <!-- ══════════════ 1. OBSERVABILITY ══════════════ -->
+  <h2>1 &nbsp;/observability &mdash; structured audit view</h2>
+
+  <div class="frame">
+    <nav class="topbar">
+      <span class="brand">DCA</span>
+      <span class="navbtn icon"><span class="glyph">&#8635;</span></span>
+      <span class="navbtn icon"><span class="glyph">&#9788;</span></span>
+      <span class="navbtn"><span class="glyph">&#9883;</span> DSH</span>
+      <span class="navbtn"><span class="glyph">&#9636;</span> Playbooks</span>
+      <span class="navbtn"><span class="glyph">&#9776;</span> Planning</span>
+      <span class="navbtn icon bell-wrap"><span class="glyph">&#9788;</span><span class="bell-badge">3</span></span>
+      <span class="navbtn on"><span class="glyph">&#8943;</span> More</span>
+    </nav>
+
+    <div class="page">
+      <div class="pagehead">
+        <div>
+          <h4>Observability</h4>
+          <p class="pagesub">Recent BFF log output from this host. Read-only, bounded tail.</p>
+        </div>
+      </div>
+
+      <div class="toolrow">
+        <div class="seg">
+          <button class="on">stdout <span class="ct">755</span></button>
+          <button>stderr <span class="ct">461</span></button>
+        </div>
+        <span class="chip info">Audit 626</span>
+        <span class="chip">Plain 129</span>
+        <span class="spacer"></span>
+        <span class="follow"><span class="switch"></span> Follow &middot; 5s</span>
+        <span class="navbtn on" style="height:28px"><span class="glyph">&#8635;</span> Refresh</span>
+      </div>
+
+      <div class="banner">
+        <span class="glyph" style="color:var(--color-text-warning)">&#9888;</span>
+        <span>
+          <b>Showing the last 200 lines of 755.</b>
+          <code class="inline">bff.launchd.out.log</code> is 158&nbsp;KB and has no rotation &mdash; it grows without bound.
+          Correlation IDs are HMAC hashes and reset on BFF restart unless <code class="inline">NOTIFICATION_AUDIT_HMAC_KEY</code> is set.
+        </span>
+      </div>
+
+      <div class="log">
+        <div class="logrow">
+          <span class="ts">23:33:24.826</span>
+          <span class="ev restore">auto_approval_restore_completed</span>
+          <span class="fields">
+            <span class="f"><span class="k">restoredCount</span> <span class="v num">12</span></span>
+            <span class="f"><span class="k">outcome</span> <span class="v">success</span></span>
+          </span>
+        </div>
+        <div class="logrow">
+          <span class="ts">23:33:27.434</span>
+          <span class="ev observed">permission_asked_observed</span>
+          <span class="fields">
+            <span class="f"><span class="k">dir</span> <span class="v hash">dcd9225d</span></span>
+            <span class="f"><span class="k">session</span> <span class="v hash">3f5a47cd</span></span>
+            <span class="f"><span class="k">request</span> <span class="v hash">0f37afa2</span></span>
+            <span class="f"><span class="k">autoApproval</span> <span class="v">true</span></span>
+          </span>
+        </div>
+        <div class="logrow">
+          <span class="ts">23:33:27.443</span>
+          <span class="ev reply">auto_approval_reply</span>
+          <span class="fields">
+            <span class="f"><span class="k">dir</span> <span class="v hash">dcd9225d</span></span>
+            <span class="f"><span class="k">request</span> <span class="v hash">0f37afa2</span></span>
+            <span class="f"><span class="k">outcome</span> <span class="v bad">not_found</span></span>
+          </span>
+        </div>
+        <div class="logrow">
+          <span class="ts">23:33:27.474</span>
+          <span class="ev decided">notification_decided</span>
+          <span class="fields">
+            <span class="f"><span class="k">record</span> <span class="v hash">5f344f6b</span></span>
+            <span class="f"><span class="k">kind</span> <span class="v">permission</span></span>
+            <span class="f"><span class="k">outcome</span> <span class="v">suppressed</span></span>
+            <span class="f"><span class="k">reason</span> <span class="v">auto-permissions</span></span>
+          </span>
+        </div>
+        <div class="logrow">
+          <span class="ts">23:34:03.275</span>
+          <span class="ev push">webpush_delivery_finished</span>
+          <span class="fields">
+            <span class="f"><span class="k">tag</span> <span class="v hash">3f5a47cd</span></span>
+            <span class="f"><span class="k">sent</span> <span class="v num">4</span></span>
+            <span class="f"><span class="k">failed</span> <span class="v num">0</span></span>
+            <span class="f"><span class="k">expired</span> <span class="v num">0</span></span>
+          </span>
+        </div>
+        <div class="plainrow">
+          <span class="ts">23:35:11.002</span>
+          <p class="pre muted"><span class="prefix">[bff]</span> listening on :3210 -&gt; opencode http://127.0.0.1:4097</p>
+        </div>
+        <div class="plainrow">
+          <span class="ts">23:35:11.004</span>
+          <p class="pre muted">&#9671; injected env (8) from .env &mdash; tip: encrypted .env [dotenvx.com]</p>
+        </div>
+      </div>
+      <p class="cap">
+        Audit lines render as typed rows; every other line falls back to monospace plain text, unparsed.
+        Correlation hashes are shown truncated to 8 chars &mdash; they are HMACs, not session IDs, so no row can deep-link to a session.
+      </p>
+    </div>
+  </div>
+
+  <h2>2 &nbsp;stderr &mdash; the grouped stack-trace case</h2>
+  <p class="lede">
+    <code class="inline">bff.launchd.err.log</code> contains <b>zero</b> audit JSON and is 55% stack-trace continuation lines
+    (252 of 461). Rendering one row per line would produce 252 orphan <code class="inline">at &hellip;</code> rows. Traces are folded into their header.
+  </p>
+  <div class="frame">
+    <div class="page">
+      <div class="toolrow">
+        <div class="seg">
+          <button>stdout <span class="ct">755</span></button>
+          <button class="on">stderr <span class="ct">461</span></button>
+        </div>
+        <span class="chip dang">Errors 28</span>
+        <span class="chip warn">Warnings 161</span>
+        <span class="chip">Traces 28</span>
+      </div>
+      <div class="log">
+        <div class="plainrow">
+          <span class="ts">16:52:40.117</span>
+          <p class="pre"><span class="prefix">[bus]</span> <span class="pre muted" style="display:inline">fetch failed</span></p>
+        </div>
+        <div class="plainrow">
+          <span class="ts">16:52:44.980</span>
+          <p class="pre"><span class="prefix" style="color:var(--color-text-warning)">[ntfy]</span> <span class="pre muted" style="display:inline">delivery failed after 3 attempts</span></p>
+        </div>
+        <div class="plainrow">
+          <span class="ts">16:55:02.331</span>
+          <div>
+            <p class="pre err">BadRequestError: request aborted</p>
+            <div class="stack">    at IncomingMessage.onAborted (node_modules/raw-body/index.js:245:10)
+    at IncomingMessage.emit (node:events:509:20)
+    at IncomingMessage._destroy (node:_http_incoming:244:10)</div>
+            <button class="foldbtn">Show 6 more frames</button>
+          </div>
+        </div>
+        <div class="plainrow">
+          <span class="ts">16:55:02.333</span>
+          <p class="pre"><span class="prefix">[parked-permission]</span> <span class="pre muted" style="display:inline">escalation timer disarmed</span></p>
+        </div>
+      </div>
+      <p class="cap">
+        A trace header owns its <code class="inline">at &hellip;</code> continuations; the group collapses to three frames with the rest behind a control.
+      </p>
+    </div>
+  </div>
+
+  <!-- ══════════════ 3. NAVBAR ══════════════ -->
+  <h2>3 &nbsp;Navigation bar &mdash; before / after</h2>
+  <div class="cols">
+    <div>
+      <h3>Before</h3>
+      <div class="frame">
+        <nav class="topbar">
+          <span class="brand">DCA</span>
+          <span class="navbtn icon"><span class="glyph">&#9906;</span></span>
+          <span class="navbtn icon"><span class="glyph">&#8635;</span></span>
+          <span class="navbtn icon"><span class="glyph">&#9788;</span></span>
+          <span class="navbtn"><span class="glyph">&#9883;</span> DSH</span>
+          <span class="navbtn icon bell-wrap"><span class="glyph">&#9788;</span><span class="bell-badge">3</span></span>
+          <span class="navbtn on"><span class="glyph">&#8943;</span> More</span>
+        </nav>
+        <div style="padding:.5rem .75rem .75rem; display:flex; justify-content:flex-end">
+          <div class="panel has-shadow-overlay">
+            <div class="item"><span class="ic">&#9743;</span> Phone</div>
+            <div class="item"><span class="ic">&#9776;</span> Docs</div>
+            <div class="item"><span class="ic">&#9881;</span> Tools</div>
+            <div class="item"><span class="ic">&#9881;</span> Settings</div>
+            <div class="item"><span class="ic">&#9636;</span> Playbooks</div>
+            <div class="item"><span class="ic">&#9776;</span> Planning</div>
+          </div>
+        </div>
+      </div>
+      <p class="cap">Search sits on the bar; Playbooks and Planning are buried in More.</p>
+    </div>
+    <div>
+      <h3>After</h3>
+      <div class="frame">
+        <nav class="topbar">
+          <span class="brand">DCA</span>
+          <span class="navbtn icon"><span class="glyph">&#8635;</span></span>
+          <span class="navbtn icon"><span class="glyph">&#9788;</span></span>
+          <span class="navbtn"><span class="glyph">&#9883;</span> DSH</span>
+          <span class="navbtn"><span class="glyph">&#9636;</span> Playbooks</span>
+          <span class="navbtn"><span class="glyph">&#9776;</span> Planning</span>
+          <span class="navbtn icon bell-wrap"><span class="glyph">&#9788;</span><span class="bell-badge">3</span></span>
+          <span class="navbtn on"><span class="glyph">&#8943;</span> More</span>
+        </nav>
+        <div style="padding:.5rem .75rem .75rem; display:flex; justify-content:flex-end">
+          <div class="panel has-shadow-overlay">
+            <div class="item hover"><span class="ic">&#9906;</span> Search<span style="margin-left:auto;font-size:.62rem;color:var(--color-text-muted)">&#8984;K</span></div>
+            <div class="item"><span class="ic">&#9743;</span> Phone</div>
+            <div class="item"><span class="ic">&#9776;</span> Docs</div>
+            <div class="item"><span class="ic">&#9881;</span> MCPs</div>
+            <div class="item"><span class="ic">&#9737;</span> Observability</div>
+            <div class="item"><span class="ic">&#9881;</span> Settings</div>
+          </div>
+        </div>
+      </div>
+      <p class="cap">Playbooks and Planning promoted; Search demoted (shortcut shown); Tools renamed MCPs; Observability added.</p>
+    </div>
+  </div>
+  <p class="note">
+    Search keeps its &#8984;K shortcut, so demoting it costs a click only for pointer users who never learned the shortcut.
+    The bar has no responsive collapse today &mdash; every control is <code class="inline">shrink-0</code> and labels merely hide below
+    <code class="inline">sm</code>, so adding two labelled items narrows the usable width on small screens. That is the main risk in this change.
+  </p>
+
+  <!-- ══════════════ 4. MORE BUTTON ══════════════ -->
+  <h2>4 &nbsp;Conversation &ldquo;More&rdquo; &mdash; before / after</h2>
+  <div class="cols">
+    <div>
+      <h3>Before &mdash; native &lt;details&gt;</h3>
+      <div class="frame">
+        <div style="padding:.6rem .75rem; display:flex; justify-content:flex-end; gap:.25rem; align-items:center">
+          <span class="navbtn icon"><span class="glyph">&#9707;</span></span>
+          <span class="navbtn icon"><span class="glyph">&#9728;</span></span>
+          <span class="navbtn icon"><span class="glyph">&#9401;</span></span>
+          <span class="navbtn icon" style="color:var(--color-text-muted)"><span class="glyph">&#8943;</span></span>
+        </div>
+        <div style="padding:0 .75rem .75rem; display:flex; justify-content:flex-end">
+          <div class="panel narrow" style="box-shadow:0 10px 25px rgb(0 0 0 / .5)">
+            <div class="item crude">Disable wrapping</div>
+            <div class="item crude">Share</div>
+            <div class="item crude">Catalog</div>
+          </div>
+        </div>
+      </div>
+      <p class="cap">No icons, <code class="inline">px-3</code> items, <code class="inline">--hh-row-hover</code>, no focus ring, no Escape, no outside-click.</p>
+    </div>
+    <div>
+      <h3>After &mdash; matches the navbar menu</h3>
+      <div class="frame">
+        <div style="padding:.6rem .75rem; display:flex; justify-content:flex-end; gap:.25rem; align-items:center">
+          <span class="navbtn icon"><span class="glyph">&#9707;</span></span>
+          <span class="navbtn icon"><span class="glyph">&#9728;</span></span>
+          <span class="navbtn icon"><span class="glyph">&#9401;</span></span>
+          <span class="navbtn icon on"><span class="glyph">&#8943;</span></span>
+        </div>
+        <div style="padding:0 .75rem .75rem; display:flex; justify-content:flex-end">
+          <div class="panel narrow has-shadow-overlay" style="width:12rem">
+            <div class="item hover"><span class="ic">&#8801;</span> Disable wrapping</div>
+            <div class="item"><span class="ic">&#8599;</span> Share</div>
+            <div class="item"><span class="ic">&#9636;</span> Catalog</div>
+          </div>
+        </div>
+      </div>
+      <p class="cap">Ghost <code class="inline">Button</code> trigger, shared <code class="inline">ITEM_CLASS</code>, icons, focus ring, Escape + outside-click.</p>
+    </div>
+  </div>
+  <p class="note">
+    The two panels are already <em>nearly identical</em> in code &mdash; same border, radius, surface, padding and
+    <code class="inline">shadow-xl</code>. The perceived gap is the trigger, the item styling and the missing behaviour, not the panel.
+    Both menus currently use <code class="inline">shadow-xl</code>; only <code class="inline">notification-popover.tsx</code> uses the
+    app's purpose-built <code class="inline">has-shadow-overlay</code>. This mockup applies it to both.
+  </p>
+
+  <!-- ══════════════ 5. MOBILE ══════════════ -->
+  <h2>5 &nbsp;Mobile &mdash; 390px</h2>
+  <div class="mobileframe">
+    <div class="frame">
+      <nav class="topbar" style="padding:0 .5rem">
+        <span class="brand">DCA</span>
+        <span class="navbtn icon"><span class="glyph">&#8635;</span></span>
+        <span class="navbtn icon"><span class="glyph">&#9788;</span></span>
+        <span class="navbtn icon"><span class="glyph">&#9883;</span></span>
+        <span class="navbtn icon"><span class="glyph">&#9636;</span></span>
+        <span class="navbtn icon"><span class="glyph">&#9776;</span></span>
+        <span class="navbtn icon bell-wrap"><span class="glyph">&#9788;</span><span class="bell-badge">3</span></span>
+        <span class="navbtn icon on"><span class="glyph">&#8943;</span></span>
+      </nav>
+      <div class="page" style="padding:.7rem .6rem">
+        <div class="pagehead"><div><h4 style="font-size:.95rem">Observability</h4>
+        <p class="pagesub">Bounded tail &middot; read-only</p></div></div>
+        <div class="toolrow" style="margin:.6rem 0 .5rem">
+          <div class="seg">
+            <button class="on">stdout <span class="ct">755</span></button>
+            <button>stderr <span class="ct">461</span></button>
+          </div>
+          <span class="spacer"></span>
+          <span class="follow"><span class="switch"></span></span>
+        </div>
+        <div class="log">
+          <div style="padding:.4rem .5rem; border-bottom:1px solid var(--color-border-default)">
+            <div style="display:flex; gap:.4rem; align-items:baseline">
+              <span class="ts">23:33:27.474</span>
+              <span class="ev decided">notification_decided</span>
+            </div>
+            <div class="fields" style="margin-top:.2rem">
+              <span class="f"><span class="k">kind</span> <span class="v">permission</span></span>
+              <span class="f"><span class="k">outcome</span> <span class="v">suppressed</span></span>
+              <span class="f"><span class="k">reason</span> <span class="v">auto-permissions</span></span>
+            </div>
+          </div>
+          <div style="padding:.4rem .5rem; border-bottom:1px solid var(--color-border-default)">
+            <div style="display:flex; gap:.4rem; align-items:baseline">
+              <span class="ts">23:34:03.275</span>
+              <span class="ev push">webpush_delivery_finished</span>
+            </div>
+            <div class="fields" style="margin-top:.2rem">
+              <span class="f"><span class="k">sent</span> <span class="v num">4</span></span>
+              <span class="f"><span class="k">failed</span> <span class="v num">0</span></span>
+              <span class="f"><span class="k">expired</span> <span class="v num">0</span></span>
+            </div>
+          </div>
+          <div style="padding:.4rem .5rem">
+            <span class="ts">23:35:11.002</span>
+            <p class="pre muted" style="margin-top:.2rem"><span class="prefix">[bff]</span> listening on :3210</p>
+          </div>
+        </div>
+        <p class="cap">Below <code class="inline">sm</code> the row stacks: time + event on one line, fields wrapped beneath.</p>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
