@@ -2,6 +2,7 @@
 name: grill-me
 title: Grill the Design
 description: Interview the user in rounds until every branch of a plan or design decision tree is settled.
+tags: critique
 source_repo: https://github.com/leoncheng57/agent-skills
 source_path: skills/grill-me/SKILL.md
 source_commit: 8b036a41f578dc6c6307ae0a8dd2857121afcabb

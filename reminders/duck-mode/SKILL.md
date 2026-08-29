@@ -2,6 +2,7 @@
 name: duck-mode
 title: Duck Mode
 description: Wrap every assistant reply in lines of duck emojis. Use when the user says "duck mode", "enable duck mode", "turn on the ducks", or asks for every response to be bracketed by 🦆🦆🦆. Also the repo's worked example of the smallest possible skill, and of when a skill is the wrong mechanism.
+tags: output-style, funny
 source_repo: https://github.com/leoncheng57/agent-skills
 source_path: skills/duck-mode/SKILL.md
 source_commit: 8b036a41f578dc6c6307ae0a8dd2857121afcabb

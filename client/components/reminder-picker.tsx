@@ -30,9 +30,12 @@ const REMINDER_ICONS: Record<string, LucideIcon> = {
   "duck-mode": Bird,
 };
 
-function matches(reminder: ReminderSummary, query: string): boolean {
+function matches(reminder: ReminderSummary, query: string, tag: string): boolean {
+  if (tag && !reminder.tags.includes(tag)) return false;
   const needle = query.trim().toLowerCase();
-  return !needle || `${reminder.title} ${reminder.description}`.toLowerCase().includes(needle);
+  // `id` and `tags` are searchable too: typing "cite-file-lines" or "worktrees"
+  // should find a reminder whose title spells neither.
+  return !needle || `${reminder.title} ${reminder.description} ${reminder.id} ${reminder.tags.join(" ")}`.toLowerCase().includes(needle);
 }
 
 export function ReminderPicker({
@@ -46,17 +49,19 @@ export function ReminderPicker({
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [tag, setTag] = useState("");
   const [active, setActive] = useState(0);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const selected = catalogue.find((reminder) => reminder.id === value);
+  const tags = [...new Set(catalogue.flatMap((reminder) => reminder.tags))].sort();
   const visibleGroups = REMINDER_GROUPS.map(({ label, ids }) => ({
     label,
-    reminders: ids.map((id) => catalogue.find((reminder) => reminder.id === id)).filter((reminder): reminder is ReminderSummary => Boolean(reminder && matches(reminder, query))),
+    reminders: ids.map((id) => catalogue.find((reminder) => reminder.id === id)).filter((reminder): reminder is ReminderSummary => Boolean(reminder && matches(reminder, query, tag))),
   })).filter(({ reminders }) => reminders.length > 0);
   const groupedIDs = new Set(REMINDER_GROUPS.flatMap(({ ids }) => ids));
-  const otherReminders = catalogue.filter((reminder) => !groupedIDs.has(reminder.id) && matches(reminder, query));
+  const otherReminders = catalogue.filter((reminder) => !groupedIDs.has(reminder.id) && matches(reminder, query, tag));
   if (otherReminders.length) visibleGroups.push({ label: "Other", reminders: otherReminders });
   const visible = visibleGroups.flatMap(({ reminders }) => reminders);
   const options: Array<ReminderSummary | null> = [null, ...visible];
@@ -73,9 +78,11 @@ export function ReminderPicker({
     };
   }, [open]);
 
+  // Both filters shrink `options`, so a stale `active` could point past the end
+  // and make Enter silently clear the selection.
   useEffect(() => {
     setActive(0);
-  }, [query]);
+  }, [query, tag]);
 
   useEffect(() => {
     if (!open) return;
@@ -85,6 +92,7 @@ export function ReminderPicker({
   const close = () => {
     setOpen(false);
     setQuery("");
+    setTag("");
   };
   const choose = (reminder: ReminderSummary | null) => {
     onChange(reminder?.id ?? "");
@@ -96,6 +104,10 @@ export function ReminderPicker({
     setActive((index) => (index + delta + options.length) % options.length);
   };
   const handleKeyDown = (event: KeyboardEvent) => {
+    // Tag chips are real buttons inside the dialog. Without this the dialog's
+    // Enter handler would swallow the activation and attach the active reminder
+    // instead of toggling the filter the user is standing on.
+    if ((event.target as HTMLElement | null)?.closest("[data-reminder-tag]")) return;
     switch (event.key) {
       case "Escape": event.preventDefault(); close(); break;
       case "ArrowDown": event.preventDefault(); move(1); break;
@@ -152,6 +164,23 @@ export function ReminderPicker({
             </div>
             <button type="button" onClick={close} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md hover:bg-[var(--hh-row-hover)] sm:h-9 sm:w-9" aria-label="Close reminder picker" data-testid="composer-reminder-close"><X aria-hidden="true" className="h-4 w-4" /></button>
           </div>
+          {tags.length > 0 && <div className="flex flex-wrap items-center gap-1.5 border-b border-[var(--color-border-default)] px-3 py-2" data-testid="composer-reminder-tags" role="group" aria-label="Filter reminders by tag">
+            {tags.map((name) => {
+              const isActive = tag === name;
+              return <button
+                type="button"
+                key={name}
+                data-reminder-tag={name}
+                data-testid="composer-reminder-tag"
+                aria-pressed={isActive}
+                onClick={() => setTag(isActive ? "" : name)}
+                className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${isActive
+                  ? "border-[var(--color-border-focus)] bg-[var(--color-background-surface-neutral-muted)] text-[var(--color-text-default)]"
+                  : "border-[var(--color-border-default)] text-[var(--color-text-muted)] hover:bg-[var(--hh-row-hover)]"}`}
+              >#{name}</button>;
+            })}
+            {tag && <button type="button" onClick={() => setTag("")} data-testid="composer-reminder-tag-clear" className="ml-auto text-[11px] font-medium text-[var(--color-text-link)] hover:underline">Clear</button>}
+          </div>}
           <div className="thin-scrollbar min-h-0 flex-1 overflow-y-auto p-2" id={LISTBOX_ID} ref={listRef} role="listbox" aria-label="Reminders">
             <button
               type="button"

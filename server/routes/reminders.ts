@@ -6,11 +6,12 @@ export function reminderRoutes(): Router {
   const router = Router();
   router.get("/reminders", (_req, res) => {
     res.json({
-      reminders: reminderCatalogue().map(({ id, title, description, triggers }) => ({
+      reminders: reminderCatalogue().map(({ id, title, description, triggers, tags }) => ({
         id,
         title,
         description,
         triggers,
+        tags,
       })),
     });
   });

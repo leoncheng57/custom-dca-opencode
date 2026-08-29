@@ -2,6 +2,7 @@
 name: build-waves
 title: Build in Verified Waves
 description: Execute a large build as durable sequential waves, overlap only disjoint research, and stop after final verification.
+tags: subagents, long-running, planning
 source_repo: https://github.com/leoncheng57/agent-skills
 source_path: skills/build-waves/SKILL.md
 source_commit: 8b036a41f578dc6c6307ae0a8dd2857121afcabb

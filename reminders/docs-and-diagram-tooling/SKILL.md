@@ -2,6 +2,7 @@
 name: docs-and-diagram-tooling
 title: Choose Documentation Visuals
 description: Choose prose, lists, tables, ASCII, Mermaid, or rendered images based on structure and where readers will view the document.
+tags: diagrams, docs
 source_repo: https://github.com/leoncheng57/agent-skills
 source_path: skills/docs-and-diagram-tooling/SKILL.md
 source_commit: 8b036a41f578dc6c6307ae0a8dd2857121afcabb

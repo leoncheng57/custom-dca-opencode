@@ -423,6 +423,8 @@ export interface ReminderSummary {
   title: string;
   description: string;
   triggers: string[];
+  /** Retrieval tags mirrored from the reminder's Playbook skill. */
+  tags: string[];
 }
 
 export interface WorkflowSummary {

@@ -11,6 +11,9 @@ export interface ReminderSource {
   commit: string;
 }
 
+export const REMINDER_TOPIC_TAG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+export const REMINDER_TAGS_MAX = 3;
+
 export interface ReminderPreset {
   id: string;
   title: string;
@@ -19,6 +22,27 @@ export interface ReminderPreset {
   source?: ReminderSource;
   /** Parsed for visibility but deliberately ignored by per-message injection. */
   triggers: string[];
+  /**
+   * Retrieval tags, mirrored from the reminder's Playbook skill so the picker
+   * can filter without inventing a second taxonomy. `tests/reminders.test.ts`
+   * asserts the two stay identical, which is what keeps them from drifting.
+   */
+  tags: string[];
+}
+
+/** Comma-separated, deduplicated, order-preserving. Mirrors agent-skills. */
+function parseTags(value: string): string[] | null {
+  const seen = new Set<string>();
+  const tags: string[] = [];
+  for (const raw of value.split(",")) {
+    const tag = raw.trim().toLowerCase();
+    if (tag === "") continue;
+    if (!REMINDER_TOPIC_TAG_RE.test(tag)) return null;
+    if (seen.has(tag)) continue;
+    seen.add(tag);
+    tags.push(tag);
+  }
+  return tags.length > REMINDER_TAGS_MAX ? null : tags;
 }
 
 export function parseReminderMarkdown(id: string, markdown: string): ReminderPreset | null {
@@ -69,7 +93,13 @@ export function parseReminderMarkdown(id: string, markdown: string): ReminderPre
   const provenance = sourceFields[0]
     ? { repo: sourceFields[0], path: sourceFields[1]!, commit: sourceFields[2]! }
     : undefined;
-  return { id, title, description, body, triggers, source: provenance };
+
+  // A malformed tag list rejects the whole preset rather than silently shipping
+  // an unfiltered reminder, matching how provenance is handled above.
+  const tags = scalars.tags === undefined ? [] : parseTags(scalars.tags);
+  if (tags === null) return null;
+
+  return { id, title, description, body, triggers, tags, source: provenance };
 }
 
 function capitalize(value: string): string {
