@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, ExternalLink, Loader2 } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { Button, buttonClasses } from "../ds/button.js";
@@ -145,26 +145,46 @@ export function NotificationGroup({
               // design system's own coarse-pointer floor, and spending the
               // extra 4px on every folded header is a cost the whole list
               // pays for a secondary affordance.
-              className: cn("shrink-0 font-medium", compact ? "min-h-10 px-2.5 text-[11px]" : "min-h-11 px-3 text-xs"),
+              className: cn("shrink-0 p-0", compact ? "size-10" : "size-11"),
             })}
             to={group.route}
             onClick={onNavigate}
             aria-label={`Open session ${group.label}`}
+            title={`Open session ${group.label}`}
             data-testid="opencode-notification-group-link"
           >
-            Open
+            <ExternalLink aria-hidden="true" size={15} />
           </Link>
         )}
         {onResolveMany && activeIDs.length > 0 && (
           <Button
             size="sm"
             variant="primary"
-            className={cn("shrink-0", compact ? "h-7 px-2 text-[11px]" : undefined)}
+            aria-label={`Resolve all ${activeIDs.length} for ${group.label}`}
+            className={cn(
+              // Fixed width, not content width. This is the only control on the
+              // surface whose label embeds a number, so it was also the only one
+              // that changed size as the number did — a group resolving from 9
+              // to 10 visibly shifted the header, and two stacked groups with
+              // different counts never lined up. `w-16` holds four tabular
+              // digits plus the icon, which covers every count the 1000-row
+              // window can produce. See AGENTS.md decision 23 for the window.
+              "w-16 shrink-0 gap-1 px-0 tabular-nums",
+              compact ? "h-10 text-[11px]" : "h-11 text-xs",
+            )}
             disabled={resolvePending}
             onClick={() => void resolveSession()}
+            title={`Resolve all ${activeIDs.length} active for ${group.label}`}
             data-testid="opencode-notification-group-resolve"
           >
-            {resolvePending ? "Resolving..." : `Resolve all (${activeIDs.length})`}
+            {resolvePending ? (
+              <Loader2 aria-hidden="true" size={14} className="animate-spin" />
+            ) : (
+              <>
+                <Check aria-hidden="true" size={14} className="shrink-0" />
+                {activeIDs.length}
+              </>
+            )}
           </Button>
         )}
       </div>

@@ -800,6 +800,31 @@ several decisions below.
     decoded. The row `flex-wrap`s with a floor on its text column, because a kind badge
     plus readable text plus two 44px actions does not fit a 390px line and letting the
     text absorb the deficit truncated headings to a few characters.
+32. **The row actions are icon-only, and what that removes is the label, never the
+    target or the name.** `Open` and `Resolve` are square 44px buttons (40px for the
+    group header's `Open`, the design system's own coarse-pointer floor) carrying
+    `ExternalLink` and `Check`. Dropping the words bought the cluster roughly 60px of
+    the line, which is why the wrap rule above stays: it is a smaller deficit, not an
+    eliminated one. Two things are load-bearing. The tap target is pinned on **both**
+    axes — `size-11`, not a height with content-derived width — because a target that
+    shrinks with its label is the regression icon-only invites. And every control keeps
+    an `aria-label`, since the visible text was the accessible name; the e2e suite
+    asserts the name and both dimensions together, so losing either fails rather than
+    silently degrading. `Resolve` draws **`Check` in both states**, with solid-green vs
+    ghost and `aria-pressed` carrying resolved-ness: the icon names the *action*, which
+    is always "resolve", and the old empty `Circle` only read as "not done yet" while
+    the word sat beside it — alone on a green button it said nothing about what pressing
+    it would do. The group's **`Resolve all`** is `Check` + count at a **fixed `w-16`**,
+    because it is the one control whose label embeds a number and so the only one that
+    resized as the number did: a group going 9 → 10 shifted its own header, and stacked
+    groups with different counts never lined up. Four tabular digits cover every count
+    the 1000-row window can produce. The popover footer link is centred, gear-icon'd and
+    reads **"See all notifications and settings"**; it stays pinned *below* the scroller
+    rather than between the Active and Resolved sections, because it is the way out of
+    the popover and a long backlog is exactly when a link that scrolled away would be
+    worth reaching. Its wording is duplicated in the outside-window notice, which tells
+    the reader to use it by name — change the two together or the notice points at a
+    control that is not on screen.
 31. **Playbooks reports installation, it never performs it, and every claim names
     the project it is about.** The catalogue is a build-time, repository-owned
     inventory compiled from `agent-skills/` into the bundle; whether a playbook is
