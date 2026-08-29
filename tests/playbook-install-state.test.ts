@@ -7,6 +7,8 @@ const catalogue = (skills: string[], commands: string[]): CatalogResponse => ({
   servers: {},
   skills: skills.map((name) => ({ name, description: `${name} description` })),
   commands: commands.map((name) => ({ name })),
+  tools: null,
+  omitted: { skills: [], commands: [], servers: [] },
   refreshedAt: "2026-08-29T00:00:00Z",
 });
 

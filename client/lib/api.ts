@@ -250,6 +250,13 @@ export interface CatalogCommand {
   model?: string;
   subtask?: boolean;
 }
+/**
+ * A single entry dropped from an otherwise-valid catalogue because one of
+ * its fields failed validation (issue #297). `name` is present only when it
+ * independently validated, so it can never surface an oversized or
+ * malformed name just because some other field on that entry was bad.
+ */
+export interface CatalogOmission { index: number; name?: string; reason: string }
 export interface CatalogResponse {
   servers: Record<string, McpStatus>;
   skills: CatalogSkill[];
@@ -261,6 +268,13 @@ export interface CatalogResponse {
    * same as an empty registry.
    */
   tools: string[] | null;
+  /**
+   * Entries dropped from `skills`/`commands`/`servers` because a single
+   * field on that entry failed validation (issue #297) — the container
+   * itself was still valid, only these entries were excluded. An empty
+   * list means exactly that: nothing was dropped.
+   */
+  omitted: { skills: CatalogOmission[]; commands: CatalogOmission[]; servers: CatalogOmission[] };
   refreshedAt: string;
 }
 

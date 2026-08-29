@@ -130,6 +130,11 @@ function CatalogPanel({ catalogue, loading, error, directory, onRefresh }: {
               <h2 className="text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]">MCP servers</h2>
               <span className="text-xs text-[var(--color-text-muted)]">{connected} connected / {servers.length} total</span>
             </div>
+            {catalogue.omitted.servers.length > 0 && (
+              <p className="mb-2 break-words text-[11px] leading-relaxed text-[var(--color-text-danger)]" data-testid="opencode-catalog-mcp-omitted">
+                {catalogue.omitted.servers.length} MCP server{catalogue.omitted.servers.length === 1 ? "" : "s"} omitted (invalid metadata): {catalogue.omitted.servers.map((entry) => entry.name ?? `#${entry.index}`).join(", ")}.
+              </p>
+            )}
             {servers.length === 0 ? <p className="text-sm text-[var(--color-text-muted)]">No MCP servers reported.</p> : (
               <ul className="divide-y divide-[var(--color-border-default)] rounded border border-[var(--color-border-default)]">
                 {servers.map(([name, status]) => (
@@ -166,12 +171,22 @@ function CatalogPanel({ catalogue, loading, error, directory, onRefresh }: {
           </section>
           <section data-testid="opencode-catalog-skills">
             <h2 className="mb-2 text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]">Skills loaded at startup ({catalogue.skills.length})</h2>
+            {catalogue.omitted.skills.length > 0 && (
+              <p className="mb-2 break-words text-[11px] leading-relaxed text-[var(--color-text-danger)]" data-testid="opencode-catalog-skills-omitted">
+                {catalogue.omitted.skills.length} skill{catalogue.omitted.skills.length === 1 ? "" : "s"} omitted (invalid metadata): {catalogue.omitted.skills.map((entry) => entry.name ?? `#${entry.index}`).join(", ")}.
+              </p>
+            )}
             {catalogue.skills.length === 0 ? <p className="text-sm text-[var(--color-text-muted)]">No skills loaded in this project.</p> : (
               <ul className="space-y-2">{catalogue.skills.map((skill, index) => <li key={`${index}-${skill.name}`} className="min-w-0 rounded border border-[var(--color-border-default)] p-2.5"><strong className="block break-words text-sm">{skill.name}</strong><p className="mt-1 break-words text-xs text-[var(--color-text-muted)]">{skill.description}</p>{skill.location && <code className="mt-1 block break-all text-[10px] text-[var(--color-text-muted)]">{skill.location}</code>}</li>)}</ul>
             )}
           </section>
           <section data-testid="opencode-catalog-commands">
             <h2 className="mb-2 text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]">Custom commands loaded at startup ({catalogue.commands.length})</h2>
+            {catalogue.omitted.commands.length > 0 && (
+              <p className="mb-2 break-words text-[11px] leading-relaxed text-[var(--color-text-danger)]" data-testid="opencode-catalog-commands-omitted">
+                {catalogue.omitted.commands.length} command{catalogue.omitted.commands.length === 1 ? "" : "s"} omitted (invalid metadata): {catalogue.omitted.commands.map((entry) => entry.name ?? `#${entry.index}`).join(", ")}.
+              </p>
+            )}
             {catalogue.commands.length === 0 ? <p className="text-sm text-[var(--color-text-muted)]">No custom commands loaded in this project.</p> : (
               <ul className="space-y-2">{catalogue.commands.map((command, index) => <li key={`${index}-${command.name}`} className="min-w-0 rounded border border-[var(--color-border-default)] p-2.5"><strong className="block break-words text-sm">/{command.name}</strong>{command.description && <p className="mt-1 break-words text-xs text-[var(--color-text-muted)]">{command.description}</p>}<div className="mt-1 flex flex-wrap gap-x-2 text-[10px] text-[var(--color-text-muted)]">{command.source && <span>source: {command.source}</span>}{command.agent && <span>agent: {command.agent}</span>}{command.model && <span>model: {command.model}</span>}{command.subtask !== undefined && <span>{command.subtask ? "subtask" : "primary"}</span>}</div></li>)}</ul>
             )}
