@@ -1,3 +1,11 @@
+// Which build of this worker is actually running on a device. Decision 18
+// activates a new worker only on an explicit user-approved Update, so the
+// deployed sw.js and the executing sw.js routinely differ — and during the
+// duplicate-notification investigation that difference was undiagnosable: "did
+// you tap Update?" had to be asked instead of answered. A diagnostic push
+// (payload.diag === true) appends this to the shown body, so the card itself
+// names the worker that rendered it. Bump on every behavioural change.
+const SW_VERSION = "3";
 const BADGE_DB = "opencode-pwa-state";
 const BADGE_STORE = "metadata";
 // Written by client/lib/webPush.ts, which cannot be imported here. Both copies
@@ -185,7 +193,11 @@ self.addEventListener("push", (event) => {
     payload = {};
   }
   const title = typeof payload.title === "string" ? payload.title : "OpenCode";
-  const body = typeof payload.body === "string" ? payload.body : "OpenCode needs your attention.";
+  const rawBody = typeof payload.body === "string" ? payload.body : "OpenCode needs your attention.";
+  // Diagnostic pushes only: the card names the worker that rendered it, so
+  // "which sw.js is this device actually running?" is answered by reading the
+  // notification instead of asked. Never set on real notifications.
+  const body = payload.diag === true ? `${rawBody} [sw v${SW_VERSION}]` : rawBody;
   const badgeCount = Number.isSafeInteger(payload.badgeCount) && payload.badgeCount >= 0 ? payload.badgeCount : null;
   const badgeRevision = Number.isSafeInteger(payload.badgeRevision) && payload.badgeRevision >= 0 ? payload.badgeRevision : null;
   let click = "/";
