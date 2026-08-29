@@ -221,7 +221,7 @@ export function ReminderPicker({
                 data-testid="composer-reminder-option"
                 onClick={() => choose(reminder)}
                 onMouseMove={() => setActive(optionIndex)}
-                className="flex min-h-14 w-11 shrink-0 items-center justify-center border-r border-[var(--color-border-default)]"
+                className="flex min-h-14 w-11 shrink-0 items-center justify-center"
               >
                 <ReminderIcon reminder={reminder} />
                   </button>
