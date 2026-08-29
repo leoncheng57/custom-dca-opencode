@@ -13,10 +13,12 @@ async function sessionListRequestCount(): Promise<number> {
 test.describe("command palette", () => {
   test("opens globally with accessible keyboard navigation", async ({ page }) => {
     await page.goto(settings);
+    // Search moved off the bar into the More menu; the row names the shortcut
+    // because the trigger no longer carries aria-keyshortcuts on the bar.
+    await page.getByTestId("opencode-nav-more").click();
     const trigger = page.getByTestId("opencode-palette-open");
     await expect(trigger).toBeVisible();
-    await expect(trigger).toHaveAttribute("title", "Search commands (Cmd/Ctrl+K)");
-    await expect(trigger).toHaveAttribute("aria-keyshortcuts", "Meta+K Control+K");
+    await expect(trigger).toContainText("\u2318K");
     await trigger.click();
 
     const input = page.getByRole("combobox", { name: "Search commands and conversations" });
@@ -26,7 +28,7 @@ test.describe("command palette", () => {
     await expect(page.getByRole("option", { name: /Home/ })).toHaveAttribute("aria-selected", "true");
 
     await input.press("ArrowDown");
-    await expect(page.getByRole("option", { name: /Tools/ })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("option", { name: /MCPs/ })).toHaveAttribute("aria-selected", "true");
     await input.press("Enter");
     await expect(page).toHaveURL(new RegExp(`/tools\\?directory=${encodeURIComponent(DIR)}`));
   });
@@ -44,25 +46,31 @@ test.describe("command palette", () => {
 
   test("shows no matches and restores trigger focus on Escape", async ({ page }) => {
     await page.goto(settings);
-    const trigger = page.getByTestId("opencode-palette-open");
-    await trigger.click();
+    // The Search row lives inside More and closes it on activation, so the
+    // control focus must come back to is the More trigger, not the row itself.
+    const more = page.getByTestId("opencode-nav-more");
+    await more.click();
+    await page.getByTestId("opencode-palette-open").click();
     const input = page.getByTestId("opencode-palette-input");
     await input.fill("no command has this phrase");
     await expect(page.getByTestId("opencode-palette-empty")).toHaveText("No matching commands");
     await input.press("Escape");
     await expect(page.getByTestId("opencode-command-palette")).toHaveCount(0);
-    await expect(trigger).toBeFocused();
+    await expect(more).toBeFocused();
   });
 
   test("fetches sessions freshly on every open", async ({ page }) => {
     await page.goto(settings);
     const before = await sessionListRequestCount();
-    const trigger = page.getByTestId("opencode-palette-open");
+    const openSearch = async () => {
+      await page.getByTestId("opencode-nav-more").click();
+      await page.getByTestId("opencode-palette-open").click();
+    };
 
-    await trigger.click();
+    await openSearch();
     await expect(page.getByRole("option", { name: /Add a health endpoint/ })).toBeVisible();
     await page.getByTestId("opencode-palette-input").press("Escape");
-    await trigger.click();
+    await openSearch();
     await expect(page.getByRole("option", { name: /Add a health endpoint/ })).toBeVisible();
     await expect.poll(sessionListRequestCount).toBeGreaterThanOrEqual(before + 2);
   });
@@ -96,6 +104,7 @@ test.describe("command palette", () => {
   test("fits without horizontal overflow at 390px", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 740 });
     await page.goto(settings);
+    await page.getByTestId("opencode-nav-more").click();
     await page.getByTestId("opencode-palette-open").click();
     await expect(page.getByTestId("opencode-command-palette")).toBeVisible();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);

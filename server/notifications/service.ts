@@ -202,9 +202,23 @@ export function notificationTag(record: Pick<NotificationRecord, "id" | "session
   return record.sessionID || record.id;
 }
 
+/**
+ * How long after an abort an arriving `session.idle` is treated as part of that
+ * same stop rather than a separate event worth telling anyone about.
+ *
+ * Pressing Stop makes upstream emit the abort and the idle back to back — 5 ms
+ * apart in the capture that motivated this. A session that has been aborted is
+ * idle by definition, so the pair is one occurrence described twice. Anything
+ * genuinely new requires a fresh prompt, which cannot land inside this window,
+ * so the bound can be generous without swallowing a real turn.
+ */
+const ABORT_IDLE_WINDOW_MS = 30_000;
+
 export class NotificationService {
   private timers = new Map<string, NodeJS.Timeout>();
   private seen = new Map<string, number>();
+  /** Session key -> time of its most recent abort, for ABORT_IDLE_WINDOW_MS. */
+  private aborted = new Map<string, number>();
   private sessionKinds = new Map<string, { kind: SessionKind; expiresAt: number }>();
   /**
    * Best-effort session titles, populated only from data the service already
@@ -322,6 +336,28 @@ export class NotificationService {
     if (this.seen.size > 500) {
       for (const [key, timestamp] of this.seen) {
         if (now - timestamp > 60_000) this.seen.delete(key);
+      }
+    }
+
+    // Pressing Stop produces two notifications for one action: upstream emits
+    // the abort and then `session.idle`, observed 5 ms apart, and both were
+    // delivered. The second says "Finished its turn and is waiting for you" —
+    // which is not what happened, and it carries the *previous* turn's excerpt,
+    // so on a phone it reads as a verbatim duplicate of the notification before
+    // it.
+    //
+    // Dropped rather than recorded as suppressed. The suppression categories
+    // exist so "why was I never told?" stays answerable; here the user was
+    // told, by the abort they are about to receive for the very same stop.
+    // Recording the idle too would put a row in the inbox whose only content is
+    // a restatement of its neighbour. Same reasoning as the echo dedupe above,
+    // which also returns without recording.
+    const sessionKey = `${event.directory ?? ""}:${sessionID}`;
+    if (kind === "abort" && sessionID) this.aborted.set(sessionKey, now);
+    if (kind === "idle" && sessionID && now - (this.aborted.get(sessionKey) ?? 0) < ABORT_IDLE_WINDOW_MS) return;
+    if (this.aborted.size > 500) {
+      for (const [key, timestamp] of this.aborted) {
+        if (now - timestamp > ABORT_IDLE_WINDOW_MS) this.aborted.delete(key);
       }
     }
 

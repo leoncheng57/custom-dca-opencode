@@ -116,12 +116,25 @@ function CatalogPanel({ catalogue, loading, error, directory, onRefresh }: {
       {loading && !catalogue && <p className="text-sm text-[var(--color-text-muted)]" role="status">Loading catalog...</p>}
       {error && <p className="break-words text-sm text-[var(--color-text-danger)]" role="alert">Catalog unavailable: {error}</p>}
       {catalogue && (
+        <p className="rounded border border-[var(--color-border-default)] bg-[var(--color-background-surface-neutral-muted)] p-2.5 text-[11px] leading-relaxed text-[var(--color-text-muted)]" data-testid="opencode-catalog-legend">
+          This is what the connected process <strong>reports</strong>, not what has been proven to
+          run. Configured means it is in a config file; connected means a handshake succeeded;
+          loaded means it was read at startup. None of them mean a capability was invoked
+          successfully — nothing here is exercised to produce this view.
+        </p>
+      )}
+      {catalogue && (
         <>
           <section data-testid="opencode-catalog-mcp">
             <div className="mb-2 flex items-baseline justify-between gap-2">
               <h2 className="text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]">MCP servers</h2>
               <span className="text-xs text-[var(--color-text-muted)]">{connected} connected / {servers.length} total</span>
             </div>
+            {catalogue.omitted.servers.length > 0 && (
+              <p className="mb-2 break-words text-[11px] leading-relaxed text-[var(--color-text-danger)]" data-testid="opencode-catalog-mcp-omitted">
+                {catalogue.omitted.servers.length} MCP server{catalogue.omitted.servers.length === 1 ? "" : "s"} omitted (invalid metadata): {catalogue.omitted.servers.map((entry) => entry.name ?? `#${entry.index}`).join(", ")}.
+              </p>
+            )}
             {servers.length === 0 ? <p className="text-sm text-[var(--color-text-muted)]">No MCP servers reported.</p> : (
               <ul className="divide-y divide-[var(--color-border-default)] rounded border border-[var(--color-border-default)]">
                 {servers.map(([name, status]) => (
@@ -132,17 +145,49 @@ function CatalogPanel({ catalogue, loading, error, directory, onRefresh }: {
                 ))}
               </ul>
             )}
-            <Link className="mt-2 inline-flex min-h-11 items-center text-xs font-semibold text-[var(--color-text-info)] lg:min-h-0" to={toolsPath} data-testid="opencode-catalog-tools-link">Manage connections and authentication in Tools</Link>
+            <p className="mt-2 text-[11px] leading-relaxed text-[var(--color-text-muted)]" data-testid="opencode-catalog-mcp-caveat">
+              <strong>Connected</strong> means the transport handshake succeeded, not that any tool
+              was invoked. OpenCode does not enumerate a connected server&apos;s tools, so this list
+              cannot show which of them work.
+            </p>
+            <Link className="mt-2 inline-flex min-h-11 items-center text-xs font-semibold text-[var(--color-text-info)] lg:min-h-0" to={toolsPath} data-testid="opencode-catalog-tools-link">Manage connections and authentication in MCPs</Link>
+          </section>
+          <section data-testid="opencode-catalog-tools">
+            <div className="mb-2 flex items-baseline justify-between gap-2">
+              <h2 className="text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]">Registered tools</h2>
+              {catalogue.tools && <span className="text-xs text-[var(--color-text-muted)]">{catalogue.tools.length} invocable</span>}
+            </div>
+            {catalogue.tools === null
+              ? <p className="text-sm text-[var(--color-text-muted)]" data-testid="opencode-catalog-tools-unknown">Tool registry unavailable, so this project&apos;s invocable tools are unknown.</p>
+              : <>
+                <ul className="flex flex-wrap gap-1" data-testid="opencode-catalog-tools-list">
+                  {catalogue.tools.map((id) => <li key={id} className="rounded border border-[var(--color-border-default)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--color-text-muted)]">{id}</li>)}
+                </ul>
+                <p className="mt-2 text-[11px] leading-relaxed text-[var(--color-text-muted)]">
+                  Reported by the running process as registered. Built-in tools only — MCP tools are
+                  never listed here even when their server is connected.
+                </p>
+              </>}
           </section>
           <section data-testid="opencode-catalog-skills">
-            <h2 className="mb-2 text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]">Skills ({catalogue.skills.length})</h2>
-            {catalogue.skills.length === 0 ? <p className="text-sm text-[var(--color-text-muted)]">No skills installed.</p> : (
+            <h2 className="mb-2 text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]">Skills loaded at startup ({catalogue.skills.length})</h2>
+            {catalogue.omitted.skills.length > 0 && (
+              <p className="mb-2 break-words text-[11px] leading-relaxed text-[var(--color-text-danger)]" data-testid="opencode-catalog-skills-omitted">
+                {catalogue.omitted.skills.length} skill{catalogue.omitted.skills.length === 1 ? "" : "s"} omitted (invalid metadata): {catalogue.omitted.skills.map((entry) => entry.name ?? `#${entry.index}`).join(", ")}.
+              </p>
+            )}
+            {catalogue.skills.length === 0 ? <p className="text-sm text-[var(--color-text-muted)]">No skills loaded in this project.</p> : (
               <ul className="space-y-2">{catalogue.skills.map((skill, index) => <li key={`${index}-${skill.name}`} className="min-w-0 rounded border border-[var(--color-border-default)] p-2.5"><strong className="block break-words text-sm">{skill.name}</strong><p className="mt-1 break-words text-xs text-[var(--color-text-muted)]">{skill.description}</p>{skill.location && <code className="mt-1 block break-all text-[10px] text-[var(--color-text-muted)]">{skill.location}</code>}</li>)}</ul>
             )}
           </section>
           <section data-testid="opencode-catalog-commands">
-            <h2 className="mb-2 text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]">Custom commands ({catalogue.commands.length})</h2>
-            {catalogue.commands.length === 0 ? <p className="text-sm text-[var(--color-text-muted)]">No custom commands installed.</p> : (
+            <h2 className="mb-2 text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]">Custom commands loaded at startup ({catalogue.commands.length})</h2>
+            {catalogue.omitted.commands.length > 0 && (
+              <p className="mb-2 break-words text-[11px] leading-relaxed text-[var(--color-text-danger)]" data-testid="opencode-catalog-commands-omitted">
+                {catalogue.omitted.commands.length} command{catalogue.omitted.commands.length === 1 ? "" : "s"} omitted (invalid metadata): {catalogue.omitted.commands.map((entry) => entry.name ?? `#${entry.index}`).join(", ")}.
+              </p>
+            )}
+            {catalogue.commands.length === 0 ? <p className="text-sm text-[var(--color-text-muted)]">No custom commands loaded in this project.</p> : (
               <ul className="space-y-2">{catalogue.commands.map((command, index) => <li key={`${index}-${command.name}`} className="min-w-0 rounded border border-[var(--color-border-default)] p-2.5"><strong className="block break-words text-sm">/{command.name}</strong>{command.description && <p className="mt-1 break-words text-xs text-[var(--color-text-muted)]">{command.description}</p>}<div className="mt-1 flex flex-wrap gap-x-2 text-[10px] text-[var(--color-text-muted)]">{command.source && <span>source: {command.source}</span>}{command.agent && <span>agent: {command.agent}</span>}{command.model && <span>model: {command.model}</span>}{command.subtask !== undefined && <span>{command.subtask ? "subtask" : "primary"}</span>}</div></li>)}</ul>
             )}
           </section>

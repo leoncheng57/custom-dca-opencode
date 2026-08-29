@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- Redaction note: employer-coined internal tool identifiers in this 2026-08 research snapshot were replaced with neutral placeholders (internal-mcp, internal-platform-mcp) before this repository was made public. Third-party product names are retained unchanged. The technical argument is unaffected. -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -314,7 +315,7 @@
   <figcaption>Fig 1 — Your current OpenCode topology. Solid = working today. Dashed / red ✗ = the gaps this report addresses.</figcaption>
 </figure>
 
-<div class="callout warn"><b>Flagged during research:</b> <code>opencode.json</code> contains 4 plaintext tokens (2&times; <code>NOTION_TOKEN</code>, 2&times; <code>PLAYWRIGHT_MCP_EXTENSION_TOKEN</code>) with <code>.bak</code> copies alongside. Config supports <code>{env:VAR}</code> / <code>{file:path}</code> &mdash; you already use it for OpenAI and Figma. Also: logs show <code>deepctl-mcp</code> timing out repeatedly and silently for months &mdash; an unreachable MCP taxes <em>every</em> run during tool listing.</div>
+<div class="callout warn"><b>Flagged during research:</b> <code>opencode.json</code> contains 4 plaintext tokens (2&times; <code>NOTION_TOKEN</code>, 2&times; <code>PLAYWRIGHT_MCP_EXTENSION_TOKEN</code>) with <code>.bak</code> copies alongside. Config supports <code>{env:VAR}</code> / <code>{file:path}</code> &mdash; you already use it for OpenAI and Figma. Also: logs show <code>internal-mcp</code> timing out repeatedly and silently for months &mdash; an unreachable MCP taxes <em>every</em> run during tool listing.</div>
 
 <!-- ============================================================ -->
 <h2 id="s2"><span class="n">2</span>What your OpenHands build has (feature inventory)</h2>
@@ -362,7 +363,7 @@
   <tr>
     <td><b>MCP management</b></td>
     <td>Read-only Tools page: per-server health probe (connect + tools/list + latency), masked-secret honesty, <b>stall hint naming the dead server after 12s silence</b></td>
-    <td><code>opencode mcp list</code> exists but nothing surfaces stalls; silent <code>deepctl-mcp</code> failures prove the gap</td>
+    <td><code>opencode mcp list</code> exists but nothing surfaces stalls; silent <code>internal-mcp</code> failures prove the gap</td>
   </tr>
   <tr>
     <td><b>Panel rail</b></td>
@@ -475,7 +476,7 @@
   <tr class="verdict-row"><td>2</td><td><b>Per-event notification granularity</b> &mdash; mute is binary; 67% of pushes are permissions</td><td>&#10003; per-event checkboxes</td><td><span class="tag adopt">ADOPT</span> mohak34/opencode-notifier or extend yours</td><td>~1h</td></tr>
   <tr class="verdict-row"><td>3</td><td><b>Error/abort notifications</b> &mdash; nothing fires on <code>session.error</code> / cancel</td><td>&#10003; high-priority</td><td><span class="tag build">BUILD</span> (small)</td><td>~30m</td></tr>
   <tr class="verdict-row"><td>4</td><td><b>Unify desktop + phone channels</b> &mdash; shared prefs + mute, question text in toast, permission/idle toasts</td><td>&#10003; single trigger table</td><td><span class="tag build">BUILD</span></td><td>~1h</td></tr>
-  <tr class="verdict-row"><td>5</td><td><b>MCP health / stall detection</b> &mdash; 21 servers, silent <code>deepctl-mcp</code> timeouts; OpenHands names the stalling server after 12s</td><td>&#10003; probe + stall hint</td><td><span class="tag build">BUILD</span> + <span class="tag borrow">DOCK</span> &mdash; <b>no ecosystem option exists</b></td><td>~2h</td></tr>
+  <tr class="verdict-row"><td>5</td><td><b>MCP health / stall detection</b> &mdash; 21 servers, silent <code>internal-mcp</code> timeouts; OpenHands names the stalling server after 12s</td><td>&#10003; probe + stall hint</td><td><span class="tag build">BUILD</span> + <span class="tag borrow">DOCK</span> &mdash; <b>no ecosystem option exists</b></td><td>~2h</td></tr>
   <tr class="verdict-row"><td>6</td><td><b>Approve-from-lock-screen</b> &mdash; ntfy <code>http</code> actions &rarr; POST to permission endpoint</td><td>&#10007; (OpenHands lacks it too)</td><td><span class="tag build">BUILD</span> on existing plugin</td><td>~half day</td></tr>
   <tr class="verdict-row"><td>7</td><td><b>MR/CI panel</b> &mdash; pipeline state, comments, merge</td><td>&#10003; full panel</td><td><span class="tag borrow">DOCK</span> <code>glab</code> watch + status pill</td><td>~2h</td></tr>
   <tr class="verdict-row"><td>8</td><td><b>Plan review surface</b></td><td>&#10003; task list panel</td><td><span class="tag adopt">ADOPT</span> plannotator</td><td>install</td></tr>
@@ -616,7 +617,7 @@
           <h5>MCP · dock.json</h5>
           <div class="wf-line"><span class="ok">●</span> grafana-mcp     412ms</div>
           <div class="wf-line"><span class="ok">●</span> gitlab-mcp      203ms</div>
-          <div class="wf-line"><span class="bad">●</span> deepctl-mcp   TIMEOUT</div>
+          <div class="wf-line"><span class="bad">●</span> internal-mcp  TIMEOUT</div>
           <div class="wf-line"><span class="ok">●</span> backstage       188ms</div>
           <div class="wf-line">…17 more</div>
         </div>

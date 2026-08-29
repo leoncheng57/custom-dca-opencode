@@ -2,6 +2,7 @@
 name: background-subagent
 title: Delegate in the Background
 description: Launch the current request as one self-contained background task, report its task ID, and do not duplicate its work.
+tags: subagents
 source_repo: https://github.com/leoncheng57/agent-skills
 source_path: skills/background-subagent/SKILL.md
 source_commit: 8b036a41f578dc6c6307ae0a8dd2857121afcabb

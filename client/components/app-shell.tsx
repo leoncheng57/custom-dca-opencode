@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { FlaskConical, Moon, RefreshCw, Search, Sun } from "lucide-react";
+import { FlaskConical, LibraryBig, ListTodo, Moon, RefreshCw, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 
@@ -30,7 +30,7 @@ function documentTitle(pathname: string): string {
   if (pathname.startsWith("/sessions/")) return `Session | ${APP_NAME}`;
   if (pathname === "/settings") return `Settings | ${APP_NAME}`;
   if (pathname === "/settings/notifications") return `Notifications | ${APP_NAME}`;
-  if (pathname === "/tools") return `Tools | ${APP_NAME}`;
+  if (pathname === "/tools") return `MCPs | ${APP_NAME}`;
   if (pathname === "/docs") return `Docs | ${APP_NAME}`;
   if (pathname.startsWith("/docs/")) return `${getDoc(pathname.slice("/docs/".length))?.title ?? "Document"} | ${APP_NAME}`;
   if (pathname === "/planning") return `Planning | ${APP_NAME}`;
@@ -135,7 +135,7 @@ export function AppShell() {
   const commands = buildPaletteCommands({
     navigation: [
       { id: "home", title: "Home", to: scopedPath("/"), keywords: ["sessions"] },
-      { id: "tools", title: "Tools", to: scopedPath("/tools"), keywords: ["mcp", "lsp", "permissions"] },
+      { id: "tools", title: "MCPs", to: scopedPath("/tools"), keywords: ["mcp", "lsp", "permissions", "tools"] },
       { id: "docs", title: "Docs", to: scopedPath("/docs"), keywords: ["architecture", "contributing", "internals"] },
       {
         id: "notifications",
@@ -192,19 +192,6 @@ export function AppShell() {
             DCA
           </NavLink>
           <Button
-            aria-label="Search commands"
-            aria-keyshortcuts="Meta+K Control+K"
-            className="size-8 shrink-0 p-0 pointer-coarse:size-11"
-            size="sm"
-            title="Search commands (Cmd/Ctrl+K)"
-            type="button"
-            variant="ghost"
-            onClick={openPalette}
-            data-testid="opencode-palette-open"
-          >
-            <Search aria-hidden="true" size={16} />
-          </Button>
-          <Button
             aria-label="Refresh app"
             className="size-8 shrink-0 p-0 pointer-coarse:size-11"
             disabled={refreshing}
@@ -241,8 +228,32 @@ export function AppShell() {
               <span className="hidden sm:inline">DSH</span>
             </NavLink>
           )}
+          <NavLink
+            aria-label="Playbooks"
+            className={({ isActive }) => `inline-flex size-8 shrink-0 items-center justify-center gap-1.5 rounded-md text-xs font-semibold pointer-coarse:size-11 sm:w-auto sm:px-2 ${isActive ? "bg-[var(--color-background-surface-info-muted)] text-[var(--color-text-info)]" : "text-[var(--color-text-action-ghost)] hover:bg-[var(--color-background-action-ghost-hover)]"}`}
+            title="Playbooks"
+            to="/playbooks"
+            data-testid="opencode-nav-playbooks"
+          >
+            <LibraryBig aria-hidden="true" size={16} />
+            <span className="hidden sm:inline">Playbooks</span>
+          </NavLink>
+          <NavLink
+            aria-label="Planning"
+            className={({ isActive }) => `inline-flex size-8 shrink-0 items-center justify-center gap-1.5 rounded-md text-xs font-semibold pointer-coarse:size-11 sm:w-auto sm:px-2 ${isActive ? "bg-[var(--color-background-surface-info-muted)] text-[var(--color-text-info)]" : "text-[var(--color-text-action-ghost)] hover:bg-[var(--color-background-action-ghost-hover)]"}`}
+            title="Planning"
+            to="/planning"
+            data-testid="opencode-nav-planning"
+          >
+            <ListTodo aria-hidden="true" size={16} />
+            <span className="hidden sm:inline">Planning</span>
+          </NavLink>
           <NotificationPopover scopedPath={scopedPath} />
-          <NavOverflowMenu scopedPath={scopedPath} onOpenPhoneTransfer={() => void openPhoneTransfer()} />
+          <NavOverflowMenu
+            scopedPath={scopedPath}
+            onOpenPalette={openPalette}
+            onOpenPhoneTransfer={() => void openPhoneTransfer()}
+          />
         </nav>
         {PUBLIC_SIMULATOR && (
           <div

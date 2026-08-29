@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
-import { Bell, ChevronDown, ChevronRight } from "lucide-react";
+import { Bell, ChevronDown, ChevronRight, Settings } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { Alert } from "../ds/alert.js";
@@ -145,11 +145,18 @@ function RecordSection({
   );
 }
 
-/** Plural-safe copy for the count of unresolved records outside the window. */
+/**
+ * Plural-safe copy for the count of unresolved records outside the window.
+ *
+ * Names the footer link by its visible label. The two have to be changed
+ * together: an instruction that points at "the full notification history" when
+ * the only link on screen reads "See all notifications and settings" sends the
+ * reader looking for a control that is not there.
+ */
 function outsideWindowNotice(hidden: number): string {
   return hidden === 1
-    ? "1 older unresolved record is outside this view. Open the full notification history below to see it."
-    : `${hidden} older unresolved records are outside this view. Open the full notification history below to see them.`;
+    ? "1 older unresolved record is outside this view. See all notifications and settings below to reach it."
+    : `${hidden} older unresolved records are outside this view. See all notifications and settings below to reach them.`;
 }
 
 /**
@@ -338,13 +345,19 @@ export function NotificationPopover({ scopedPath }: { scopedPath: (path: string)
                 onToggle={() => setView({ resolvedExpanded: !view.resolvedExpanded })}
               />
             </div>
+            {/* Pinned below the scroller, not inside it: this is the way out of
+                the popover, and a link that scrolls away with the backlog is
+                missing exactly when a long backlog makes it worth reaching.
+                Centred and full-width so it reads as the panel's footer rather
+                than as one more left-aligned row in the list above it. */}
             <Link
-              className="shrink-0 rounded px-2 py-1.5 text-xs underline underline-offset-2 hover:bg-[var(--color-background-surface-neutral-muted)]"
+              className="flex shrink-0 items-center justify-center gap-1.5 rounded px-2 py-2 text-xs underline underline-offset-2 hover:bg-[var(--color-background-surface-neutral-muted)]"
               onClick={() => close(false)}
               to={scopedPath("/settings/notifications")}
               data-testid="opencode-notification-popover-history"
             >
-              Open full notification history
+              <Settings aria-hidden="true" size={14} className="shrink-0" />
+              See all notifications and settings
             </Link>
           </div>
         </>

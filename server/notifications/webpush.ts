@@ -24,6 +24,35 @@ interface StoredSubscriptions {
 export const MAX_PUSH_SUBSCRIPTIONS = 32;
 const PUSH_HOSTS = new Set(["fcm.googleapis.com", "updates.push.services.mozilla.com", "web.push.apple.com"]);
 
+export interface PushSubscriptionSummary {
+  id: string;
+  addedAt: number;
+  label: string;
+  platform: string;
+  installationId?: string;
+}
+
+/**
+ * The push service host is the only distinguishing fact a summary can safely
+ * carry: it is already constrained to the allowlist in `trustedPushEndpoint`,
+ * and it names a browser/platform family rather than a device, a user or a
+ * location. Without it every row reads identically, which is the whole reason
+ * the list was unusable.
+ */
+function platformLabel(endpoint: string): string {
+  let hostname: string;
+  try {
+    ({ hostname } = new URL(endpoint));
+  } catch {
+    return "Unknown platform";
+  }
+  if (hostname === "web.push.apple.com") return "Apple (Safari or iOS)";
+  if (hostname === "fcm.googleapis.com") return "Google (Chrome or Android)";
+  if (hostname === "updates.push.services.mozilla.com") return "Mozilla (Firefox)";
+  if (hostname.endsWith(".notify.windows.com")) return "Microsoft (Edge or Windows)";
+  return "Unknown platform";
+}
+
 function trustedPushEndpoint(value: string): boolean {
   try {
     const url = new URL(value);
@@ -60,7 +89,7 @@ export class PushSubscriptionStore {
   constructor(readonly file = process.env.WEB_PUSH_SUBSCRIPTIONS_FILE || path.resolve(process.cwd(), ".state/web-push-subscriptions.json")) {}
 
   async list(): Promise<PushSubscriptionRecord[]> {
-    const stored = await this.listStored();
+    const stored = await this.readStored();
     return stored.map(({ endpoint, keys, installationId }) => ({
       endpoint,
       keys,
@@ -68,33 +97,61 @@ export class PushSubscriptionStore {
     }));
   }
 
-  private async listStored(): Promise<StoredPushSubscriptionRecord[]> {
+  private async listStored(): Promise<{ subscriptions: StoredPushSubscriptionRecord[]; backfilled: boolean }> {
     try {
       const parsed = JSON.parse(await readFile(this.file, "utf8")) as StoredSubscriptions;
       if (parsed.version !== 1 || !Array.isArray(parsed.subscriptions) || parsed.subscriptions.length > MAX_PUSH_SUBSCRIPTIONS) {
         throw new Error("invalid Web Push subscription store");
       }
+      let backfilled = false;
       const subscriptions = parsed.subscriptions.map((item) => {
         const valid = validSubscription(item);
         if (!valid) return null;
-        // Backward compatibility: stored records might lack id/addedAt
+        // Backward compatibility: stored records might lack id/addedAt.
         const id = typeof item.id === "string" ? item.id : randomUUID();
         const addedAt = typeof item.addedAt === "number" ? item.addedAt : Date.now();
+        if (typeof item.id !== "string" || typeof item.addedAt !== "number") backfilled = true;
         return { ...valid, id, addedAt };
       });
       if (subscriptions.some((item) => item === null)) throw new Error("invalid Web Push subscription store");
-      return subscriptions as StoredPushSubscriptionRecord[];
+      return { subscriptions: subscriptions as StoredPushSubscriptionRecord[], backfilled };
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return { subscriptions: [], backfilled: false };
       throw error;
     }
+  }
+
+  /**
+   * Read path for callers outside the write queue.
+   *
+   * Legacy records predate `id`/`addedAt`, and recomputing those fields on
+   * every read meant the values were never stable: the first `add()` after such
+   * a read persisted whatever `Date.now()` happened to be, collapsing every
+   * device's registration date onto one instant and making the Settings list
+   * unreadable. Generated values are therefore persisted the first time they
+   * are produced, so a legacy record is dated once and then never moves.
+   *
+   * A missing file backfills nothing — a read must not create state.
+   *
+   * The write is best-effort because `list()` is the delivery path: a state
+   * directory that has gone read-only should degrade to the old unstable dates,
+   * not stop notifications from being sent.
+   */
+  private async readStored(): Promise<StoredPushSubscriptionRecord[]> {
+    let result: StoredPushSubscriptionRecord[] = [];
+    await this.queue(async () => {
+      const { subscriptions, backfilled } = await this.listStored();
+      result = subscriptions;
+      if (backfilled) await this.writeStored(subscriptions).catch(() => undefined);
+    });
+    return result;
   }
 
   async add(value: unknown): Promise<void> {
     const subscription = validSubscription(value);
     if (!subscription) throw new Error("invalid push subscription");
     await this.queue(async () => {
-      let subscriptions = await this.listStored();
+      let { subscriptions } = await this.listStored();
       
       // If the incoming subscription has an installationId, replace any existing
       // record with the same installationId (updating endpoint/keys/addedAt but keeping the same id)
@@ -129,14 +186,16 @@ export class PushSubscriptionStore {
 
   async remove(endpoint: string, expectedKeys?: PushSubscriptionRecord["keys"]): Promise<void> {
     await this.queue(async () => {
-      await this.writeStored((await this.listStored()).filter((item) => item.endpoint !== endpoint
+      const { subscriptions } = await this.listStored();
+      await this.writeStored(subscriptions.filter((item) => item.endpoint !== endpoint
         || (expectedKeys !== undefined && (item.keys.p256dh !== expectedKeys.p256dh || item.keys.auth !== expectedKeys.auth))));
     });
   }
 
   async removeById(id: string): Promise<void> {
     await this.queue(async () => {
-      await this.writeStored((await this.listStored()).filter((item) => item.id !== id));
+      const { subscriptions } = await this.listStored();
+      await this.writeStored(subscriptions.filter((item) => item.id !== id));
     });
   }
 
@@ -146,12 +205,20 @@ export class PushSubscriptionStore {
     });
   }
 
-  async summaries(): Promise<Array<{ id: string; addedAt: number; label: string }>> {
-    const stored = await this.listStored();
+  /**
+   * Endpoint and keys are the delivery credential and never leave the server.
+   * `installationId` is an opaque per-installation token the browser generated
+   * for itself, so returning it discloses nothing the client did not author —
+   * and it is what lets a device recognise its own row in the list.
+   */
+  async summaries(): Promise<PushSubscriptionSummary[]> {
+    const stored = await this.readStored();
     return stored.map((item) => ({
       id: item.id,
       addedAt: item.addedAt,
       label: `Registered ${new Date(item.addedAt).toISOString()}`,
+      platform: platformLabel(item.endpoint),
+      ...(item.installationId !== undefined ? { installationId: item.installationId } : {}),
     }));
   }
 

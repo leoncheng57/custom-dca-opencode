@@ -9,6 +9,7 @@ import { LoadingIndicator } from "../ds/loading-indicator.js";
 import { AgentModeToggle } from "../components/agent-mode-toggle.js";
 import { AutoPermissionsControl } from "../components/auto-permissions-control.js";
 import { ModelPicker } from "../components/model-picker.js";
+import { StatusPill, runningState } from "../components/status-pill.js";
 import {
   api,
   formatCost,
@@ -42,21 +43,6 @@ const POLL_MS = 10_000;
 // Recents fan out across projects, so they refresh on their own slower timer
 // rather than riding the per-directory session poll.
 const RECENTS_POLL_MS = 60_000;
-
-export function StatusPill({ running }: { running: boolean }) {
-  return (
-    <span
-      className={
-        running
-          ? "inline-flex shrink-0 items-center rounded-full bg-[var(--color-background-surface-info-muted)] px-2 py-0.5 text-[11px] font-medium text-[var(--color-text-info)]"
-          : "inline-flex shrink-0 items-center rounded-full bg-[var(--color-background-surface-neutral-muted)] px-2 py-0.5 text-[11px] font-medium text-[var(--color-text-muted)]"
-      }
-      data-testid="opencode-status-pill"
-    >
-      {running ? "running" : "idle"}
-    </span>
-  );
-}
 
 /**
  * Marks a session that another session delegated to.
@@ -136,7 +122,7 @@ function SessionTreeList({ sessions, selected, testId, projectLabel, showCost = 
             className="flex min-h-11 min-w-0 flex-1 items-center gap-2 px-2 py-2 text-sm hover:bg-[var(--hh-row-hover)] sm:gap-3"
             data-testid={`${testId}-row`}
           >
-            <StatusPill running={session.running} />
+            <StatusPill status={runningState(session.running)} />
             <span className="min-w-0 flex-1 truncate">{session.title}</span>
             {isSubagentSession(session) && <SubagentPill managed={Boolean(session.managed)} />}
             {projectLabel && (
@@ -475,7 +461,7 @@ export function HubPage() {
                 : row.notification?.route;
               const content = (
                 <>
-                  {row.running && <StatusPill running />}
+                  {row.running && <StatusPill status="running" />}
                   {row.notification && (
                     <span className="inline-flex shrink-0 items-center rounded-full bg-[var(--color-background-surface-danger-muted)] px-2 py-0.5 text-[11px] font-medium text-[var(--color-text-danger)]">notif active</span>
                   )}

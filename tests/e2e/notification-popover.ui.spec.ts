@@ -249,15 +249,19 @@ for (const viewport of VIEWPORTS) {
       await stubHistory(page);
     });
 
-    test("shows the DCA brand, search and a badged bell", async ({ page }) => {
+    test("shows the DCA brand, search inside More, and a badged bell", async ({ page }) => {
       await page.goto(hub);
       await expect(page.getByTestId("opencode-nav-home")).toHaveText("DCA");
 
+      // Search is no longer a bar control; it lives in More and still opens on
+      // Cmd/Ctrl+K, which the menu row names because the trigger no longer
+      // carries aria-keyshortcuts on the bar.
+      await expect(page.getByTestId("opencode-palette-open")).toHaveCount(0);
+      await page.getByTestId("opencode-nav-more").click();
       const search = page.getByTestId("opencode-palette-open");
       await expect(search).toBeVisible();
-      await expect(search).toHaveAttribute("aria-label", "Search commands");
-      await expect(search).toHaveAttribute("aria-keyshortcuts", "Meta+K Control+K");
-      await expect(search).toHaveAttribute("title", "Search commands (Cmd/Ctrl+K)");
+      await expect(search).toContainText("Search");
+      await expect(search).toContainText("⌘K");
       await search.click();
       await expect(page.getByTestId("opencode-command-palette")).toBeVisible();
       await page.getByTestId("opencode-palette-input").press("Escape");
@@ -351,7 +355,12 @@ for (const viewport of VIEWPORTS) {
       const notice = page.getByTestId("opencode-notification-popover-active-outside-window");
       await expect(notice).toBeVisible();
       await expect(notice).toContainText(`${outside} older unresolved records are outside this view`);
-      await expect(notice).toContainText("full notification history");
+      // The notice points at the footer link, so it has to name what that link
+      // actually says. Asserting the shared wording keeps the two from drifting
+      // into an instruction for a control that is not on screen.
+      const footerLabel = "See all notifications and settings";
+      await expect(notice).toContainText(footerLabel);
+      await expect(page.getByTestId("opencode-notification-popover-history")).toHaveText(footerLabel);
 
       // The history page reconciles its own badge the same way.
       await page.goto(`/settings/notifications?directory=${encodeURIComponent(DIR)}`);
@@ -556,7 +565,7 @@ for (const viewport of VIEWPORTS) {
       }
     });
 
-    test("keeps Phone, Docs, Tools, Settings and Planning reachable from More", async ({ page }) => {
+    test("keeps Search, Phone, Docs, MCPs and Settings reachable from More", async ({ page }) => {
       await page.goto(hub);
       const more = page.getByTestId("opencode-nav-more");
       await expect(more).toHaveAttribute("aria-haspopup", "true");
@@ -564,20 +573,30 @@ for (const viewport of VIEWPORTS) {
       await more.click();
       await expect(more).toHaveAttribute("aria-expanded", "true");
       await expect(page.getByTestId("opencode-nav-more-menu")).toBeVisible();
-      for (const testId of ["opencode-phone-transfer-open", "opencode-nav-docs", "opencode-nav-tools", "opencode-nav-settings", "opencode-nav-planning"]) {
+      for (const testId of ["opencode-palette-open", "opencode-phone-transfer-open", "opencode-nav-docs", "opencode-nav-tools", "opencode-nav-settings"]) {
         await expect(page.getByTestId(testId)).toBeVisible();
+      }
+
+      // Playbooks and Planning were promoted to the bar and must not also
+      // appear here.
+      for (const testId of ["opencode-nav-playbooks", "opencode-nav-planning"]) {
+        await expect(page.getByTestId("opencode-nav-more-menu").getByTestId(testId)).toHaveCount(0);
       }
 
       // A disclosure over links, not an APG menu: the three destinations stay
       // real links so assistive tech still lists them as such, and Tab is the
       // traversal model.
-      for (const testId of ["opencode-nav-docs", "opencode-nav-tools", "opencode-nav-settings", "opencode-nav-planning"]) {
+      for (const testId of ["opencode-nav-docs", "opencode-nav-tools", "opencode-nav-settings"]) {
         await expect(page.getByTestId(testId)).toHaveRole("link");
       }
-      await expect(page.getByTestId("opencode-phone-transfer-open")).toHaveRole("button");
+      for (const testId of ["opencode-palette-open", "opencode-phone-transfer-open"]) {
+        await expect(page.getByTestId(testId)).toHaveRole("button");
+      }
       await expect(page.getByTestId("opencode-nav-more-menu").getByRole("menuitem")).toHaveCount(0);
 
       // Keyboard reachable: the first item takes focus, Tab walks the rest.
+      await expect(page.getByTestId("opencode-palette-open")).toBeFocused();
+      await page.keyboard.press("Tab");
       await expect(page.getByTestId("opencode-phone-transfer-open")).toBeFocused();
       await page.keyboard.press("Tab");
       await expect(page.getByTestId("opencode-nav-docs")).toBeFocused();
@@ -590,10 +609,23 @@ for (const viewport of VIEWPORTS) {
       await expect(page).toHaveURL(new RegExp(`/tools\\?directory=${encodeURIComponent(DIR)}`));
     });
 
+    test("promotes Playbooks and Planning onto the bar", async ({ page }) => {
+      await page.goto(hub);
+      const bar = page.locator("nav[aria-label='Main']");
+      for (const testId of ["opencode-nav-playbooks", "opencode-nav-planning"]) {
+        const link = bar.getByTestId(testId);
+        await expect(link).toBeVisible();
+        await expect(link).toHaveRole("link");
+      }
+      // Not directory-scoped: both are cross-project surfaces.
+      await bar.getByTestId("opencode-nav-planning").click();
+      await expect(page).toHaveURL(/\/planning$/);
+    });
+
     test("still lists the moved destinations in the command palette", async ({ page }) => {
       await page.goto(hub);
       await page.keyboard.press(shortcut);
-      for (const name of [/Docs/, /Tools/, /Settings/, /Planning/, /Notifications/, /Open on phone/]) {
+      for (const name of [/Docs/, /MCPs/, /Settings/, /Planning/, /Notifications/, /Open on phone/]) {
         await expect(page.getByRole("option", { name }).first()).toBeVisible();
       }
     });
@@ -660,27 +692,13 @@ for (const viewport of VIEWPORTS) {
       await expect(group).toHaveAttribute("data-group-key", "ses_mock_done");
       await expect(group.getByTestId("opencode-notification-group-count")).toHaveText(String(ACTIVE_COUNT));
 
-      // The chip strip is the only thing a folded group says about its
-      // contents, so without it this default would hide unanswered permissions
-      // behind a number.
-      await expect(group.getByTestId("opencode-notification-group-chip-permission")).toContainText("permission");
-      await expect(group.getByTestId("opencode-notification-group-chip-permission")).toContainText(
-        String(ACTIVE_COUNT),
-      );
-      const chipMetrics = await group.getByTestId("opencode-notification-group-chip-permission").evaluate((chip) => {
-        const style = getComputedStyle(chip);
-        return {
-          fontSize: Number.parseFloat(style.fontSize),
-          paddingLeft: Number.parseFloat(style.paddingLeft),
-          paddingTop: Number.parseFloat(style.paddingTop),
-        };
-      });
-      // Aggregate chips can appear six at a time. They are intentionally ~40%
-      // smaller than the normal 12px / 10px-padded row status badges so a
-      // folded mobile group stays compact without shrinking row actions.
-      expect(chipMetrics.fontSize).toBeLessThanOrEqual(8);
-      expect(chipMetrics.paddingLeft).toBeLessThanOrEqual(6);
-      expect(chipMetrics.paddingTop).toBeLessThanOrEqual(1);
+      // A folded group has to say whether anything inside is waiting on a
+      // human, or this default would hide unanswered permissions behind a
+      // number. Issue #288 replaced the per-kind chip strip with that one bit;
+      // the strip is gone, the guarantee is not (AGENTS.md decision 23).
+      await expect(group.getByTestId("opencode-notification-group-chips")).toHaveCount(0);
+      await expect(group.getByTestId("opencode-notification-group-chip-permission")).toHaveCount(0);
+      await expect(group.getByTestId("opencode-notification-group-blocking")).toHaveText(/needs you/);
 
       // The header names the session, truncated, with the whole title kept in
       // the tooltip.
@@ -750,6 +768,155 @@ for (const viewport of VIEWPORTS) {
 
       await popover(page).getByTestId("opencode-notification-link").first().click();
       await expect(page).toHaveURL(new RegExp(`/sessions/ses_mock_done\\?directory=${encodeURIComponent(DIR)}`));
+    });
+
+    test("says nothing needs you when a folded group holds only finished work", async ({ page }) => {
+      // Every resolved fixture record is `idle` — work that already stopped —
+      // so the marker must stay off. An indicator that is always on says
+      // nothing, and a permanent "needs you" over the archive would be a
+      // standing falsehood about requests the user already dealt with.
+      await page.goto(hub);
+      await bell(page).click();
+      await expandResolved(page);
+
+      const resolvedGroups = page
+        .getByTestId("opencode-notification-popover-resolved")
+        .getByTestId("opencode-notification-group");
+      await expect(resolvedGroups.first()).toHaveAttribute("data-expanded", "false");
+      await expect(
+        resolvedGroups.first().getByTestId("opencode-notification-group-blocking"),
+      ).toHaveCount(0);
+    });
+
+    test("says whether the session is still working, without claiming to know when it does not", async ({ page }) => {
+      await page.goto(hub);
+      await bell(page).click();
+
+      // ses_mock_done exists in the mock's session list and is absent from
+      // /session/status, so the fan-out answers it: a real, positive "idle".
+      const group = groups(page).first();
+      await expect(group.getByTestId("opencode-status-pill")).toHaveAttribute("data-status", "idle");
+
+      // Grouped rows do not repeat it: the header already said it once for the
+      // whole session, and status is a fact about the session rather than the
+      // record. Repeating it on every row is the duplication grouping exists to
+      // remove — the same reason a grouped row drops the session title.
+      await group.getByTestId("opencode-notification-group-toggle").click();
+      const row = popover(page).getByTestId("opencode-notification-record").first();
+      await expect(row.getByTestId("opencode-status-pill")).toHaveCount(0);
+
+      // With grouping off there is no header to carry it, so the row does.
+      await page.getByTestId("opencode-notification-filter-group-session").uncheck();
+      await expect(
+        popover(page).getByTestId("opencode-notification-record").first().getByTestId("opencode-status-pill"),
+      ).toHaveAttribute("data-status", "idle");
+    });
+
+    test("never renders a confident idle for a session the fan-out cannot answer for", async ({ page }) => {
+      // ses_mock_unowned is not in the mock's session list at all — the shape
+      // a session takes once the process that ran it is gone. /session/status
+      // is process-local, so `idle` here would be a confident falsehood.
+      await stubHistory(page, [
+        {
+          id: "ntf_unowned",
+          kind: "permission",
+          at: Date.UTC(2026, 7, 22, 12, 0, 0),
+          directory: DIR,
+          sessionID: "ses_mock_unowned",
+          sessionTitle: "Work from a process that has since exited",
+          title: "OpenCode needs permission",
+          body: "bash: npm test",
+          displayBody: "Needs approval to run bash",
+          delivery: { ntfy: "off", desktop: "off" },
+        },
+      ]);
+      await page.goto(hub);
+      await bell(page).click();
+
+      const pill = groups(page).first().getByTestId("opencode-status-pill");
+      await expect(pill).toHaveAttribute("data-status", "unknown");
+      // Styled apart from idle rather than sharing its treatment, so "we do
+      // not know" cannot be read as "nothing is happening".
+      await expect(pill).toHaveCSS("border-style", "dashed");
+    });
+
+    test("makes Open a real button-sized target that still behaves like a link", async ({ page }) => {
+      await page.goto(hub);
+      await bell(page).click();
+      await groups(page).first().getByTestId("opencode-notification-group-toggle").click();
+
+      const open = popover(page).getByTestId("opencode-notification-link").first();
+      // Still an anchor: middle-click, cmd-click and "copy link address" are
+      // properties of the element, and a button calling navigate() loses them.
+      await expect(open).toHaveJSProperty("tagName", "A");
+      await expect(open).toHaveAttribute(
+        "href",
+        `/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`,
+      );
+
+      // The point of the change: a tap target, not a ~13px run of underlined
+      // heading text. Icon-only dropped the label but must not have dropped
+      // the target with it, so both axes are asserted, not just the height.
+      const box = await open.boundingBox();
+      expect(box?.height ?? 0).toBeGreaterThanOrEqual(40);
+      expect(box?.width ?? 0).toBeGreaterThanOrEqual(40);
+      // No visible label left, so the accessible name is the only thing naming
+      // the destination. Losing it would make the control unusable by anyone
+      // not looking at the icon.
+      await expect(open).toHaveAttribute("aria-label", new RegExp("^Open session "));
+
+      // Distinct from Resolve beside it. Primary is this app's green action
+      // token and is already spent there, so two solid buttons in one colour
+      // would have to be decoded.
+      const resolve = popover(page).getByTestId("opencode-notification-record").first()
+        .getByTestId("opencode-notification-resolved");
+      const [openColor, resolveColor] = await Promise.all([
+        open.evaluate((node) => getComputedStyle(node).backgroundColor),
+        resolve.evaluate((node) => getComputedStyle(node).backgroundColor),
+      ]);
+      expect(openColor).not.toBe(resolveColor);
+    });
+
+    test("keeps the row readable once the actions no longer fit one line", async ({ page }) => {
+      // A kind badge, readable text and two 44px actions do not fit a 390px
+      // line. The row wraps rather than letting the text column absorb the
+      // whole deficit, which truncated headings to a few characters.
+      await page.goto(hub);
+      await bell(page).click();
+      await groups(page).first().getByTestId("opencode-notification-group-toggle").click();
+
+      const row = popover(page).getByTestId("opencode-notification-record").first();
+      await expect(row.getByTestId("opencode-notification-action")).toHaveText("Needs approval to run bash 0");
+      const heading = await row.getByTestId("opencode-notification-action").boundingBox();
+      expect(heading?.width ?? 0).toBeGreaterThan(100);
+      // Nothing may push the panel into a horizontal scrollbar at any width.
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth))
+        .toBeLessThanOrEqual(1);
+    });
+
+    test("keeps the group resolve control one width whatever its count", async ({ page }) => {
+      // This is the only control on the surface whose label embeds a number, so
+      // it was the only one that changed size as the number did: a group going
+      // from 9 to 10 shifted its own header, and two stacked groups with
+      // different counts never lined up. The two seeded sessions differ by a
+      // digit, which is exactly the case that used to diverge.
+      await page.goto(hub);
+      await bell(page).click();
+      await page.getByTestId("opencode-notification-filter-subagent").uncheck();
+
+      const resolves = popover(page).getByTestId("opencode-notification-group-resolve");
+      await expect(resolves).toHaveCount(2);
+      const [first, second] = await Promise.all([
+        resolves.nth(0).boundingBox(),
+        resolves.nth(1).boundingBox(),
+      ]);
+      // Different counts, identical box.
+      await expect(resolves.nth(0)).toHaveText(String(ACTIVE_COUNT));
+      await expect(resolves.nth(1)).toHaveText(String(SUBAGENT_COUNT));
+      expect(first?.width).toBe(second?.width);
+      // Wide enough to hold the largest count the window can produce without
+      // the digits colliding with the icon.
+      expect(first?.width ?? 0).toBeGreaterThanOrEqual(56);
     });
 
     test("expands every group at once and remembers that choice", async ({ page }) => {
@@ -838,9 +1005,13 @@ for (const viewport of VIEWPORTS) {
       // thumb-driven popover.
       await expect(control).toHaveRole("button");
       await expect(control).toHaveAttribute("aria-pressed", "false");
-      await expect(control).toHaveText("Resolve");
+      // Icon-only: the visible word is gone, so the accessible name is what
+      // has to carry it, and the target has to hold on both axes rather than
+      // collapsing to the width of an icon.
+      await expect(control).toHaveAttribute("aria-label", "Resolve");
       const box = await control.boundingBox();
       expect(box?.height ?? 0).toBeGreaterThanOrEqual(40);
+      expect(box?.width ?? 0).toBeGreaterThanOrEqual(40);
       const colors = await control.evaluate((element) => {
         const style = getComputedStyle(element);
         const primary = getComputedStyle(document.documentElement).getPropertyValue("--color-background-action-primary").trim();
@@ -866,15 +1037,16 @@ for (const viewport of VIEWPORTS) {
 
       const group = page.getByTestId("opencode-notification-group").first();
       const resolve = group.getByTestId("opencode-notification-group-resolve");
-      await expect(resolve).toHaveText(`Resolve all (${ACTIVE_COUNT})`);
+      // The control is icon + count now, so the count it acts on is asserted
+      // through the accessible name rather than a visible sentence.
+      await expect(resolve).toHaveText(String(ACTIVE_COUNT));
+      await expect(resolve).toHaveAttribute("aria-label", new RegExp(`^Resolve all ${ACTIVE_COUNT} for `));
       await resolve.click();
 
       await expect(page.getByTestId("opencode-notification-popover-active-count")).toHaveText(String(SUBAGENT_COUNT));
       const childGroup = page.getByTestId("opencode-notification-group").filter({ hasText: "Audit the delegated worktree" });
       await expect(childGroup).toHaveCount(1);
-      await expect(childGroup.getByTestId("opencode-notification-group-resolve")).toHaveText(
-        `Resolve all (${SUBAGENT_COUNT})`,
-      );
+      await expect(childGroup.getByTestId("opencode-notification-group-resolve")).toHaveText(String(SUBAGENT_COUNT));
       // The resolved archive retains the evidence; this only changed the
       // selected session, never a destructive global clear.
       await expandResolved(page);

@@ -52,7 +52,7 @@ import {
   ModelCatalogueError,
   type ModelSelection,
 } from "../opencode/config.js";
-import { reminderCatalogue } from "../reminders/loader.js";
+import { visibleReminder } from "../reminders/loader.js";
 import { isValidReminderId, type ReminderPreset } from "../reminders/reminders.js";
 import { isValidWorkflowId, workflowCatalogue, type WorkflowPreset } from "../workflows/workflows.js";
 import { eventClickUrl } from "../publicAppUrl.js";
@@ -106,10 +106,21 @@ function promptAttachments(value: unknown): Array<{ filename: string; mime: stri
   });
 }
 
-function promptReminder(value: unknown): ReminderPreset | undefined {
+/**
+ * Resolve a reminder by id for injection, honouring repository scope.
+ *
+ * This is the path that returns the actual trusted body, so it must apply the
+ * same scope predicate as the listing route. Filtering only `GET /api/reminders`
+ * would hide a scoped reminder from the picker while leaving it fully
+ * injectable by id from any other project (issue #165).
+ *
+ * A scoped reminder in a non-matching directory is reported as unknown rather
+ * than forbidden: confirming existence would leak the very thing scope hides.
+ */
+async function promptReminder(directory: string, value: unknown): Promise<ReminderPreset | undefined> {
   if (value === undefined) return undefined;
   if (!isValidReminderId(value)) throw new HttpError(400, "reminder must be a valid preset id");
-  const preset = reminderCatalogue().find((item) => item.id === value);
+  const preset = await visibleReminder(directory, value);
   if (!preset) throw new HttpError(400, `unknown reminder "${value}"`);
   return preset;
 }
@@ -476,7 +487,7 @@ export function sessionRoutes(
         mode: promptMode(req.body?.mode),
         model: await selectedModel(config, directory, model),
         attachments: promptAttachments(attachments),
-        reminder: promptReminder(reminder),
+        reminder: await promptReminder(directory, reminder),
         workflow: promptWorkflow(workflow),
       };
       const session = await getSession(config, directory, sessionID);

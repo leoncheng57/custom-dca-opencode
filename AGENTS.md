@@ -328,6 +328,42 @@ several decisions below.
     Every push snapshots that authoritative global count; opening the app and resolving or
     reopening a record resynchronizes it. A change made on another device therefore reaches
     the phone on its next push or app open, not through a separate badge-only background job.
+18a. **A rotated subscription heals itself; the service worker's one network write is
+    re-registration.** The browser retires a push subscription on its own schedule and
+    `pushsubscriptionchange` is the only signal it gives. Without a handler the failure is
+    invisible from both ends — the push service still answers `2xx` for the dead endpoint, so
+    server-side delivery stats report success while the device receives nothing — and the only
+    recovery was a human re-opening Settings and pressing Save, which re-POSTs the subscription
+    as a side effect. The worker now re-subscribes and re-registers itself. It must carry the
+    **`installationId`** when it does: the server's endpoint-based fallback cannot match a
+    record whose endpoint just changed, so without the token a rotation appends a duplicate and
+    strands the dead record instead of replacing it. This is the sole exception to decision 18's
+    "no `fetch` handler, caches nothing" posture — it is an outbound write of the worker's own
+    subscription to one fixed same-origin route, never a request interception — and it fails
+    closed to a `console.warn`, because throwing here would take down unrelated push handling
+    and Settings remains the manual fallback.
+    A service worker cannot read `localStorage`, and this event fires with no page open to ask,
+    so the installation token and the VAPID key are mirrored into the IndexedDB store the badge
+    state already uses. `event.oldSubscription.options.applicationServerKey` is specified to
+    carry that key but is not reliably populated, so it is preferred when present and the
+    mirrored copy is the fallback. Those coordinates are duplicated in `client/public/sw.js`
+    and `client/lib/webPush.ts` — a public asset cannot import from the bundle — and are
+    dual-copy-tested like the reminder and workflow splitters, because drift would silently
+    disable healing rather than fail.
+18b. **A device summary must be able to distinguish devices.** `id`/`addedAt` were added to
+    legacy records at read time and recomputed on **every** read, so the first subsequent
+    write froze whichever `Date.now()` that read happened to see; in production this collapsed
+    four devices onto one identical millisecond and erased their real registration history.
+    Generated values are now persisted the first time they are produced, and a read of a
+    missing file backfills nothing — a read must not create state. Summaries additionally carry
+    the push service host as a platform family (`web.push.apple.com` → Apple) and echo the
+    `installationId`, reversing PR #278's decision to withhold it: the token is opaque,
+    per-installation and client-authored, so returning it discloses nothing the browser did not
+    mint for itself, and it is what lets a device mark its own row. Endpoint and keys are the
+    delivery credential and still never leave the server. A record with no token is labelled
+    `Unlinked` rather than guessed at — it predates installation tracking, so it can be neither
+    matched to a device nor replaced automatically, and it is the shape a stranded pre-18a
+    rotation leaves behind.
 19. **Human-managed children are a separate privilege lane from native tasks.** Native `task`
     delegation remains agent-initiated and keeps OpenCode's parent-session deny ceiling, task
     parts, depth accounting and hand-back. The sub-agent panel's **Launch child** action is an
@@ -481,10 +517,27 @@ several decisions below.
     contributes several titles as it is renamed and two unrelated sessions can share
     one; keying on it would both split a session and merge strangers. Records with no
     session fall into one bucket that always sorts last. Groups ship **on and folded**,
-    which is only safe because the header carries a kind chip strip ordered
-    blocking-first: with a bare count, a default-collapsed group would hide an
+    which is only safe because the header itself says whether anything inside is
+    waiting on a human: with a bare count, a default-collapsed group would hide an
     unanswered permission behind a number, and that hiding is the exact failure the
-    "outside this view" notices exist to prevent. Expansion state is **one persisted
+    "outside this view" notices exist to prevent. That guarantee was first carried by
+    an aggregate **kind chip strip** ordered blocking-first. Issue #288 replaced the
+    strip with a single **`needs you` marker**, and the swap is a narrowing, not a
+    relaxation: the strip spent a line of every folded header enumerating up to six
+    kinds, but only one bit of it — is something in here blocked on me? — ever changed
+    what a folded reader did next, and `error`/`abort`/`idle` chips restated work that
+    had already stopped. The marker renders only when an **unresolved** `permission`,
+    `question` or `parked` record is inside, so its presence is the signal; an
+    indicator that is always on says nothing. `question` is in that set although #288
+    named only permission and parked, because an unanswered question stalls a turn
+    identically and the two error directions are not symmetric — a marker on a group
+    that did not need you costs a glance, a missing one costs the guarantee. Resolved
+    records never mark, or the Resolved section would carry a permanent "needs you" on
+    every request the user already dealt with. Anything that removes the marker without
+    replacing it reintroduces the original failure and must not ship folded.
+    The header also carries the session's **running/idle status** and, since #288, an
+    `Open` **button** rather than an underlined link — see decision 30 for both.
+    Expansion state is **one persisted
     boolean plus in-memory per-group toggles** — session ids are unbounded and outlive
     their sessions, so a persisted set of them would grow forever and accumulate ids of
     deleted work. Grouping happens **inside** the Active/Resolved split, never across
@@ -513,7 +566,9 @@ several decisions below.
     `all` rather than erroring, and the pills `replace` rather than push so Back keeps
     meaning "the page I came from". Resolution is a **button with `aria-pressed`**, not
     a checkbox: it is the row's only action and a 13px target was wrong for it,
-    especially in a thumb-driven popover. It stays reversible.
+    especially in a thumb-driven popover. It stays reversible. Since #288 it is no
+    longer the row's *only* action — `Open` is a button beside it — but the reasoning
+    that made it a button is unchanged and now applies to both.
 24. **The server decides who gets pinged; the browser is not allowed a second opinion.**
     `useNotifyWatcher` used to re-derive notification kind from raw upstream events, so
     it had no view of session lineage: every delegated child's turn produced a desktop
@@ -537,6 +592,37 @@ several decisions below.
     escalates, and the eventual idle overwrites whatever was left. Collapsing is
     presentation only: the per-record dedupe still governs sound and speech, so a
     distinct record is never silently skipped.
+24a. **iOS does not honour the tag, so tag collapsing is a desktop-only mitigation
+    and must never be load-bearing.** Measured directly on an installed iOS PWA:
+    two pushes sent seconds apart carrying an identical `tag`, with
+    `renotify: false`, produced **two** notification cards rather than one
+    replacing the other. Decision 24's "one replaceable slot per session" therefore
+    describes the intended contract, not observed iOS behaviour — on iPhone the
+    stale-card pile it was written to prevent still accumulates, and every
+    notification the server sends is a card the user must dismiss. The tag is kept:
+    it costs nothing, it works where it is honoured, and iOS may honour it later.
+    The real consequence is a design rule. **Anything that would be "collapsed
+    anyway" must be prevented from being sent at all**, because on the platform
+    that actually receives these notifications nothing is collapsed. Decision 24b
+    is the first application of that rule. When judging whether a second
+    notification is acceptable, assume it will be shown.
+24b. **A stopped session is not a finished one, and Stop must produce one
+    notification.** Pressing Stop makes upstream emit the abort and then
+    `session.idle` — captured 5 ms apart — and both were delivered. The second
+    claimed "Finished its turn and is waiting for you", which is not what
+    happened, and because the idle carries the *previous* turn's excerpt (decision
+    26/29) it rendered on a phone as a verbatim duplicate of the notification
+    immediately above it. An aborted session is idle by definition, so the pair is
+    one occurrence described twice. `session.idle` arriving within 30s of an abort
+    **for that same session** is therefore dropped. The window is generous because
+    anything genuinely new needs a fresh prompt, which cannot land inside it; the
+    key is directory + session id, so stopping one session never silences another
+    that legitimately finished at the same moment. It is **dropped, not recorded as
+    suppressed**: the suppression categories exist so "why was I never told?" stays
+    answerable, and here the user *was* told — by the abort for that very stop — so
+    a record whose only content restates its neighbour is clutter, not an audit
+    trail. This matches the existing echo dedupe, which also returns without
+    recording.
 25. **A kind switched off in every channel is suppressed, not silently badged.**
     Preferences used to gate delivery only, so turning a kind off silenced the ping but
     still wrote a permanent unresolved record — and `abort` ships disabled, so every
@@ -704,6 +790,93 @@ several decisions below.
     truncating again to `NTFY_BODY_LIMIT` (140 chars) for the outbound body. Applies to
     `idle` only — permission/question/error/parked bodies already carry their own
     dynamic, non-agent-authored content and are unchanged.
+30. **A notification says something happened; session status says whether it is still
+    happening — and `unknown` is one of the answers.** A notification could not tell you
+    whether that session was still working, so deciding "open it now or let it finish"
+    meant leaving the popover for the Hub (#288, absorbing #249). Status is **joined,
+    never re-fetched per row**: `SessionSummary.running` already exists, so the centre
+    asks `/api/recent-sessions` — the one route that already fans out across projects,
+    and already bounded at 40 directories / 50 lookup ids with limited concurrency
+    (decision 12) — with `limit=0` so the explicit `session=` lookups do all the
+    selecting and the "newest few" half of that route is not paid for. It polls on
+    recents' 60s timer, not the 10s session poll, and re-runs only when the candidate
+    *set* changes rather than on every history refresh. Candidates are taken
+    **unresolved-first**: resolution is manual-only, so a large resolved archive shares
+    the window with the few rows that still need action and would otherwise consume the
+    id budget that matters. The join lives in `useNotificationCenter` for the reason
+    `isGroupExpanded` does — the popover and the history page render the same rows, and
+    two independent answers to "is it still running?" could disagree while both are
+    mounted. It shows in **both** row variants, since the question is identical on the
+    popover and the history page — but a **grouped row suppresses it**, because the
+    header already said it once for that session. Status describes the session, not the
+    record, so repeating it down every row is the same duplication grouping exists to
+    remove, and it is dropped for the same reason a grouped row drops the session title.
+    Three states, not two. `/session/status` is **process-local**, so absence is not
+    proof of idle (the same reason sub-agent state has a first-class `unknown`,
+    decision 13). The distinction is drawn by **presence in the fan-out's answer**, not
+    by the flag: a session the fan-out returned reports `running`/`idle` from its own
+    field; a session it never covered — past the caps, owned by nobody, or a failed
+    fetch — reports `unknown`, styled apart from `idle` (dashed, unfilled) so "we do not
+    know" cannot be read as "nothing is happening". Every failure path degrades to
+    `unknown`; a confident `idle` on a session that is in fact mid-turn is the one
+    outcome this is engineered against.
+    `Open` is a **button**, not the underlined heading text it used to be: it is the
+    row's main action and was simultaneously its least prominent control, at roughly a
+    13px tap target. It stays an `<a>` via `Link` — middle-click, cmd-click and "copy
+    link address" belong to the anchor, and a `<button>` calling `navigate()` silently
+    takes all three away — wearing real button styling through the exported
+    `buttonClasses()` so a link-shaped button cannot drift from a real one. It is
+    `info` (blue), not `primary`: this app's primary token is **green** and is already
+    spent on `Resolve` beside it, so two solid same-coloured buttons would have to be
+    decoded. The row `flex-wrap`s with a floor on its text column, because a kind badge
+    plus readable text plus two 44px actions does not fit a 390px line and letting the
+    text absorb the deficit truncated headings to a few characters.
+32. **The row actions are icon-only, and what that removes is the label, never the
+    target or the name.** `Open` and `Resolve` are square 44px buttons (40px for the
+    group header's `Open`, the design system's own coarse-pointer floor) carrying
+    `ExternalLink` and `Check`. Dropping the words bought the cluster roughly 60px of
+    the line, which is why the wrap rule above stays: it is a smaller deficit, not an
+    eliminated one. Two things are load-bearing. The tap target is pinned on **both**
+    axes — `size-11`, not a height with content-derived width — because a target that
+    shrinks with its label is the regression icon-only invites. And every control keeps
+    an `aria-label`, since the visible text was the accessible name; the e2e suite
+    asserts the name and both dimensions together, so losing either fails rather than
+    silently degrading. `Resolve` draws **`Check` in both states**, with solid-green vs
+    ghost and `aria-pressed` carrying resolved-ness: the icon names the *action*, which
+    is always "resolve", and the old empty `Circle` only read as "not done yet" while
+    the word sat beside it — alone on a green button it said nothing about what pressing
+    it would do. The group's **`Resolve all`** is `Check` + count at a **fixed `w-16`**,
+    because it is the one control whose label embeds a number and so the only one that
+    resized as the number did: a group going 9 → 10 shifted its own header, and stacked
+    groups with different counts never lined up. Four tabular digits cover every count
+    the 1000-row window can produce. The popover footer link is centred, gear-icon'd and
+    reads **"See all notifications and settings"**; it stays pinned *below* the scroller
+    rather than between the Active and Resolved sections, because it is the way out of
+    the popover and a long backlog is exactly when a link that scrolled away would be
+    worth reaching. Its wording is duplicated in the outside-window notice, which tells
+    the reader to use it by name — change the two together or the notice points at a
+    control that is not on screen.
+31. **Playbooks reports installation, it never performs it, and every claim names
+    the project it is about.** The catalogue is a build-time, repository-owned
+    inventory compiled from `agent-skills/` into the bundle; whether a playbook is
+    actually *loaded* is a per-directory runtime fact only `/api/catalog` knows.
+    Those are different questions and the page now answers both without conflating
+    them. Installation itself stays external: the UI only ever copies a shell
+    command the human runs, and it says so rather than leaving "Install grill-me"
+    to imply the app did something. The load-state badge is **always labelled with
+    the project**, because `/playbooks` is a global route while installation is
+    per-directory — a bare "Loaded" would be false in any other project, which is
+    worse than saying nothing. Since the route carries no `?directory=`, the last
+    selected project is resolved through the same `resolvePaletteDirectory` seam
+    the palette and notification centre use. Every failure — no directory, an
+    unreachable BFF, a rejected directory — renders **no claim at all** rather than
+    defaulting to "not installed", so the badge's absence means "unknown" and never
+    "absent". Source links follow the default branch and now say `main` out loud:
+    what GitHub shows can be newer than the bundle being read, and looking pinned
+    while tracking a moving target is the dishonest option. Related but distinct,
+    and stated on the page because the composer's reminder picker deep-links here:
+    attaching a reminder is a per-message action that needs no installation, and
+    shares only a name with the skill of the same id.
 
 ## Client conventions (inherited from the OpenHands runner, still enforced)
 

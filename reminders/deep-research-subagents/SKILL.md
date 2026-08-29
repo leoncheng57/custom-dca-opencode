@@ -2,6 +2,7 @@
 name: deep-research-subagents
 title: Deep Research with Subagents
 description: Split one broad research question across non-overlapping read-only agents and synthesize a cited answer.
+tags: subagents, research
 source_repo: https://github.com/leoncheng57/agent-skills
 source_path: skills/deep-research-subagents/SKILL.md
 source_commit: 8b036a41f578dc6c6307ae0a8dd2857121afcabb

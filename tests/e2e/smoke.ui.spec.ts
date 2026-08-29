@@ -1077,6 +1077,64 @@ test.describe("composer", () => {
     await expect(picker).toContainText("unknown");
   });
 
+  test("filters reminders by tag and by id, and clears back to the full list", async ({ page }) => {
+    await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
+    const picker = page.getByTestId("composer-reminder-select");
+    await picker.click();
+    const options = page.getByTestId("composer-reminder-option");
+    await expect(options).toHaveCount(12);
+
+    // Tags come from the reminder's Playbook skill; "worktrees" is on exactly
+    // native-worktree-subagents and parallel-research-handoff.
+    const worktrees = page.locator('[data-testid="composer-reminder-tag"][data-reminder-tag="worktrees"]');
+    await expect(worktrees).toHaveAttribute("aria-pressed", "false");
+    await worktrees.click();
+    await expect(worktrees).toHaveAttribute("aria-pressed", "true");
+    await expect(options).toHaveCount(2);
+    await expect(page.locator('[data-testid="composer-reminder-option"][data-reminder-id="native-worktree-subagents"]')).toBeVisible();
+
+    // Toggling the same tag off restores the full catalogue.
+    await worktrees.click();
+    await expect(options).toHaveCount(12);
+
+    // Searching by id works even though no title contains the hyphenated form.
+    await page.getByTestId("composer-reminder-search").fill("cite-file-lines");
+    await expect(options).toHaveCount(1);
+    await expect(page.getByTestId("composer-reminder-title")).toContainText("Cite File Lines");
+
+    // Tag + text together are an AND, and an impossible pair shows the empty state.
+    await page.getByTestId("composer-reminder-search").fill("grill");
+    await page.locator('[data-testid="composer-reminder-tag"][data-reminder-tag="worktrees"]').click();
+    await expect(options).toHaveCount(0);
+    await expect(page.getByTestId("composer-reminder-empty")).toBeVisible();
+
+    // Escape must still close the picker while a chip holds focus: the chip
+    // guard covers activation keys only.
+    await expect(page.locator('[data-testid="composer-reminder-tag"][data-reminder-tag="worktrees"]')).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("composer-reminder-panel")).toHaveCount(0);
+  });
+
+  test("searches workflows and keeps the confirmation promise visible", async ({ page }) => {
+    await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
+    await page.getByTestId("composer-workflow-select").click();
+    await expect(page.getByTestId("composer-workflow-search")).toBeFocused();
+    await expect(page.getByTestId("composer-workflow-option")).toHaveCount(5);
+    // Decision 21: this promise must survive the header gaining a search box.
+    await expect(page.getByTestId("composer-workflow-panel")).toContainText("Nothing is sent or launched until you confirm.");
+
+    await page.getByTestId("composer-workflow-search").fill("pull request");
+    await expect(page.getByTestId("composer-workflow-option")).toHaveCount(1);
+    await expect(page.getByTestId("composer-workflow-option")).toContainText("Post a snippet-by-snippet PR review");
+
+    // A zero-match query must not divide by zero in the index math.
+    await page.getByTestId("composer-workflow-search").fill("zzzz-no-such-workflow");
+    await expect(page.getByTestId("composer-workflow-empty")).toBeVisible();
+    await page.getByTestId("composer-workflow-search").press("ArrowDown");
+    await page.getByTestId("composer-workflow-search").press("End");
+    await expect(page.getByTestId("composer-workflow-panel")).toBeVisible();
+  });
+
   test("round-trips two imported reminders by ID and resets the picker", async ({ page }) => {
     const sent: Array<Record<string, unknown>> = [];
     await page.route("**/api/sessions/*/prompt?*", async (route) => {
@@ -1098,9 +1156,14 @@ test.describe("composer", () => {
     await expect(details).toHaveAttribute("href", "/playbooks/skills/human-verification-steps");
     await expect(details).toHaveAttribute("target", "_blank");
     await expect(details).toHaveAccessibleName("Open Write Human Verification Steps details in a new tab");
-    const detailsBox = await details.boundingBox();
-    expect(detailsBox?.width, "the details link stays a small touch target, not the whole row").toBeLessThanOrEqual(28);
-    expect(detailsBox?.height).toBeLessThanOrEqual(28);
+    // The details link is a real touch target in its own right (matching
+    // this app's usual ~44px convention) but must still stay a minority of
+    // the tile's width -- the button beside it is the large target, not this.
+    const tile = page.locator('[data-testid="composer-reminder-tile"][data-reminder-id="human-verification-steps"]');
+    const [detailsBox, tileBox] = await Promise.all([details.boundingBox(), tile.boundingBox()]);
+    expect(detailsBox?.width, "details link is a real touch target").toBeGreaterThanOrEqual(40);
+    expect(detailsBox?.height, "details link is a real touch target").toBeGreaterThanOrEqual(40);
+    expect(detailsBox?.width, "the details link stays a minority of the tile, not the whole row").toBeLessThan((tileBox?.width ?? 0) / 2);
     await page.getByTestId("composer-reminder-search").fill("Grill");
     await expect(page.getByTestId("composer-reminder-option")).toHaveCount(1);
     await expect(page.getByTestId("composer-reminder-title")).toContainText("Grill the Design");
@@ -1356,7 +1419,7 @@ test.describe("mobile", () => {
     expect(await (await fetch(`${MOCK_URL}/test/catalog-requests`)).json()).toEqual({ count: 0 });
     await sheet.getByTestId("opencode-mobile-inspector-close").click();
 
-    await page.getByTestId("opencode-mobile-session-menu").locator(":scope > summary").click();
+    await page.getByTestId("opencode-mobile-session-menu-trigger").click();
     await page.getByTestId("opencode-mobile-catalog-open").click();
     await expect(sheet.getByTestId("opencode-catalog-mcp")).toContainText(/\d connected \/ 5 total/);
     await expect(sheet.getByTestId("opencode-catalog-mcp")).toContainText("needs client registration");
@@ -1546,7 +1609,9 @@ test.describe("settings and tools UI", () => {
     // real target.
     const resolved = row.getByTestId("opencode-notification-resolved");
     await expect(resolved).toHaveAttribute("aria-pressed", "false");
-    await expect(resolved).toHaveText("Resolve");
+    // Icon-only, so the state lives in aria-pressed and the name in aria-label
+    // rather than in visible text.
+    await expect(resolved).toHaveAttribute("aria-label", "Resolve");
     const countBefore = await unresolvedCount();
     await resolved.click();
     if (countBefore > 1) {

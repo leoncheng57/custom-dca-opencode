@@ -41,7 +41,7 @@ test.describe("mobile conversation action bar", () => {
       page.getByTestId("opencode-mobile-runlog-open"),
       page.getByTestId("opencode-mobile-auto-permissions-toggle"),
       page.getByTestId("opencode-mobile-auto-permissions-info"),
-      page.getByTestId("opencode-mobile-session-menu").locator(":scope > summary"),
+      page.getByTestId("opencode-mobile-session-menu-trigger"),
     ];
     for (const control of controls) {
       const rect = await box(control);
@@ -133,7 +133,7 @@ test.describe("mobile conversation action bar", () => {
     await page.goto(conversation);
 
     const menu = page.getByTestId("opencode-mobile-session-menu");
-    await menu.locator(":scope > summary").click();
+    await page.getByTestId("opencode-mobile-session-menu-trigger").click();
     for (const id of ["opencode-mobile-wrap-toggle", "opencode-mobile-share-export-open", "opencode-mobile-catalog-open"]) {
       const item = page.getByTestId(id);
       await expect(item).toBeVisible();
@@ -195,9 +195,24 @@ test.describe("desktop conversation action bar", () => {
     await surface.getByTestId("opencode-desktop-inspector-close").click();
     await expect(reviews).toBeFocused();
 
-    await page.getByTestId("opencode-mobile-session-menu").locator(":scope > summary").click();
+    await page.getByTestId("opencode-mobile-session-menu-trigger").click();
     await page.getByTestId("opencode-mobile-catalog-open").click();
     await expect(surface.getByTestId("opencode-catalog")).toBeVisible();
+
+    // #55: the catalog reports what the process says, and must not let any of
+    // that read as "this capability was proven to run".
+    await expect(surface.getByTestId("opencode-catalog-legend")).toContainText("not what has been proven to run");
+    await expect(surface.getByTestId("opencode-catalog-mcp-caveat")).toContainText("does not enumerate");
+    await expect(surface.getByTestId("opencode-catalog-skills")).toContainText("loaded at startup");
+    await expect(surface.getByTestId("opencode-catalog-commands")).toContainText("loaded at startup");
+
+    // The registered-tool list is the one honest signal about invocability, and
+    // it is built-ins only — the mock ships an MCP-looking id to prove the copy
+    // does not claim MCP tools appear here.
+    const tools = surface.getByTestId("opencode-catalog-tools");
+    await expect(tools).toContainText("invocable");
+    await expect(tools.getByTestId("opencode-catalog-tools-list")).toContainText("bash");
+    await expect(tools).toContainText("MCP tools are never listed here");
   });
 
   test("opens dedicated inspector panels from the URL", async ({ page }) => {

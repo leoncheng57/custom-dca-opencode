@@ -1,12 +1,14 @@
-import { Check, Circle } from "lucide-react";
+import { Check, ExternalLink } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { Badge, type BadgeVariant } from "../ds/badge.js";
-import { Button } from "../ds/button.js";
+import { Button, buttonClasses } from "../ds/button.js";
 import { cn } from "../ds/utils.js";
 import type { NotificationRecord, NotifyEvent } from "../lib/api.js";
 import { formatClockTime, formatRelative } from "../lib/derive.js";
 import { sessionRoute } from "../lib/notificationGroups.js";
+import { useNotificationCenter } from "../lib/useNotificationCenter.js";
+import { StatusPill } from "./status-pill.js";
 
 export const KIND_VARIANT: Record<NotifyEvent, BadgeVariant> = {
   idle: "neutral",
@@ -109,6 +111,13 @@ export function NotificationRecordRow({
   /** Fired when the row navigates, so a host overlay can dismiss itself. */
   onNavigate?: () => void;
 }) {
+  // Read from the centre rather than drilled through every caller: the popover
+  // reaches this row through two wrappers and the history page through one, and
+  // a prop threaded down both paths is a prop two surfaces can forget to pass.
+  // The hook returns an inert centre when no provider is mounted, so this stays
+  // safe to render in isolation.
+  const { sessionStatus } = useNotificationCenter();
+  const status = sessionStatus(record.sessionID);
   const timestamp = new Date(record.at).toISOString();
   const active = record.resolvedAt === undefined;
   const resolution = resolutionSummary(record);
@@ -134,8 +143,15 @@ export function NotificationRecordRow({
   return (
     <li
       className={cn(
-        "flex items-start gap-3 border-b border-[var(--color-border-default)] last:border-0",
-        compact ? "gap-2 p-2" : "p-3",
+        // Wraps rather than squeezing. Two 44px actions plus a kind badge plus
+        // readable text still do not reliably fit one 390px line — icon-only
+        // labels bought the cluster roughly 60px, not a guarantee — and letting
+        // the text column absorb the deficit truncated headings to a few
+        // characters. With `flex-wrap` and a floor on the text column the action
+        // cluster drops to its own right-aligned line on a phone and stays
+        // inline on a desktop popover, with no breakpoint to keep in sync.
+        "flex flex-wrap items-start gap-3 border-b border-[var(--color-border-default)] last:border-0",
+        compact ? "gap-x-2 gap-y-1.5 p-2" : "p-3",
       )}
       data-testid="opencode-notification-record"
       data-kind={record.kind}
@@ -154,7 +170,7 @@ export function NotificationRecordRow({
       <Badge variant={KIND_VARIANT[record.kind]} className="mt-0.5 shrink-0">
         {record.kind}
       </Badge>
-      <div className="min-w-0 flex-1">
+      <div className="min-w-[9rem] flex-1">
         <p className="flex items-center gap-1.5 text-sm">
           <span
             className="min-w-0 truncate"
@@ -164,18 +180,12 @@ export function NotificationRecordRow({
                 ? { title: record.sessionTitle, "data-testid": "opencode-notification-session" }
                 : {})}
           >
-            {route ? (
-              <Link
-                className="underline underline-offset-2"
-                to={route}
-                onClick={onNavigate}
-                data-testid="opencode-notification-link"
-              >
-                {heading}
-              </Link>
-            ) : (
-              heading
-            )}
+            {/* Plain text now. Opening the session is this row's main action,
+                so it moved to a real button on the action line below rather
+                than staying an underlined run of heading text — which was
+                simultaneously the row's most important control and its least
+                prominent one, at roughly a 13px tap target on a phone. */}
+            {heading}
           </span>
           {/* Names why a suppressed row is on screen at all — without it, an
               unhidden auto-approved record looks like a request awaiting a
@@ -201,50 +211,104 @@ export function NotificationRecordRow({
             {detail}
           </p>
         )}
-        <p className="mt-0.5 truncate text-[11px] text-[var(--color-text-muted)]">
-          {compact && (
-            <>
-              <time dateTime={timestamp} title={new Date(record.at).toLocaleString()} className="tabular-nums">
-                {relative}
-              </time>
-              {" · "}
-            </>
-          )}
-          {projectName(record.directory)}
-          {/* The popover row has one line to spend and the session title is
-              the field that says which work is waiting, so delivery and
-              resolution detail stays on the full history page — the chip and
-              the Resolve button already carry their headline. Parking is the
-              exception: it is the only escalation this row can report. */}
-          {compact
-            ? record.parkedAt
-              ? " · parked"
-              : ""
-            : ` · ${deliverySummary(record)}${resolution ? ` · ${resolution}` : ""}`}
-        </p>
+        {/* Status rides the metadata line rather than the action cluster: it
+            describes the session, like the project name already beside it, and
+            it is not something to press. Keeping it here also leaves the
+            cluster to the two real actions. */}
+        <div className="mt-0.5 flex items-center gap-1.5">
+          <p className="min-w-0 truncate text-[11px] text-[var(--color-text-muted)]">
+            {compact && (
+              <>
+                <time dateTime={timestamp} title={new Date(record.at).toLocaleString()} className="tabular-nums">
+                  {relative}
+                </time>
+                {" · "}
+              </>
+            )}
+            {projectName(record.directory)}
+            {/* The popover row has one line to spend and the session title is
+                the field that says which work is waiting, so delivery and
+                resolution detail stays on the full history page — the chip and
+                the Resolve button already carry their headline. Parking is the
+                exception: it is the only escalation this row can report. */}
+            {compact
+              ? record.parkedAt
+                ? " · parked"
+                : ""
+              : ` · ${deliverySummary(record)}${resolution ? ` · ${resolution}` : ""}`}
+          </p>
+          {/* Answers "should I open this now, or let it finish?" without
+              leaving the popover for the Hub. Rendered in both the compact and
+              full variants — the question is identical on the history page —
+              but suppressed under a group header, which already says it once
+              for the whole session. Status is a fact about the session, not
+              about the record, so repeating it on every row is precisely the
+              duplication grouping exists to remove; that is the same reason a
+              grouped row drops the session title above. */}
+          {record.sessionID && !grouped && <StatusPill status={status} />}
+        </div>
       </div>
-      {/* A button rather than a checkbox: this is the one action the row
-          exists to offer, and a 13px checkbox was a poor target for it —
-          especially on a phone, where the whole popover is thumb-driven.
-          `aria-pressed` carries the state a checkbox used to carry, and the
-          action stays reversible per AGENTS.md decision 10: pressing a
-          resolved row unresolves it. */}
-      <Button
-        size="sm"
-        variant={active ? "primary" : "ghost"}
-        aria-pressed={!active}
-        className={cn(
-          "min-h-11 shrink-0 gap-1.5 font-medium",
-          compact ? "px-2 text-[11px]" : "px-3 text-xs",
-          !active && "text-[var(--color-text-muted)]",
+      {/* `ml-auto` keeps the cluster hard right on the line it wraps onto, so a
+          phone reads it as one action group rather than as stray controls. */}
+      <div className="ml-auto flex shrink-0 items-center gap-1.5">
+        {/* Opening the session is this row's reason to exist, so it is a real
+            button with a real target instead of the underlined heading text it
+            used to be. Still a Link, never a button with a navigate() handler:
+            middle-click, cmd-click and "copy link address" belong to the
+            anchor, and a click handler silently takes all three away.
+
+            `info` rather than `primary`: this app's primary token is green and
+            is already spent on Resolve beside it. Two solid buttons in the same
+            colour would make the reader decode which one navigates. */}
+        {route && (
+          <Link
+            className={buttonClasses({
+              variant: "info",
+              size: "sm",
+              // Square rather than text-width. Icon-only is what buys the row
+              // its horizontal space back, but the tap target must not shrink
+              // with the label: `size-11` pins both axes at the 44px floor the
+              // text variant only guaranteed vertically.
+              className: "size-11 shrink-0 p-0",
+            })}
+            to={route}
+            onClick={onNavigate}
+            aria-label={`Open session ${record.sessionTitle ?? record.title}`}
+            title={`Open session ${record.sessionTitle ?? record.title}`}
+            data-testid="opencode-notification-link"
+          >
+            <ExternalLink aria-hidden="true" size={15} />
+          </Link>
         )}
-        onClick={() => onResolvedChange(record.id, active)}
-        title={active ? "Mark this resolved" : "Mark this unresolved again"}
-        data-testid="opencode-notification-resolved"
-      >
-        {active ? <Circle aria-hidden="true" size={13} /> : <Check aria-hidden="true" size={13} />}
-        {active ? "Resolve" : "Resolved"}
-      </Button>
+        {/* A button rather than a checkbox: a 13px checkbox was a poor target
+            for it — especially on a phone, where the whole popover is
+            thumb-driven. `aria-pressed` carries the state a checkbox used to
+            carry, and the action stays reversible per AGENTS.md decision 10:
+            pressing a resolved row unresolves it. */}
+        <Button
+          size="sm"
+          variant={active ? "primary" : "ghost"}
+          aria-pressed={!active}
+          aria-label={active ? "Resolve" : "Resolved"}
+          className={cn(
+            // Same 44px square as Open beside it, for the same reason.
+            "size-11 shrink-0 p-0",
+            !active && "text-[var(--color-text-muted)]",
+          )}
+          onClick={() => onResolvedChange(record.id, active)}
+          title={active ? "Mark this resolved" : "Mark this unresolved again"}
+          data-testid="opencode-notification-resolved"
+        >
+          {/* One icon for both states, because the icon names the *action* and
+              the action is always "resolve". The state is carried by the
+              variant (solid = still to do, ghost = already done) and by
+              `aria-pressed`. The unresolved state used to draw an empty
+              `Circle`, which only read as "not done yet" while the word
+              "Resolve" sat next to it; alone on a solid green button it says
+              nothing about what pressing it would do. */}
+          <Check aria-hidden="true" size={15} />
+        </Button>
+      </div>
     </li>
   );
 }

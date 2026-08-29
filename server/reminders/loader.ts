@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { parseReminderMarkdown, type ReminderPreset } from "./reminders.js";
+import { formatIdentity, resolveRepositoryIdentity } from "./repository-identity.js";
 
 const CATALOGUE_DIR = "reminders";
 
@@ -51,7 +52,15 @@ function read(dir: string): ReminderPreset[] {
 
 let cached: ReminderPreset[] | null = null;
 
-/** Parsed catalogue, read once per process. */
+/**
+ * Parsed catalogue, read once per process.
+ *
+ * This is the PARSE cache and is deliberately directory-agnostic — a preset is
+ * derived purely from file content. Never memoise a *filtered* list here: the
+ * `if (cached)` check has no key, so the first directory's answer would be
+ * served to every other directory for the life of the process. Scope filtering
+ * belongs in `visibleReminders`, per request.
+ */
 export function reminderCatalogue(): readonly ReminderPreset[] {
   if (cached) return cached;
   const dir = findCatalogueDir();
@@ -63,4 +72,49 @@ export function reminderCatalogue(): readonly ReminderPreset[] {
   cached = read(dir);
   if (cached.length === 0) console.warn(`[reminders] ${dir} parsed to zero presets`);
   return cached;
+}
+
+/**
+ * The presets visible in one directory.
+ *
+ * Unscoped presets are always visible. A scoped preset requires the directory's
+ * git `origin` to resolve to exactly its repository; an unresolvable identity
+ * hides it. Callers must pass an already-canonicalised directory.
+ */
+export async function visibleReminders(directory: string): Promise<readonly ReminderPreset[]> {
+  return filterByScope(reminderCatalogue(), directory);
+}
+
+/** Resolve one preset by id, honouring scope. Returns undefined when hidden. */
+export async function visibleReminder(directory: string, id: string): Promise<ReminderPreset | undefined> {
+  const preset = reminderCatalogue().find((item) => item.id === id);
+  return preset && (await isInScope(preset, directory)) ? preset : undefined;
+}
+
+/**
+ * Scope filter over an explicit preset list.
+ *
+ * Takes its input rather than reading the cache so the visibility rules can be
+ * tested against fixture presets without mocking module internals.
+ */
+export async function filterByScope(
+  presets: readonly ReminderPreset[],
+  directory: string,
+): Promise<readonly ReminderPreset[]> {
+  // Resolve identity at most once, and not at all when nothing is scoped.
+  if (!presets.some((preset) => preset.scopeRepository)) return presets;
+  const current = await currentIdentity(directory);
+  return presets.filter((preset) => !preset.scopeRepository || preset.scopeRepository === current);
+}
+
+/** Whether one preset may be seen, or injected, from `directory`. */
+export async function isInScope(preset: ReminderPreset, directory: string): Promise<boolean> {
+  if (!preset.scopeRepository) return true;
+  return (await currentIdentity(directory)) === preset.scopeRepository;
+}
+
+async function currentIdentity(directory: string): Promise<string | null> {
+  if (!directory) return null;
+  const identity = await resolveRepositoryIdentity(directory);
+  return identity ? formatIdentity(identity) : null;
 }

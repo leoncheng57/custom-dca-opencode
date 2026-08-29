@@ -41,12 +41,29 @@ accepts at most 32 devices and only browser endpoints from the production Apple,
 Mozilla, and Microsoft push services; this prevents the BFF from becoming a general outbound
 request proxy.
 
+## Registered devices
+
+Settings lists every registered device by push platform family (Apple, Google, Mozilla,
+Microsoft) and registration date, and marks the row belonging to the device you are
+reading on. Rows can be removed individually or all at once; a removed device
+re-registers the next time it enables PWA push and saves.
+
+A row labelled **Unlinked** was registered before the app tracked installations. It
+cannot be matched to a device or replaced automatically, so if delivery is duplicated or
+going nowhere, removing it is safe — any live device re-registers on its next save.
+
 ## Lifecycle and updates
 
 The service worker does not intercept `fetch` and has no Cache Storage calls. The PWA is
 not offline-capable, and live sessions, questions, permissions, and API responses always
 come from the network. A newly installed worker waits until the app displays its update
 notice. **Update** activates it and reloads; **Later** retains the current worker.
+
+Browsers retire push subscriptions on their own schedule. The worker listens for
+`pushsubscriptionchange` and re-registers the device in place, so delivery recovers
+without anyone re-saving Settings. This is the only network write the worker makes: one
+POST of its own subscription to `/api/notifications/push-subscriptions`. If it fails it
+warns to the console and the manual re-save still works.
 
 ## Troubleshooting
 
@@ -57,5 +74,12 @@ notice. **Update** activates it and reloads; **Later** retains the current worke
 - Delivery stops after changing VAPID keys: disable/save, enable/save, and grant a fresh
   subscription on every device.
 - Provider returns 404 or 410: the BFF removes that expired subscription automatically.
+- Two cards on iPhone for one event: iOS does not honour the Web Push `tag`, so
+  notifications that are designed to replace one another stack instead. Pressing
+  Stop used to be the common cause (it emitted both an abort and an idle); that
+  pair is now collapsed server-side. Other stacking is a platform limitation.
+- Delivery silently stops on one device while the server reports success: the subscription
+  rotated. This now self-heals; if it persists, re-save Settings on that device and remove
+  any leftover `Unlinked` row.
 - PWA push fails but ntfy works: leave ntfy enabled while checking browser permission and
   subscription state; the channels do not disable one another.
