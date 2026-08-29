@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { Alert } from "../ds/alert.js";
 import { Button } from "../ds/button.js";
-import { api, type NotificationPreferences, type NotifyEvent } from "../lib/api.js";
+import { api, type NotificationPreferences, type NotifyEvent, type PushSubscriptionSummary } from "../lib/api.js";
 import {
   initializeDeviceNotificationPreferences,
   loadDeviceNotificationPreferences,
@@ -24,7 +24,7 @@ import {
   RECOMMENDED_NOTIFY_EVENTS,
 } from "../lib/notificationEvents.js";
 import { notifyBrowser } from "../lib/useNotifyWatcher.js";
-import { currentPushSubscription, subscribeWebPush, unsubscribeWebPush, webPushSupported } from "../lib/webPush.js";
+import { currentInstallationId, currentPushSubscription, subscribeWebPush, unsubscribeWebPush, webPushSupported } from "../lib/webPush.js";
 
 const EVENTS: NotifyEvent[] = NOTIFY_EVENT_CATALOGUE.map((descriptor) => descriptor.event);
 
@@ -41,7 +41,8 @@ export function NotificationPreferencesSection() {
   const [webPush, setWebPush] = useState<{ configured: boolean; publicKey: string | null }>({ configured: false, publicKey: null });
   const [pushSubscribed, setPushSubscribed] = useState(false);
   const [pushEndpoint, setPushEndpoint] = useState<string | null>(null);
-  const [pushSubscriptions, setPushSubscriptions] = useState<Array<{ id: string; addedAt: number; label: string }>>([]);
+  const [pushSubscriptions, setPushSubscriptions] = useState<PushSubscriptionSummary[]>([]);
+  const [installationId, setInstallationId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const saving = useRef(false);
@@ -52,13 +53,11 @@ export function NotificationPreferencesSection() {
     try {
       const result = await api.listPushSubscriptions();
       setPushSubscriptions(result.subscriptions);
-      // Get current installation ID to mark "this device"
-      // Note: we can't directly match by installation ID because the server
-      // doesn't return it in summaries (by design, to keep them safe).
-      // For now, we'll just show the list without marking "this device".
-      // A future enhancement could match by checking the current push subscription
-      // endpoint against a server lookup, but that's not required for this feature.
-    } catch (e) {
+      // Summaries carry the opaque installation token the browser minted for
+      // itself, so this device can recognise its own row without the server
+      // ever disclosing an endpoint or key.
+      setInstallationId(currentInstallationId());
+    } catch {
       // Don't error out the whole preferences page if listing fails
       setPushSubscriptions([]);
     }
@@ -274,7 +273,8 @@ export function NotificationPreferencesSection() {
                 <div>
                   <h3 className="font-semibold">Registered devices</h3>
                   <p className="text-xs text-[var(--color-text-muted)]">
-                    Devices subscribed to receive PWA push notifications. Each reinstall creates a new entry.
+                    Devices subscribed to receive PWA push notifications. A device that rotates its
+                    subscription re-registers itself in place; a reinstall creates a new entry.
                   </p>
                 </div>
                 {pushSubscriptions.length > 0 && (
@@ -294,14 +294,39 @@ export function NotificationPreferencesSection() {
                 </p>
               ) : (
                 <div className="space-y-2">
-                  {pushSubscriptions.map((subscription) => (
+                  {pushSubscriptions.map((subscription) => {
+                    const isThisDevice = Boolean(installationId) && subscription.installationId === installationId;
+                    return (
                     <div
                       key={subscription.id}
                       className="flex items-center justify-between gap-3 rounded-md border border-[var(--color-border-default)] p-3"
                       data-testid={`opencode-subscription-${subscription.id}`}
+                      data-this-device={isThisDevice ? "true" : undefined}
                     >
                       <div className="min-w-0 flex-1">
-                        <span className="text-sm">{subscription.label}</span>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm">{subscription.platform}</span>
+                          {isThisDevice && (
+                            <span
+                              className="rounded-full bg-[var(--color-background-surface-info-muted)] px-2 py-0.5 text-xs text-[var(--color-text-info)]"
+                              data-testid={`opencode-subscription-this-device-${subscription.id}`}
+                            >
+                              This device
+                            </span>
+                          )}
+                          {!subscription.installationId && (
+                            <span
+                              className="rounded-full bg-[var(--color-background-surface-neutral-muted)] px-2 py-0.5 text-xs text-[var(--color-text-muted)]"
+                              title="Registered before this app tracked installations, so it cannot be matched to a device or replaced automatically."
+                              data-testid={`opencode-subscription-legacy-${subscription.id}`}
+                            >
+                              Unlinked
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-[var(--color-text-muted)]">
+                          Registered {new Date(subscription.addedAt).toLocaleString()}
+                        </p>
                       </div>
                       <Button
                         size="sm"
@@ -312,7 +337,8 @@ export function NotificationPreferencesSection() {
                         Remove
                       </Button>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </section>
