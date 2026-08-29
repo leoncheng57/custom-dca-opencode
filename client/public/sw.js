@@ -4,6 +4,8 @@ const BADGE_STORE = "metadata";
 // of these constants are asserted equal in tests/web-push.test.ts.
 const PUSH_IDENTITY_KEY = "pushIdentity";
 let badgeQueue = Promise.resolve();
+// Serializes the read-modify-write in showCollapsed. See queueNotification.
+let notificationQueue = Promise.resolve();
 
 function badgeDatabase() {
   return new Promise((resolve, reject) => {
@@ -201,10 +203,32 @@ self.addEventListener("push", (event) => {
   // two into one popup instead of buzzing the device twice for one event.
   const tag = typeof payload.tag === "string" && payload.tag ? payload.tag : null;
   event.waitUntil(Promise.all([
-    showCollapsed(title, body, click, tag),
+    queueNotification(title, body, click, tag),
     badge.catch(() => undefined),
   ]));
 });
+
+/**
+ * Serializes card display so that two pushes arriving together cannot both
+ * decide, independently and correctly, that there is nothing to replace.
+ *
+ * showCollapsed is check-then-act: it reads the shown notifications, closes the
+ * matches, then shows. Run concurrently, two handlers for the same content both
+ * read an empty list before either has shown anything, so neither closes
+ * anything and two cards appear. That is exactly the observed failure — pushes
+ * seconds apart collapsed correctly while a duplicate arriving within
+ * milliseconds did not.
+ *
+ * Same pattern as badgeQueue above, and it must chain through rejection as well
+ * as fulfilment: a single failed show must not wedge every later notification.
+ */
+function queueNotification(title, body, click, tag) {
+  notificationQueue = notificationQueue.then(
+    () => showCollapsed(title, body, click, tag),
+    () => showCollapsed(title, body, click, tag),
+  );
+  return notificationQueue;
+}
 
 /**
  * Shows exactly one card for a given piece of content.

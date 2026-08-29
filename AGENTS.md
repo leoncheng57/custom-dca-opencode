@@ -616,7 +616,15 @@ several decisions below.
     "updated in the background" notification, so suppressing our card could
     replace a useful notification with a useless one. Any failure falls through
     to showing the card, because a duplicate is a far cheaper mistake than
-    silence.
+    silence. That close-then-show is check-then-act, so it is **serialized**
+    through a promise chain like the badge queue beside it: run concurrently,
+    two handlers for the same content each read the shown-notification list
+    before either has shown anything, so neither closes anything and two cards
+    appear anyway. This is not theoretical — on device, pushes 8s apart
+    collapsed correctly while a duplicate arriving within milliseconds did not,
+    which is why the first version of this fix appeared to work in testing and
+    failed in use. The queue chains through rejection as well as fulfilment so
+    one failed show cannot wedge every later notification.
 24b. **A stopped session is not a finished one, and Stop must produce one
     notification.** Pressing Stop makes upstream emit the abort and then
     `session.idle` — captured 5 ms apart — and both were delivered. The second
