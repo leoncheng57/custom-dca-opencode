@@ -22,8 +22,6 @@ if (new Set(names).size !== names.length) {
   throw new Error('Reminder command mappings must be unique')
 }
 
-export function commandForReminder(reminderId: string): string {
-  const command = REMINDER_COMMANDS[reminderId]
-  if (!command) throw new Error(`No command mapped for reminder: ${reminderId}`)
-  return command
+export function commandForReminder(reminderId: string): string | undefined {
+  return REMINDER_COMMANDS[reminderId]
 }

@@ -3,10 +3,11 @@ import {
   commandNameFromPath,
   filterCommands,
   invocation,
+  isValidCommandName,
   loadCommandsFromFiles,
   parseCommand,
 } from './commands'
-import { commands as realCommands } from './commandsSource'
+import { commandFileNames, commands as realCommands } from './commandsSource'
 
 const COMMAND_MD = [
   '---',
@@ -25,6 +26,16 @@ describe('commandNameFromPath', () => {
 
   it('returns an empty string for a non-markdown path', () => {
     expect(commandNameFromPath('../../commands/notes.txt')).toBe('')
+  })
+})
+
+describe('isValidCommandName', () => {
+  it('accepts safe flat command names and rejects path or shell syntax', () => {
+    expect(isValidCommandName('verify')).toBe(true)
+    expect(isValidCommandName('worktree-up')).toBe(true)
+    for (const name of ['', '-verify', 'verify-', 'verify--now', '../verify', 'Verify', 'verify.md', 'verify;rm']) {
+      expect(isValidCommandName(name)).toBe(false)
+    }
   })
 })
 
@@ -109,8 +120,8 @@ describe('filterCommands', () => {
 })
 
 describe('the shipped commands', () => {
-  it('loads every command file', () => {
-    expect(realCommands.length).toBeGreaterThan(0)
+  it('represents every discovered command file in the parsed inventory', () => {
+    expect(realCommands.map(({ name }) => name)).toEqual(commandFileNames)
   })
 
   it.each(realCommands.map((c) => [c.name, c] as const))('%s has a description', (_name, command) => {
@@ -137,6 +148,19 @@ describe('the shipped commands', () => {
   it('allows standalone commands with no paired content or naming convention', () => {
     const standalone = parseCommand('../../commands/new-utility.md', '---\ndescription: A standalone command.\n---\nDo the complete thing.')
     expect(standalone?.name).toBe('new-utility')
+  })
+
+  it('keeps verify portable by discovering checks instead of pre-executing npm', () => {
+    const verify = realCommands.find(({ name }) => name === 'verify')!
+    expect(verify.runsShell).toBe(false)
+    expect(verify.body).toContain('Inspect changed files, package or task manifests')
+    expect(verify.body).not.toContain('!`npm')
+  })
+
+  it('requires explicit model and broad-permission authorization for managed workers', () => {
+    const manager = realCommands.find(({ name }) => name === 'manager-children')!
+    expect(manager.body).toContain('ask the user which model to use')
+    expect(manager.body).toContain('Never add\n`--auto` or any equivalent broad permission-approval mode unless the user\nexplicitly authorizes it')
   })
 
   it('showcases every distinctive command capability at least once', () => {

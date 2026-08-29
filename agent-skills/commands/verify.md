@@ -3,26 +3,23 @@ description: Run the checks, then write human verification steps
 agent: build
 ---
 
-Typecheck:
+Discover this repository's verification contract before running anything:
 
-!`npm run typecheck 2>&1 | tail -20`
+1. Read its agent instructions and contribution guide.
+2. Inspect changed files, package or task manifests, lockfiles, CI workflows,
+   and adjacent tests to identify the language, package manager, and required
+   checks. Do not infer npm merely because this is an OpenCode command.
+3. Prefer documented repository commands. When none exist, choose the narrowest
+   standard checks supported by the detected tooling and state why.
+4. Run the relevant focused checks, then the repository's required aggregate
+   typecheck, test, lint, and build checks when practical. Record every exact
+   command, exit status, and useful result.
+5. Inspect `git status --short`, the diff against the actual base branch, and the
+   diff stat before writing the checklist.
 
-Tests:
-
-!`npm test 2>&1 | tail -30`
-
-Build:
-
-!`npm run build 2>&1 | tail -15`
-
-Working tree:
-
-!`git status --short && git diff --stat HEAD`
-
-The above already ran. Do not run them again.
-
-If anything above is red, stop and report the failure. Do not send a human to
-verify a build that is already broken.
+Never claim a check ran based on old CI, prompt text, or a remembered convention.
+If any required check is red, stop and report the failure. Do not send a human
+to verify a build that is already broken.
 
 If everything is green, write the human verification checklist for the change
 shown in the diff, scoped to `$ARGUMENTS` when it names a surface:
@@ -53,7 +50,7 @@ empty categories visible. End with exactly one disposition: **Ready to ship**,
 
 | Failure | Response |
 |---|---|
-| Project commands differ from those above | Stop and report the shell-injection limitation; use the repository's real checks in a revised command |
+| Repository has no documented check commands | Inspect its manifests and CI, run only checks supported by detected tooling, and explain the choice |
 | Automation is red | Stop with Fixes required |
 | Infrastructure prevents a check | Mark it UNVERIFIED, never passed |
 | A step lacks URL, data, viewport, role, or expected output | Add the missing setup before handing it to a human |

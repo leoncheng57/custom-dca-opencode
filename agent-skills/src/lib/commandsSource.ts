@@ -1,4 +1,4 @@
-import { loadCommandsFromFiles, type Command } from './commands'
+import { commandNameFromPath, loadCommandsFromFiles, type Command } from './commands'
 import { loadSimulationsFromFiles } from './simulation'
 
 /**
@@ -13,6 +13,8 @@ const commandFiles = import.meta.glob('../../commands/*.md', {
   query: '?raw',
   import: 'default',
 }) as Record<string, string>
+
+export const commandFileNames = Object.keys(commandFiles).map(commandNameFromPath).sort()
 
 /**
  * Worked examples for commands.

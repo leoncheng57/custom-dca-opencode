@@ -167,8 +167,14 @@ describe("shipped catalogue", () => {
     expect(Object.keys(REMINDER_COMMANDS).sort()).toEqual(reminderIds);
     expect(new Set(Object.values(REMINDER_COMMANDS)).size).toBe(reminderIds.length);
     for (const id of reminderIds) {
-      expect(commandNames.has(commandForReminder(id)), `${id} maps to a missing command`).toBe(true);
+      const command = commandForReminder(id);
+      expect(command, `${id} has no command mapping`).toBeDefined();
+      expect(commandNames.has(command!), `${id} maps to a missing command`).toBe(true);
     }
+  });
+
+  it("does not guess a command for an unknown reminder", () => {
+    expect(commandForReminder("new-server-reminder")).toBeUndefined();
   });
 
   it("keeps reminder tags application-owned and non-empty", () => {

@@ -36,6 +36,13 @@ rule that children never push the default branch. Require a gitignored
 `pr-open`, `blocked`, and `done`; UTC timestamps come from `date -u`, update on
 every transition, and heartbeat at least every ten minutes.
 
+Before launching, ask the user which model to use when neither the repository
+nor the current session has an explicit model contract that settles the choice.
+Do not guess from availability, cost, or a previous unrelated child. Never add
+`--auto` or any equivalent broad permission-approval mode unless the user
+explicitly authorizes it for these workers. A copied launch command is not
+authorization. Record both decisions in each assignment and launch command.
+
 Monitor in this order: status file, Git/remote/PR/CI evidence, then the child
 screen only when evidence is stale or contradictory. A stale heartbeat or a
 `done` badge without a pushed branch is not delivery proof.
@@ -53,5 +60,7 @@ worktree only after merge and after confirming no follow-up needs it.
 | Two children edit one seam | Stop one writer and sequence ownership |
 | Tracker says done but no PR exists | Inspect Git and require push/PR evidence |
 | Child works in the wrong checkout | Stop and relaunch with absolute containment |
+| Model was not specified or contractually settled | Ask before launch |
+| Launch template contains `--auto` without explicit authorization | Remove it and ask; do not broaden permissions by convenience |
 | Automated wake duplicates turns | Disable it until idle checks, dedupe, and serialization are proven |
 | Manager loses the next action | Restore the synchronized plan and task queue |

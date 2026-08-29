@@ -1,4 +1,5 @@
 import { CONTENT_ROOT, DEFAULT_BRANCH, REPO_SLUG, REPO_URL } from './repo'
+import { isValidCommandName } from './commands'
 
 export interface CommandInstallMethod {
   id: string
@@ -13,6 +14,7 @@ export interface CommandInstallMethod {
  * place one Markdown file would add unnecessary machinery.
  */
 export function commandInstallMethods(name: string): CommandInstallMethod[] {
+  if (!isValidCommandName(name)) throw new Error(`Invalid command name: ${name}`)
   const raw = `https://raw.githubusercontent.com/${REPO_SLUG}/${DEFAULT_BRANCH}/${CONTENT_ROOT}/commands/${name}.md`
 
   return [

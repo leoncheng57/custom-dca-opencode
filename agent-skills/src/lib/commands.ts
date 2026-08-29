@@ -48,6 +48,10 @@ const ARGUMENT_PATTERN = /\$ARGUMENTS\b|\$[1-9]\b/
 /** Shell interpolation: !`command`. */
 const SHELL_PATTERN = /!`[^`]+`/
 
+export function isValidCommandName(name: string): boolean {
+  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)
+}
+
 export function commandNameFromPath(path: string): string {
   const file = path.split('/').filter(Boolean).pop() ?? ''
   return file.endsWith('.md') ? file.slice(0, -3) : ''
@@ -68,7 +72,7 @@ export function parseCommand(
   options: { simulation?: Simulation } = {}
 ): Command | null {
   const name = commandNameFromPath(path)
-  if (!name) {
+  if (!isValidCommandName(name)) {
     return null
   }
 
