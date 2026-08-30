@@ -163,15 +163,16 @@ export function WorkflowPicker({
       <div className="fixed inset-0 z-[90] flex items-end justify-center sm:items-start sm:p-4 sm:pt-[10vh]" data-testid="composer-workflow-panel">
         <button type="button" aria-label="Close workflow picker" className="absolute inset-0 bg-[var(--color-background-overlay)]" onClick={close} data-testid="composer-workflow-backdrop" />
         <div className="relative flex max-h-[82dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-[var(--color-border-default)] bg-[var(--color-background-surface)] shadow-xl sm:max-h-[72vh] sm:max-w-2xl sm:rounded-xl" role="dialog" aria-modal="true" aria-label="Workflow picker" onKeyDown={handleKeyDown}>
-          <div className="flex flex-col gap-2 border-b border-[var(--color-border-default)] p-3">
-            <div className="flex items-start gap-2">
-              <div className="min-w-0 flex-1">
-                <h2 className="text-sm font-semibold">Workflows</h2>
-                <p className="text-xs text-[var(--color-text-muted)]">Choosing a workflow opens a form. Nothing is sent or launched until you confirm.</p>
-              </div>
-              <button type="button" onClick={close} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md hover:bg-[var(--hh-row-hover)] sm:h-9 sm:w-9" aria-label="Close workflow picker" data-testid="composer-workflow-close"><X aria-hidden="true" className="h-4 w-4" /></button>
-            </div>
-            <div className="relative min-w-0">
+          {/*
+            * One header row — search on the left, close on the right — exactly
+            * as the reminder picker builds it. The heading and the promise that
+            * used to sit above the search cost a whole band of a panel whose
+            * scarce resource is vertical space; the promise moves to the footer
+            * hint, where it is still on screen at all times and no longer
+            * competes with the catalogue for the first fold.
+            */}
+          <div className="flex items-center gap-2 border-b border-[var(--color-border-default)] p-3">
+            <div className="relative min-w-0 flex-1">
               <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-muted)]" />
               <input
                 ref={searchRef}
@@ -189,7 +190,15 @@ export function WorkflowPicker({
                 aria-activedescendant={activeID}
               />
             </div>
+            <button type="button" onClick={close} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md hover:bg-[var(--hh-row-hover)] sm:h-9 sm:w-9" aria-label="Close workflow picker" data-testid="composer-workflow-close"><X aria-hidden="true" className="h-4 w-4" /></button>
           </div>
+          {/*
+            * No tag chip row here, deliberately — see the PR body. Workflows
+            * have no `tags` field, the five group headings already sit in the
+            * scroll flow, and a second taxonomy would have to be authored,
+            * served and kept true. This is the one place the two pickers
+            * differ structurally, and it is a choice rather than an omission.
+            */}
           <div className="thin-scrollbar min-h-0 flex-1 overflow-y-auto p-2" id={LISTBOX_ID} ref={listRef} role="listbox" aria-label="Workflows" aria-activedescendant={activeID}>
             {attachedWorkflow && (
               <button
@@ -210,14 +219,26 @@ export function WorkflowPicker({
               </button>
             )}
             {/*
-              * A title-only tile grid, matching the reminder picker exactly.
-              * The catalogue is 22 workflows, and one full-width row carrying a
-              * two-to-three line description fit roughly 4.5 of them on a
-              * desktop screen — four screenfuls to reach the last item, and at
-              * most one and a half group headings visible at once, so the
-              * grouping never actually organised anything for the reader. The
-              * description is not lost: it is on the form's preview stage,
-              * where it is read before sending rather than while scanning.
+              * A title-only tile grid, structurally identical to the reminder
+              * picker's. One full-width row carrying a two-to-three line
+              * description fit roughly 4.5 workflows on a desktop screen and
+              * about four on a phone, with at most one and a half group
+              * headings visible at once — so the grouping never organised
+              * anything for the reader it was there to help.
+              *
+              * The description is relocated, not lost: it stays on the form's
+              * preview stage, where it is read before sending rather than
+              * while scanning, and on the tile as `aria-description` and
+              * `title` so a screen reader and a hover still get it.
+              *
+              * There is deliberately no per-tile detail link, which is the
+              * other place this diverges from the reminder tile. A reminder
+              * attaches silently and has no preview, so that link is its only
+              * chance to read the body before sending; a workflow always
+              * opens a form that shows the exact prompt and the exact trusted
+              * injector first (decision 21). Adding a link here would spend
+              * tile width, and a navigation away from the composer, on a
+              * guarantee the next click already makes.
               */}
             {groupedWorkflows.map(({ label, workflows }) => <section key={label} role="group" aria-label={label} className="mb-4 last:mb-0" data-testid="composer-workflow-group">
               <h3 className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.09em] text-[var(--color-text-muted)]">{label}</h3>
@@ -258,7 +279,15 @@ export function WorkflowPicker({
             </section>)}
             {visibleWorkflows.length === 0 && <p className="px-3 py-10 text-center text-sm text-[var(--color-text-muted)]" data-testid="composer-workflow-empty">No matching workflows</p>}
           </div>
-          <p className="shrink-0 border-t border-[var(--color-border-default)] px-4 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] text-[11px] text-[var(--color-text-muted)]" aria-live="polite">Up/Down to navigate - Enter to open the form - Esc to close</p>
+          {/*
+            * The reminder picker's footer leads with what attaching a reminder
+            * actually does ("applies to the next message only") before the key
+            * hints. The workflow equivalent has to lead with the same kind of
+            * fact, and the honest one is that Enter opens a form: this picker
+            * cannot send or launch anything, which is the promise that used to
+            * live in the header.
+            */}
+          <p className="shrink-0 border-t border-[var(--color-border-default)] px-4 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] text-[11px] text-[var(--color-text-muted)]" aria-live="polite">Choosing a workflow opens its form. Nothing is sent or launched until you confirm. Up/Down to navigate - Enter to open the form - Esc to close</p>
         </div>
       </div>,
       document.body,
