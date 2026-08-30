@@ -266,4 +266,47 @@ test.describe("Playbooks", () => {
     await expect(page.getByTestId("opencode-playbook-dialog")).toHaveCount(0);
     await expect(page.getByTestId("opencode-playbook-reminder-card")).toHaveCount(12);
   });
+
+  // ── Simulations ───────────────────────────────────────────────────────────
+  //
+  // Every workflow and reminder has a worked example again. These were keyed to
+  // the retired command catalogue and were deleted with it, including for the
+  // eight workflows that survived the cut.
+
+  test("plays a workflow's worked example, and the player is keyboard-reachable", async ({ page }) => {
+    await page.goto(FIXTURE);
+    const sim = page.getByTestId("opencode-playbook-simulation");
+    await expect(sim).toBeVisible();
+    // Starts on the first frame, which is always the human's turn.
+    const status = page.getByTestId("opencode-playbook-simulation-status");
+    await expect(status).toContainText(/frame 1 of \d+|autoplay off/u);
+    await expect(page.getByTestId("opencode-playbook-simulation-reset")).toBeDisabled();
+
+    await page.getByTestId("opencode-playbook-simulation-next").click();
+    await expect(page.getByTestId("opencode-playbook-simulation-reset")).toBeEnabled();
+    await page.getByTestId("opencode-playbook-simulation-previous").click();
+    await expect(page.getByTestId("opencode-playbook-simulation-reset")).toBeDisabled();
+
+    // The caveat is not optional decoration: it is what stops an abbreviated
+    // transcript being read as a literal recording.
+    await expect(sim).toContainText("Caveat:");
+  });
+
+  test("gives a reminder its own worked example, distinct from the workflow sharing its id", async ({ page }) => {
+    // session-handoff is BOTH a workflow and a reminder. A flat simulation
+    // directory would serve one's example for the other.
+    await page.goto("/playbooks/reminders/session-handoff");
+    const reminderSim = await page.getByTestId("opencode-playbook-simulation").innerText();
+    await page.goto("/playbooks/workflows/session-handoff");
+    const workflowSim = await page.getByTestId("opencode-playbook-simulation").innerText();
+    expect(reminderSim.length).toBeGreaterThan(50);
+    expect(workflowSim).not.toEqual(reminderSim);
+  });
+
+  test("shows a simulation for every workflow and every reminder", async ({ page }) => {
+    for (const route of ["/playbooks/workflows/managed-child", "/playbooks/workflows/pr-snippet-review", "/playbooks/reminders/docs-and-diagram-tooling", "/playbooks/reminders/duck-mode"]) {
+      await page.goto(route);
+      await expect(page.getByTestId("opencode-playbook-simulation"), `${route} has no simulation`).toBeVisible();
+    }
+  });
 });

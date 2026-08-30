@@ -968,10 +968,27 @@ several decisions below.
 31. **Playbooks is the live workflow catalogue, and connected-process skills remain
     a separate inventory.** The repository-owned command catalogue this decision used
     to describe is retired (decision 21c), and with it the per-project "Loaded in
-    <project>" badge, the install-command copy blocks, the simulation player and the
-    `/playbooks/commands*` routes. Nothing replaced them, because a workflow needs no
-    installation: there is no per-directory question left to ask, so the page no longer
-    calls `/api/catalog` at all.
+    <project>" badge, the install-command copy blocks and the `/playbooks/commands*`
+    routes. Nothing replaced those, because a workflow needs no installation: there is
+    no per-directory question left to ask, so the page no longer calls `/api/catalog`.
+    **The simulation player is the exception: it was restored.** It went out with the
+    command catalogue because the examples were STORED there, not because they were
+    command-shaped ideas — all eight surviving converted workflows had one, so the
+    deletion silently removed working documentation for things that still existed.
+    Every workflow and every reminder now has exactly one worked example under
+    `client/simulations/{workflows,reminders}/<id>.md`, and `tests/simulations.test.ts`
+    asserts that in BOTH directions: a shipped id with no example fails, and an example
+    for something no longer shipped fails too — which is how a file describing a
+    deleted capability lingers as documentation for a feature nobody can invoke.
+    The two directories are separate because an id can be both: `session-handoff` is a
+    workflow AND a reminder, and one flat directory would serve one's example for the
+    other. Simulations are client-bundled markdown rather than part of
+    `GET /api/workflows`: an example is documentation ABOUT a guided action, not part
+    of the trusted contract the server re-resolves at submit time. The cost is that a
+    server-added workflow ships without an example, which the coverage test converts
+    from a silent gap into a build failure. Their `trigger` field named a slash command
+    (`/goal`); commands are retired, so it now names the id the example belongs to and
+    is asserted to match the filename.
     Workflows are read only from `GET /api/workflows`, including their exact trusted
     injector, and are never copied into a client catalogue. Their grouping is
     presentation-only and every shipped workflow must be placed in one of the five named
@@ -1023,6 +1040,12 @@ several decisions below.
     `?directory=`, the reminder catalogue resolves the last selected project through
     the same `resolvePaletteDirectory` seam the palette and notification centre use,
     and an absent directory yields the general reminders rather than an error.
+    The composer's workflow tile carries a detail link, matching the reminder tile.
+    It deliberately did not while the detail page only restated the injector the form
+    already shows before sending (decision 21) — spending tile width on a guarantee
+    the next click already makes. That reasoning expired when the page gained a worked
+    example: a simulation is the one thing the form cannot show, so the link now buys
+    something the next click does not.
     Runtime reminders under root `reminders/` remain application-owned per-message
     prompt bodies, never sourced from a workflow. The runtime `/skill` Catalog panel
     still reports whatever external skills and commands the connected OpenCode

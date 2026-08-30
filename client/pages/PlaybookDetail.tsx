@@ -3,8 +3,10 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { PlaybookCopyButton } from "../components/playbook-copy-button.js";
+import { PlaybookSimulation } from "../components/playbook-simulation.js";
 import { Alert } from "../ds/alert.js";
 import { reminderGroupLabel } from "../lib/reminderCatalogue.js";
+import { reminderSimulation, simulationPath, simulationSource, workflowSimulation } from "../lib/simulations.js";
 import { groupWorkflows } from "../lib/workflows.js";
 import { PlaybooksPage, useReminderCatalogue, useWorkflowCatalogue } from "./Playbooks.js";
 import styles from "./playbooks.module.css";
@@ -67,6 +69,9 @@ export function ReminderPlaybookPage() {
           {reminder.scopeRepository ? <> This reminder is scoped to <code>{reminder.scopeRepository}</code> and is only listed for a project whose git origin matches.</> : null}</div>
       </section>
       <section className={styles.injectorDetail} data-testid="opencode-playbook-reminder-body"><div className={styles.descriptionBar}><span>Exact instructions appended</span><PlaybookCopyButton label="reminder instructions" value={reminder.body} /></div><pre><code>{reminder.body}</code></pre></section>
+      {(() => { const simulation = reminderSimulation(reminder.id); return simulation
+        ? <PlaybookSimulation simulation={simulation} sourceHref={simulationSource.reminder(reminder.id)} sourcePath={simulationPath.reminder(reminder.id)} />
+        : null; })()}
       <p className={styles.scopeNote} data-testid="opencode-playbook-scope-note">This reminder is supplied by the live server catalogue. Viewing or copying it does not attach, run, or install anything. Attaching it in the composer applies it to your next message only, and the send carries the reminder's id alone — the server resolves this text again at submit time, so what you read here is what is appended.</p>
     </Modal>;
   }
@@ -102,6 +107,9 @@ export function WorkflowPlaybookPage() {
             : <>Collects nothing here — this workflow supplies its own form in the composer.</>}</div>
       </section>
       <section className={styles.injectorDetail} data-testid="opencode-playbook-workflow-injector"><div className={styles.descriptionBar}><span>Exact trusted injector</span><PlaybookCopyButton label="trusted injector" value={workflow.injector} /></div><pre><code>{workflow.injector}</code></pre></section>
+      {(() => { const simulation = workflowSimulation(workflow.id); return simulation
+        ? <PlaybookSimulation simulation={simulation} sourceHref={simulationSource.workflow(workflow.id)} sourcePath={simulationPath.workflow(workflow.id)} />
+        : null; })()}
       <p className={styles.scopeNote} data-testid="opencode-playbook-scope-note">This guided action is supplied by the live server catalogue. Viewing or copying its injector does not run, attach, or install anything. It is sent in the sending session's current mode: a workflow carries no declarative Plan or Build setting of its own.</p>
     </Modal>;
   }
