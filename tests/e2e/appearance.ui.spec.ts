@@ -66,6 +66,8 @@ test.describe("appearance", () => {
     await page.goto("/");
     const version = page.getByTestId("opencode-nav-version");
     await expect(version).toBeHidden();
+    const moreBox = await page.getByTestId("opencode-nav-more").boundingBox();
+    expect(moreBox?.x).toBeGreaterThan(420);
 
     await page.setViewportSize({ width: 480, height: 740 });
     await expect(version).toBeVisible();

@@ -213,9 +213,10 @@ launcher and image definition from outside the checkout being tested.
 
 ## Prepare a pull request
 
-Use Conventional Commit prefixes for changes that should affect the next release:
-`fix:` increments the patch version, `feat:` increments the minor version, and a
-`BREAKING CHANGE:` footer or `!` increments the major version. Release Please collects
+Use Conventional Commit prefixes for changes that should affect the next release.
+Before `1.0.0`, `fix:` and `feat:` increment the patch version while a
+`BREAKING CHANGE:` footer or `!` increments the minor version. At and after `1.0.0`,
+features increment minor and breaking changes increment major. Release Please collects
 merged commits into a release pull request; merging that release PR updates
 `package.json` and `package-lock.json`, writes `CHANGELOG.md`, and creates the release
 tag. Conventional commit text alone does not change the version before that release PR

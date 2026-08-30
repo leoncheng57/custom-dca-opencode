@@ -196,7 +196,7 @@ export function AppShell() {
             DCA
           </NavLink>
           <span
-            className="mr-auto hidden min-w-0 truncate font-mono text-[10px] tabular-nums text-[var(--color-text-muted)] min-[480px]:inline"
+            className="invisible mr-auto w-0 truncate font-mono text-[10px] tabular-nums text-[var(--color-text-muted)] min-[480px]:visible min-[480px]:w-auto"
             data-testid="opencode-nav-version"
             title={`DCA ${BUILD_LABEL}`}
           >

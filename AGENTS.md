@@ -981,6 +981,11 @@ several decisions below.
     version. The label yields its space on narrow phones rather than overflowing primary
     controls. Playbooks moved from the bar into More to make room and remains an
     unscoped link because `/playbooks` is a cross-project surface.
+    While the app is below `1.0.0`, fixes and features both bump patch and breaking
+    changes bump minor; ordinary SemVer behavior begins at `1.0.0`. The initial
+    Release Please bootstrap is pinned to the parent of the workflow's introduction,
+    so enabling releases does not turn the repository's full pre-release history into
+    one fabricated changelog.
 
 ## Client conventions (inherited from the OpenHands runner, still enforced)
 
