@@ -53,10 +53,12 @@ several decisions below.
 - `reminders/<id>/SKILL.md` is read at runtime, not emitted by `tsc`. Keep the root
   catalogue beside `dist/` in deployments. Per-message injection accepts an ID only;
   the BFF resolves the body and appends the `<reminder name="id">` sentinel.
-- `agent-skills/` holds repository-owned OpenCode commands, simulations, and supporting
-  docs; it is content, not a second app. The Runner renders it natively under
-  `/playbooks`. This remains separate from runtime reminders and `/api/catalog`, which
-  reports external skills and commands loaded by the connected OpenCode process.
+- `agent-skills/` is **retired** (decision 21c): its commands, simulations, parser and
+  supporting docs are deleted, and only `README.md`, `CREDITS.md` and `LICENSE` remain
+  so the third-party attribution outlives the file that carried it. `/playbooks` now
+  renders the live workflow catalogue only. This remains separate from runtime
+  reminders and `/api/catalog`, which reports external skills and commands loaded by
+  the connected OpenCode process.
 
 ## Agent working conventions
 
@@ -451,7 +453,7 @@ several decisions below.
     it gates. A client-side match grants nothing; an unverified candidate simply renders
     as the ordinary text it renders as today.
 21. **Composer workflows are forms first, and their injectors are visible-but-trusted.**
-    The Workflows picker beside Reminder (#167) offers four guided actions —
+    The Workflows picker beside Reminder (#167) started with four guided actions —
     Playwright UI review, snippet-by-snippet PR review, send an update to another
     session, launch a Managed Child.
     Choosing one only opens a form; the sole exits are Cancel, "Apply to composer"
@@ -468,6 +470,76 @@ several decisions below.
     dialog states that prompt_async 204/202 means accepted, not completed. The
     managed-child form reuses decision #19's route and creates no task card and no
     automatic hand-back.
+21b. **Most workflows are one generic argument, not a bespoke branch.** Adding a
+    workflow used to mean adding a fifth, sixth and seventh id to four separate
+    ternaries in `workflow-dialog.tsx`, one of which ended `: objective.trim()` — so an
+    unrecognized id was silently treated as a Managed Child launch. A `WorkflowPreset`
+    may now declare one `argument` spec (label, placeholder, hint, required,
+    maxLength) whose typed value **is** the visible prompt, or a fixed `prompt` when it
+    collects nothing; the dialog renders both from the server's description. The
+    dialog keeps a list of what is *special* — the five workflows with real bespoke
+    fields or their own submit path — rather than a list of what is supported, so an
+    id this build has never seen degrades to "generic form, sent into this session"
+    instead of to "launch a child". `maxLength` is clamped server-side to the prompt
+    route's own 100,000-character ceiling, so a preset can never advertise a field
+    whose full contents the send would reject. An optional field left blank is refused
+    rather than sent: the message would be the trusted injector with nothing to apply
+    it to.
+    The preview states **"Sent in this session's current mode"** for every workflow
+    that sends into this session, and this is not decoration. The 16 procedures ported
+    out of the retired command catalogue could pin their own agent in frontmatter
+    (`agent: plan` for the read-only ones). A workflow carries no declarative mode, and
+    adding one was deliberately rejected as out of scope — so the guarantee is gone,
+    and the UI has to say so rather than let a reader assume it survived.
+21d. **A 22-item catalogue is scanned, not read, so the picker is a tile grid.**
+    Full-width rows carrying a two-to-three line description fit ~4.5 of 22 workflows
+    on a desktop screen and ~4 on a phone — four screenfuls to the last item, with at
+    most 1.5 group headings visible at once, so the grouping organised nothing for the
+    reader. The picker now uses the **same title-only tile grid as the reminder
+    picker** (`grid grid-cols-2 sm:grid-cols-3`, `min-h-14` tiles), which puts over
+    half the catalogue and several headings on one screen; an E2E assertion counts
+    tiles above the panel fold on both form factors so the regression is caught rather
+    than re-measured. The description is not lost, it is relocated: it stays on the
+    form's preview stage where it is read before sending, and remains on the tile as
+    `aria-description` and `title` so a screen reader and a hover still get it.
+    Two consequences follow from the tile. **Every shipped workflow needs its own
+    icon**: with a two-line title as the only text, the icon rail is the primary
+    scanning aid, and a shared `Circle` fallback for 16 of 22 would carry no
+    information — `Circle` now means only "a workflow this build has never heard of".
+    And **search covers title and id only**. Matching descriptions was harmless at six
+    workflows and is not at 22: "review" is a substring of "pre*view*" and of
+    "*review*ing", so it surfaced "Send an update to another session" and "Start a DCA
+    session" — tiles whose visible text did not contain what was typed. Matching is
+    still a plain substring (the two pickers must not diverge), so "preview" still
+    matches "review"; the property gained is that every hit now contains the typed text
+    in the title the tile displays, which makes the result set explicable from screen.
+21e. **The injector window is sized to the longest injector, not the shortest.**
+    `max-h-48` (192px) was chosen when the longest shipped injector was 19 lines. The
+    ported procedures run to ~160, so it showed roughly 5% of
+    `system-design-artifacts`: technically scrollable, but not the read-before-send
+    that decision 21 makes the entire trust story. It is now `max-h-[60dvh]` — still
+    bounded, because the dialog must not become one unbroken page, and in `dvh` so a
+    mobile URL bar cannot shrink it below what it promises. The Playbooks card's
+    injector disclosure is bounded at `18rem` for the same reason in reverse: an
+    unbounded preview turned one opened card into most of the page, and the detail
+    modal is where a long injector is meant to be read end to end.
+21c. **The repository command catalogue is retired; its procedures are workflows.**
+    23 commands under `agent-skills/commands/` became 16 workflows and 7 deletions.
+    The 7 — `background`, `build-waves`, `handoff`, `duck-mode`, `grill-me`,
+    `cite-file-lines`, `diagram` — were already covered by same-subject reminders, and
+    a second copy of the same instructions is worse than none. The 16 were ported
+    **verbatim**, with only their `$ARGUMENTS` sentences rewritten, because the typed
+    argument now precedes the injector as the prompt.
+    `standup` is the one that could not be ported cleanly: its three `` !`…` ``
+    shell interpolations were its entire input dataset and a workflow injector is
+    never expanded, so it now instructs the agent to run those commands itself and
+    says plainly that bash may be denied in a Plan session. Pretending the data was
+    pre-fetched would have produced a confident standup written from the transcript.
+    The reminder picker's per-reminder documentation link follows to
+    `/playbooks/workflows/<id>` through `client/lib/reminderWorkflows.ts`. That map
+    covers 6 reminders, not the 12 the old command map covered, and the gap is the
+    honest number: the other 6 commands were deleted precisely because the reminder
+    already said what they said, so there is nothing to link to.
 21a. **The PR review workflow accepts a number, never a repository.** Its only input is a
     pull request, and `parsePullRequestNumber` reduces `253`, `#253` and a pasted PR URL
     to the integer alone — a URL's owner, repository and host are **discarded rather than
@@ -893,41 +965,35 @@ several decisions below.
     worth reaching. Its wording is duplicated in the outside-window notice, which tells
     the reader to use it by name — change the two together or the notice points at a
     control that is not on screen.
-31. **Repository Playbooks are commands-first, while connected-process skills remain
-    a separate inventory.** The catalogue is a build-time, repository-owned command
-    inventory compiled from `agent-skills/` into the bundle. Commands require explicit
-    human invocation and contribute zero at-rest retrieval context, so each command owns
-    its complete procedure, safety boundaries and failure handling. This repository ships
-    no skills. Runtime reminders under root `reminders/` are also separate: they remain
-    application-owned per-message prompt bodies and are never sourced from commands.
-    The runtime `/skill` Catalog panel still reports whatever external skills and
-    commands the connected OpenCode process loaded; do not remove or narrow
-    `server/opencode/catalog.ts`. Whether a repository command is
-    actually *loaded* is a per-directory runtime fact only `/api/catalog` knows.
-    Those are different questions and the page now answers both without conflating
-    them. Installation itself stays external: the UI only ever copies a shell
-    command the human runs, and it says so rather than leaving "Install grill-me"
-    to imply the app did something. The load-state badge is **always labelled with
-    the project**, because `/playbooks` is a global route while installation is
-    per-directory — a bare "Loaded" would be false in any other project, which is
-    worse than saying nothing. Since the route carries no `?directory=`, the last
-    selected project is resolved through the same `resolvePaletteDirectory` seam
-    the palette and notification centre use. Every failure — no directory, an
-    unreachable BFF, a rejected directory — renders **no claim at all** rather than
-    defaulting to "not installed", so the badge's absence means "unknown" and never
-    "absent". Source links follow the default branch and now say `main` out loud:
-    what GitHub shows can be newer than the bundle being read, and looking pinned
-    while tracking a moving target is the dishonest option. Related but distinct,
-    and stated on the page because the composer's reminder picker deep-links here:
-    attaching a reminder is a per-message action that needs no installation, and
-    links through an explicit validated reminder-id-to-command mapping; name transforms
-    are never guessed.
-    Workflows are the live, first-class Playbooks category: they are read only from
-    `GET /api/workflows`, including their exact trusted injector, and are never copied
-    into a client catalogue. Their picker grouping is presentation-only; unknown ids
-    fall under `Other`. Workflow-only routes never query `/api/catalog` or make command
-    installation claims, and deep-link absence is reported only after a successful
-    workflow catalogue load.
+31. **Playbooks is the live workflow catalogue, and connected-process skills remain
+    a separate inventory.** The repository-owned command catalogue this decision used
+    to describe is retired (decision 21c), and with it the per-project "Loaded in
+    <project>" badge, the install-command copy blocks, the simulation player and the
+    `/playbooks/commands*` routes. Nothing replaced them, because a workflow needs no
+    installation: there is no per-directory question left to ask, so the page no longer
+    calls `/api/catalog` at all.
+    Workflows are read only from `GET /api/workflows`, including their exact trusted
+    injector, and are never copied into a client catalogue. Their grouping is
+    presentation-only and every shipped workflow must be placed in one of the five named
+    groups; the `Other` bucket exists for an id a newer server ships, and a shipped
+    workflow landing there is a placement bug that reads identically in the UI. A
+    detail route reports absence only after a successful catalogue load, never during
+    loading or after a failure.
+    The six groups are **Review · Execute · Delegate · Coordinate · Investigate ·
+    Document**, and the server catalogue is authored in that same order so one file
+    tells the truth about both. Two seams were redrawn once 22 items made them
+    load-bearing: "Coordinate" had grown to six and was quietly two ideas — bringing a
+    new session into being versus messaging one that already exists — so **Delegate**
+    took the five that create an agent and Coordinate kept the two that report to
+    something already there (one machine, one human). "Ship" held two whose seam with
+    Execute was soft; verifying and wrapping up are the end of doing work here, not a
+    separate act, so they folded into **Execute** rather than keeping a heading they
+    had not earned. Prefer folding a two-item group into an adjacent one over keeping
+    a heading that only names a coincidence.
+    Runtime reminders under root `reminders/` stay separate: application-owned
+    per-message prompt bodies, never sourced from a workflow. The runtime `/skill`
+    Catalog panel still reports whatever external skills and commands the connected
+    OpenCode process loaded; do not remove or narrow `server/opencode/catalog.ts`.
 32. **RETIRED — the public command catalogue is gone, and `gh-pages:agent-skills/`
     was deleted rather than left serving a stale index.** This decision used to
     specify a dependency-free generator that reused the command parser and published

@@ -3,7 +3,7 @@ import { ArrowRightLeft, Bird, BookOpen, Check, ChevronDown, Circle, ExternalLin
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 
-import { commandForReminder } from "../../agent-skills/src/lib/reminderCommands.js";
+import { workflowForReminder } from "../lib/reminderWorkflows.js";
 import type { ReminderSummary } from "../lib/api.js";
 
 const LISTBOX_ID = "composer-reminder-listbox";
@@ -209,7 +209,7 @@ export function ReminderPicker({
                 const optionIndex = visible.indexOf(reminder) + 1;
                 const isActive = active === optionIndex;
                 const isSelected = value === reminder.id;
-                const commandName = commandForReminder(reminder.id);
+                const workflowID = workflowForReminder(reminder.id);
                 // The tile is two independent touch targets, not one: the
                 // button (icon + title) selects the reminder, and is the
                 // large target since selecting is the common action. The
@@ -236,8 +236,8 @@ export function ReminderPicker({
                 <span className="line-clamp-2 min-w-0 flex-1 text-left text-xs font-medium leading-4 text-[var(--color-text-default)]" data-testid="composer-reminder-title">{reminder.title}</span>
                 {isSelected && <Check aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-[var(--color-text-info)]" />}
                   </button>
-                  {commandName && <Link
-                    to={`/playbooks/commands/${commandName}`}
+                  {workflowID && <Link
+                    to={`/playbooks/workflows/${workflowID}`}
                     target="_blank"
                     rel="noreferrer"
                     className="flex h-full w-11 shrink-0 items-center justify-center border-l border-[var(--color-border-default)] text-[var(--color-text-link)] hover:bg-[var(--hh-row-hover)]"

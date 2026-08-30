@@ -16,8 +16,8 @@ import type { AgentMode } from "../lib/agentMode.js";
 import { catalogueDefault, type ModelCatalogue, type ModelSelection } from "../lib/models.js";
 import {
   buildPlaywrightReviewPrompt,
-  DESIGN_DOC_PROTOTYPE_PROMPT,
-  DESIGN_DOC_PROTOTYPE_WORKFLOW_ID,
+  genericWorkflowPrompt,
+  genericWorkflowValid,
   MANAGED_CHILD_WORKFLOW_ID,
   KNOWN_APP_ROUTES,
   PLAYWRIGHT_CAPTURE_SCOPES,
@@ -36,6 +36,23 @@ type Stage = "form" | "preview" | "done";
 
 const fieldClass =
   "mt-1.5 w-full rounded-md border border-[var(--color-border-default)] bg-transparent px-3 py-2 text-base leading-relaxed sm:text-sm";
+
+/**
+ * The five workflows that still need bespoke fields or a bespoke submit path.
+ * Everything else — including every procedure ported out of the retired command
+ * catalogue, and any workflow a newer server ships that this build has never
+ * heard of — is rendered by the generic argument form and sent into this
+ * session. Membership is a list of what is special, not a list of what is
+ * supported, so an unknown id degrades to the ordinary behaviour rather than
+ * being silently mistaken for a Managed Child launch.
+ */
+const BESPOKE_WORKFLOW_IDS = new Set<string>([
+  PLAYWRIGHT_REVIEW_WORKFLOW_ID,
+  PR_SNIPPET_REVIEW_WORKFLOW_ID,
+  SESSION_UPDATE_WORKFLOW_ID,
+  MANAGED_CHILD_WORKFLOW_ID,
+  START_DCA_SESSION_WORKFLOW_ID,
+]);
 
 /**
  * The workflow form + preview dialog (issue #167). Every workflow starts here
@@ -71,6 +88,11 @@ export function WorkflowDialog({
   const [stage, setStage] = useState<Stage>("form");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // The single generic field. One state value serves every workflow that
+  // declares an `argument`, which is what keeps a new server workflow from
+  // needing a new branch here.
+  const [argumentValue, setArgumentValue] = useState("");
 
   // Playwright review fields.
   const [pullRequest, setPullRequest] = useState("");
@@ -207,34 +229,42 @@ export function WorkflowDialog({
   const pullRequestNumber = parsePullRequestNumber(pullRequest);
   const routeInvalid = route.trim().startsWith("/") && !isKnownAppRoute(route);
 
+  // Every workflow except the three with their own submit path is sent into
+  // THIS session. Extracted once so the submit branch, the apply note, the
+  // mode note and the buttons cannot drift apart.
+  const sendsIntoThisSession = workflow.id !== SESSION_UPDATE_WORKFLOW_ID
+    && workflow.id !== MANAGED_CHILD_WORKFLOW_ID
+    && workflow.id !== START_DCA_SESSION_WORKFLOW_ID;
+  const isGeneric = !BESPOKE_WORKFLOW_IDS.has(workflow.id);
+
   const generatedPrompt =
     workflow.id === PLAYWRIGHT_REVIEW_WORKFLOW_ID
       ? (route.trim() && target.trim() ? buildPlaywrightReviewPrompt({ route, target, scope }) : "")
       : workflow.id === PR_SNIPPET_REVIEW_WORKFLOW_ID
         ? (pullRequestNumber === null ? "" : buildPrSnippetReviewPrompt(pullRequestNumber))
-      : workflow.id === DESIGN_DOC_PROTOTYPE_WORKFLOW_ID
-        ? DESIGN_DOC_PROTOTYPE_PROMPT
       : workflow.id === SESSION_UPDATE_WORKFLOW_ID
         ? message.trim()
-        : workflow.id === START_DCA_SESSION_WORKFLOW_ID
-          ? rootAssignment.trim()
-        : objective.trim();
+      : workflow.id === MANAGED_CHILD_WORKFLOW_ID
+        ? objective.trim()
+      : workflow.id === START_DCA_SESSION_WORKFLOW_ID
+        ? rootAssignment.trim()
+        // Typed text is the prompt; a workflow that collects nothing uses the
+        // fixed server-supplied prompt instead.
+        : genericWorkflowPrompt(workflow, argumentValue);
 
   const formValid =
     workflow.id === PLAYWRIGHT_REVIEW_WORKFLOW_ID
       ? Boolean(route.trim() && target.trim())
       : workflow.id === PR_SNIPPET_REVIEW_WORKFLOW_ID
         ? pullRequestNumber !== null
-      // Nothing is collected, so there is nothing to invalidate: the whole
-      // procedure lives in the trusted injector shown on the next stage.
-      : workflow.id === DESIGN_DOC_PROTOTYPE_WORKFLOW_ID
-        ? true
       : workflow.id === SESSION_UPDATE_WORKFLOW_ID
         ? Boolean(targetSession && message.trim())
       : workflow.id === START_DCA_SESSION_WORKFLOW_ID
         ? Boolean(rootAssignment.trim() && rootAssignment.length <= 100_000 && rootModelValid)
+      : workflow.id === MANAGED_CHILD_WORKFLOW_ID
         // No catalogue means no verified agent, so there is nothing safe to launch.
-        : Boolean(objective.trim() && objective.length <= 100_000 && childModel && selectedChildAgent);
+        ? Boolean(objective.trim() && objective.length <= 100_000 && childModel && selectedChildAgent)
+        : genericWorkflowValid(workflow, argumentValue);
 
   const confirmReady = formValid && !busy
     && (workflow.id !== MANAGED_CHILD_WORKFLOW_ID || !requiresChildAuthorization || confirmedBuild)
@@ -245,14 +275,12 @@ export function WorkflowDialog({
     setBusy(true);
     setError(null);
     try {
-      if (
-        workflow.id === PLAYWRIGHT_REVIEW_WORKFLOW_ID
-        || workflow.id === PR_SNIPPET_REVIEW_WORKFLOW_ID
-        || workflow.id === DESIGN_DOC_PROTOTYPE_WORKFLOW_ID
-      ) {
-        // Sent in THIS session's current mode. Posting a comment is a write, so
-        // a Plan session will be stopped by its own policy rather than having
-        // write access quietly restored here (decision 9).
+      if (sendsIntoThisSession) {
+        // Sent in THIS session's current mode. A write is stopped by the
+        // session's own policy rather than having write access quietly
+        // restored here (decision 9). The ported procedures used to declare
+        // `agent: plan` in their own frontmatter; that guarantee does not
+        // survive the move, which is why the preview says so out loud.
         await api.prompt(directory, sessionID, generatedPrompt, { mode }, undefined, undefined, undefined, workflow.id);
         onSent();
         onClose();
@@ -420,14 +448,34 @@ export function WorkflowDialog({
               </p>
             </>}
 
-            {workflow.id === DESIGN_DOC_PROTOTYPE_WORKFLOW_ID && (
+            {isGeneric && (workflow.argument
+              ? <label className="block text-sm font-medium">
+                {workflow.argument.label} <span className="font-normal text-[var(--color-text-muted)]">({workflow.argument.required ? "required" : "optional"} — this text becomes the prompt)</span>
+                <textarea
+                  ref={(node) => { firstFieldRef.current = node; }}
+                  value={argumentValue}
+                  onChange={(event) => setArgumentValue(event.target.value)}
+                  rows={5}
+                  maxLength={workflow.argument.maxLength}
+                  placeholder={workflow.argument.placeholder}
+                  className={`${fieldClass} min-h-28 resize-y`}
+                  data-testid="composer-workflow-field-argument"
+                />
+                {workflow.argument.hint && (
+                  <span className="mt-1 block text-[11px] font-normal text-[var(--color-text-muted)]" data-testid="composer-workflow-argument-hint">{workflow.argument.hint}</span>
+                )}
+              </label>
               // Deliberately no fields, and so no firstFieldRef: focus falls
               // back to the dialog itself, which is what the effect already does
               // when the ref is null.
-              <p className="text-sm text-[var(--color-text-muted)]" data-testid="composer-workflow-no-fields">
-                No input needed. Confirm to preview the exact prompt and trusted procedure below.
-              </p>
-            )}
+              : workflow.prompt
+                ? <p className="text-sm text-[var(--color-text-muted)]" data-testid="composer-workflow-no-fields">
+                  No input needed. Confirm to preview the exact prompt and trusted procedure below.
+                </p>
+                // A workflow that declares neither a field nor a fixed prompt
+                // has nothing to send. Say that instead of offering a dead
+                // Preview button with no explanation.
+                : <Alert variant="danger" data-testid="composer-workflow-unsendable">This workflow supplies no prompt and collects no input, so there is nothing to send. It may need a newer version of this app.</Alert>)}
 
             {workflow.id === SESSION_UPDATE_WORKFLOW_ID && <>
               <div>
@@ -630,17 +678,39 @@ export function WorkflowDialog({
               <p className="text-sm font-medium">Exact prompt</p>
               <pre className="thin-scrollbar mt-1.5 max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded-md border border-[var(--color-border-default)] bg-[var(--color-background-muted)] p-3 font-sans text-xs leading-relaxed" data-testid="composer-workflow-prompt-preview">{generatedPrompt}</pre>
             </div>
+            {/*
+              * The injector window is the whole trust story (decision 21): the
+              * contract is that the user can read the exact trusted content
+              * before submitting. `max-h-48` was sized when the longest shipped
+              * injector was 19 lines; the ported procedures run to ~160, so it
+              * showed about 5% of `system-design-artifacts` — technically
+              * scrollable, but not read-before-send in any honest sense. It
+              * stays scrollable and bounded (the dialog must not become one
+              * unbroken page), in `dvh` so a mobile URL bar cannot shrink it
+              * below what it promises.
+              */}
             <details open data-testid="composer-workflow-injector">
               <summary className="cursor-pointer text-sm font-medium">Trusted injector — server-resolved from id "{workflow.id}"</summary>
-              <pre className="thin-scrollbar mt-1.5 max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded-md border border-[var(--color-border-default)] p-3 font-sans text-xs leading-relaxed text-[var(--color-text-muted)]">{workflow.injector}</pre>
+              <pre className="thin-scrollbar mt-1.5 max-h-[60dvh] overflow-y-auto whitespace-pre-wrap break-words rounded-md border border-[var(--color-border-default)] p-3 font-sans text-xs leading-relaxed text-[var(--color-text-muted)]" data-testid="composer-workflow-injector-body">{workflow.injector}</pre>
               <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">Appended by the server exactly as shown. The browser only names the workflow id.</p>
             </details>
-            {(workflow.id === PLAYWRIGHT_REVIEW_WORKFLOW_ID || workflow.id === PR_SNIPPET_REVIEW_WORKFLOW_ID || workflow.id === DESIGN_DOC_PROTOTYPE_WORKFLOW_ID) && (
+            {sendsIntoThisSession && <>
               <p className="text-xs text-[var(--color-text-muted)]">"Apply to composer" only fills the message box for further editing — nothing is sent until you press Send.</p>
-            )}
+              {/*
+                * Stated rather than assumed. The procedures ported out of the
+                * retired command catalogue used to pin their own agent in
+                * frontmatter (`agent: plan` for the read-only ones); a workflow
+                * carries no declarative mode, so the session's current mode is
+                * what governs. Dropping that silently would be the expensive
+                * direction to be wrong in.
+                */}
+              <p className="text-xs text-[var(--color-text-muted)]" data-testid="composer-workflow-mode-note">
+                Sent in this session's current mode. Right now that is <strong>{mode}</strong>, so a Plan session stops at any write this asks for rather than gaining write access here.
+              </p>
+            </>}
             {workflow.id === PR_SNIPPET_REVIEW_WORKFLOW_ID && (
               <p className="text-xs text-[var(--color-text-muted)]" data-testid="composer-workflow-post-note">
-                This posts one comment on the pull request. Sent in this session's current mode, so a Plan session will stop at the write rather than post.
+                This posts one comment on the pull request, so a Plan session will stop at the write rather than post.
               </p>
             )}
             {workflow.id === SESSION_UPDATE_WORKFLOW_ID && (
@@ -675,7 +745,7 @@ export function WorkflowDialog({
             <div className="flex flex-wrap justify-end gap-2 border-t border-[var(--color-border-default)] pt-4">
               <Button type="button" variant="ghost" disabled={busy} onClick={() => { setError(null); setStage("form"); }} data-testid="composer-workflow-back">Back</Button>
               <Button type="button" variant="secondary" disabled={busy} onClick={onClose} data-testid="composer-workflow-cancel">Cancel</Button>
-              {(workflow.id === PLAYWRIGHT_REVIEW_WORKFLOW_ID || workflow.id === PR_SNIPPET_REVIEW_WORKFLOW_ID || workflow.id === DESIGN_DOC_PROTOTYPE_WORKFLOW_ID) && <>
+              {sendsIntoThisSession && <>
                 <Button type="button" variant="secondary" disabled={busy} onClick={() => onApplyToComposer(generatedPrompt, workflow.id)} data-testid="composer-workflow-apply">Apply to composer</Button>
                 <Button type="button" disabled={!confirmReady} onClick={() => void submit("send")} data-testid="composer-workflow-send">{busy ? "Sending…" : "Send"}</Button>
               </>}

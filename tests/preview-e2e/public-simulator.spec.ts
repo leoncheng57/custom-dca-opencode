@@ -19,7 +19,7 @@ test("serves an interactive, credential-free PR simulator", async ({ page }) => 
   await expect(page.getByTestId("opencode-todo-list")).toContainText("Review the PR deployment");
 
   await page.goto("./#/playbooks/workflows");
-  await expect(page.getByTestId("opencode-playbook-workflow-card")).toHaveCount(6);
+  await expect(page.getByTestId("opencode-playbook-workflow-card")).toHaveCount(14);
   await page.getByTestId("opencode-playbook-workflow-start-dca-session").click();
   await expect(page.getByTestId("opencode-playbook-workflow-injector")).toContainText("independent root session");
   await page.getByTestId("opencode-playbook-close").click();

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { Check, ChevronDown, Circle, GitPullRequest, Image, MessageSquareText, MonitorCheck, Search, Send, Split, SquarePlus, X, type LucideIcon } from "lucide-react";
+import { ArrowRightLeft, Blocks, BookOpen, Check, ChevronDown, Circle, ClipboardList, FolderGit2, GitBranch, GitPullRequest, GraduationCap, Image, ListChecks, LogOut, Megaphone, MessageSquareText, MonitorCheck, PencilRuler, Search, Split, SquarePlus, Swords, Target, Telescope, Terminal, Users, X, type LucideIcon } from "lucide-react";
 import { createPortal } from "react-dom";
 
 import type { WorkflowSummary } from "../lib/api.js";
@@ -7,18 +7,50 @@ import { groupWorkflows } from "../lib/workflows.js";
 
 const LISTBOX_ID = "composer-workflow-listbox";
 
+/**
+ * Search title and id only.
+ *
+ * The description used to be searched too, which was harmless at six workflows
+ * and is not at 22: a plain substring match over 22 descriptions turns "review"
+ * into a hit on "Start a DCA session" (its description says *reviewing* its
+ * mode) and on "Send an update to another session" (whose description contains
+ * "pre**view**"). Both surface a tile whose visible text does not contain what
+ * was typed, which reads as a bug rather than as a feature. The description is
+ * no longer on the tile either, so matching on it would be matching on text the
+ * reader cannot see.
+ */
 function matches(workflow: WorkflowSummary, query: string): boolean {
   const needle = query.trim().toLowerCase();
-  return !needle || `${workflow.title} ${workflow.description} ${workflow.id}`.toLowerCase().includes(needle);
+  return !needle || `${workflow.title} ${workflow.id}`.toLowerCase().includes(needle);
 }
 
+/**
+ * One distinct symbol per workflow. In a 22-tile grid whose tiles carry only a
+ * two-line title, the icon rail is the primary scanning aid — a shared fallback
+ * would carry zero information for most of the catalogue, so every shipped id
+ * is named here. `Circle` remains only for a workflow a newer server ships that
+ * this build has never heard of.
+ */
 const WORKFLOW_ICONS: Record<string, LucideIcon> = {
+  // Review
   "playwright-ui-review": MonitorCheck,
   "pr-snippet-review": GitPullRequest,
-  "session-update": MessageSquareText,
+  // Execute
+  goal: Target,
+  dca: Terminal,
+  "leaving-now-wrap-up": LogOut,
+  // Delegate
   "managed-child": Split,
   "start-dca-session": SquarePlus,
+  "session-handoff": ArrowRightLeft,
+  // Coordinate
+  "session-update": MessageSquareText,
+  standup: Megaphone,
+  // Document
   "design-doc-prototype": Image,
+  "docs-preview": BookOpen,
+  "mini-design-doc": PencilRuler,
+  "system-design-artifacts": Blocks,
 };
 
 /**
@@ -131,15 +163,16 @@ export function WorkflowPicker({
       <div className="fixed inset-0 z-[90] flex items-end justify-center sm:items-start sm:p-4 sm:pt-[10vh]" data-testid="composer-workflow-panel">
         <button type="button" aria-label="Close workflow picker" className="absolute inset-0 bg-[var(--color-background-overlay)]" onClick={close} data-testid="composer-workflow-backdrop" />
         <div className="relative flex max-h-[82dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-[var(--color-border-default)] bg-[var(--color-background-surface)] shadow-xl sm:max-h-[72vh] sm:max-w-2xl sm:rounded-xl" role="dialog" aria-modal="true" aria-label="Workflow picker" onKeyDown={handleKeyDown}>
-          <div className="flex flex-col gap-2 border-b border-[var(--color-border-default)] p-3">
-            <div className="flex items-start gap-2">
-              <div className="min-w-0 flex-1">
-                <h2 className="text-sm font-semibold">Workflows</h2>
-                <p className="text-xs text-[var(--color-text-muted)]">Choosing a workflow opens a form. Nothing is sent or launched until you confirm.</p>
-              </div>
-              <button type="button" onClick={close} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md hover:bg-[var(--hh-row-hover)] sm:h-9 sm:w-9" aria-label="Close workflow picker" data-testid="composer-workflow-close"><X aria-hidden="true" className="h-4 w-4" /></button>
-            </div>
-            <div className="relative min-w-0">
+          {/*
+            * One header row — search on the left, close on the right — exactly
+            * as the reminder picker builds it. The heading and the promise that
+            * used to sit above the search cost a whole band of a panel whose
+            * scarce resource is vertical space; the promise moves to the footer
+            * hint, where it is still on screen at all times and no longer
+            * competes with the catalogue for the first fold.
+            */}
+          <div className="flex items-center gap-2 border-b border-[var(--color-border-default)] p-3">
+            <div className="relative min-w-0 flex-1">
               <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-muted)]" />
               <input
                 ref={searchRef}
@@ -157,7 +190,15 @@ export function WorkflowPicker({
                 aria-activedescendant={activeID}
               />
             </div>
+            <button type="button" onClick={close} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md hover:bg-[var(--hh-row-hover)] sm:h-9 sm:w-9" aria-label="Close workflow picker" data-testid="composer-workflow-close"><X aria-hidden="true" className="h-4 w-4" /></button>
           </div>
+          {/*
+            * No tag chip row here, deliberately — see the PR body. Workflows
+            * have no `tags` field, the five group headings already sit in the
+            * scroll flow, and a second taxonomy would have to be authored,
+            * served and kept true. This is the one place the two pickers
+            * differ structurally, and it is a choice rather than an omission.
+            */}
           <div className="thin-scrollbar min-h-0 flex-1 overflow-y-auto p-2" id={LISTBOX_ID} ref={listRef} role="listbox" aria-label="Workflows" aria-activedescendant={activeID}>
             {attachedWorkflow && (
               <button
@@ -177,37 +218,76 @@ export function WorkflowPicker({
                 </span>
               </button>
             )}
-            {groupedWorkflows.map(({ label, workflows }) => <section key={label} role="group" aria-label={label} className="mb-3 last:mb-0" data-testid="composer-workflow-group">
+            {/*
+              * A title-only tile grid, structurally identical to the reminder
+              * picker's. One full-width row carrying a two-to-three line
+              * description fit roughly 4.5 workflows on a desktop screen and
+              * about four on a phone, with at most one and a half group
+              * headings visible at once — so the grouping never organised
+              * anything for the reader it was there to help.
+              *
+              * The description is relocated, not lost: it stays on the form's
+              * preview stage, where it is read before sending rather than
+              * while scanning, and on the tile as `aria-description` and
+              * `title` so a screen reader and a hover still get it.
+              *
+              * There is deliberately no per-tile detail link, which is the
+              * other place this diverges from the reminder tile. A reminder
+              * attaches silently and has no preview, so that link is its only
+              * chance to read the body before sending; a workflow always
+              * opens a form that shows the exact prompt and the exact trusted
+              * injector first (decision 21). Adding a link here would spend
+              * tile width, and a navigation away from the composer, on a
+              * guarantee the next click already makes.
+              */}
+            {groupedWorkflows.map(({ label, workflows }) => <section key={label} role="group" aria-label={label} className="mb-4 last:mb-0" data-testid="composer-workflow-group">
               <h3 className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.09em] text-[var(--color-text-muted)]">{label}</h3>
-              {workflows.map((workflow) => {
-                const optionIndex = visibleWorkflows.indexOf(workflow) + (attachedWorkflow ? 1 : 0);
-                const isActive = active === optionIndex;
-                const isAttached = attached === workflow.id;
-                return <button
-                type="button"
-                id={`composer-workflow-option-${workflow.id}`}
-                key={workflow.id}
-                role="option"
-                aria-selected={isAttached}
-                data-active={isActive}
-                data-workflow-id={workflow.id}
-                data-testid="composer-workflow-option"
-                onClick={() => choose(workflow)}
-                onMouseMove={() => setActive(optionIndex)}
-                className={`flex min-h-16 w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left ${isActive ? "bg-[var(--color-background-surface-neutral-muted)]" : "hover:bg-[var(--hh-row-hover)]"}`}
-              >
-                <WorkflowIcon workflow={workflow} />
-                <span className="min-w-0 flex-1">
-                  <span className="truncate text-sm font-medium text-[var(--color-text-default)]">{workflow.title}</span>
-                  <span className="mt-0.5 block text-xs leading-5 text-[var(--color-text-muted)]">{workflow.description}</span>
-                </span>
-                {isAttached && <Check aria-hidden="true" className="mt-1 h-4 w-4 shrink-0 text-[var(--color-text-info)]" />}
-              </button>;
-              })}
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {workflows.map((workflow) => {
+                  const optionIndex = visibleWorkflows.indexOf(workflow) + (attachedWorkflow ? 1 : 0);
+                  const isActive = active === optionIndex;
+                  const isAttached = attached === workflow.id;
+                  return <button
+                    type="button"
+                    id={`composer-workflow-option-${workflow.id}`}
+                    key={workflow.id}
+                    role="option"
+                    aria-selected={isAttached}
+                    // The description leaves the tile but not the accessible
+                    // name tree: a screen reader still hears what the workflow
+                    // does before choosing it, and so does a hover.
+                    aria-label={workflow.title}
+                    aria-description={workflow.description}
+                    title={`${workflow.title}\n\n${workflow.description}`}
+                    data-active={isActive}
+                    data-workflow-id={workflow.id}
+                    data-testid="composer-workflow-option"
+                    onClick={() => choose(workflow)}
+                    onMouseMove={() => setActive(optionIndex)}
+                    className={`flex min-h-14 min-w-0 items-center gap-2 rounded-lg border px-2 text-left ${
+                      isActive
+                        ? "border-[var(--color-border-focus)] bg-[var(--color-background-surface-neutral-muted)]"
+                        : "border-[var(--color-border-default)] hover:bg-[var(--hh-row-hover)]"
+                    }`}
+                  >
+                    <WorkflowIcon workflow={workflow} />
+                    <span className="line-clamp-2 min-w-0 flex-1 text-left text-xs font-medium leading-4 text-[var(--color-text-default)]" data-testid="composer-workflow-title">{workflow.title}</span>
+                    {isAttached && <Check aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-[var(--color-text-info)]" />}
+                  </button>;
+                })}
+              </div>
             </section>)}
             {visibleWorkflows.length === 0 && <p className="px-3 py-10 text-center text-sm text-[var(--color-text-muted)]" data-testid="composer-workflow-empty">No matching workflows</p>}
           </div>
-          <p className="shrink-0 border-t border-[var(--color-border-default)] px-4 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] text-[11px] text-[var(--color-text-muted)]" aria-live="polite">Up/Down to navigate - Enter to open the form - Esc to close</p>
+          {/*
+            * The reminder picker's footer leads with what attaching a reminder
+            * actually does ("applies to the next message only") before the key
+            * hints. The workflow equivalent has to lead with the same kind of
+            * fact, and the honest one is that Enter opens a form: this picker
+            * cannot send or launch anything, which is the promise that used to
+            * live in the header.
+            */}
+          <p className="shrink-0 border-t border-[var(--color-border-default)] px-4 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] text-[11px] text-[var(--color-text-muted)]" aria-live="polite">Choosing a workflow opens its form. Nothing is sent or launched until you confirm. Up/Down to navigate - Enter to open the form - Esc to close</p>
         </div>
       </div>,
       document.body,
@@ -217,7 +297,7 @@ export function WorkflowPicker({
 
 function WorkflowIcon({ workflow }: { workflow: WorkflowSummary }) {
   const Icon = WORKFLOW_ICONS[workflow.id] ?? Circle;
-  return <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--color-border-default)] bg-[var(--color-background-surface-neutral-muted)] text-[var(--color-text-default)]" title={`${workflow.title} symbol`} data-testid="composer-workflow-icon">
+  return <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--color-border-default)] bg-[var(--color-background-surface-neutral-muted)] text-[var(--color-text-default)]" data-testid="composer-workflow-icon">
     <Icon aria-hidden="true" className="h-3.5 w-3.5" />
   </span>;
 }

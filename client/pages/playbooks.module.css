@@ -78,7 +78,12 @@
 .empty { margin-top: 1.5rem; border: 2px solid var(--playbooks-line); background: var(--playbooks-surface); padding: 1rem; color: var(--playbooks-muted); }
 .workflowState { margin-top: 1.5rem; }
 .workflowGroup { margin-top: 1.6rem; }.workflowGroup > h3 { margin: 0 0 .65rem; color: var(--playbooks-muted); font: 800 .7rem ui-monospace, monospace; letter-spacing: .12em; text-transform: uppercase; }
-.injectorPreview { margin-top: .8rem; color: var(--playbooks-muted); font: .62rem ui-monospace, monospace; }.injectorPreview summary { cursor: pointer; }.injectorPreview pre, .injectorDetail pre { max-width: 100%; overflow: auto; margin: .65rem 0 0; border: 1px solid var(--playbooks-line); background: var(--playbooks-terminal); color: var(--playbooks-terminal-ink); padding: .75rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.injectorPreview { margin-top: .8rem; color: var(--playbooks-muted); font: .62rem ui-monospace, monospace; }.injectorPreview summary { cursor: pointer; }
+/* A ported procedure runs to ~160 lines, so an unbounded card preview turns one
+   opened disclosure into most of the page. The detail modal is where a long
+   injector is meant to be read end to end. */
+.injectorPreview pre { max-height: 18rem; }
+.injectorPreview pre, .injectorDetail pre { max-width: 100%; overflow: auto; margin: .65rem 0 0; border: 1px solid var(--playbooks-line); background: var(--playbooks-terminal); color: var(--playbooks-terminal-ink); padding: .75rem; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 .locations { margin-top: 4rem; }.locations p { max-width: 43rem; color: var(--playbooks-muted); line-height: 1.5; }.tableWrap { overflow-x: auto; border: 2px solid var(--playbooks-line); background: var(--playbooks-surface); box-shadow: 4px 4px 0 var(--playbooks-shadow); }.table { min-width: 40rem; width: 100%; border-collapse: collapse; font-size: .75rem; }.table th, .table td { border-bottom: 1px solid var(--playbooks-line); padding: .75rem; text-align: left; vertical-align: top; }.table th { font-family: ui-monospace, monospace; font-weight: 700; }.table td span { display: block; margin-top: .25rem; color: var(--playbooks-muted); }
 

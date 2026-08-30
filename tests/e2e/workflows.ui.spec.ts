@@ -41,17 +41,42 @@ test.describe("workflow catalogue API", () => {
     expect(payload.workflows.map((workflow) => workflow.id)).toEqual([
       "playwright-ui-review",
       "pr-snippet-review",
-      "session-update",
+      "goal",
+      "dca",
+      "leaving-now-wrap-up",
       "managed-child",
       "start-dca-session",
+      "session-handoff",
+      "session-update",
+      "standup",
       "design-doc-prototype",
+      "docs-preview",
+      "mini-design-doc",
+      "system-design-artifacts",
     ]);
+    // The four core keys are required of every workflow; `argument` and
+    // `prompt` are optional additions. This is deliberately not a bare superset
+    // check: an unexpected key would mean the projection started leaking
+    // catalogue internals, which is the failure worth catching.
+    const ALLOWED = new Set(["description", "id", "injector", "title", "argument", "prompt"]);
     for (const workflow of payload.workflows) {
-      expect(Object.keys(workflow).sort()).toEqual(["description", "id", "injector", "title"]);
+      expect(Object.keys(workflow)).toEqual(expect.arrayContaining(["description", "id", "injector", "title"]));
+      for (const key of Object.keys(workflow)) expect(ALLOWED.has(key), `${String(workflow.id)} exposes ${key}`).toBe(true);
       expect(String(workflow.injector).length).toBeGreaterThan(0);
     }
     const sessionUpdate = payload.workflows.find((workflow) => workflow.id === "session-update")!;
     expect(String(sessionUpdate.injector)).toContain("204");
+
+    // A workflow whose typed text becomes the prompt has to describe its field,
+    // and the length it advertises has to be one the prompt route will accept.
+    const standup = payload.workflows.find((workflow) => workflow.id === "standup")!;
+    expect(standup.argument).toMatchObject({ label: "Scope", required: true });
+    expect((standup.argument as { maxLength: number }).maxLength).toBeLessThanOrEqual(100_000);
+    expect(String(standup.injector)).toContain("Nothing is pre-fetched for you");
+    // A workflow that collects nothing carries its fixed prompt instead.
+    const designDoc = payload.workflows.find((workflow) => workflow.id === "design-doc-prototype")!;
+    expect(designDoc.argument).toBeUndefined();
+    expect(designDoc.prompt).toBe("Capture a durable design prototype for this proposal and publish it for review.");
   });
 
   test("rejects unknown and malformed workflow ids at prompt time", async ({ request }) => {
@@ -120,18 +145,45 @@ test.describe("workflow picker UI", () => {
     await expect(picker).toContainText("Workflows");
     await picker.click();
 
-    // The chooser offers exactly the initial catalogue, in order.
+    // The chooser offers exactly the catalogue, in group order, with every
+    // workflow placed — nothing may fall into the "Other" bucket, which exists
+    // for a workflow a newer server ships and not for one this build forgot.
     const options = page.getByTestId("composer-workflow-option");
-    await expect(options).toHaveCount(6);
-    await expect(page.getByTestId("composer-workflow-group")).toHaveCount(3);
-    await expect(page.getByTestId("composer-workflow-group").nth(0)).toHaveAccessibleName("Review");
-    await expect(page.getByTestId("composer-workflow-icon")).toHaveCount(6);
+    await expect(options).toHaveCount(14);
+    const groups = page.getByTestId("composer-workflow-group");
+    await expect(groups).toHaveCount(5);
+    for (const [index, label] of ["Review", "Execute", "Delegate", "Coordinate", "Document"].entries()) {
+      await expect(groups.nth(index)).toHaveAccessibleName(label);
+    }
+    await expect(page.getByTestId("composer-workflow-icon")).toHaveCount(14);
+    // Spot-check the first entry of every group, so a workflow silently moving
+    // between groups fails here rather than only shifting an opaque index.
     await expect(options.nth(0)).toContainText("Review a UI change with Playwright");
-    await expect(options.nth(1)).toContainText("Post a snippet-by-snippet PR review");
-    await expect(options.nth(2)).toContainText("Send an update to another session");
-    await expect(options.nth(3)).toContainText("Launch a Managed Child");
-    await expect(options.nth(4)).toContainText("Start a DCA session");
-    await expect(options.nth(5)).toContainText("Capture a Durable Design Prototype");
+    await expect(options.nth(2)).toContainText("Complete an objective autonomously");
+    await expect(options.nth(5)).toContainText("Launch a Managed Child");
+    await expect(options.nth(7)).toContainText("Hand off to another session");
+    await expect(options.nth(8)).toContainText("Send an update to another session");
+    await expect(options.nth(9)).toContainText("Write today's standup");
+    await expect(options.nth(10)).toContainText("Capture a Durable Design Prototype");
+    await expect(options.nth(13)).toContainText("Build a system-design review package");
+
+    // A title-only tile grid, matching the reminder picker. A 22-item catalogue
+    // in full-width description rows put ~4.5 tiles on screen and never more
+    // than 1.5 group headings, so the grouping organised nothing. The tile must
+    // stay a real touch target, must not carry the description, and multiple
+    // tiles must share a row.
+    const [first, second] = await Promise.all([options.nth(0).boundingBox(), options.nth(1).boundingBox()]);
+    expect(first!.height, "tile is a real touch target").toBeGreaterThanOrEqual(44);
+    expect(Math.abs(first!.y - second!.y), "tiles share a row").toBeLessThanOrEqual(2);
+    await expect(options.nth(0)).not.toContainText("without a full deployment");
+    // The description leaves the tile but not the accessible name tree.
+    await expect(options.nth(0)).toHaveAttribute("title", /without a full deployment/u);
+    // Enough of the catalogue is reachable without scrolling that the group
+    // structure is actually visible: the old rows could not show two headings.
+    const panel = (await page.getByTestId("composer-workflow-panel").boundingBox())!;
+    const visibleTiles = await options.evaluateAll((nodes, bottom) =>
+      nodes.filter((node) => node.getBoundingClientRect().bottom <= bottom).length, panel.y + panel.height);
+    expect(visibleTiles, "at least half the catalogue fits one screen").toBeGreaterThanOrEqual(11);
 
     // Choosing a workflow opens its form — it never sends.
     await page.locator('[data-testid="composer-workflow-option"][data-workflow-id="playwright-ui-review"]').click();
@@ -184,6 +236,83 @@ test.describe("workflow picker UI", () => {
     expect(text).toContain('<workflow name="playwright-ui-review">');
     expect(text).toContain("Never regenerate the complete screenshot set.");
   });
+
+  test("generic argument: typed text is the prompt, and the preview names the mode", async ({ page }) => {
+    const marker = `WF-ARG-${Date.now()}`;
+    await page.goto(mainSession);
+    await page.getByTestId("composer-workflow-select").click();
+    await page.locator('[data-testid="composer-workflow-option"][data-workflow-id="goal"]').click();
+    const dialog = page.getByTestId("composer-workflow-dialog");
+    await expect(dialog).toHaveAttribute("data-workflow", "goal");
+
+    // One generic field, focused, described by the server's own spec — no
+    // bespoke branch exists for this workflow in the dialog.
+    const field = dialog.getByTestId("composer-workflow-field-argument");
+    await expect(field).toBeFocused();
+    await expect(field).toHaveAttribute("placeholder", /notification badge/u);
+    await expect(dialog.getByTestId("composer-workflow-argument-hint")).toContainText("acceptance criteria");
+    // Required means required: an empty field cannot reach the preview.
+    await expect(dialog.getByTestId("composer-workflow-preview")).toBeDisabled();
+    await field.fill(`   ${marker}   `);
+    await expect(dialog.getByTestId("composer-workflow-preview")).toBeEnabled();
+    await dialog.getByTestId("composer-workflow-preview").click();
+
+    // The typed text IS the prompt, trimmed and otherwise untouched.
+    await expect(dialog.getByTestId("composer-workflow-prompt-preview")).toHaveText(marker);
+    await expect(dialog.getByTestId("composer-workflow-injector")).toContainText('server-resolved from id "goal"');
+    await expect(dialog.getByTestId("composer-workflow-injector")).toContainText("Complete the objective above as one sustained run.");
+    // The ported command pinned its own agent in frontmatter; a workflow cannot,
+    // so the preview has to say what governs instead of dropping it silently.
+    await expect(dialog.getByTestId("composer-workflow-mode-note")).toContainText("Sent in this session's current mode");
+    expect(await promptPayloadContaining(marker)).toBeUndefined();
+
+    await expect(dialog.getByTestId("composer-workflow-apply")).toBeVisible();
+    await dialog.getByTestId("composer-workflow-send").click();
+    await expect(dialog).toHaveCount(0);
+
+    const payload = await expectPromptPayloadContaining(marker);
+    expect(payload!.sessionID).toBe(MAIN);
+    const text = promptText(payload!);
+    expect(text).toContain(marker);
+    expect(text).toContain('<workflow name="goal">');
+    expect(text).toContain("Complete the objective above as one sustained run.");
+    // The command's own substitution token must not survive the port.
+    expect(text).not.toContain("$ARGUMENTS");
+  });
+
+  // The visible injector is the whole trust story (decision 21). The ported
+  // procedures run to ~160 lines against a ceiling sized for 19, so this pins
+  // the window well above the old `max-h-48` (192px) on both form factors.
+  for (const [name, width, height] of [["desktop", 1280, 800], ["mobile", 390, 740]] as const) {
+    test(`a long injector is genuinely reviewable on ${name}`, async ({ page }) => {
+      await page.setViewportSize({ width, height });
+      await page.goto(mainSession);
+      await page.getByTestId("composer-workflow-select").click();
+      // The tile grid has to survive the narrow sheet too: more than the ~4
+      // rows the old full-width description layout managed.
+      const options = page.getByTestId("composer-workflow-option");
+      await expect(options).toHaveCount(14);
+      const panel = (await page.getByTestId("composer-workflow-panel").boundingBox())!;
+      const visibleTiles = await options.evaluateAll((nodes, bottom) =>
+        nodes.filter((node) => node.getBoundingClientRect().bottom <= bottom).length, panel.y + panel.height);
+      expect(visibleTiles, `${name}: tiles visible without scrolling`).toBeGreaterThanOrEqual(width < 700 ? 8 : 11);
+
+      await page.locator('[data-testid="composer-workflow-option"][data-workflow-id="system-design-artifacts"]').click();
+      const dialog = page.getByTestId("composer-workflow-dialog");
+      await dialog.getByTestId("composer-workflow-field-argument").fill("the notification delivery system, current-state");
+      await dialog.getByTestId("composer-workflow-preview").click();
+
+      const body = dialog.getByTestId("composer-workflow-injector-body");
+      const { visible, total } = await body.evaluate((node) => ({ visible: node.clientHeight, total: node.scrollHeight }));
+      expect(total, "this injector is genuinely long").toBeGreaterThan(1_000);
+      expect(visible, `${name}: window is far above the old 192px ceiling`).toBeGreaterThan(280);
+      // Still bounded and still scrollable — the dialog must not become one
+      // unbroken page — and the end of the trusted text must be reachable.
+      expect(visible).toBeLessThan(total);
+      await body.evaluate((node) => { node.scrollTop = node.scrollHeight; });
+      expect(await body.evaluate((node) => node.scrollTop + node.clientHeight >= node.scrollHeight - 2)).toBe(true);
+    });
+  }
 
   test("design prototype: no fields, fixed prompt, sends into this session", async ({ page }) => {
     // The prompt is a fixed constant rather than a marker-bearing draft, so
