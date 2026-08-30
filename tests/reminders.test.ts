@@ -3,7 +3,8 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { splitReminderTags as clientSplitReminderTags } from "../client/lib/reminders.js";
-import { REMINDER_WORKFLOWS, workflowForReminder } from "../client/lib/reminderWorkflows.js";
+import { REMINDER_GROUPS, groupReminders } from "../client/lib/reminderCatalogue.js";
+import { isKnownAppRoute } from "../client/lib/workflows.js";
 import { reminderCatalogue } from "../server/reminders/loader.js";
 import { workflowCatalogue } from "../server/workflows/workflows.js";
 import {
@@ -164,20 +165,26 @@ describe("shipped catalogue", () => {
   // six of those commands were deleted rather than converted because the
   // reminder already said what they said. What must still hold is that every
   // link the picker renders resolves — a dead link is the failure this guards.
-  it("links every mapped reminder to a real reminder and a real workflow", () => {
-    const reminderIds = new Set(reminderCatalogue().map(({ id }) => id));
-    const workflowIds = new Set(workflowCatalogue().map(({ id }) => id));
-    expect(Object.keys(REMINDER_WORKFLOWS).length).toBeGreaterThan(0);
-    for (const [reminderId, workflowId] of Object.entries(REMINDER_WORKFLOWS)) {
-      expect(reminderIds.has(reminderId), `${reminderId} is not a shipped reminder`).toBe(true);
-      expect(workflowIds.has(workflowId), `${reminderId} maps to missing workflow ${workflowId}`).toBe(true);
-    }
-    expect(new Set(Object.values(REMINDER_WORKFLOWS)).size).toBe(Object.keys(REMINDER_WORKFLOWS).length);
+  // Parity replaces the old reminder-to-workflow join outright. That map linked
+  // a reminder to a workflow that merely shared its subject, so most reminders
+  // had no link at all; every reminder now has a page of its own.
+  it("groups every shipped reminder, with nothing falling into Other", () => {
+    const shipped = reminderCatalogue().map(({ id }) => id).sort();
+    const named = REMINDER_GROUPS.flatMap(({ ids }) => ids).sort();
+    expect(named).toEqual(shipped);
+    expect(new Set(named).size, "a reminder is named by two groups").toBe(named.length);
   });
 
-  it("does not guess a workflow for an unmapped reminder", () => {
-    expect(workflowForReminder("cite-file-lines")).toBeUndefined();
-    expect(workflowForReminder("new-server-reminder")).toBeUndefined();
+  it("routes every shipped reminder to its own known detail page", () => {
+    for (const { id } of reminderCatalogue()) {
+      expect(isKnownAppRoute(`/playbooks/reminders/${id}`), `${id} has no routable detail page`).toBe(true);
+    }
+  });
+
+  it("keeps a reminder a newer server ships visible rather than dropping it", () => {
+    const summary = (id: string) => ({ id, title: id, description: "", triggers: [], tags: [], body: "b" });
+    const grouped = groupReminders([summary("grill-me"), summary("brand-new-reminder")]);
+    expect(grouped.at(-1)).toEqual({ label: "Other", reminders: [summary("brand-new-reminder")] });
   });
 
   it("keeps reminder tags application-owned and non-empty", () => {

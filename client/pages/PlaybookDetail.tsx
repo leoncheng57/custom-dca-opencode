@@ -4,8 +4,9 @@ import { useNavigate, useParams } from "react-router-dom";
 
 import { PlaybookCopyButton } from "../components/playbook-copy-button.js";
 import { Alert } from "../ds/alert.js";
+import { reminderGroupLabel } from "../lib/reminderCatalogue.js";
 import { groupWorkflows } from "../lib/workflows.js";
-import { PlaybooksPage, useWorkflowCatalogue } from "./Playbooks.js";
+import { PlaybooksPage, useReminderCatalogue, useWorkflowCatalogue } from "./Playbooks.js";
 import styles from "./playbooks.module.css";
 
 function Modal({ children, returnTo = "/playbooks", title }: { children: ReactNode; returnTo?: string; title: string }) {
@@ -33,6 +34,43 @@ function Modal({ children, returnTo = "/playbooks", title }: { children: ReactNo
     navigate(returnTo, { state: { focusCatalog: true } });
   };
   return <dialog aria-label={title} className={styles.dialog} data-testid="opencode-playbook-dialog" onCancel={(event) => { event.preventDefault(); closeToCatalog(); }} onClick={(event) => { if (event.target === event.currentTarget) closeToCatalog(); }} ref={dialogRef}><div className={styles.dialogBody}><button aria-label="Close playbook" className={styles.close} data-testid="opencode-playbook-close" onClick={closeToCatalog} ref={closeButtonRef} type="button"><X aria-hidden="true" size={18} /></button><Alert className={styles.wipWarning} data-testid="opencode-playbooks-wip-warning" variant="warning">Playbooks is still work in progress and its UI/UX may contain bugs.</Alert>{children}</div></dialog>;
+}
+
+export function ReminderPlaybookPage() {
+  const { id = "" } = useParams();
+  const state = useReminderCatalogue();
+  const reminder = state.reminders.find((candidate) => candidate.id === id);
+  let detail: ReactNode;
+  if (state.status === "loading") {
+    detail = <Modal returnTo="/playbooks/reminders" title="Loading reminder"><p className={styles.empty} data-testid="opencode-playbook-reminder-loading">Loading reminder...</p></Modal>;
+  } else if (state.status === "error") {
+    detail = <Modal returnTo="/playbooks/reminders" title="Reminder unavailable"><Alert data-testid="opencode-playbook-reminder-error" variant="danger">This reminder could not be loaded. Try again after the catalogue is available.</Alert></Modal>;
+  } else if (!reminder) {
+    // A repository-scoped reminder is genuinely absent for another project, so
+    // this must not claim the id is invalid — only that this catalogue, for
+    // this directory, does not contain it.
+    detail = <Modal returnTo="/playbooks/reminders" title="Reminder not found"><section className={styles.notFound} data-testid="opencode-playbook-reminder-not-found"><div className={styles.eyebrow}>Not found</div><h1 className={styles.modalTitle}>No reminder called "{id}"</h1><p className={styles.modalDescription}>The reminder catalogue loaded successfully, but it does not contain this id for the currently selected project. A reminder scoped to a different repository is not listed here.</p></section></Modal>;
+  } else {
+    const group = reminderGroupLabel(state.reminders, reminder.id);
+    detail = <Modal returnTo="/playbooks/reminders" title={reminder.title}>
+      <header className={styles.modalHead}><div className={styles.eyebrow}>Reminder - {group}</div><h1 className={styles.modalTitle}>{reminder.title}</h1><p className={styles.modalDescription}>{reminder.description}</p><div className={styles.route}>/playbooks/reminders/{reminder.id}</div></header>
+      {/*
+        * When it fires is the reminder equivalent of "what it asks for": a
+        * reminder collects nothing, so the useful fact is the situation its
+        * author intended it for.
+        */}
+      <section className={styles.descriptionPanel} data-testid="opencode-playbook-reminder-input">
+        <div className={styles.descriptionBar}><span>when to attach it</span></div>
+        <div className={styles.descriptionBody}>{reminder.triggers.length > 0
+          ? <>Attach it when: {reminder.triggers.join("; ")}.</>
+          : <>Its author named no specific trigger. Attach it whenever the instructions below are what you want applied.</>}
+          {reminder.scopeRepository ? <> This reminder is scoped to <code>{reminder.scopeRepository}</code> and is only listed for a project whose git origin matches.</> : null}</div>
+      </section>
+      <section className={styles.injectorDetail} data-testid="opencode-playbook-reminder-body"><div className={styles.descriptionBar}><span>Exact instructions appended</span><PlaybookCopyButton label="reminder instructions" value={reminder.body} /></div><pre><code>{reminder.body}</code></pre></section>
+      <p className={styles.scopeNote} data-testid="opencode-playbook-scope-note">This reminder is supplied by the live server catalogue. Viewing or copying it does not attach, run, or install anything. Attaching it in the composer applies it to your next message only, and the send carries the reminder's id alone — the server resolves this text again at submit time, so what you read here is what is appended.</p>
+    </Modal>;
+  }
+  return <PlaybooksPage detail={detail} reminderState={state} />;
 }
 
 export function WorkflowPlaybookPage() {

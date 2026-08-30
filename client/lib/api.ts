@@ -447,6 +447,14 @@ export interface ReminderSummary {
   triggers: string[];
   /** Application-owned tags used to group and filter reminders. */
   tags: string[];
+  /**
+   * The exact instruction text this reminder appends. Served so it can be read
+   * before it is attached; a send still carries the id alone and the server
+   * resolves this again at submit time.
+   */
+  body: string;
+  /** Present only for a reminder restricted to one repository (issue #165). */
+  scopeRepository?: string;
 }
 
 /**

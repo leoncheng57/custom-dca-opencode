@@ -979,21 +979,54 @@ several decisions below.
     workflow landing there is a placement bug that reads identically in the UI. A
     detail route reports absence only after a successful catalogue load, never during
     loading or after a failure.
-    The six groups are **Review · Execute · Delegate · Coordinate · Investigate ·
-    Document**, and the server catalogue is authored in that same order so one file
-    tells the truth about both. Two seams were redrawn once 22 items made them
-    load-bearing: "Coordinate" had grown to six and was quietly two ideas — bringing a
-    new session into being versus messaging one that already exists — so **Delegate**
-    took the five that create an agent and Coordinate kept the two that report to
-    something already there (one machine, one human). "Ship" held two whose seam with
-    Execute was soft; verifying and wrapping up are the end of doing work here, not a
-    separate act, so they folded into **Execute** rather than keeping a heading they
-    had not earned. Prefer folding a two-item group into an adjacent one over keeping
-    a heading that only names a coincidence.
-    Runtime reminders under root `reminders/` stay separate: application-owned
-    per-message prompt bodies, never sourced from a workflow. The runtime `/skill`
-    Catalog panel still reports whatever external skills and commands the connected
-    OpenCode process loaded; do not remove or narrow `server/opencode/catalog.ts`.
+    The five groups are **Review · Execute · Delegate · Coordinate · Document**, and
+    the server catalogue is authored in that same order so one file tells the truth
+    about both. Two seams were redrawn while the catalogue was briefly 22 items:
+    "Coordinate" was quietly two ideas — bringing a new session into being versus
+    messaging one that already exists — so **Delegate** took those that create an
+    agent and Coordinate kept the two that report to something already there (one
+    machine, one human). "Ship" held two whose seam with Execute was soft; verifying
+    and wrapping up are the end of doing work here, not a separate act, so they
+    folded into **Execute**. **Investigate** was then removed outright rather than
+    kept as an empty heading when both of its members were cut. Prefer folding a
+    two-item group into an adjacent one over keeping a heading that only names a
+    coincidence.
+    **Playbooks documents both live categories at 1:1, and reminders are documented
+    on their own terms.** Every workflow AND every reminder has a card and a detail
+    route; the page is the answer to "what repeatable things exist here", and a
+    category present in the composer but absent from the page made that answer a lie.
+    The two stay visually and textually distinct — a workflow is a guided action you
+    fill in and send, a reminder attaches instructions to your next message only —
+    because merging them would imply an interchangeability neither has. One filter
+    searches both: a reader should not have to know which category their subject
+    lives in before they can search for it.
+    This **reverses the reminder projection's withholding of `body`**. That was
+    never what protected the reminder text: a send carries the reminder ID ONLY and
+    the server resolves the body again at submit time, exactly as decision 21
+    established for workflow injectors. Withholding it bought nothing and denied the
+    reader the same read-before-send guarantee the injector already provides — so
+    `GET /api/reminders` now serves `body`, and the detail page shows it verbatim.
+    It **replaces the reminder-to-workflow join** (`client/lib/reminderWorkflows.ts`,
+    deleted). That map pointed a reminder at a workflow merely sharing its subject,
+    so most reminders had no link at all once the command catalogue was cut. The
+    composer's details link now always points a reminder at its own page, including
+    one this build has never heard of: an unrecognized reminder groups under `Other`
+    and its page still resolves from the live catalogue, because a newer server's
+    reminder being the only undocumented thing on the page is the exact failure this
+    removes. Reminder grouping lives in `client/lib/reminderCatalogue.ts`, shared by
+    the picker and the page so the two cannot disagree about where a reminder
+    belongs. Do not confuse that module with `client/lib/reminders.ts`, which is the
+    dual-copy-tested sentinel splitter.
+    A reminder's absence is reported honestly: it may be `scope_repository`-scoped
+    and genuinely absent for the selected project, so the not-found state says that
+    rather than claiming the id is invalid. Since `/playbooks` carries no
+    `?directory=`, the reminder catalogue resolves the last selected project through
+    the same `resolvePaletteDirectory` seam the palette and notification centre use,
+    and an absent directory yields the general reminders rather than an error.
+    Runtime reminders under root `reminders/` remain application-owned per-message
+    prompt bodies, never sourced from a workflow. The runtime `/skill` Catalog panel
+    still reports whatever external skills and commands the connected OpenCode
+    process loaded; do not remove or narrow `server/opencode/catalog.ts`.
 32. **RETIRED — the public command catalogue is gone, and `gh-pages:agent-skills/`
     was deleted rather than left serving a stale index.** This decision used to
     specify a dependency-free generator that reused the command parser and published

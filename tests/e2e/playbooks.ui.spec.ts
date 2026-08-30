@@ -203,4 +203,67 @@ test.describe("Playbooks", () => {
     expect(box!.width).toBeGreaterThanOrEqual(389);
     expect(box!.height).toBeGreaterThanOrEqual(739);
   });
+
+  // ── Reminder parity ───────────────────────────────────────────────────────
+  //
+  // Every reminder now has a card and a detail page of its own. Before this,
+  // Playbooks listed workflows only, and the composer linked a reminder to a
+  // *workflow* that merely shared its subject — so ten of twelve reminders had
+  // no reachable documentation at all.
+
+  test("lists every reminder beside the workflows, grouped and readable", async ({ page }) => {
+    await page.goto("/playbooks");
+    await expect(page.getByTestId("opencode-playbook-reminder-card")).toHaveCount(12);
+    await expect(page.getByTestId("opencode-playbook-reminder-group")).toHaveCount(5);
+    await expect(page.getByTestId("opencode-playbook-reminder-group").nth(0)).toHaveAccessibleName("Plan & Design");
+    // The two categories stay visually distinct, so a reader can tell what a
+    // card will do before opening it.
+    await expect(page.getByTestId("opencode-playbook-reminder-card").first()).toHaveAttribute("data-playbook-kind", "reminder");
+    await expect(page.getByTestId("opencode-playbook-workflow-card").first()).toHaveAttribute("data-playbook-kind", "workflow");
+  });
+
+  test("one filter searches both catalogues", async ({ page }) => {
+    await page.goto("/playbooks");
+    // "handoff" names a workflow AND a reminder; a reader should not have to
+    // know which category their subject lives in before searching.
+    await page.getByTestId("opencode-playbook-filter").fill("handoff");
+    await expect(page.getByTestId("opencode-playbook-workflow-card")).not.toHaveCount(0);
+    await expect(page.getByTestId("opencode-playbook-reminder-card")).not.toHaveCount(0);
+    // A needle in neither catalogue empties both rather than one.
+    await page.getByTestId("opencode-playbook-filter").fill("zzzz-no-such-playbook");
+    await expect(page.getByTestId("opencode-playbook-workflow-card")).toHaveCount(0);
+    await expect(page.getByTestId("opencode-playbook-reminder-card")).toHaveCount(0);
+  });
+
+  test("shows a reminder's exact appended instructions and when to attach it", async ({ page }) => {
+    await page.goto("/playbooks/reminders/cite-file-lines");
+    const dialog = page.getByTestId("opencode-playbook-dialog");
+    await expect(dialog.getByRole("heading", { name: "Cite File Lines" })).toBeVisible();
+    // The body is served now, so the reader sees what will be appended before
+    // they attach it — the same read-before-send guarantee the injector gives.
+    const body = page.getByTestId("opencode-playbook-reminder-body");
+    await expect(body).toBeVisible();
+    expect((await body.innerText()).trim().length).toBeGreaterThan(40);
+    await expect(page.getByTestId("opencode-playbook-reminder-input")).toContainText("Attach it when");
+    // And it says plainly that reading is not attaching.
+    await expect(page.getByTestId("opencode-playbook-scope-note")).toContainText("next message only");
+    await expect(page.getByTestId("opencode-playbook-scope-note")).toContainText("id alone");
+  });
+
+  test("keeps an unknown reminder id honest about scope", async ({ page }) => {
+    await page.goto("/playbooks/reminders/no-such-reminder");
+    const notFound = page.getByTestId("opencode-playbook-reminder-not-found");
+    await expect(notFound).toBeVisible();
+    // A repository-scoped reminder genuinely is absent elsewhere, so this must
+    // not claim the id is invalid.
+    await expect(notFound).toContainText("scoped to a different repository is not listed here");
+  });
+
+  test("closes a reminder detail URL back to the reminder catalogue", async ({ page }) => {
+    await page.goto("/playbooks/reminders/duck-mode");
+    await page.getByTestId("opencode-playbook-close").click();
+    await expect(page).toHaveURL("/playbooks/reminders");
+    await expect(page.getByTestId("opencode-playbook-dialog")).toHaveCount(0);
+    await expect(page.getByTestId("opencode-playbook-reminder-card")).toHaveCount(12);
+  });
 });
