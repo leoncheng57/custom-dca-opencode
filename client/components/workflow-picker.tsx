@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { ArrowRightLeft, Blocks, BookOpen, Check, ChevronDown, Circle, ClipboardList, FolderGit2, GitBranch, GitPullRequest, GraduationCap, Image, ListChecks, LogOut, Megaphone, MessageSquareText, MonitorCheck, PencilRuler, Search, Split, SquarePlus, Swords, Target, Telescope, Terminal, Users, X, type LucideIcon } from "lucide-react";
+import { ArrowRightLeft, Blocks, BookOpen, Check, ChevronDown, Circle, ClipboardList, ExternalLink, FolderGit2, GitBranch, GitPullRequest, GraduationCap, Image, ListChecks, LogOut, Megaphone, MessageSquareText, MonitorCheck, PencilRuler, Search, Split, SquarePlus, Swords, Target, Telescope, Terminal, Users, X, type LucideIcon } from "lucide-react";
 import { createPortal } from "react-dom";
+import { Link } from "react-router-dom";
 
 import type { WorkflowSummary } from "../lib/api.js";
 import { groupWorkflows } from "../lib/workflows.js";
@@ -231,14 +232,17 @@ export function WorkflowPicker({
               * while scanning, and on the tile as `aria-description` and
               * `title` so a screen reader and a hover still get it.
               *
-              * There is deliberately no per-tile detail link, which is the
-              * other place this diverges from the reminder tile. A reminder
-              * attaches silently and has no preview, so that link is its only
-              * chance to read the body before sending; a workflow always
-              * opens a form that shows the exact prompt and the exact trusted
-              * injector first (decision 21). Adding a link here would spend
-              * tile width, and a navigation away from the composer, on a
-              * guarantee the next click already makes.
+              * The tile carries a detail link, matching the reminder tile.
+              * It deliberately did NOT while the detail page only restated
+              * the injector, because the form already shows the exact prompt
+              * and the exact trusted injector before sending (decision 21) —
+              * spending tile width on a guarantee the next click already
+              * makes would have been waste.
+              *
+              * That reasoning expired when the page gained a worked example.
+              * A simulation is the one thing the form cannot show: what this
+              * workflow actually did on a real task, including where it went
+              * wrong. The link now buys something the next click does not.
               */}
             {groupedWorkflows.map(({ label, workflows }) => <section key={label} role="group" aria-label={label} className="mb-4 last:mb-0" data-testid="composer-workflow-group">
               <h3 className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.09em] text-[var(--color-text-muted)]">{label}</h3>
@@ -247,10 +251,13 @@ export function WorkflowPicker({
                   const optionIndex = visibleWorkflows.indexOf(workflow) + (attachedWorkflow ? 1 : 0);
                   const isActive = active === optionIndex;
                   const isAttached = attached === workflow.id;
-                  return <button
+                  // Two independent touch targets: the button selects, the
+                  // link opens the worked example. The link is a real ~44px
+                  // target of its own, bordered so its boundary is visible.
+                  return <div key={workflow.id} className={`relative flex min-h-14 min-w-0 overflow-hidden rounded-lg border ${isActive ? "border-[var(--color-border-focus)] bg-[var(--color-background-surface-neutral-muted)]" : "border-[var(--color-border-default)]"}`} data-testid="composer-workflow-tile" data-workflow-id={workflow.id}>
+                    <button
                     type="button"
                     id={`composer-workflow-option-${workflow.id}`}
-                    key={workflow.id}
                     role="option"
                     aria-selected={isAttached}
                     // The description leaves the tile but not the accessible
@@ -264,16 +271,24 @@ export function WorkflowPicker({
                     data-testid="composer-workflow-option"
                     onClick={() => choose(workflow)}
                     onMouseMove={() => setActive(optionIndex)}
-                    className={`flex min-h-14 min-w-0 items-center gap-2 rounded-lg border px-2 text-left ${
-                      isActive
-                        ? "border-[var(--color-border-focus)] bg-[var(--color-background-surface-neutral-muted)]"
-                        : "border-[var(--color-border-default)] hover:bg-[var(--hh-row-hover)]"
-                    }`}
+                    className={`flex min-h-14 min-w-0 flex-1 items-center gap-2 px-2 text-left ${isActive ? "" : "hover:bg-[var(--hh-row-hover)]"}`}
                   >
                     <WorkflowIcon workflow={workflow} />
                     <span className="line-clamp-2 min-w-0 flex-1 text-left text-xs font-medium leading-4 text-[var(--color-text-default)]" data-testid="composer-workflow-title">{workflow.title}</span>
                     {isAttached && <Check aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-[var(--color-text-info)]" />}
-                  </button>;
+                    </button>
+                    <Link
+                      to={`/playbooks/workflows/${workflow.id}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex h-full w-11 shrink-0 items-center justify-center border-l border-[var(--color-border-default)] text-[var(--color-text-link)] hover:bg-[var(--hh-row-hover)]"
+                      data-testid="composer-workflow-details"
+                      data-workflow-id={workflow.id}
+                      aria-label={`Open ${workflow.title} details in a new tab`}
+                    >
+                      <ExternalLink aria-hidden="true" className="h-3.5 w-3.5" />
+                    </Link>
+                  </div>;
                 })}
               </div>
             </section>)}

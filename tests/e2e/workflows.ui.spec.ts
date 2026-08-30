@@ -167,6 +167,18 @@ test.describe("workflow picker UI", () => {
     await expect(options.nth(10)).toContainText("Capture a Durable Design Prototype");
     await expect(options.nth(13)).toContainText("Build a system-design review package");
 
+    // Each tile carries a link to its playbook page, matching the reminder
+    // tile. This was deliberately absent while the page only restated the
+    // injector the form already shows; it earns its place now that the page
+    // carries a worked example the form cannot show.
+    const details = page.locator('[data-testid="composer-workflow-details"][data-workflow-id="goal"]');
+    await expect(details).toHaveAttribute("href", "/playbooks/workflows/goal");
+    await expect(details).toHaveAttribute("target", "_blank");
+    await expect(details).toHaveAccessibleName("Open Complete an objective autonomously details in a new tab");
+    const box = await details.boundingBox();
+    expect(box?.width, "details link is a real touch target").toBeGreaterThanOrEqual(40);
+    expect(box?.height, "details link is a real touch target").toBeGreaterThanOrEqual(40);
+
     // A title-only tile grid, matching the reminder picker. A 22-item catalogue
     // in full-width description rows put ~4.5 tiles on screen and never more
     // than 1.5 group headings, so the grouping organised nothing. The tile must
