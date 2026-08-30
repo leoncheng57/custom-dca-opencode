@@ -1,8 +1,8 @@
 {
   "schemaVersion": 2,
   "prNumber": 330,
-  "sourceSha": "bea9685d1b1424b6448b6a559744b089ac6d8d5a",
-  "capturedAt": "2026-08-30T04:37:00.136Z",
+  "sourceSha": "69aaafb48da1347bfbeef1443f1a4f9968404a59",
+  "capturedAt": "2026-08-30T04:53:12.736Z",
   "screenshots": [
     {
       "requestedRoute": "/playbooks",
@@ -14,8 +14,8 @@
             "width": 1280,
             "height": 800
           },
-          "bytes": 100483,
-          "sha256": "15f34e6c8d41b08190199f167b495eb8c9df1518c42cf37feb328c5b557fcdaa"
+          "bytes": 99732,
+          "sha256": "83e8a0b6d6d904594538fd36e97ad89e16b0e53d8d27774271c035e53c312a26"
         },
         "mobile": {
           "filename": "01-playbooks-f11cb8cf--mobile.png",
@@ -23,8 +23,8 @@
             "width": 390,
             "height": 740
           },
-          "bytes": 55754,
-          "sha256": "3efe9ccf4af318021c5d7bc4fc1ce9d3718bea14712c26b7ee3aca2b307cc18e"
+          "bytes": 55134,
+          "sha256": "881449260ac24856dfcd3c8c64c799a7bf6d6e705150a18ae9e99030b70bf263"
         }
       }
     },
@@ -38,8 +38,8 @@
             "width": 1280,
             "height": 2937
           },
-          "bytes": 348331,
-          "sha256": "aac1cb6e2229ad70183d08ed0a8665d5c1375c9bde88b6b8fad4b0279117073d"
+          "bytes": 347526,
+          "sha256": "b9e815d8722cf82b3ac99129630592ecd19b51c26ca8db028b0062f10e3a5cf5"
         },
         "mobile": {
           "filename": "02-playbooks-workflows-e9f43c7e--mobile--full.png",
@@ -47,8 +47,8 @@
             "width": 390,
             "height": 5057
           },
-          "bytes": 379446,
-          "sha256": "1b30386682a5fa6a22ab37f65f012c9a71e301a62bd730c19b8c19b2a6ea6fb2"
+          "bytes": 378819,
+          "sha256": "025459d6ba0743a190ad107b0edf4ef82919db7a0aaa849e516df7599c14e3bc"
         }
       }
     },
@@ -62,8 +62,8 @@
             "width": 1280,
             "height": 800
           },
-          "bytes": 141617,
-          "sha256": "b985911ae00b1aa4860765a440029696bba95184e189fd4391905819e64de60e"
+          "bytes": 141478,
+          "sha256": "80b7427902458239ffb5e7336b68c919861b23d2ef9fbb202d060474c5ada90b"
         },
         "mobile": {
           "filename": "03-playbooks-workflows-standup-1f5f919e--mobile.png",
@@ -86,8 +86,8 @@
             "width": 1280,
             "height": 800
           },
-          "bytes": 65392,
-          "sha256": "9ab0ae649792477a2f052c5940f90f8b9ce18ae88c8e96b0209549bb2802b9f8"
+          "bytes": 65160,
+          "sha256": "bd7c3dae0c4670354549c84c3c76b76a1f817f4faa29e29fd4440c903423e09f"
         },
         "mobile": {
           "filename": "04-sessions-ses_mock_done-directory-tmp-mock-project-c19a59d5--mobile.png",
@@ -95,8 +95,8 @@
             "width": 390,
             "height": 740
           },
-          "bytes": 46646,
-          "sha256": "60a13ba5729121b62f2dbd0145dff5f60009762c6e9f2986d5898e757dc9e121"
+          "bytes": 46271,
+          "sha256": "27c2992360a0b77065ecb4e06abff9602ebcdaedf69a9ecee3e1977b03c2bbc0"
         }
       }
     },
@@ -110,8 +110,8 @@
             "width": 1280,
             "height": 800
           },
-          "bytes": 38993,
-          "sha256": "0e18d1f713847c109eccf4bee6923a061f147606e27e129662e728a08091b265"
+          "bytes": 38644,
+          "sha256": "ca866e6e834f1a1072a8f46e769f8ee666697687cd1857254fc73d32045eb533"
         },
         "mobile": {
           "filename": "05-sessions-ses_mock_workflow_main-directory-tmp-mock-workflow-project-3bfc23a7--mobile--full.png",
@@ -119,8 +119,8 @@
             "width": 390,
             "height": 740
           },
-          "bytes": 25504,
-          "sha256": "78d23d8dadac88a19ce3e4f828669ab9aecdacf4c42e4aa185e15f3636bea439"
+          "bytes": 25137,
+          "sha256": "27a46ec329c71000f449c77ceed5192fc33a966d53befd52383f00ee391a947d"
         }
       }
     }
