@@ -1,7 +1,22 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { resolve } from "path";
+
+const { version } = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as { version: string };
+
+function commitRevision(): string {
+  const supplied = process.env.APP_COMMIT || process.env.GITHUB_SHA;
+  if (supplied) return supplied.slice(0, 7);
+  try {
+    return execFileSync("git", ["rev-parse", "--short=7", "HEAD"], { encoding: "utf8" }).trim();
+  } catch {
+    // Docker's allowlisted build context deliberately excludes .git.
+    return "";
+  }
+}
 
 export default defineConfig(() => {
   // The BFF port is configurable (PORT) since :3000 is commonly taken.
@@ -9,6 +24,10 @@ export default defineConfig(() => {
   const publicSimulator = process.env.VITE_PUBLIC_SIMULATOR === "true";
 
   return {
+    define: {
+      __APP_VERSION__: JSON.stringify(version),
+      __APP_COMMIT__: JSON.stringify(commitRevision()),
+    },
     plugins: [
       react(),
       tailwindcss(),

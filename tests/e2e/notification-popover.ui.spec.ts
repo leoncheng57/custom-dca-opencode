@@ -565,7 +565,7 @@ for (const viewport of VIEWPORTS) {
       }
     });
 
-    test("keeps Search, Phone, Docs, MCPs and Settings reachable from More", async ({ page }) => {
+    test("keeps secondary navigation reachable from More", async ({ page }) => {
       await page.goto(hub);
       const more = page.getByTestId("opencode-nav-more");
       await expect(more).toHaveAttribute("aria-haspopup", "true");
@@ -573,15 +573,12 @@ for (const viewport of VIEWPORTS) {
       await more.click();
       await expect(more).toHaveAttribute("aria-expanded", "true");
       await expect(page.getByTestId("opencode-nav-more-menu")).toBeVisible();
-      for (const testId of ["opencode-palette-open", "opencode-phone-transfer-open", "opencode-nav-docs", "opencode-nav-tools", "opencode-nav-settings"]) {
+      for (const testId of ["opencode-palette-open", "opencode-phone-transfer-open", "opencode-nav-docs", "opencode-nav-tools", "opencode-nav-settings", "opencode-nav-playbooks"]) {
         await expect(page.getByTestId(testId)).toBeVisible();
       }
 
-      // Playbooks and Planning were promoted to the bar and must not also
-      // appear here.
-      for (const testId of ["opencode-nav-playbooks", "opencode-nav-planning"]) {
-        await expect(page.getByTestId("opencode-nav-more-menu").getByTestId(testId)).toHaveCount(0);
-      }
+      // Planning remains a primary destination and must not also appear here.
+      await expect(page.getByTestId("opencode-nav-more-menu").getByTestId("opencode-nav-planning")).toHaveCount(0);
 
       // A disclosure over links, not an APG menu: the three destinations stay
       // real links so assistive tech still lists them as such, and Tab is the
@@ -609,15 +606,13 @@ for (const viewport of VIEWPORTS) {
       await expect(page).toHaveURL(new RegExp(`/tools\\?directory=${encodeURIComponent(DIR)}`));
     });
 
-    test("promotes Playbooks and Planning onto the bar", async ({ page }) => {
+    test("keeps Planning on the bar and moves Playbooks into More", async ({ page }) => {
       await page.goto(hub);
       const bar = page.locator("nav[aria-label='Main']");
-      for (const testId of ["opencode-nav-playbooks", "opencode-nav-planning"]) {
-        const link = bar.getByTestId(testId);
-        await expect(link).toBeVisible();
-        await expect(link).toHaveRole("link");
-      }
-      // Not directory-scoped: both are cross-project surfaces.
+      await expect(bar.getByTestId("opencode-nav-playbooks")).toHaveCount(0);
+      await expect(bar.getByTestId("opencode-nav-planning")).toBeVisible();
+      await expect(bar.getByTestId("opencode-nav-planning")).toHaveRole("link");
+      // Planning is not directory-scoped: it is a cross-project surface.
       await bar.getByTestId("opencode-nav-planning").click();
       await expect(page).toHaveURL(/\/planning$/);
     });
