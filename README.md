@@ -45,12 +45,11 @@ Runtime reminders under root `reminders/` remain separate per-message prompt con
 and the live `/skill` Catalog panel remains the connected OpenCode process's inventory
 of externally installed content. The former standalone catalog app is retired.
 
-The commands-only static catalogue is published from trusted `main` commits at
-<https://leoncheng.dev/custom-dca-opencode/agent-skills/>. It is generated as
-escaped, dependency-free HTML; it is not the Runner SPA and contains no skill
-routes. The former <https://leoncheng.dev/agent-skills/> site belongs to an
-archived separate repository. This repository's token cannot configure a redirect
-there, so the old URL is not redirected by this publication workflow.
+There is no public static catalogue. Playbooks is read from the running Runner, and
+the retired GitHub Pages catalogue at `/custom-dca-opencode/agent-skills/` has been
+removed from `gh-pages` rather than left serving a stale index (AGENTS.md decision 32).
+The unrelated <https://leoncheng.dev/agent-skills/> site belongs to an archived
+separate repository that this repository's token cannot modify.
 
 ## Status
 
