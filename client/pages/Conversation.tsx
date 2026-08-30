@@ -705,7 +705,7 @@ export function ConversationPage() {
               <span
                 aria-hidden
                 data-testid="opencode-mobile-reviews-count"
-                className="absolute right-1 top-1 inline-flex min-w-[1rem] items-center justify-center rounded-full bg-[var(--color-background-action-info)] px-1 py-0.5 text-[9px] font-semibold leading-none text-white"
+                className="absolute right-1 top-1 inline-flex min-w-[1rem] items-center justify-center px-1 py-0.5 text-[9px] font-semibold leading-none text-[var(--color-text-muted)]"
               >
                 {sessionLinkCount}
               </span>

@@ -51,7 +51,7 @@ describe("forge detail helpers", () => {
 });
 
 describe("GitHub review details", () => {
-  it("maps description, comments, review summaries, checks, contexts, and durations", async () => {
+  it("maps comments, review summaries, checks, contexts, and durations", async () => {
     vi.stubEnv("GITHUB_TOKEN", "server-secret");
     vi.stubGlobal("fetch", vi.fn(async (input: URL | RequestInfo) => {
       const target = String(input);
@@ -65,7 +65,6 @@ describe("GitHub review details", () => {
 
     const details = await getReviewDetails(parseReviewUrl("https://github.com/acme/demo/pull/7"));
 
-    expect(details.description.value).toBe("## Description");
     expect(details.comments.value[0]).toMatchObject({ author: "alice", body: "Looks good" });
     expect(details.reviews.value[0]).toMatchObject({ author: "bob", state: "approved" });
     expect(details.checks.value).toEqual(expect.arrayContaining([
@@ -88,12 +87,10 @@ describe("GitHub review details", () => {
       if (target.includes("/pulls/7/commits")) return response(Array.from({ length: REVIEW_DETAIL_LIMITS.commits + 1 }, (_, id) => ({ sha: String(id).padStart(40, "0"), commit: { message: "s".repeat(REVIEW_DETAIL_LIMITS.subjectCharacters + 1) } })));
       if (target.includes("/check-runs")) return response({ total_count: 101, check_runs: [{ id: 1, status: "queued" }] });
       if (target.includes("/commits/abc123/status")) return response({ total_count: 0, statuses: [] });
-      return response({ body: "d".repeat(REVIEW_DETAIL_LIMITS.descriptionCharacters + 1), head: { sha: "abc123" } });
+      return response({ head: { sha: "abc123" } });
     }));
 
     const details = await getReviewDetails(parseReviewUrl("https://github.com/acme/demo/pull/7"));
-    expect(details.description.value).toHaveLength(REVIEW_DETAIL_LIMITS.descriptionCharacters);
-    expect(details.description.truncated).toBe(true);
     expect(details.comments.value).toHaveLength(REVIEW_DETAIL_LIMITS.comments);
     expect(details.comments.truncated).toBe(true);
     expect(details.comments.value[0].bodyTruncated).toBe(true);
@@ -118,7 +115,6 @@ describe("GitHub review details", () => {
     }));
 
     const details = await getReviewDetails(parseReviewUrl("https://github.com/acme/demo/pull/7"));
-    expect(details.description.value).toBe("available");
     expect(details.comments.value[0].body).toBe("visible");
     expect(details.reviews.error).toBe("Unavailable");
     expect(details.checks.error).toBe("Unavailable");
@@ -136,7 +132,7 @@ describe("GitHub review details", () => {
 
     const details = await getReviewDetails(parseReviewUrl("https://github.com/acme/demo/pull/7"));
     expect(details.auth).toBe("unavailable");
-    expect(details.description.error).toBe("Authentication unavailable");
+    expect(details.comments.error).toBe("Authentication unavailable");
     expect(JSON.stringify(details)).not.toContain("expired-server-secret");
   });
 
@@ -172,7 +168,6 @@ describe("GitLab review details", () => {
     }));
 
     const details = await getReviewDetails(parseReviewUrl("https://gitlab.com/group/project/-/merge_requests/42"));
-    expect(details.description.value).toBe("GitLab description");
     expect(details.comments.value).toEqual([expect.objectContaining({ discussionId: "thread-1", author: "carol", resolved: false })]);
     expect(details.pipelines.value[0]).toMatchObject({ id: "9", status: "failed", duration: 120 });
     expect(details.checks.value[0]).toMatchObject({ name: "test", stage: "verify", status: "failed", duration: 75, source: "job" });

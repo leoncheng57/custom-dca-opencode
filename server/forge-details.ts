@@ -1,7 +1,6 @@
 import type { ReviewRef } from "./forge.js";
 
 export const REVIEW_DETAIL_LIMITS = {
-  descriptionCharacters: 20_000,
   bodyCharacters: 8_000,
   subjectCharacters: 500,
   comments: 50,
@@ -23,7 +22,6 @@ export interface ReviewPipeline { id: string; status: ItemStatus; webUrl: string
 export interface ReviewCheck { id: string; name: string; stage: string; status: ItemStatus; webUrl: string; startedAt: string; completedAt: string; duration: number | null; source: "check" | "status" | "job" }
 export interface ReviewCommit { sha: string; shortSha: string; subject: string; author: string; authoredAt: string; webUrl: string; subjectTruncated: boolean }
 export interface ReviewDetails {
-  description: DetailSection<string>;
   comments: DetailSection<ReviewComment[]>;
   reviews: DetailSection<ReviewSummary[]>;
   pipelines: DetailSection<ReviewPipeline[]>;
@@ -137,9 +135,6 @@ async function githubDetails(ref: Extract<ReviewRef, { forge: "github" }>): Prom
   const commentsResult = initial[1];
   const reviewsResult = initial[2];
   const commitsResult = initial[3];
-  const description = pr.status === "fulfilled"
-    ? (() => { const body = text(pr.value.body, REVIEW_DETAIL_LIMITS.descriptionCharacters); return { value: body.value, error: null, truncated: body.truncated } as DetailSection<string>; })()
-    : failedSection("", pr.reason);
   const comments = commentsResult.status === "fulfilled" ? {
     value: commentsResult.value.slice(0, REVIEW_DETAIL_LIMITS.comments).map((comment) => {
       const body = text(comment.body, REVIEW_DETAIL_LIMITS.bodyCharacters);
@@ -186,8 +181,8 @@ async function githubDetails(ref: Extract<ReviewRef, { forge: "github" }>): Prom
     checks = { value: items.slice(0, REVIEW_DETAIL_LIMITS.checks), error: checkResults.some((item) => item.status === "rejected") ? "Unavailable" : null, truncated: truncated || items.length > REVIEW_DETAIL_LIMITS.checks };
   }
   const pipelines: DetailSection<ReviewPipeline[]> = { value: [], error: null, truncated: false };
-  const sections = [description, comments, reviews, pipelines, checks, commits];
-  return { description, comments, reviews, pipelines, checks, commits, partial: sections.some((section) => section.error !== null), auth: authState(ref, errors) };
+  const sections = [comments, reviews, pipelines, checks, commits];
+  return { comments, reviews, pipelines, checks, commits, partial: sections.some((section) => section.error !== null), auth: authState(ref, errors) };
 }
 
 async function gitlabDetails(ref: Extract<ReviewRef, { forge: "gitlab" }>): Promise<ReviewDetails> {
@@ -200,9 +195,6 @@ async function gitlabDetails(ref: Extract<ReviewRef, { forge: "gitlab" }>): Prom
     get<Array<Record<string, any>>>(url(`merge_requests/${ref.number}/commits`, base, { per_page: String(REVIEW_DETAIL_LIMITS.commits + 1), page: "1" }), auth),
   ]);
   const errors = initial.filter((item): item is PromiseRejectedResult => item.status === "rejected").map((item) => item.reason);
-  const description = initial[0].status === "fulfilled"
-    ? (() => { const body = text(initial[0].value.description, REVIEW_DETAIL_LIMITS.descriptionCharacters); return { value: body.value, error: null, truncated: body.truncated } as DetailSection<string>; })()
-    : failedSection("", initial[0].reason);
   let comments: DetailSection<ReviewComment[]>;
   if (initial[1].status === "fulfilled") {
     const items: ReviewComment[] = [];
@@ -235,8 +227,8 @@ async function gitlabDetails(ref: Extract<ReviewRef, { forge: "gitlab" }>): Prom
       checks = { value: jobs.slice(0, REVIEW_DETAIL_LIMITS.checks).map((job) => ({ id: `job:${String(job.id ?? "")}`, name: String(job.name ?? "Job"), stage: String(job.stage ?? "pipeline"), status: normalizeDetailStatus(job.status), webUrl: String(job.web_url ?? ""), startedAt: String(job.started_at ?? ""), completedAt: String(job.finished_at ?? ""), duration: detailDuration(job.started_at, job.finished_at, job.duration), source: "job" })), error: null, truncated: jobs.length >= REVIEW_DETAIL_LIMITS.checks };
     } catch (error) { errors.push(error); checks = failedSection([], error); }
   }
-  const sections = [description, comments, reviews, pipelines, checks, commits];
-  return { description, comments, reviews, pipelines, checks, commits, partial: sections.some((section) => section.error !== null), auth: authState(ref, errors) };
+  const sections = [comments, reviews, pipelines, checks, commits];
+  return { comments, reviews, pipelines, checks, commits, partial: sections.some((section) => section.error !== null), auth: authState(ref, errors) };
 }
 
 const inFlight = new Map<string, Promise<ReviewDetails>>();

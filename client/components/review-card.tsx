@@ -108,17 +108,13 @@ export function ReviewCard({ url }: { url: string }) {
           </button>
           {expanded && (
             <div className="mt-2 min-w-0 space-y-3 overflow-hidden" data-testid="opencode-review-details">
-              {detailsLoading && <p className="text-xs text-[var(--color-text-muted)]">Loading description, discussion, and checks...</p>}
+              {detailsLoading && <p className="text-xs text-[var(--color-text-muted)]">Loading commits, discussion, and checks...</p>}
               {detailsError && <p className="text-[11px] text-[var(--color-text-muted)]">{detailsError}</p>}
               {details && (
                 <>
                   {details.auth === "rate_limited" && <p className="text-[11px] text-[var(--color-text-muted)]" data-testid="opencode-review-rate-limited">Forge rate limit reached. Showing available details.</p>}
                   {details.auth === "unavailable" && <p className="text-[11px] text-[var(--color-text-muted)]" data-testid="opencode-review-auth-unavailable">Forge authentication unavailable. Public details may still be shown.</p>}
                   {details.partial && <p className="text-[11px] text-[var(--color-text-muted)]" data-testid="opencode-review-partial">Some live details are unavailable.</p>}
-                  <section>
-                    <div className="flex items-center justify-between gap-2"><h3 className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">Description</h3><Truncated show={details.description.truncated} /></div>
-                    {details.description.error ? <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">Description {details.description.error.toLowerCase()}.</p> : details.description.value.trim() ? <Markdown source={details.description.value} untrusted className="mt-1 break-words text-xs" /> : <p className="mt-1 text-xs text-[var(--color-text-muted)]">No description.</p>}
-                  </section>
                   <section data-testid="opencode-review-commits">
                     <div className="flex items-center justify-between gap-2"><h3 className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">Commits ({details.commits.value.length})</h3><Truncated show={details.commits.truncated} /></div>
                     {details.commits.error && <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">Commits {details.commits.error.toLowerCase()}.</p>}
