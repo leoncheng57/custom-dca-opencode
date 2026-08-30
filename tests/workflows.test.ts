@@ -32,33 +32,25 @@ import {
 describe("workflow catalogue", () => {
   it("shares semantic picker groups and sends unknown workflows to Other", () => {
     const catalogue = [...workflowCatalogue(), { id: "future-workflow", title: "Future", description: "New server workflow", injector: "Do the future work." }];
-    expect(groupWorkflows(catalogue).map(({ label }) => label)).toEqual(["Review", "Coordinate", "Execute", "Investigate", "Document", "Ship", "Other"]);
+    expect(groupWorkflows(catalogue).map(({ label }) => label)).toEqual(["Review", "Execute", "Delegate", "Coordinate", "Document", "Other"]);
     expect(groupWorkflows(catalogue).at(-1)?.workflows.map(({ id }) => id)).toEqual(["future-workflow"]);
   });
   it("contains the shipped workflows, in picker order", () => {
     expect(workflowCatalogue().map((workflow) => workflow.id)).toEqual([
       PLAYWRIGHT_REVIEW_WORKFLOW_ID,
       PR_SNIPPET_REVIEW_WORKFLOW_ID,
-      "red-team",
-      "review-learning",
-      SESSION_UPDATE_WORKFLOW_ID,
-      MANAGED_CHILD_WORKFLOW_ID,
-      START_DCA_SESSION_WORKFLOW_ID,
-      "manager-children",
-      "native-worktree-subagents",
-      "session-handoff",
       "goal",
       "dca",
-      "worktree-up",
-      "deep-research",
-      "research-handoff",
+      "leaving-now-wrap-up",
+      MANAGED_CHILD_WORKFLOW_ID,
+      START_DCA_SESSION_WORKFLOW_ID,
+      "session-handoff",
+      SESSION_UPDATE_WORKFLOW_ID,
+      "standup",
       DESIGN_DOC_PROTOTYPE_WORKFLOW_ID,
       "docs-preview",
       "mini-design-doc",
       "system-design-artifacts",
-      "verify",
-      "leaving-now-wrap-up",
-      "standup",
     ]);
   });
 
@@ -128,7 +120,7 @@ describe("generic argument workflows", () => {
   const generic = workflowCatalogue().filter((workflow) => workflow.argument);
 
   it("declares a usable, server-bounded field for every argument workflow", () => {
-    expect(generic.length).toBeGreaterThanOrEqual(16);
+    expect(generic.length).toBeGreaterThanOrEqual(8);
     for (const { id, argument } of generic) {
       expect(argument!.label.trim(), `${id} has a blank label`).not.toBe("");
       expect(argument!.label.length).toBeLessThanOrEqual(60);

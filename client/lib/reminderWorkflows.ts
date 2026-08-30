@@ -7,21 +7,21 @@
  *
  * It replaces the reminder-to-command join that lived in
  * `agent-skills/src/lib/reminderCommands.ts`. That map covered twelve reminders
- * because every reminder had a same-subject command beside it. Only six survive
- * here, and that is the honest number: the other six commands were deleted
- * rather than converted, precisely because the reminder already said everything
- * they said. Linking those to an unrelated workflow would invent a relationship
- * to keep a symmetry that no longer exists.
+ * because every reminder had a same-subject command beside it. Only two survive
+ * here, and that is the honest number: the other ten commands were deleted
+ * rather than converted, because the reminder already said everything they said
+ * or the capability was retired outright. Linking those to an unrelated workflow
+ * would invent a relationship to keep a symmetry that no longer exists.
  *
  * A reminder with no entry simply renders no details link, which is already how
  * the picker treats an unmapped reminder.
+ *
+ * This join is a stopgap. Once every reminder has its own Playbooks detail page,
+ * the picker should link a reminder to ITSELF rather than to a workflow that
+ * merely shares its subject, and this module should be deleted.
  */
 export const REMINDER_WORKFLOWS: Readonly<Record<string, string>> = Object.freeze({
-  "deep-research-subagents": "deep-research",
   "docs-and-diagram-tooling": "docs-preview",
-  "human-verification-steps": "verify",
-  "native-worktree-subagents": "native-worktree-subagents",
-  "parallel-research-handoff": "research-handoff",
   "session-handoff": "session-handoff",
 });
 

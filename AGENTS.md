@@ -491,6 +491,38 @@ several decisions below.
     (`agent: plan` for the read-only ones). A workflow carries no declarative mode, and
     adding one was deliberately rejected as out of scope — so the guarantee is gone,
     and the UI has to say so rather than let a reader assume it survived.
+21d. **A 22-item catalogue is scanned, not read, so the picker is a tile grid.**
+    Full-width rows carrying a two-to-three line description fit ~4.5 of 22 workflows
+    on a desktop screen and ~4 on a phone — four screenfuls to the last item, with at
+    most 1.5 group headings visible at once, so the grouping organised nothing for the
+    reader. The picker now uses the **same title-only tile grid as the reminder
+    picker** (`grid grid-cols-2 sm:grid-cols-3`, `min-h-14` tiles), which puts over
+    half the catalogue and several headings on one screen; an E2E assertion counts
+    tiles above the panel fold on both form factors so the regression is caught rather
+    than re-measured. The description is not lost, it is relocated: it stays on the
+    form's preview stage where it is read before sending, and remains on the tile as
+    `aria-description` and `title` so a screen reader and a hover still get it.
+    Two consequences follow from the tile. **Every shipped workflow needs its own
+    icon**: with a two-line title as the only text, the icon rail is the primary
+    scanning aid, and a shared `Circle` fallback for 16 of 22 would carry no
+    information — `Circle` now means only "a workflow this build has never heard of".
+    And **search covers title and id only**. Matching descriptions was harmless at six
+    workflows and is not at 22: "review" is a substring of "pre*view*" and of
+    "*review*ing", so it surfaced "Send an update to another session" and "Start a DCA
+    session" — tiles whose visible text did not contain what was typed. Matching is
+    still a plain substring (the two pickers must not diverge), so "preview" still
+    matches "review"; the property gained is that every hit now contains the typed text
+    in the title the tile displays, which makes the result set explicable from screen.
+21e. **The injector window is sized to the longest injector, not the shortest.**
+    `max-h-48` (192px) was chosen when the longest shipped injector was 19 lines. The
+    ported procedures run to ~160, so it showed roughly 5% of
+    `system-design-artifacts`: technically scrollable, but not the read-before-send
+    that decision 21 makes the entire trust story. It is now `max-h-[60dvh]` — still
+    bounded, because the dialog must not become one unbroken page, and in `dvh` so a
+    mobile URL bar cannot shrink it below what it promises. The Playbooks card's
+    injector disclosure is bounded at `18rem` for the same reason in reverse: an
+    unbounded preview turned one opened card into most of the page, and the detail
+    modal is where a long injector is meant to be read end to end.
 21c. **The repository command catalogue is retired; its procedures are workflows.**
     23 commands under `agent-skills/commands/` became 16 workflows and 7 deletions.
     The 7 — `background`, `build-waves`, `handoff`, `duck-mode`, `grill-me`,
@@ -947,6 +979,17 @@ several decisions below.
     workflow landing there is a placement bug that reads identically in the UI. A
     detail route reports absence only after a successful catalogue load, never during
     loading or after a failure.
+    The six groups are **Review · Execute · Delegate · Coordinate · Investigate ·
+    Document**, and the server catalogue is authored in that same order so one file
+    tells the truth about both. Two seams were redrawn once 22 items made them
+    load-bearing: "Coordinate" had grown to six and was quietly two ideas — bringing a
+    new session into being versus messaging one that already exists — so **Delegate**
+    took the five that create an agent and Coordinate kept the two that report to
+    something already there (one machine, one human). "Ship" held two whose seam with
+    Execute was soft; verifying and wrapping up are the end of doing work here, not a
+    separate act, so they folded into **Execute** rather than keeping a heading they
+    had not earned. Prefer folding a two-item group into an adjacent one over keeping
+    a heading that only names a coincidence.
     Runtime reminders under root `reminders/` stay separate: application-owned
     per-message prompt bodies, never sourced from a workflow. The runtime `/skill`
     Catalog panel still reports whatever external skills and commands the connected

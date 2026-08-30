@@ -678,9 +678,20 @@ export function WorkflowDialog({
               <p className="text-sm font-medium">Exact prompt</p>
               <pre className="thin-scrollbar mt-1.5 max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded-md border border-[var(--color-border-default)] bg-[var(--color-background-muted)] p-3 font-sans text-xs leading-relaxed" data-testid="composer-workflow-prompt-preview">{generatedPrompt}</pre>
             </div>
+            {/*
+              * The injector window is the whole trust story (decision 21): the
+              * contract is that the user can read the exact trusted content
+              * before submitting. `max-h-48` was sized when the longest shipped
+              * injector was 19 lines; the ported procedures run to ~160, so it
+              * showed about 5% of `system-design-artifacts` — technically
+              * scrollable, but not read-before-send in any honest sense. It
+              * stays scrollable and bounded (the dialog must not become one
+              * unbroken page), in `dvh` so a mobile URL bar cannot shrink it
+              * below what it promises.
+              */}
             <details open data-testid="composer-workflow-injector">
               <summary className="cursor-pointer text-sm font-medium">Trusted injector — server-resolved from id "{workflow.id}"</summary>
-              <pre className="thin-scrollbar mt-1.5 max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded-md border border-[var(--color-border-default)] p-3 font-sans text-xs leading-relaxed text-[var(--color-text-muted)]">{workflow.injector}</pre>
+              <pre className="thin-scrollbar mt-1.5 max-h-[60dvh] overflow-y-auto whitespace-pre-wrap break-words rounded-md border border-[var(--color-border-default)] p-3 font-sans text-xs leading-relaxed text-[var(--color-text-muted)]" data-testid="composer-workflow-injector-body">{workflow.injector}</pre>
               <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">Appended by the server exactly as shown. The browser only names the workflow id.</p>
             </details>
             {sendsIntoThisSession && <>

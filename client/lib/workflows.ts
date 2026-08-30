@@ -36,31 +36,37 @@ export const START_DCA_SESSION_WORKFLOW_ID = "start-dca-session";
 export const PR_SNIPPET_REVIEW_WORKFLOW_ID = "pr-snippet-review";
 export const DESIGN_DOC_PROTOTYPE_WORKFLOW_ID = "design-doc-prototype";
 
-// Six semantic groups covering the whole catalogue. The sixteen ported
-// procedures are named as literals rather than as exported constants: unlike
-// the five above they are not referenced anywhere else, because they need no
-// bespoke branch — the generic argument field renders all of them.
+// Six semantic groups covering the whole catalogue, in catalogue order. The
+// sixteen ported procedures are named as literals rather than as exported
+// constants: unlike the five above they are not referenced anywhere else,
+// because they need no bespoke branch — the generic argument field renders all
+// of them.
+//
+// Two seams were redrawn after the 22-item catalogue made them load-bearing.
+// "Coordinate" had grown to six and was quietly two ideas — creating a new
+// agent and messaging one that already exists — so **Delegate** now owns
+// everything that brings a new session into being, and Coordinate keeps only
+// the two that report to something already there (one machine, one human).
+// "Ship" held two whose seam with Execute was soft: verifying and wrapping up
+// are the end of doing the work here, not a separate act, so they fold into
+// **Execute** rather than keeping a heading they did not earn.
 //
 // Nothing should land in the "Other" bucket `groupWorkflows` appends. That
 // bucket exists for a workflow a newer server ships that this build has never
 // heard of, not as a home for one this build forgot to place.
 export const WORKFLOW_GROUPS = [
-  { label: "Review", ids: [PLAYWRIGHT_REVIEW_WORKFLOW_ID, PR_SNIPPET_REVIEW_WORKFLOW_ID, "red-team", "review-learning"] },
+  { label: "Review", ids: [PLAYWRIGHT_REVIEW_WORKFLOW_ID, PR_SNIPPET_REVIEW_WORKFLOW_ID] },
+  { label: "Execute", ids: ["goal", "dca", "leaving-now-wrap-up"] },
   {
-    label: "Coordinate",
+    label: "Delegate",
     ids: [
-      SESSION_UPDATE_WORKFLOW_ID,
       MANAGED_CHILD_WORKFLOW_ID,
       START_DCA_SESSION_WORKFLOW_ID,
-      "manager-children",
-      "native-worktree-subagents",
       "session-handoff",
     ],
   },
-  { label: "Execute", ids: ["goal", "dca", "worktree-up"] },
-  { label: "Investigate", ids: ["deep-research", "research-handoff"] },
+  { label: "Coordinate", ids: [SESSION_UPDATE_WORKFLOW_ID, "standup"] },
   { label: "Document", ids: [DESIGN_DOC_PROTOTYPE_WORKFLOW_ID, "docs-preview", "mini-design-doc", "system-design-artifacts"] },
-  { label: "Ship", ids: ["verify", "leaving-now-wrap-up", "standup"] },
 ] as const;
 
 export interface WorkflowGroup {

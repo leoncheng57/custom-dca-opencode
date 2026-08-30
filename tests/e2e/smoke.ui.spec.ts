@@ -1130,6 +1130,26 @@ test.describe("composer", () => {
     await expect(page.getByTestId("composer-workflow-option")).toHaveCount(1);
     await expect(page.getByTestId("composer-workflow-option")).toContainText("Post a snippet-by-snippet PR review");
 
+    // Search covers title and id only. Matching descriptions was harmless at
+    // six workflows and is not at 22: "review" used to surface "Send an update
+    // to another session" and "Start a DCA session", whose descriptions say
+    // "pre*view*" and "*review*ing" — tiles whose visible text does not contain
+    // what was typed, which reads as a bug.
+    //
+    // Matching is still a plain substring, so "preview" genuinely does contain
+    // "review" and "Choose, render, and preview documentation" is still a hit.
+    // That is the property being locked in, not a leftover: every result now
+    // contains the typed text in the title the tile actually shows, so the
+    // result set is explicable from the screen. Neither of the two false hits
+    // above is here.
+    await page.getByTestId("composer-workflow-search").fill("review");
+    const reviewHits = page.getByTestId("composer-workflow-option");
+    await expect(reviewHits).toHaveCount(5);
+    for (const text of await reviewHits.allInnerTexts()) expect(text.toLowerCase()).toContain("review");
+    for (const id of ["session-update", "start-dca-session"]) {
+      await expect(page.locator(`[data-testid="composer-workflow-option"][data-workflow-id="${id}"]`)).toHaveCount(0);
+    }
+
     // A zero-match query must not divide by zero in the index math.
     await page.getByTestId("composer-workflow-search").fill("zzzz-no-such-workflow");
     await expect(page.getByTestId("composer-workflow-empty")).toBeVisible();
