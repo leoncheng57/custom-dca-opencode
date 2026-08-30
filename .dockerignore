@@ -41,10 +41,11 @@
 !deploy
 !reminders
 
-# Playbooks content compiled into the SPA by client/pages/Playbooks.tsx. This is
-# the allowlist earning its keep: when agent-skills/ arrived on main, the image
-# build failed loudly at `npm run build` instead of shipping a container whose
-# /playbooks route was quietly broken.
+# agent-skills/ is now a retirement notice, a LICENSE and a CREDITS file: the
+# command catalogue it held is gone and Playbooks reads the live server
+# catalogue instead, so nothing in the build or the test suite opens these.
+# They stay allowlisted only so the attribution for the migrated content
+# travels with any snapshot of the tree, not because the image needs them.
 !agent-skills
 
 # --- re-exclusions ------------------------------------------------------------

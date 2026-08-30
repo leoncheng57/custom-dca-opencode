@@ -1181,30 +1181,31 @@ test.describe("composer", () => {
     await expect(page.getByTestId("composer-reminder-icon")).toHaveCount(13);
     const humanVerification = page.locator('[data-testid="composer-reminder-option"][data-reminder-id="human-verification-steps"]');
     await expect(humanVerification).toHaveAccessibleName("Attach Write Human Verification Steps");
-    // Only the two reminders whose same-subject command was actually converted
-    // into a workflow carry a details link. `human-verification-steps` is not
-    // one of them: the `verify` command was deleted rather than ported, so this
-    // tile renders no link at all rather than one pointing at a dead route.
-    await expect(page.locator('[data-testid="composer-reminder-tile"][data-reminder-id="human-verification-steps"]').getByTestId("composer-reminder-details")).toHaveCount(0);
-    const details = page.locator('[data-testid="composer-reminder-details"][data-reminder-id="session-handoff"]');
-    await expect(details).toHaveAttribute("href", "/playbooks/workflows/session-handoff");
+    // Every reminder links to its OWN page. The old join pointed a reminder at
+    // a workflow that merely shared its subject, so most tiles had no link at
+    // all; parity means the link is now unconditional and always self-titled.
+    const details = page.locator('[data-testid="composer-reminder-details"][data-reminder-id="human-verification-steps"]');
+    await expect(details).toHaveAttribute("href", "/playbooks/reminders/human-verification-steps");
     await expect(details).toHaveAttribute("target", "_blank");
-    await expect(details).toHaveAccessibleName("Open Hand Off to a New Session details in a new tab");
+    await expect(details).toHaveAccessibleName("Open Write Human Verification Steps details in a new tab");
     // The details link is a real touch target in its own right (matching
     // this app's usual ~44px convention) but must still stay a minority of
     // the tile's width -- the button beside it is the large target, not this.
-    const tile = page.locator('[data-testid="composer-reminder-tile"][data-reminder-id="session-handoff"]');
+    const tile = page.locator('[data-testid="composer-reminder-tile"][data-reminder-id="human-verification-steps"]');
     const [detailsBox, tileBox] = await Promise.all([details.boundingBox(), tile.boundingBox()]);
     expect(detailsBox?.width, "details link is a real touch target").toBeGreaterThanOrEqual(40);
     expect(detailsBox?.height, "details link is a real touch target").toBeGreaterThanOrEqual(40);
     expect(detailsBox?.width, "the details link stays a minority of the tile, not the whole row").toBeLessThan((tileBox?.width ?? 0) / 2);
     const unknown = page.locator('[data-testid="composer-reminder-tile"][data-reminder-id="new-server-reminder"]');
-    await expect(unknown.getByTestId("composer-reminder-details")).toHaveCount(0);
-    // Half of the old reminder-to-command links have no workflow to point at,
-    // because those commands were deleted rather than converted: the reminder
-    // beside them already said everything they said. Those tiles render no link
-    // at all rather than one that goes somewhere merely adjacent.
-    await expect(page.locator('[data-testid="composer-reminder-tile"][data-reminder-id="cite-file-lines"]').getByTestId("composer-reminder-details")).toHaveCount(0);
+    // A reminder this build has never heard of still gets a link. It used to
+    // get none, because the target came from a hardcoded map — which meant a
+    // newer server's reminder was the one thing on the page with no
+    // documentation. The detail view resolves from the live catalogue, so the
+    // link is real: it groups under "Other" and still renders.
+    await expect(unknown.getByTestId("composer-reminder-details")).toHaveAttribute("href", "/playbooks/reminders/new-server-reminder");
+    // cite-file-lines had no command and so never had a link; it has a page now
+    // like every other reminder.
+    await expect(page.locator('[data-testid="composer-reminder-tile"][data-reminder-id="cite-file-lines"]').getByTestId("composer-reminder-details")).toHaveAttribute("href", "/playbooks/reminders/cite-file-lines");
     await unknown.getByTestId("composer-reminder-option").click();
     await expect(picker).toHaveAttribute("value", "new-server-reminder");
     await picker.click();

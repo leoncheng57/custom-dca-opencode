@@ -97,6 +97,7 @@ export const KNOWN_APP_ROUTES = [
   "/observability",
   "/docs",
   "/playbooks",
+  "/playbooks/reminders",
 ] as const;
 
 export function isKnownAppRoute(value: string): boolean {
@@ -112,7 +113,7 @@ export function isKnownAppRoute(value: string): boolean {
       /^\/planning$/,
       /^\/observability$/,
       /^\/docs(?:\/[A-Za-z0-9_-]+)?$/,
-      /^\/playbooks(?:\/workflows(?:\/[A-Za-z0-9_-]+)?)?$/,
+      /^\/playbooks(?:\/(?:workflows|reminders)(?:\/[A-Za-z0-9_-]+)?)?$/,
       /^\/sessions\/[A-Za-z0-9_-]+$/,
       /^\/dsh(?:\/sessions\/[A-Za-z0-9_-]+)?$/,
     ].some((pattern) => pattern.test(url.pathname));
