@@ -149,22 +149,23 @@ test.describe("workflow picker UI", () => {
     // workflow placed — nothing may fall into the "Other" bucket, which exists
     // for a workflow a newer server ships and not for one this build forgot.
     const options = page.getByTestId("composer-workflow-option");
-    await expect(options).toHaveCount(22);
+    await expect(options).toHaveCount(14);
     const groups = page.getByTestId("composer-workflow-group");
-    await expect(groups).toHaveCount(6);
+    await expect(groups).toHaveCount(5);
     for (const [index, label] of ["Review", "Execute", "Delegate", "Coordinate", "Document"].entries()) {
       await expect(groups.nth(index)).toHaveAccessibleName(label);
     }
-    await expect(page.getByTestId("composer-workflow-icon")).toHaveCount(22);
+    await expect(page.getByTestId("composer-workflow-icon")).toHaveCount(14);
+    // Spot-check the first entry of every group, so a workflow silently moving
+    // between groups fails here rather than only shifting an opaque index.
     await expect(options.nth(0)).toContainText("Review a UI change with Playwright");
-    await expect(options.nth(1)).toContainText("Post a snippet-by-snippet PR review");
-    await expect(options.nth(2)).toContainText("Red-team the work just produced");
-    await expect(options.nth(4)).toContainText("Create an isolated worktree");
-    await expect(options.nth(9)).toContainText("Launch a Managed Child");
-    await expect(options.nth(10)).toContainText("Start a DCA session");
-    await expect(options.nth(14)).toContainText("Send an update to another session");
-    await expect(options.nth(18)).toContainText("Capture a Durable Design Prototype");
-    await expect(options.nth(21)).toContainText("Build a system-design review package");
+    await expect(options.nth(2)).toContainText("Complete an objective autonomously");
+    await expect(options.nth(5)).toContainText("Launch a Managed Child");
+    await expect(options.nth(7)).toContainText("Hand off to another session");
+    await expect(options.nth(8)).toContainText("Send an update to another session");
+    await expect(options.nth(9)).toContainText("Write today's standup");
+    await expect(options.nth(10)).toContainText("Capture a Durable Design Prototype");
+    await expect(options.nth(13)).toContainText("Build a system-design review package");
 
     // A title-only tile grid, matching the reminder picker. A 22-item catalogue
     // in full-width description rows put ~4.5 tiles on screen and never more
@@ -240,16 +241,16 @@ test.describe("workflow picker UI", () => {
     const marker = `WF-ARG-${Date.now()}`;
     await page.goto(mainSession);
     await page.getByTestId("composer-workflow-select").click();
-    await page.locator('[data-testid="composer-workflow-option"][data-workflow-id="verify"]').click();
+    await page.locator('[data-testid="composer-workflow-option"][data-workflow-id="goal"]').click();
     const dialog = page.getByTestId("composer-workflow-dialog");
-    await expect(dialog).toHaveAttribute("data-workflow", "verify");
+    await expect(dialog).toHaveAttribute("data-workflow", "goal");
 
     // One generic field, focused, described by the server's own spec — no
     // bespoke branch exists for this workflow in the dialog.
     const field = dialog.getByTestId("composer-workflow-field-argument");
     await expect(field).toBeFocused();
-    await expect(field).toHaveAttribute("placeholder", /notification popover/u);
-    await expect(dialog.getByTestId("composer-workflow-argument-hint")).toContainText("Scopes the human checklist");
+    await expect(field).toHaveAttribute("placeholder", /notification badge/u);
+    await expect(dialog.getByTestId("composer-workflow-argument-hint")).toContainText("acceptance criteria");
     // Required means required: an empty field cannot reach the preview.
     await expect(dialog.getByTestId("composer-workflow-preview")).toBeDisabled();
     await field.fill(`   ${marker}   `);
@@ -258,8 +259,8 @@ test.describe("workflow picker UI", () => {
 
     // The typed text IS the prompt, trimmed and otherwise untouched.
     await expect(dialog.getByTestId("composer-workflow-prompt-preview")).toHaveText(marker);
-    await expect(dialog.getByTestId("composer-workflow-injector")).toContainText('server-resolved from id "verify"');
-    await expect(dialog.getByTestId("composer-workflow-injector")).toContainText("Ready to ship");
+    await expect(dialog.getByTestId("composer-workflow-injector")).toContainText('server-resolved from id "goal"');
+    await expect(dialog.getByTestId("composer-workflow-injector")).toContainText("Complete the objective above as one sustained run.");
     // The ported command pinned its own agent in frontmatter; a workflow cannot,
     // so the preview has to say what governs instead of dropping it silently.
     await expect(dialog.getByTestId("composer-workflow-mode-note")).toContainText("Sent in this session's current mode");
@@ -273,8 +274,8 @@ test.describe("workflow picker UI", () => {
     expect(payload!.sessionID).toBe(MAIN);
     const text = promptText(payload!);
     expect(text).toContain(marker);
-    expect(text).toContain('<workflow name="verify">');
-    expect(text).toContain("Ready to ship");
+    expect(text).toContain('<workflow name="goal">');
+    expect(text).toContain("Complete the objective above as one sustained run.");
     // The command's own substitution token must not survive the port.
     expect(text).not.toContain("$ARGUMENTS");
   });
@@ -290,7 +291,7 @@ test.describe("workflow picker UI", () => {
       // The tile grid has to survive the narrow sheet too: more than the ~4
       // rows the old full-width description layout managed.
       const options = page.getByTestId("composer-workflow-option");
-      await expect(options).toHaveCount(22);
+      await expect(options).toHaveCount(14);
       const panel = (await page.getByTestId("composer-workflow-panel").boundingBox())!;
       const visibleTiles = await options.evaluateAll((nodes, bottom) =>
         nodes.filter((node) => node.getBoundingClientRect().bottom <= bottom).length, panel.y + panel.height);

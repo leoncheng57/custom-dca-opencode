@@ -1119,19 +1119,19 @@ test.describe("composer", () => {
     await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
     await page.getByTestId("composer-workflow-select").click();
     await expect(page.getByTestId("composer-workflow-search")).toBeFocused();
-    await expect(page.getByTestId("composer-workflow-option")).toHaveCount(22);
+    await expect(page.getByTestId("composer-workflow-option")).toHaveCount(14);
     // Decision 21: this promise must survive the header gaining a search box.
     await expect(page.getByTestId("composer-workflow-panel")).toContainText("Nothing is sent or launched until you confirm.");
 
-    // Search matters more now that the catalogue is 22 entries rather than six,
-    // so the needle has to be specific: "pull request" alone also describes the
-    // review-learning workflow.
+    // Search matters more now that the catalogue is 14 entries rather than six,
+    // so the needle has to be specific: "PR review" alone also describes the
+    // Playwright UI review workflow.
     await page.getByTestId("composer-workflow-search").fill("snippet-by-snippet");
     await expect(page.getByTestId("composer-workflow-option")).toHaveCount(1);
     await expect(page.getByTestId("composer-workflow-option")).toContainText("Post a snippet-by-snippet PR review");
 
     // Search covers title and id only. Matching descriptions was harmless at
-    // six workflows and is not at 22: "review" used to surface "Send an update
+    // six workflows and is not at 14: "review" used to surface "Send an update
     // to another session" and "Start a DCA session", whose descriptions say
     // "pre*view*" and "*review*ing" — tiles whose visible text does not contain
     // what was typed, which reads as a bug.
@@ -1144,7 +1144,7 @@ test.describe("composer", () => {
     // above is here.
     await page.getByTestId("composer-workflow-search").fill("review");
     const reviewHits = page.getByTestId("composer-workflow-option");
-    await expect(reviewHits).toHaveCount(5);
+    await expect(reviewHits).toHaveCount(4);
     for (const text of await reviewHits.allInnerTexts()) expect(text.toLowerCase()).toContain("review");
     for (const id of ["session-update", "start-dca-session"]) {
       await expect(page.locator(`[data-testid="composer-workflow-option"][data-workflow-id="${id}"]`)).toHaveCount(0);
@@ -1181,17 +1181,19 @@ test.describe("composer", () => {
     await expect(page.getByTestId("composer-reminder-icon")).toHaveCount(13);
     const humanVerification = page.locator('[data-testid="composer-reminder-option"][data-reminder-id="human-verification-steps"]');
     await expect(humanVerification).toHaveAccessibleName("Attach Write Human Verification Steps");
-    const details = page.locator('[data-testid="composer-reminder-details"][data-reminder-id="human-verification-steps"]');
-    // The retired command catalogue used to host this documentation; the
-    // ported workflow does now, and the link has to follow it rather than keep
-    // resolving to a route that no longer exists.
-    await expect(details).toHaveAttribute("href", "/playbooks/workflows/verify");
+    // Only the two reminders whose same-subject command was actually converted
+    // into a workflow carry a details link. `human-verification-steps` is not
+    // one of them: the `verify` command was deleted rather than ported, so this
+    // tile renders no link at all rather than one pointing at a dead route.
+    await expect(page.locator('[data-testid="composer-reminder-tile"][data-reminder-id="human-verification-steps"]').getByTestId("composer-reminder-details")).toHaveCount(0);
+    const details = page.locator('[data-testid="composer-reminder-details"][data-reminder-id="session-handoff"]');
+    await expect(details).toHaveAttribute("href", "/playbooks/workflows/session-handoff");
     await expect(details).toHaveAttribute("target", "_blank");
-    await expect(details).toHaveAccessibleName("Open Write Human Verification Steps details in a new tab");
+    await expect(details).toHaveAccessibleName("Open Hand Off to a New Session details in a new tab");
     // The details link is a real touch target in its own right (matching
     // this app's usual ~44px convention) but must still stay a minority of
     // the tile's width -- the button beside it is the large target, not this.
-    const tile = page.locator('[data-testid="composer-reminder-tile"][data-reminder-id="human-verification-steps"]');
+    const tile = page.locator('[data-testid="composer-reminder-tile"][data-reminder-id="session-handoff"]');
     const [detailsBox, tileBox] = await Promise.all([details.boundingBox(), tile.boundingBox()]);
     expect(detailsBox?.width, "details link is a real touch target").toBeGreaterThanOrEqual(40);
     expect(detailsBox?.height, "details link is a real touch target").toBeGreaterThanOrEqual(40);

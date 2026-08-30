@@ -5,7 +5,7 @@ import { expect, test } from "@playwright/test";
 // open a command detail page to get one. The command catalogue is retired, so
 // they open a workflow detail page instead; the behaviour under test is the
 // same modal component.
-const FIXTURE = "/playbooks/workflows/verify";
+const FIXTURE = "/playbooks/workflows/system-design-artifacts";
 
 test.describe("Playbooks", () => {
   test("is first-class navigation on the bar beside Planning", async ({ page }) => {
@@ -21,8 +21,8 @@ test.describe("Playbooks", () => {
     // catalogue's own contract. It is deliberately exact: the retired command
     // inventory used to be derived from disk, but this one has to match what
     // the server actually served.
-    await expect(page.getByTestId("opencode-playbook-workflow-card")).toHaveCount(22);
-    await expect(page.getByTestId("opencode-playbook-workflow-verify")).toBeVisible();
+    await expect(page.getByTestId("opencode-playbook-workflow-card")).toHaveCount(14);
+    await expect(page.getByTestId("opencode-playbook-workflow-goal")).toBeVisible();
     await expect(page.getByTestId("opencode-playbook-workflow-system-design-artifacts")).toBeVisible();
   });
 
@@ -56,8 +56,8 @@ test.describe("Playbooks", () => {
   test("renders live workflows by shared semantic group and shows the exact injector", async ({ page }) => {
     await page.goto("/playbooks/workflows");
     await expect(page).toHaveTitle("Workflows | Playbooks | DCA");
-    await expect(page.getByTestId("opencode-playbook-workflow-group")).toHaveCount(6);
-    await expect(page.getByTestId("opencode-playbook-workflow-card")).toHaveCount(22);
+    await expect(page.getByTestId("opencode-playbook-workflow-group")).toHaveCount(5);
+    await expect(page.getByTestId("opencode-playbook-workflow-card")).toHaveCount(14);
     await page.getByTestId("opencode-playbook-workflow-start-dca-session").click();
     await expect(page).toHaveTitle("Workflow | Playbooks | DCA");
     await expect(page.getByTestId("opencode-playbook-workflow-injector")).toContainText("independent root session");
@@ -193,9 +193,9 @@ test.describe("Playbooks", () => {
     await page.goto(FIXTURE);
 
     await expect(page).toHaveTitle("Workflow | Playbooks | DCA");
-    await expect(page.getByTestId("opencode-playbook-dialog").getByRole("heading", { name: "Run the checks, then write verification steps" })).toBeVisible();
+    await expect(page.getByTestId("opencode-playbook-dialog").getByRole("heading", { name: "Build a system-design review package" })).toBeVisible();
     // The full ported procedure is present, tables and all.
-    await expect(page.getByTestId("opencode-playbook-dialog")).toContainText("Failure");
+    await expect(page.getByTestId("opencode-playbook-dialog")).toContainText("Evidence is absent, contradictory, inaccessible, or intentionally unprobed");
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 
     // Full-screen on a phone, not a centred card with unreachable backdrop.
