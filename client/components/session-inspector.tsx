@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 
 import { Button } from "../ds/button.js";
 import { normalizeTranscript } from "../lib/events.js";
@@ -63,12 +64,161 @@ function SessionLinkRow({ link }: { link: SessionLink }) {
   );
 }
 
-function LinkGroup({ title, testId, children }: { title: string; testId: string; children: React.ReactNode }) {
+type LinkGroupKey = "reviews" | "issues" | "notion" | "other";
+
+/**
+ * One link group behind a disclosure.
+ *
+ * The chevron/`aria-expanded`/`aria-controls` contract is copied from
+ * NotificationGroup on purpose: both accordions live in the same inspector, and
+ * a reader who learns one should not have to relearn the other. The count sits
+ * in the header because a folded group's only job is to say how much is inside.
+ */
+function LinkGroup({
+  title,
+  count,
+  testId,
+  groupKey,
+  expanded,
+  onToggle,
+  children,
+}: {
+  title: string;
+  count: number;
+  testId: string;
+  groupKey: LinkGroupKey;
+  expanded: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  const bodyId = `opencode-link-group-body-${groupKey}`;
   return (
-    <section data-testid={testId}>
-      <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">{title}</h3>
-      {children}
+    <section data-testid={testId} data-expanded={expanded ? "true" : "false"} className="min-w-0">
+      <button
+        type="button"
+        aria-controls={bodyId}
+        aria-expanded={expanded}
+        onClick={onToggle}
+        data-testid="opencode-link-group-toggle"
+        className="flex min-h-11 w-full min-w-0 items-center gap-2 rounded text-left hover:bg-[var(--hh-row-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]"
+      >
+        {expanded
+          ? <ChevronDown aria-hidden="true" size={14} className="shrink-0" />
+          : <ChevronRight aria-hidden="true" size={14} className="shrink-0" />}
+        <h3 className="min-w-0 flex-1 break-words text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">{title}</h3>
+        <span className="shrink-0 text-xs tabular-nums text-[var(--color-text-muted)]" data-testid="opencode-link-group-count">{count}</span>
+      </button>
+      {expanded && <div className="mt-1 min-w-0" id={bodyId}>{children}</div>}
     </section>
+  );
+}
+
+/**
+ * Every link this session mentioned, bucketed and folded.
+ *
+ * Reviews, issues and Notion open by default: they are the buckets a reader
+ * came for. "Other links" is the leftover bucket and folds, because it is
+ * usually the longest and the least likely to be the reason the panel was
+ * opened. The one exception is when it is the *only* bucket with anything in
+ * it — folding it then would render the panel as a single collapsed row that
+ * reads as "no links", which is exactly the false negative the counted badge
+ * on the opener promises cannot happen.
+ *
+ * The open/closed state is deliberately not persisted. It is a per-visit
+ * reading posture, not a preference, and a remembered fold would let a stale
+ * choice hide links from a session that has nothing to do with the one where
+ * the fold was made.
+ */
+function SessionLinksPanel({ links }: { links: SessionLinkIndex }) {
+  const otherCount = useMemo(
+    () => links.other.reduce((total, group) => total + group.links.length, 0),
+    [links.other],
+  );
+  const otherIsOnlyGroup =
+    otherCount > 0 && links.reviews.length === 0 && links.issues.length === 0 && links.notion.length === 0;
+  const defaultExpanded = useCallback(
+    (key: LinkGroupKey) => (key === "other" ? otherIsOnlyGroup : true),
+    [otherIsOnlyGroup],
+  );
+  // Only the groups the reader actually touched are recorded, so the defaults
+  // above stay live as links stream in without overwriting a deliberate fold.
+  const [overrides, setOverrides] = useState<Partial<Record<LinkGroupKey, boolean>>>({});
+  const isExpanded = (key: LinkGroupKey) => overrides[key] ?? defaultExpanded(key);
+  const toggle = (key: LinkGroupKey) =>
+    setOverrides((current) => ({ ...current, [key]: !(current[key] ?? defaultExpanded(key)) }));
+
+  return (
+    <>
+      <LinkGroup
+        title="Pull requests and merge requests"
+        count={links.reviews.length}
+        testId="opencode-link-group-reviews"
+        groupKey="reviews"
+        expanded={isExpanded("reviews")}
+        onToggle={() => toggle("reviews")}
+      >
+        {links.reviews.length === 0 ? (
+          <p className="text-xs text-[var(--color-text-muted)]">No review links mentioned.</p>
+        ) : (
+          <ul className="space-y-2">
+            {links.reviews.map((url) => (
+              <li key={url}>
+                <ReviewCard url={url} />
+              </li>
+            ))}
+          </ul>
+        )}
+      </LinkGroup>
+      {links.issues.length > 0 && (
+        <LinkGroup
+          title="GitHub issues"
+          count={links.issues.length}
+          testId="opencode-link-group-issues"
+          groupKey="issues"
+          expanded={isExpanded("issues")}
+          onToggle={() => toggle("issues")}
+        >
+          <ul className="space-y-1">
+            {links.issues.map((link) => <SessionLinkRow key={link.url} link={link} />)}
+          </ul>
+        </LinkGroup>
+      )}
+      {links.notion.length > 0 && (
+        <LinkGroup
+          title="Notion"
+          count={links.notion.length}
+          testId="opencode-link-group-notion"
+          groupKey="notion"
+          expanded={isExpanded("notion")}
+          onToggle={() => toggle("notion")}
+        >
+          <ul className="space-y-1">
+            {links.notion.map((link) => <SessionLinkRow key={link.url} link={link} />)}
+          </ul>
+        </LinkGroup>
+      )}
+      {links.other.length > 0 && (
+        <LinkGroup
+          title="Other links"
+          count={otherCount}
+          testId="opencode-link-group-other"
+          groupKey="other"
+          expanded={isExpanded("other")}
+          onToggle={() => toggle("other")}
+        >
+          <div className="space-y-2">
+            {links.other.map((group) => (
+              <div key={group.host} data-testid="opencode-link-host-group" data-host={group.host}>
+                <p className="text-[10px] text-[var(--color-text-muted)]">{group.host}</p>
+                <ul className="space-y-1">
+                  {group.links.map((link) => <SessionLinkRow key={link.url} link={link} />)}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </LinkGroup>
+      )}
+    </>
   );
 }
 
@@ -487,49 +637,7 @@ function InspectorContent({
                 <p className="text-sm text-[var(--color-text-muted)]">No links mentioned.</p>
               </>
             ) : (
-              <>
-                <LinkGroup title="Pull requests and merge requests" testId="opencode-link-group-reviews">
-                  {links.reviews.length === 0 ? (
-                    <p className="text-xs text-[var(--color-text-muted)]">No review links mentioned.</p>
-                  ) : (
-                    <ul className="space-y-2">
-                      {links.reviews.map((url) => (
-                        <li key={url}>
-                          <ReviewCard url={url} />
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </LinkGroup>
-                {links.issues.length > 0 && (
-                  <LinkGroup title="GitHub issues" testId="opencode-link-group-issues">
-                    <ul className="space-y-1">
-                      {links.issues.map((link) => <SessionLinkRow key={link.url} link={link} />)}
-                    </ul>
-                  </LinkGroup>
-                )}
-                {links.notion.length > 0 && (
-                  <LinkGroup title="Notion" testId="opencode-link-group-notion">
-                    <ul className="space-y-1">
-                      {links.notion.map((link) => <SessionLinkRow key={link.url} link={link} />)}
-                    </ul>
-                  </LinkGroup>
-                )}
-                {links.other.length > 0 && (
-                  <LinkGroup title="Other links" testId="opencode-link-group-other">
-                    <div className="space-y-2">
-                      {links.other.map((group) => (
-                        <div key={group.host} data-testid="opencode-link-host-group" data-host={group.host}>
-                          <p className="text-[10px] text-[var(--color-text-muted)]">{group.host}</p>
-                          <ul className="space-y-1">
-                            {group.links.map((link) => <SessionLinkRow key={link.url} link={link} />)}
-                          </ul>
-                        </div>
-                      ))}
-                    </div>
-                  </LinkGroup>
-                )}
-              </>
+              <SessionLinksPanel links={links} />
             )}
           </section>
         )}

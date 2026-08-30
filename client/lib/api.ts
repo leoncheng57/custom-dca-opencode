@@ -410,7 +410,6 @@ export interface ReviewCheck { id: string; name: string; stage: string; status: 
 export interface ReviewCommit { sha: string; shortSha: string; subject: string; author: string; authoredAt: string; webUrl: string; subjectTruncated: boolean }
 export interface DetailSection<T> { value: T; error: "Authentication unavailable" | "Rate limited" | "Unavailable" | null; truncated: boolean }
 export interface ReviewDetails {
-  description: DetailSection<string>;
   comments: DetailSection<ReviewComment[]>;
   reviews: DetailSection<ReviewSummary[]>;
   pipelines: DetailSection<ReviewPipeline[]>;

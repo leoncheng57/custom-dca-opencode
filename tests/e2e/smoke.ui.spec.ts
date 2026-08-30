@@ -1706,7 +1706,10 @@ test.describe("workspace UI", () => {
     await expect(page.getByTestId("opencode-review-card")).toContainText("Mock pull request");
     await expect(page.getByTestId("opencode-review-card")).toContainText("checks passed");
     await page.getByTestId("opencode-review-details-toggle").click();
-    await expect(page.getByTestId("opencode-review-details")).toContainText("Ready to ship.");
+    // The PR body no longer renders; the commits section is what the expanded
+    // details lead with, so assert the panel opened on that instead.
+    await expect(page.getByTestId("opencode-review-details")).toContainText("Commits (1)");
+    await expect(page.getByTestId("opencode-review-details")).not.toContainText("Ready to ship.");
     await expect(page.getByTestId("opencode-review-comment")).toContainText("Looks good.");
     const failed = page.getByTestId("opencode-review-check").filter({ hasText: "test" });
     await expect(failed).toHaveAttribute("data-status", "failed");
@@ -1741,12 +1744,51 @@ test.describe("workspace UI", () => {
     await expect(page.getByTestId("opencode-link-group-reviews")).toContainText("Mock pull request");
     await expect(page.getByTestId("opencode-link-group-issues")).toContainText("acme/demo#12");
     await expect(page.getByTestId("opencode-link-group-notion")).toContainText("Route Spec");
-    await expect(page.getByTestId("opencode-link-group-other")).toContainText("example.invalid");
+
+    // The groups a reader came for open themselves; the leftover bucket folds,
+    // and its count is what stands in for the rows until it is opened.
+    await expect(page.getByTestId("opencode-link-group-issues")).toHaveAttribute("data-expanded", "true");
+    await expect(page.getByTestId("opencode-link-group-notion")).toHaveAttribute("data-expanded", "true");
+    const other = page.getByTestId("opencode-link-group-other");
+    await expect(other).toHaveAttribute("data-expanded", "false");
+    await expect(other).not.toContainText("example.invalid");
+    await other.getByTestId("opencode-link-group-toggle").click();
+    await expect(other).toHaveAttribute("data-expanded", "true");
+    await expect(other).toContainText("example.invalid");
 
     const issue = page.getByTestId("opencode-session-link").filter({ hasText: "acme/demo#12" });
     await expect(issue).toHaveAttribute("data-kind", "issue");
     await expect(issue.getByRole("link")).toHaveAttribute("href", "https://github.com/acme/demo/issues/12");
     await expect(issue.getByRole("link")).toHaveAttribute("rel", "noreferrer");
+  });
+
+  test("folds an expanded link group away on demand", async ({ page }) => {
+    await page.route("**/api/permission-requests?**", (route) => route.fulfill({ json: { requests: [] } }));
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(conversation);
+    await expect(page.getByTestId("opencode-session-inspector")).toBeVisible();
+    await page.getByTestId("opencode-mobile-reviews-open").click();
+
+    const issues = page.getByTestId("opencode-link-group-issues");
+    const issueRow = page.getByTestId("opencode-session-link").filter({ hasText: "acme/demo#12" });
+    await expect(issues).toHaveAttribute("data-expanded", "true");
+    await expect(issueRow).toHaveCount(1);
+
+    // Collapsing has to remove the rows, not just restyle the header: a group
+    // that reports itself folded while still rendering its links would make the
+    // fold state a lie and defeat the point of folding the long buckets.
+    const toggle = issues.getByTestId("opencode-link-group-toggle");
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await toggle.click();
+    await expect(issues).toHaveAttribute("data-expanded", "false");
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(issueRow).toHaveCount(0);
+    // The header keeps carrying the count while folded.
+    await expect(issues).toContainText("GitHub issues");
+
+    await toggle.click();
+    await expect(issues).toHaveAttribute("data-expanded", "true");
+    await expect(issueRow).toHaveCount(1);
   });
 
   test("fetches expensive review details only after expansion", async ({ page }) => {
