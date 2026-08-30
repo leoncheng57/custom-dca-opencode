@@ -1711,6 +1711,11 @@ test.describe("workspace UI", () => {
     const failed = page.getByTestId("opencode-review-check").filter({ hasText: "test" });
     await expect(failed).toHaveAttribute("data-status", "failed");
     await expect(failed.getByRole("link")).toHaveAttribute("rel", "noreferrer");
+    const commit = page.getByTestId("opencode-review-commit").first();
+    await expect(commit).toContainText("Add the mock route");
+    await expect(commit).not.toContainText("Longer body text");
+    await expect(commit.getByRole("link")).toHaveAttribute("href", "https://github.com/acme/demo/commit/abc123def4567890abc123def4567890abc12345");
+    await expect(commit.getByRole("link")).toHaveAttribute("rel", "noreferrer");
     await page.getByTestId("opencode-desktop-inspector-close").click();
     await page.getByTestId("opencode-mobile-workspace-open").click();
     await page.getByTestId("opencode-tree-file").filter({ hasText: "README.md" }).click();
@@ -1730,7 +1735,7 @@ test.describe("workspace UI", () => {
     expect(await (await fetch(`${FORGE_URL}/test/forge-state`)).json()).toMatchObject({ detailRequests: 0 });
     await page.getByTestId("opencode-review-details-toggle").click();
     await expect(page.getByTestId("opencode-review-check")).toBeVisible();
-    expect(await (await fetch(`${FORGE_URL}/test/forge-state`)).json()).toMatchObject({ detailRequests: 4 });
+    expect(await (await fetch(`${FORGE_URL}/test/forge-state`)).json()).toMatchObject({ detailRequests: 5 });
   });
 
   test("keeps merge confirmation bound to the reviewed SHA", async ({ page }) => {

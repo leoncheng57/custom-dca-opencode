@@ -3,10 +3,12 @@ import type { ReviewRef } from "./forge.js";
 export const REVIEW_DETAIL_LIMITS = {
   descriptionCharacters: 20_000,
   bodyCharacters: 8_000,
+  subjectCharacters: 500,
   comments: 50,
   reviews: 25,
   pipelines: 5,
   checks: 100,
+  commits: 50,
   pages: 1,
   timeoutMs: 10_000,
 } as const;
@@ -19,12 +21,14 @@ export interface ReviewComment { id: string; author: string; body: string; creat
 export interface ReviewSummary { id: string; author: string; state: string; body: string; submittedAt: string; bodyTruncated: boolean }
 export interface ReviewPipeline { id: string; status: ItemStatus; webUrl: string; createdAt: string; completedAt: string; duration: number | null }
 export interface ReviewCheck { id: string; name: string; stage: string; status: ItemStatus; webUrl: string; startedAt: string; completedAt: string; duration: number | null; source: "check" | "status" | "job" }
+export interface ReviewCommit { sha: string; shortSha: string; subject: string; author: string; authoredAt: string; webUrl: string; subjectTruncated: boolean }
 export interface ReviewDetails {
   description: DetailSection<string>;
   comments: DetailSection<ReviewComment[]>;
   reviews: DetailSection<ReviewSummary[]>;
   pipelines: DetailSection<ReviewPipeline[]>;
   checks: DetailSection<ReviewCheck[]>;
+  commits: DetailSection<ReviewCommit[]>;
   partial: boolean;
   auth: "available" | "unavailable" | "rate_limited";
 }
@@ -75,6 +79,20 @@ function text(value: unknown, max: number): { value: string; truncated: boolean 
   return { value: source.slice(0, max), truncated: source.length > max };
 }
 
+function subject(value: unknown, max: number): { value: string; truncated: boolean } {
+  const line = (typeof value === "string" ? value : "").split("\n", 1)[0] ?? "";
+  return { value: line.slice(0, max), truncated: line.length > max };
+}
+
+/** Deterministic commit permalink, so a missing upstream `html_url`/`web_url` never costs the reader the diff link. */
+export function commitWebUrl(ref: ReviewRef, sha: string, reported: unknown): string {
+  if (typeof reported === "string" && /^https?:\/\//i.test(reported)) return reported;
+  if (!/^[a-f0-9]{6,64}$/i.test(sha)) return "";
+  return ref.forge === "github"
+    ? ref.url.replace(/\/pull\/\d+\/?$/, `/commit/${sha}`)
+    : ref.url.replace(/\/-\/merge_requests\/\d+\/?$/, `/-/commit/${sha}`);
+}
+
 export function detailDuration(start: unknown, end: unknown, reported?: unknown): number | null {
   if (typeof reported === "number" && Number.isFinite(reported) && reported >= 0) return reported;
   if (typeof start !== "string" || typeof end !== "string") return null;
@@ -112,11 +130,13 @@ async function githubDetails(ref: Extract<ReviewRef, { forge: "github" }>): Prom
     get<Record<string, any>>(url(`${repo}/pulls/${ref.number}`, base), auth),
     get<Array<Record<string, any>>>(url(`${repo}/issues/${ref.number}/comments`, base, { per_page: "51", page: "1" }), auth),
     get<Array<Record<string, any>>>(url(`${repo}/pulls/${ref.number}/reviews`, base, { per_page: "26", page: "1" }), auth),
+    get<Array<Record<string, any>>>(url(`${repo}/pulls/${ref.number}/commits`, base, { per_page: String(REVIEW_DETAIL_LIMITS.commits + 1), page: "1" }), auth),
   ]);
   const errors = initial.filter((item): item is PromiseRejectedResult => item.status === "rejected").map((item) => item.reason);
   const pr = initial[0];
   const commentsResult = initial[1];
   const reviewsResult = initial[2];
+  const commitsResult = initial[3];
   const description = pr.status === "fulfilled"
     ? (() => { const body = text(pr.value.body, REVIEW_DETAIL_LIMITS.descriptionCharacters); return { value: body.value, error: null, truncated: body.truncated } as DetailSection<string>; })()
     : failedSection("", pr.reason);
@@ -132,6 +152,14 @@ async function githubDetails(ref: Extract<ReviewRef, { forge: "github" }>): Prom
       return { id: String(review.id ?? ""), author: String(review.user?.login ?? "unknown"), state: String(review.state ?? "unknown").toLowerCase(), body: body.value, submittedAt: String(review.submitted_at ?? ""), bodyTruncated: body.truncated };
     }), error: null, truncated: reviewsResult.value.length > REVIEW_DETAIL_LIMITS.reviews,
   } satisfies DetailSection<ReviewSummary[]> : failedSection<ReviewSummary[]>([], reviewsResult.reason);
+  const commitList = commitsResult.status === "fulfilled" && Array.isArray(commitsResult.value) ? commitsResult.value : [];
+  const commits = commitsResult.status === "fulfilled" ? {
+    value: commitList.slice(0, REVIEW_DETAIL_LIMITS.commits).map((commit) => {
+      const sha = String(commit.sha ?? "");
+      const line = subject(commit.commit?.message, REVIEW_DETAIL_LIMITS.subjectCharacters);
+      return { sha, shortSha: sha.slice(0, 7), subject: line.value, author: String(commit.author?.login ?? commit.commit?.author?.name ?? "unknown"), authoredAt: String(commit.commit?.author?.date ?? ""), webUrl: commitWebUrl(ref, sha, commit.html_url), subjectTruncated: line.truncated };
+    }), error: null, truncated: commitList.length > REVIEW_DETAIL_LIMITS.commits,
+  } satisfies DetailSection<ReviewCommit[]> : failedSection<ReviewCommit[]>([], commitsResult.reason);
 
   let checks: DetailSection<ReviewCheck[]> = { value: [], error: null, truncated: false };
   const sha = pr.status === "fulfilled" && typeof pr.value.head?.sha === "string" ? pr.value.head.sha : "";
@@ -158,8 +186,8 @@ async function githubDetails(ref: Extract<ReviewRef, { forge: "github" }>): Prom
     checks = { value: items.slice(0, REVIEW_DETAIL_LIMITS.checks), error: checkResults.some((item) => item.status === "rejected") ? "Unavailable" : null, truncated: truncated || items.length > REVIEW_DETAIL_LIMITS.checks };
   }
   const pipelines: DetailSection<ReviewPipeline[]> = { value: [], error: null, truncated: false };
-  const sections = [description, comments, reviews, pipelines, checks];
-  return { description, comments, reviews, pipelines, checks, partial: sections.some((section) => section.error !== null), auth: authState(ref, errors) };
+  const sections = [description, comments, reviews, pipelines, checks, commits];
+  return { description, comments, reviews, pipelines, checks, commits, partial: sections.some((section) => section.error !== null), auth: authState(ref, errors) };
 }
 
 async function gitlabDetails(ref: Extract<ReviewRef, { forge: "gitlab" }>): Promise<ReviewDetails> {
@@ -169,6 +197,7 @@ async function gitlabDetails(ref: Extract<ReviewRef, { forge: "gitlab" }>): Prom
     get<Record<string, any>>(url(`merge_requests/${ref.number}`, base), auth),
     get<Array<Record<string, any>>>(url(`merge_requests/${ref.number}/discussions`, base, { per_page: "51", page: "1" }), auth),
     get<Array<Record<string, any>>>(url(`merge_requests/${ref.number}/pipelines`, base, { per_page: "6", page: "1" }), auth),
+    get<Array<Record<string, any>>>(url(`merge_requests/${ref.number}/commits`, base, { per_page: String(REVIEW_DETAIL_LIMITS.commits + 1), page: "1" }), auth),
   ]);
   const errors = initial.filter((item): item is PromiseRejectedResult => item.status === "rejected").map((item) => item.reason);
   const description = initial[0].status === "fulfilled"
@@ -191,6 +220,14 @@ async function gitlabDetails(ref: Extract<ReviewRef, { forge: "gitlab" }>): Prom
     latestId = typeof initial[2].value[0]?.id === "number" ? initial[2].value[0].id : null;
     pipelines = { value: initial[2].value.slice(0, REVIEW_DETAIL_LIMITS.pipelines).map((pipeline) => ({ id: String(pipeline.id ?? ""), status: normalizeDetailStatus(pipeline.status), webUrl: String(pipeline.web_url ?? ""), createdAt: String(pipeline.created_at ?? ""), completedAt: String(pipeline.updated_at ?? ""), duration: detailDuration(pipeline.created_at, pipeline.updated_at) })), error: null, truncated: initial[2].value.length > REVIEW_DETAIL_LIMITS.pipelines };
   } else pipelines = failedSection([], initial[2].reason);
+  const commitList = initial[3].status === "fulfilled" && Array.isArray(initial[3].value) ? initial[3].value : [];
+  const commits = initial[3].status === "fulfilled" ? {
+    value: commitList.slice(0, REVIEW_DETAIL_LIMITS.commits).map((commit) => {
+      const sha = String(commit.id ?? "");
+      const line = subject(commit.title ?? commit.message, REVIEW_DETAIL_LIMITS.subjectCharacters);
+      return { sha, shortSha: String(commit.short_id ?? sha.slice(0, 8)), subject: line.value, author: String(commit.author_name ?? "unknown"), authoredAt: String(commit.authored_date ?? commit.created_at ?? ""), webUrl: commitWebUrl(ref, sha, commit.web_url), subjectTruncated: line.truncated };
+    }), error: null, truncated: commitList.length > REVIEW_DETAIL_LIMITS.commits,
+  } satisfies DetailSection<ReviewCommit[]> : failedSection<ReviewCommit[]>([], initial[3].reason);
   let checks: DetailSection<ReviewCheck[]> = { value: [], error: null, truncated: false };
   if (latestId !== null) {
     try {
@@ -198,8 +235,8 @@ async function gitlabDetails(ref: Extract<ReviewRef, { forge: "gitlab" }>): Prom
       checks = { value: jobs.slice(0, REVIEW_DETAIL_LIMITS.checks).map((job) => ({ id: `job:${String(job.id ?? "")}`, name: String(job.name ?? "Job"), stage: String(job.stage ?? "pipeline"), status: normalizeDetailStatus(job.status), webUrl: String(job.web_url ?? ""), startedAt: String(job.started_at ?? ""), completedAt: String(job.finished_at ?? ""), duration: detailDuration(job.started_at, job.finished_at, job.duration), source: "job" })), error: null, truncated: jobs.length >= REVIEW_DETAIL_LIMITS.checks };
     } catch (error) { errors.push(error); checks = failedSection([], error); }
   }
-  const sections = [description, comments, reviews, pipelines, checks];
-  return { description, comments, reviews, pipelines, checks, partial: sections.some((section) => section.error !== null), auth: authState(ref, errors) };
+  const sections = [description, comments, reviews, pipelines, checks, commits];
+  return { description, comments, reviews, pipelines, checks, commits, partial: sections.some((section) => section.error !== null), auth: authState(ref, errors) };
 }
 
 const inFlight = new Map<string, Promise<ReviewDetails>>();

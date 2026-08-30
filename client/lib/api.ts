@@ -407,6 +407,7 @@ export interface ReviewComment { id: string; author: string; body: string; creat
 export interface ReviewSummary { id: string; author: string; state: string; body: string; submittedAt: string; bodyTruncated: boolean }
 export interface ReviewPipeline { id: string; status: string; webUrl: string; createdAt: string; completedAt: string; duration: number | null }
 export interface ReviewCheck { id: string; name: string; stage: string; status: string; webUrl: string; startedAt: string; completedAt: string; duration: number | null; source: "check" | "status" | "job" }
+export interface ReviewCommit { sha: string; shortSha: string; subject: string; author: string; authoredAt: string; webUrl: string; subjectTruncated: boolean }
 export interface DetailSection<T> { value: T; error: "Authentication unavailable" | "Rate limited" | "Unavailable" | null; truncated: boolean }
 export interface ReviewDetails {
   description: DetailSection<string>;
@@ -414,6 +415,7 @@ export interface ReviewDetails {
   reviews: DetailSection<ReviewSummary[]>;
   pipelines: DetailSection<ReviewPipeline[]>;
   checks: DetailSection<ReviewCheck[]>;
+  commits: DetailSection<ReviewCommit[]>;
   partial: boolean;
   auth: "available" | "unavailable" | "rate_limited";
 }
