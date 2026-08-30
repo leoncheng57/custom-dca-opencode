@@ -1711,6 +1711,11 @@ test.describe("workspace UI", () => {
     const failed = page.getByTestId("opencode-review-check").filter({ hasText: "test" });
     await expect(failed).toHaveAttribute("data-status", "failed");
     await expect(failed.getByRole("link")).toHaveAttribute("rel", "noreferrer");
+    const commit = page.getByTestId("opencode-review-commit").first();
+    await expect(commit).toContainText("Add the mock route");
+    await expect(commit).not.toContainText("Longer body text");
+    await expect(commit.getByRole("link")).toHaveAttribute("href", "https://github.com/acme/demo/commit/abc123def4567890abc123def4567890abc12345");
+    await expect(commit.getByRole("link")).toHaveAttribute("rel", "noreferrer");
     await page.getByTestId("opencode-desktop-inspector-close").click();
     await page.getByTestId("opencode-mobile-workspace-open").click();
     await page.getByTestId("opencode-tree-file").filter({ hasText: "README.md" }).click();
@@ -1719,6 +1724,29 @@ test.describe("workspace UI", () => {
     await expect(page.getByTestId("opencode-diff-viewer")).toContainText("+new");
     await page.getByTestId("opencode-workspace-preview").click();
     await expect(page.getByTestId("opencode-preview-frame")).toBeVisible();
+  });
+
+  test("indexes every session link into groups behind a counted badge", async ({ page }) => {
+    await page.route("**/api/permission-requests?**", (route) => route.fulfill({ json: { requests: [] } }));
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(conversation);
+    await expect(page.getByTestId("opencode-session-inspector")).toBeVisible();
+
+    // 4 unique links live in the fixture transcript: one PR, one issue,
+    // one Notion page, and one plain documentation URL.
+    await expect(page.getByTestId("opencode-mobile-reviews-count")).toHaveText("4");
+    await expect(page.getByTestId("opencode-mobile-reviews-open")).toHaveAttribute("aria-label", "Open reviews, 4 links");
+
+    await page.getByTestId("opencode-mobile-reviews-open").click();
+    await expect(page.getByTestId("opencode-link-group-reviews")).toContainText("Mock pull request");
+    await expect(page.getByTestId("opencode-link-group-issues")).toContainText("acme/demo#12");
+    await expect(page.getByTestId("opencode-link-group-notion")).toContainText("Route Spec");
+    await expect(page.getByTestId("opencode-link-group-other")).toContainText("example.invalid");
+
+    const issue = page.getByTestId("opencode-session-link").filter({ hasText: "acme/demo#12" });
+    await expect(issue).toHaveAttribute("data-kind", "issue");
+    await expect(issue.getByRole("link")).toHaveAttribute("href", "https://github.com/acme/demo/issues/12");
+    await expect(issue.getByRole("link")).toHaveAttribute("rel", "noreferrer");
   });
 
   test("fetches expensive review details only after expansion", async ({ page }) => {
@@ -1730,7 +1758,7 @@ test.describe("workspace UI", () => {
     expect(await (await fetch(`${FORGE_URL}/test/forge-state`)).json()).toMatchObject({ detailRequests: 0 });
     await page.getByTestId("opencode-review-details-toggle").click();
     await expect(page.getByTestId("opencode-review-check")).toBeVisible();
-    expect(await (await fetch(`${FORGE_URL}/test/forge-state`)).json()).toMatchObject({ detailRequests: 4 });
+    expect(await (await fetch(`${FORGE_URL}/test/forge-state`)).json()).toMatchObject({ detailRequests: 5 });
   });
 
   test("keeps merge confirmation bound to the reviewed SHA", async ({ page }) => {

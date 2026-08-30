@@ -23,7 +23,7 @@ import { foreignAgentFromSession, latestModeMessageID, modeFromSession, type Age
 import { MAX_IMAGE_ATTACHMENTS, readImageAttachment, selectImageFiles, type ImageAttachment } from "../lib/attachments.js";
 import { createComposerCollapseGuard } from "../lib/composerCollapse.js";
 import { composerEnterAction } from "../lib/composerKeys.js";
-import { collapseActionGroups, mergeEvents, runningActivity } from "../lib/derive.js";
+import { collapseActionGroups, extractSessionLinks, mergeEvents, runningActivity } from "../lib/derive.js";
 import { normalizeTranscript, type RawMessage } from "../lib/events.js";
 import { parseInspectorTab, type InspectorTab } from "../lib/inspectorTabs.js";
 import { referenceCandidatesFromEvents, type WorkspaceTarget } from "../lib/fileReferences.js";
@@ -362,6 +362,7 @@ export function ConversationPage() {
 
   const items = useMemo(() => collapseActionGroups(events), [events]);
   const activity = useMemo(() => runningActivity(events), [events]);
+  const sessionLinkCount = useMemo(() => extractSessionLinks(events).total, [events]);
 
   // Reference validation is derived from the transcript rather than from
   // rendering, so a streaming turn produces one batched request per new set of
@@ -690,16 +691,25 @@ export function ConversationPage() {
           <Button
             size="md"
             variant="ghost"
-            className="min-h-11 min-w-12 px-0"
+            className="relative min-h-11 min-w-12 px-0"
             onClick={() => {
               setRequestedInspectorTab("reviews");
               setInspectorOpen(true);
             }}
-            aria-label="Open reviews"
+            aria-label={sessionLinkCount ? `Open reviews, ${sessionLinkCount} ${sessionLinkCount === 1 ? "link" : "links"}` : "Open reviews"}
             title="Open reviews"
             data-testid="opencode-mobile-reviews-open"
           >
             <GitPullRequest aria-hidden="true" className="h-3.5 w-3.5" />
+            {sessionLinkCount > 0 && (
+              <span
+                aria-hidden
+                data-testid="opencode-mobile-reviews-count"
+                className="absolute right-1 top-1 inline-flex min-w-[1rem] items-center justify-center rounded-full bg-[var(--color-background-action-info)] px-1 py-0.5 text-[9px] font-semibold leading-none text-white"
+              >
+                {sessionLinkCount}
+              </span>
+            )}
           </Button>
           <Button
             size="md"

@@ -7,9 +7,11 @@ import { Badge, type BadgeVariant } from "../ds/badge.js";
 import {
   extractCommands,
   serializeCommands,
-  extractMrUrls,
+  extractSessionLinks,
   formatClockTime,
   type CommandEntry,
+  type SessionLink,
+  type SessionLinkIndex,
 } from "../lib/derive.js";
 import { api, type CatalogResponse, type McpStatus, type Todo } from "../lib/api.js";
 import { type InspectorTab } from "../lib/inspectorTabs.js";
@@ -43,6 +45,32 @@ const TAB_LABELS: Record<InspectorTab, string> = {
 };
 
 const CORE_INSPECTOR_TABS = ["todo", "runlog", "subagents"] as const;
+
+/** One row in a non-review link group. Non-HTTP(S) targets never reach here. */
+function SessionLinkRow({ link }: { link: SessionLink }) {
+  return (
+    <li data-testid="opencode-session-link" data-kind={link.kind}>
+      <a
+        href={link.url}
+        target="_blank"
+        rel="noreferrer"
+        className="block min-w-0 break-words text-xs underline"
+        title={link.url}
+      >
+        {link.label}
+      </a>
+    </li>
+  );
+}
+
+function LinkGroup({ title, testId, children }: { title: string; testId: string; children: React.ReactNode }) {
+  return (
+    <section data-testid={testId}>
+      <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">{title}</h3>
+      {children}
+    </section>
+  );
+}
 
 function statusVariant(status: string): BadgeVariant {
   if (status === "completed" || status === "connected") return "success";
@@ -374,7 +402,7 @@ function InspectorContent({
   catalogLoading: boolean;
   commands: CommandEntry[];
   directory: string;
-  links: string[];
+  links: SessionLinkIndex;
   todos: Todo[];
   todosLoaded: boolean;
   todosError: string | null;
@@ -416,7 +444,6 @@ function InspectorContent({
             {name === "todo" && todos.length ? ` ${todos.length}` : ""}
             {name === "runlog" && commands.length ? ` ${commands.length}` : ""}
             {name === "subagents" && subagentCount ? ` ${subagentCount}` : ""}
-            {name === "reviews" && links.length ? ` ${links.length}` : ""}
           </button>
         ))}
       </nav>}
@@ -451,20 +478,58 @@ function InspectorContent({
         )}
 
         {tab === "reviews" && (
-          <section data-testid="opencode-merge-request-list">
-            <h2 className="mb-2 text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]">
-              Merge requests and pull requests
-            </h2>
-            {links.length === 0 ? (
-              <p className="text-sm text-[var(--color-text-muted)]">No review links mentioned.</p>
+          <section data-testid="opencode-merge-request-list" className="min-w-0 space-y-4">
+            {links.total === 0 ? (
+              <>
+                <h2 className="mb-2 text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]">
+                  Merge requests and pull requests
+                </h2>
+                <p className="text-sm text-[var(--color-text-muted)]">No links mentioned.</p>
+              </>
             ) : (
-              <ul className="space-y-2">
-                {links.map((url) => (
-                  <li key={url}>
-                    <ReviewCard url={url} />
-                  </li>
-                ))}
-              </ul>
+              <>
+                <LinkGroup title="Pull requests and merge requests" testId="opencode-link-group-reviews">
+                  {links.reviews.length === 0 ? (
+                    <p className="text-xs text-[var(--color-text-muted)]">No review links mentioned.</p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {links.reviews.map((url) => (
+                        <li key={url}>
+                          <ReviewCard url={url} />
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </LinkGroup>
+                {links.issues.length > 0 && (
+                  <LinkGroup title="GitHub issues" testId="opencode-link-group-issues">
+                    <ul className="space-y-1">
+                      {links.issues.map((link) => <SessionLinkRow key={link.url} link={link} />)}
+                    </ul>
+                  </LinkGroup>
+                )}
+                {links.notion.length > 0 && (
+                  <LinkGroup title="Notion" testId="opencode-link-group-notion">
+                    <ul className="space-y-1">
+                      {links.notion.map((link) => <SessionLinkRow key={link.url} link={link} />)}
+                    </ul>
+                  </LinkGroup>
+                )}
+                {links.other.length > 0 && (
+                  <LinkGroup title="Other links" testId="opencode-link-group-other">
+                    <div className="space-y-2">
+                      {links.other.map((group) => (
+                        <div key={group.host} data-testid="opencode-link-host-group" data-host={group.host}>
+                          <p className="text-[10px] text-[var(--color-text-muted)]">{group.host}</p>
+                          <ul className="space-y-1">
+                            {group.links.map((link) => <SessionLinkRow key={link.url} link={link} />)}
+                          </ul>
+                        </div>
+                      ))}
+                    </div>
+                  </LinkGroup>
+                )}
+              </>
             )}
           </section>
         )}
@@ -565,7 +630,7 @@ export function SessionInspector({ directory, sessionID, events, todos, todosLoa
   const [desktopViewport, setDesktopViewport] = useState(() => window.matchMedia("(min-width: 1024px)").matches);
   const commandScope = `${directory}\0${sessionID}`;
   const commands = useMemo(() => extractCommands(events), [events]);
-  const links = useMemo(() => extractMrUrls(events), [events]);
+  const links = useMemo(() => extractSessionLinks(events), [events]);
   const [tab, setTab] = useState<InspectorTab>("todo");
   const [surfaceTab, setSurfaceTab] = useState<Extract<InspectorTab, "reviews" | "catalog">>();
   const [catalogue, setCatalogue] = useState<{ directory: string; value: CatalogResponse } | null>(null);

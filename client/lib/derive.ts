@@ -283,35 +283,167 @@ function scanText(text: string | undefined, seen: Set<string>, out: string[]): v
   }
 }
 
+/** Every free-text field of an event that may carry a hyperlink. Patches are skipped on purpose. */
+function eventTexts(event: TranscriptEvent): Array<string | undefined> {
+  switch (event.kind) {
+    case "user":
+    case "agent":
+    case "thought":
+      return [event.text];
+    case "tool":
+      return [event.detail, event.title, event.output, event.error];
+    case "status":
+      return [event.label, event.detail];
+    case "error":
+      return [event.message];
+    default:
+      return [];
+  }
+}
+
 /** Merge-request / pull-request URLs the agent mentioned, in first-seen order. */
 export function extractMrUrls(events: TranscriptEvent[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
+  for (const event of events) for (const text of eventTexts(event)) scanText(text, seen, out);
+  return out;
+}
+
+// ── Session link index ──────────────────────────────────────────────────────
+
+// Same terminator set as MR_URL_RE so markdown-wrapped links end cleanly. '<'
+// is excluded so an HTML-ish transcript fragment cannot swallow the tag.
+const LINK_URL_RE = /https?:\/\/[^\s)\]>"'<]+/g;
+const GITHUB_ISSUE_PATH_RE = /^\/([^/]+)\/([^/]+)\/issues\/(\d+)$/;
+// Anchored at the start but open at the end, so a review URL carrying a tab
+// segment or query string still collapses to the same bounded identity that
+// extractMrUrls produces.
+const REVIEW_URL_PREFIX_RE =
+  /^https?:\/\/[^\s)\]>"']+\/-\/merge_requests\/\d+|^https?:\/\/github\.com\/[^\s)\]>"'/]+\/[^\s)\]>"'/]+\/pull\/\d+/;
+const NOTION_HOST_RE = /(^|\.)notion\.so$|(^|\.)notion\.site$|(^|\.)notion\.com$/;
+
+export type SessionLinkKind = "review" | "issue" | "notion" | "other";
+
+export interface SessionLink {
+  url: string;
+  kind: SessionLinkKind;
+  host: string;
+  label: string;
+  /** Present only for GitHub issues. */
+  issue?: { owner: string; repo: string; number: number };
+}
+
+export interface SessionLinkIndex {
+  /** Review URLs, kept as plain strings so ReviewCard keeps its existing contract. */
+  reviews: string[];
+  issues: SessionLink[];
+  notion: SessionLink[];
+  /** Remaining hosts, alphabetical; links inside a host stay in first-seen order. */
+  other: Array<{ host: string; links: SessionLink[] }>;
+  /** Unique canonical links across every group. */
+  total: number;
+}
+
+/**
+ * Trailing sentence punctuation and slashes are dropped, the fragment is
+ * discarded so two anchors into one document dedupe together, and anything
+ * that is not HTTP(S) is rejected outright rather than rendered as a link.
+ */
+function canonicalLink(raw: string): URL | null {
+  const trimmed = raw.replace(/[.,;:!?'"]+$/, "").replace(/\/+$/, "");
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+  parsed.hash = "";
+  return parsed;
+}
+
+function canonicalHref(parsed: URL): string {
+  return parsed.toString().replace(/\/$/, "");
+}
+
+function notionLabel(parsed: URL): string {
+  const slug = decodeURIComponent(parsed.pathname.split("/").filter(Boolean).pop() ?? "");
+  const name = slug.replace(/-?[0-9a-f]{32}$/i, "").replace(/[-_]+/g, " ").trim();
+  return name || parsed.hostname;
+}
+
+function genericLabel(parsed: URL): string {
+  const path = parsed.pathname.replace(/\/+$/, "");
+  return path && path !== "/" ? `${parsed.hostname}${path}${parsed.search}` : parsed.hostname;
+}
+
+function classify(parsed: URL, href: string): SessionLink {
+  const host = parsed.hostname;
+  const issue = host === "github.com" ? GITHUB_ISSUE_PATH_RE.exec(parsed.pathname) : null;
+  if (issue) {
+    return {
+      url: href,
+      kind: "issue",
+      host,
+      label: `${issue[1]}/${issue[2]}#${issue[3]}`,
+      issue: { owner: issue[1], repo: issue[2], number: Number(issue[3]) },
+    };
+  }
+  if (NOTION_HOST_RE.test(host)) return { url: href, kind: "notion", host, label: notionLabel(parsed) };
+  return { url: href, kind: "other", host, label: genericLabel(parsed) };
+}
+
+/**
+ * Every safe hyperlink in the transcript, deduplicated by canonical URL and
+ * grouped for the Reviews panel. Recognized groups come first; remaining hosts
+ * are alphabetical so the panel does not reshuffle as a session grows.
+ */
+export function extractSessionLinks(events: TranscriptEvent[]): SessionLinkIndex {
+  const seen = new Set<string>();
+  const reviews: string[] = [];
+  const issues: SessionLink[] = [];
+  const notion: SessionLink[] = [];
+  const others: SessionLink[] = [];
+
   for (const event of events) {
-    switch (event.kind) {
-      case "user":
-      case "agent":
-      case "thought":
-        scanText(event.text, seen, out);
-        break;
-      case "tool":
-        scanText(event.detail, seen, out);
-        scanText(event.title, seen, out);
-        scanText(event.output, seen, out);
-        scanText(event.error, seen, out);
-        break;
-      case "status":
-        scanText(event.label, seen, out);
-        scanText(event.detail, seen, out);
-        break;
-      case "patch":
-        break;
-      case "error":
-        scanText(event.message, seen, out);
-        break;
+    for (const text of eventTexts(event)) {
+      if (!text) continue;
+      for (const match of text.matchAll(LINK_URL_RE)) {
+        const review = REVIEW_URL_PREFIX_RE.exec(match[0]);
+        if (review) {
+          const href = review[0].replace(/\/+$/, "");
+          if (seen.has(href)) continue;
+          seen.add(href);
+          reviews.push(href);
+          continue;
+        }
+        const parsed = canonicalLink(match[0]);
+        if (!parsed) continue;
+        const href = canonicalHref(parsed);
+        if (seen.has(href)) continue;
+        seen.add(href);
+        const link = classify(parsed, href);
+        if (link.kind === "issue") issues.push(link);
+        else if (link.kind === "notion") notion.push(link);
+        else others.push(link);
+      }
     }
   }
-  return out;
+
+  const byHost = new Map<string, SessionLink[]>();
+  for (const link of others) {
+    const bucket = byHost.get(link.host);
+    if (bucket) bucket.push(link);
+    else byHost.set(link.host, [link]);
+  }
+
+  return {
+    reviews,
+    issues,
+    notion,
+    other: [...byHost.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([host, links]) => ({ host, links })),
+    total: seen.size,
+  };
 }
 
 // ── Formatting ──────────────────────────────────────────────────────────────

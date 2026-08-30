@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import { Button } from "../ds/button.js";
 import { Markdown } from "../ds/markdown.js";
-import { api, type ReviewCheck, type ReviewDetails, type ReviewStatus } from "../lib/api.js";
+import { api, type ReviewCheck, type ReviewCommit, type ReviewDetails, type ReviewStatus } from "../lib/api.js";
 
 function formatDuration(seconds: number | null): string {
   if (seconds === null || !Number.isFinite(seconds) || seconds < 0) return "";
@@ -32,6 +32,23 @@ function CheckRow({ check }: { check: ReviewCheck }) {
   return (
     <li data-testid="opencode-review-check" data-status={check.status}>
       {externalUrl ? <a href={externalUrl} target="_blank" rel="noreferrer" className="block underline">{content}</a> : content}
+    </li>
+  );
+}
+
+function CommitRow({ commit }: { commit: ReviewCommit }) {
+  const externalUrl = safeExternalUrl(commit.webUrl);
+  const content = (
+    <span className="flex min-w-0 items-baseline gap-1.5 text-[11px]">
+      <code className="shrink-0 text-[10px] text-[var(--color-text-muted)]">{commit.shortSha}</code>
+      <span className="min-w-0 flex-1 break-words">{commit.subject || "(no commit message)"}</span>
+      {commit.author && <span className="shrink-0 text-[10px] text-[var(--color-text-muted)]">{commit.author}</span>}
+    </span>
+  );
+  return (
+    <li data-testid="opencode-review-commit" data-sha={commit.shortSha}>
+      {externalUrl ? <a href={externalUrl} target="_blank" rel="noreferrer" className="block underline" title={`View the diff for ${commit.shortSha}`}>{content}</a> : content}
+      {commit.subjectTruncated && <Truncated show />}
     </li>
   );
 }
@@ -101,6 +118,12 @@ export function ReviewCard({ url }: { url: string }) {
                   <section>
                     <div className="flex items-center justify-between gap-2"><h3 className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">Description</h3><Truncated show={details.description.truncated} /></div>
                     {details.description.error ? <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">Description {details.description.error.toLowerCase()}.</p> : details.description.value.trim() ? <Markdown source={details.description.value} untrusted className="mt-1 break-words text-xs" /> : <p className="mt-1 text-xs text-[var(--color-text-muted)]">No description.</p>}
+                  </section>
+                  <section data-testid="opencode-review-commits">
+                    <div className="flex items-center justify-between gap-2"><h3 className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">Commits ({details.commits.value.length})</h3><Truncated show={details.commits.truncated} /></div>
+                    {details.commits.error && <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">Commits {details.commits.error.toLowerCase()}.</p>}
+                    {!details.commits.error && details.commits.value.length === 0 && <p className="mt-1 text-xs text-[var(--color-text-muted)]">No commits found.</p>}
+                    <ul className="mt-1 space-y-1">{details.commits.value.map((commit) => <CommitRow key={commit.sha} commit={commit} />)}</ul>
                   </section>
                   <section data-testid="opencode-review-comments">
                     <div className="flex items-center justify-between gap-2"><h3 className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">Discussion ({details.comments.value.length})</h3><Truncated show={details.comments.truncated} /></div>

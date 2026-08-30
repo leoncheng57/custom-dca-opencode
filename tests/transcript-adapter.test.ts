@@ -40,7 +40,7 @@ describe("normalizeTranscript", () => {
   it("maps assistant text to an agent row", () => {
     const agent = events.filter((e) => e.kind === "agent");
     expect(agent.map((e) => (e as { text: string }).text)).toEqual([
-      "I'll add the route now. Review: https://github.com/acme/demo/pull/7",
+      "I'll add the route now. Review: https://github.com/acme/demo/pull/7 closes https://github.com/acme/demo/issues/12 spec https://www.notion.so/Route-Spec-0123456789abcdef0123456789abcdef",
     ]);
   });
 

@@ -249,6 +249,14 @@ createServer((req, res) => {
     res.end(JSON.stringify([{ id: 2, user: { login: "maintainer" }, state: "APPROVED", body: "Approved.", submitted_at: "2026-08-21T10:01:00Z" }]));
     return;
   }
+  if (req.url === "/repos/acme/demo/pulls/7/commits?per_page=51&page=1") {
+    detailRequests++;
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify([
+      { sha: "abc123def4567890abc123def4567890abc12345", html_url: "https://github.com/acme/demo/commit/abc123def4567890abc123def4567890abc12345", author: { login: "octocat" }, commit: { message: "Add the mock route\n\nLonger body text that must not appear in the subject.", author: { name: "Octo Cat", date: "2026-08-21T09:58:00Z" } } },
+    ]));
+    return;
+  }
   if (req.url === "/repos/acme/demo/commits/abc123/check-runs?per_page=100&page=1") {
     detailRequests++;
     res.writeHead(200, { "Content-Type": "application/json" });
