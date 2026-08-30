@@ -50,7 +50,9 @@ test.describe("mobile conversation action bar", () => {
       await expect(control).toHaveAttribute("title", /.+/);
     }
     await expect(controls[0]).toHaveAccessibleName("Open workspace");
-    await expect(controls[1]).toHaveAccessibleName("Open reviews");
+    // The reviews opener appends the session's unique-link count when there is
+    // one, so match the shape rather than this fixture's current total.
+    await expect(controls[1]).toHaveAccessibleName(/^Open reviews(, \d+ links?)?$/);
     await expect(controls[2]).toHaveAccessibleName("Open run log");
     await expect(controls[3]).toHaveAttribute("role", "switch");
     await expect(controls[3]).toHaveAttribute("aria-checked", "false");

@@ -103,7 +103,7 @@
         "sessionID": "ses_fixture",
         "messageID": "msg_asst_001",
         "type": "text",
-        "text": "I'll add the route now. Review: https://github.com/acme/demo/pull/7"
+        "text": "I'll add the route now. Review: https://github.com/acme/demo/pull/7 closes https://github.com/acme/demo/issues/12 spec https://www.notion.so/Route-Spec-0123456789abcdef0123456789abcdef"
       },
       {
         "id": "prt_patch_001",

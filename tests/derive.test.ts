@@ -4,6 +4,7 @@ import {
   collapseActionGroups,
   extractCommands,
   extractMrUrls,
+  extractSessionLinks,
   formatDurationMs,
   formatRelative,
   mergeEvents,
@@ -399,6 +400,87 @@ describe("extractMrUrls", () => {
       "https://gl.io/g/p/-/merge_requests/2",
       "https://gl.io/g/p/-/merge_requests/1",
     ]);
+  });
+});
+
+describe("extractSessionLinks", () => {
+  it("groups reviews, issues, Notion, and other hosts from one session", () => {
+    const index = extractSessionLinks([
+      agent("a", "Review https://github.com/o/r/pull/7 closes https://github.com/o/r/issues/12"),
+      agent("b", "Design https://www.notion.so/My-Design-Doc-0123456789abcdef0123456789abcdef"),
+      tool("t", { output: "docs at https://docs.example.com/guide and https://gitlab.co/g/p/-/merge_requests/3" }),
+    ]);
+
+    expect(index.reviews).toEqual([
+      "https://github.com/o/r/pull/7",
+      "https://gitlab.co/g/p/-/merge_requests/3",
+    ]);
+    expect(index.issues).toEqual([expect.objectContaining({
+      url: "https://github.com/o/r/issues/12",
+      kind: "issue",
+      label: "o/r#12",
+      issue: { owner: "o", repo: "r", number: 12 },
+    })]);
+    expect(index.notion).toEqual([expect.objectContaining({ kind: "notion", label: "My Design Doc" })]);
+    expect(index.other).toEqual([{ host: "docs.example.com", links: [expect.objectContaining({ label: "docs.example.com/guide" })] }]);
+    expect(index.total).toBe(5);
+  });
+
+  it("counts unique links, not occurrences, and collapses review tab segments", () => {
+    const index = extractSessionLinks([
+      agent("a", "https://github.com/o/r/pull/7"),
+      agent("b", "https://github.com/o/r/pull/7/files"),
+      agent("c", "https://docs.example.com/guide"),
+      agent("d", "https://docs.example.com/guide/"),
+      agent("e", "https://docs.example.com/guide#section"),
+    ]);
+    expect(index.reviews).toEqual(["https://github.com/o/r/pull/7"]);
+    expect(index.other[0].links).toHaveLength(1);
+    expect(index.total).toBe(2);
+  });
+
+  it("rejects non-HTTP(S) targets so they never become outbound controls", () => {
+    const index = extractSessionLinks([
+      agent("a", "javascript:alert(1) file:///etc/passwd data:text/html,<b>x</b> ftp://host/f"),
+    ]);
+    expect(index.total).toBe(0);
+    expect(index.other).toEqual([]);
+  });
+
+  it("orders other hosts alphabetically and keeps first-seen order inside a host", () => {
+    const index = extractSessionLinks([
+      agent("a", "https://zulip.example.com/one"),
+      agent("b", "https://alpha.example.com/x"),
+      agent("c", "https://zulip.example.com/two"),
+    ]);
+    expect(index.other.map((group) => group.host)).toEqual(["alpha.example.com", "zulip.example.com"]);
+    expect(index.other[1].links.map((link) => link.url)).toEqual([
+      "https://zulip.example.com/one",
+      "https://zulip.example.com/two",
+    ]);
+  });
+
+  it("terminates inside markdown links and trailing sentence punctuation", () => {
+    const index = extractSessionLinks([
+      agent("a", "See [docs](https://docs.example.com/a) and https://docs.example.com/b."),
+    ]);
+    expect(index.other[0].links.map((link) => link.url)).toEqual([
+      "https://docs.example.com/a",
+      "https://docs.example.com/b",
+    ]);
+  });
+
+  it("reports an empty index for a session with no links", () => {
+    const index = extractSessionLinks([agent("a", "no links here")]);
+    expect(index).toMatchObject({ reviews: [], issues: [], notion: [], other: [], total: 0 });
+  });
+
+  it("treats notion.site and app.notion.com as Notion", () => {
+    const index = extractSessionLinks([
+      agent("a", "https://team.notion.site/Page https://app.notion.com/x/Plan"),
+    ]);
+    expect(index.notion).toHaveLength(2);
+    expect(index.other).toEqual([]);
   });
 });
 
