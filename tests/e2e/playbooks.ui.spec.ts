@@ -13,10 +13,10 @@ const COMMAND_NAMES = readdirSync(new URL("../../agent-skills/commands/", import
   .map((entry) => entry.name.replace(/\.md$/, ""));
 
 test.describe("Playbooks", () => {
-  test("is first-class navigation on the bar beside Planning", async ({ page }) => {
+  test("is reachable from More without competing for navbar space", async ({ page }) => {
     await page.goto("/");
-    // Promoted out of the More menu onto the bar itself.
-    await page.locator("nav[aria-label='Main']").getByTestId("opencode-nav-playbooks").click();
+    await page.getByTestId("opencode-nav-more").click();
+    await page.getByTestId("opencode-nav-more-menu").getByTestId("opencode-nav-playbooks").click();
 
     await expect(page).toHaveURL("/playbooks");
     await expect(page).toHaveTitle("Playbooks | DCA");

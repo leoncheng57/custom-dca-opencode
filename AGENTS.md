@@ -972,6 +972,15 @@ several decisions below.
     added trigger or a second `permissions:` block is invisible to `toContain` — so
     a Pages writer's safety must be asserted against a parsed document. Both lessons
     were bought here; do not re-learn them in the publishers that remain.
+33. **The navbar identifies the deployed app build, not the connected OpenCode
+    server.** Release Please derives semantic versions from Conventional Commits and
+    updates the Node package version through a release PR; ordinary merges do not each
+    invent a new semantic version. Vite therefore bakes both that package version and
+    the current short commit into the client. The commit keeps deployments of the same
+    release distinguishable, while builds without Git metadata honestly show only the
+    version. The label yields its space on narrow phones rather than overflowing primary
+    controls. Playbooks moved from the bar into More to make room and remains an
+    unscoped link because `/playbooks` is a cross-project surface.
 
 ## Client conventions (inherited from the OpenHands runner, still enforced)
 

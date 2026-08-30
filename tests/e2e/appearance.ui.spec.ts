@@ -45,9 +45,9 @@ test.describe("appearance", () => {
     const order = await page.locator("nav[aria-label='Main'] > *").evaluateAll((items) => items.map((item) => item.getAttribute("data-testid")));
     expect(order).toEqual(expect.arrayContaining([
       "opencode-nav-home",
+      "opencode-nav-version",
       "opencode-nav-refresh",
       "opencode-nav-theme-toggle",
-      "opencode-nav-playbooks",
       "opencode-nav-planning",
     ]));
     // Search moved into More and is reached by Cmd/Ctrl+K, so it is no longer
@@ -55,9 +55,21 @@ test.describe("appearance", () => {
     // hence the `null` entries in this array.
     expect(order).not.toContain("opencode-palette-open");
     expect(order.indexOf("opencode-nav-home")).toBeLessThan(order.indexOf("opencode-nav-refresh"));
+    expect(order.indexOf("opencode-nav-home")).toBeLessThan(order.indexOf("opencode-nav-version"));
+    expect(order.indexOf("opencode-nav-version")).toBeLessThan(order.indexOf("opencode-nav-refresh"));
     expect(order.indexOf("opencode-nav-refresh")).toBeLessThan(order.indexOf("opencode-nav-theme-toggle"));
-    expect(order.indexOf("opencode-nav-theme-toggle")).toBeLessThan(order.indexOf("opencode-nav-playbooks"));
-    expect(order.indexOf("opencode-nav-playbooks")).toBeLessThan(order.indexOf("opencode-nav-planning"));
+    expect(order.indexOf("opencode-nav-theme-toggle")).toBeLessThan(order.indexOf("opencode-nav-planning"));
+  });
+
+  test("shows the deployed build when the navbar has room", async ({ page }) => {
+    await page.setViewportSize({ width: 479, height: 740 });
+    await page.goto("/");
+    const version = page.getByTestId("opencode-nav-version");
+    await expect(version).toBeHidden();
+
+    await page.setViewportSize({ width: 480, height: 740 });
+    await expect(version).toBeVisible();
+    await expect(version).toHaveText(/^v\d+\.\d+\.\d+(?:\+[0-9a-f]{7})?$/u);
   });
 
   test("asks before discarding an unsent conversation draft", async ({ page }) => {

@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { FlaskConical, LibraryBig, ListTodo, Moon, RefreshCw, Sun } from "lucide-react";
+import { FlaskConical, ListTodo, Moon, RefreshCw, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 
 import { Button } from "../ds/button.js";
 import { CommandPalette } from "../ds/command-palette.js";
 import { api, type SessionSummary } from "../lib/api.js";
+import { formatBuildLabel } from "../lib/buildInfo.js";
 import { useNotificationCenter } from "../lib/useNotificationCenter.js";
 import {
   DIRECTORY_STORAGE_KEY,
@@ -24,6 +25,7 @@ import { NotificationPopover } from "./notification-popover.js";
 import { PhoneTransferDialog } from "./phone-transfer-dialog.js";
 
 const APP_NAME = "DCA";
+const BUILD_LABEL = formatBuildLabel(__APP_VERSION__, __APP_COMMIT__);
 
 function documentTitle(pathname: string): string {
   if (pathname === "/") return `Sessions | ${APP_NAME}`;
@@ -190,9 +192,16 @@ export function AppShell() {
     <div className="h-full min-h-0">
       <div className="flex h-full min-h-0 flex-col" inert={paletteOpen ? true : undefined}>
         <nav className="flex h-11 shrink-0 items-center gap-1 border-b border-[var(--color-border-default)] px-3" aria-label="Main">
-          <NavLink to={scopedPath("/")} className="mr-auto text-sm font-bold tracking-tight" data-testid="opencode-nav-home">
+          <NavLink to={scopedPath("/")} className="text-sm font-bold tracking-tight" data-testid="opencode-nav-home">
             DCA
           </NavLink>
+          <span
+            className="mr-auto hidden min-w-0 truncate font-mono text-[10px] tabular-nums text-[var(--color-text-muted)] min-[480px]:inline"
+            data-testid="opencode-nav-version"
+            title={`DCA ${BUILD_LABEL}`}
+          >
+            {BUILD_LABEL}
+          </span>
           <Button
             aria-label="Refresh app"
             className="size-8 shrink-0 p-0 pointer-coarse:size-11"
@@ -230,16 +239,6 @@ export function AppShell() {
               <span className="hidden sm:inline">DSH</span>
             </NavLink>
           )}
-          <NavLink
-            aria-label="Playbooks"
-            className={({ isActive }) => `inline-flex size-8 shrink-0 items-center justify-center gap-1.5 rounded-md text-xs font-semibold pointer-coarse:size-11 sm:w-auto sm:px-2 ${isActive ? "bg-[var(--color-background-surface-info-muted)] text-[var(--color-text-info)]" : "text-[var(--color-text-action-ghost)] hover:bg-[var(--color-background-action-ghost-hover)]"}`}
-            title="Playbooks"
-            to="/playbooks"
-            data-testid="opencode-nav-playbooks"
-          >
-            <LibraryBig aria-hidden="true" size={16} />
-            <span className="hidden sm:inline">Playbooks</span>
-          </NavLink>
           <NavLink
             aria-label="Planning"
             className={({ isActive }) => `inline-flex size-8 shrink-0 items-center justify-center gap-1.5 rounded-md text-xs font-semibold pointer-coarse:size-11 sm:w-auto sm:px-2 ${isActive ? "bg-[var(--color-background-surface-info-muted)] text-[var(--color-text-info)]" : "text-[var(--color-text-action-ghost)] hover:bg-[var(--color-background-action-ghost-hover)]"}`}
