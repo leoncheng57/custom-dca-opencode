@@ -4,12 +4,12 @@ Repository-owned Playbooks are explicit, human-invoked OpenCode slash commands.
 Their source, worked simulations, parser, and documentation live here and are
 built into the Runner's `/playbooks` catalogue.
 
-The canonical public catalogue is
-<https://leoncheng.dev/custom-dca-opencode/agent-skills/>. A trusted main-only
-workflow generates a small commands-only static site; it does not rebuild the
-retired standalone React app or publish the Runner SPA. The archived separate
-repository owns <https://leoncheng.dev/agent-skills/>, and this repository's token
-cannot add a redirect at that old URL.
+There is no public catalogue. The former commands-only static site under
+`/custom-dca-opencode/agent-skills/` and the workflow that published it are retired,
+and the published directory has been removed from `gh-pages`. The only catalogue is
+the Runner's own `/playbooks`, which reads this content out of the bundle it was
+built from. The archived separate repository still owns
+<https://leoncheng.dev/agent-skills/>; this repository's token cannot modify it.
 
 This repository intentionally ships no skills. Model-retrieved skills place
 descriptions in agent context before they are used, while a command costs zero

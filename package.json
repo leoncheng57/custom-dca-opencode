@@ -18,7 +18,6 @@
     "dev:ui": "vite",
     "build:ui": "vite build",
     "build:preview": "VITE_PUBLIC_SIMULATOR=true vite build --base=${PREVIEW_BASE_PATH:-/}",
-    "build:agent-skills-site": "tsx scripts/generate-agent-skills-site.ts",
     "build:server": "tsc -p tsconfig.server.json",
     "build": "npm run build:ui && npm run build:server",
     "start": "node dist/server/index.js",
@@ -83,8 +82,7 @@
     "tsx": "^4.0.0",
     "typescript": "^5.7.0",
     "vite": "^6.0.0",
-    "vitest": "^3.0.0",
-    "yaml": "2.9.0"
+    "vitest": "^3.0.0"
   },
   "allowScripts": {
     "esbuild@0.28.2": true,
