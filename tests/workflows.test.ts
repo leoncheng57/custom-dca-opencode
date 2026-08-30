@@ -5,6 +5,8 @@ import {
   buildPrSnippetReviewPrompt,
   captureScopeLabel,
   DESIGN_DOC_PROTOTYPE_WORKFLOW_ID,
+  genericWorkflowPrompt,
+  genericWorkflowValid,
   groupWorkflows,
   MANAGED_CHILD_WORKFLOW_ID,
   KNOWN_APP_ROUTES,
@@ -22,6 +24,7 @@ import {
   isValidWorkflowId,
   splitWorkflowTags as serverSplitWorkflowTags,
   withWorkflowTag,
+  WORKFLOW_ARGUMENT_MAX_LENGTH,
   workflowCatalogue,
   workflowTag,
 } from "../server/workflows/workflows.js";
@@ -29,18 +32,44 @@ import {
 describe("workflow catalogue", () => {
   it("shares semantic picker groups and sends unknown workflows to Other", () => {
     const catalogue = [...workflowCatalogue(), { id: "future-workflow", title: "Future", description: "New server workflow", injector: "Do the future work." }];
-    expect(groupWorkflows(catalogue).map(({ label }) => label)).toEqual(["Review", "Coordinate", "Document", "Other"]);
+    expect(groupWorkflows(catalogue).map(({ label }) => label)).toEqual(["Review", "Coordinate", "Execute", "Investigate", "Document", "Ship", "Other"]);
     expect(groupWorkflows(catalogue).at(-1)?.workflows.map(({ id }) => id)).toEqual(["future-workflow"]);
   });
   it("contains the shipped workflows, in picker order", () => {
     expect(workflowCatalogue().map((workflow) => workflow.id)).toEqual([
       PLAYWRIGHT_REVIEW_WORKFLOW_ID,
       PR_SNIPPET_REVIEW_WORKFLOW_ID,
+      "red-team",
+      "review-learning",
       SESSION_UPDATE_WORKFLOW_ID,
       MANAGED_CHILD_WORKFLOW_ID,
       START_DCA_SESSION_WORKFLOW_ID,
+      "manager-children",
+      "native-worktree-subagents",
+      "session-handoff",
+      "goal",
+      "dca",
+      "worktree-up",
+      "deep-research",
+      "research-handoff",
       DESIGN_DOC_PROTOTYPE_WORKFLOW_ID,
+      "docs-preview",
+      "mini-design-doc",
+      "system-design-artifacts",
+      "verify",
+      "leaving-now-wrap-up",
+      "standup",
     ]);
+  });
+
+  // The "Other" bucket exists for a workflow a newer server ships. A shipped
+  // workflow landing there means this build simply forgot to place it, which
+  // reads identically in the UI and is a different bug entirely.
+  it("places every shipped workflow in a named group, never Other", () => {
+    const grouped = groupWorkflows(workflowCatalogue());
+    expect(grouped.map(({ label }) => label)).not.toContain("Other");
+    expect(grouped.flatMap(({ workflows }) => workflows.map(({ id }) => id)).sort())
+      .toEqual(workflowCatalogue().map(({ id }) => id).sort());
   });
 
   it("binds the PR review injector to this project's repository and one comment", () => {
@@ -92,6 +121,85 @@ describe("workflow catalogue", () => {
     const preset = workflowCatalogue().find((workflow) => workflow.id === PLAYWRIGHT_REVIEW_WORKFLOW_ID)!;
     expect(preset.injector).toMatch(/do not run a full deployment/i);
     expect(preset.injector).toMatch(/never regenerate the complete screenshot set/i);
+  });
+});
+
+describe("generic argument workflows", () => {
+  const generic = workflowCatalogue().filter((workflow) => workflow.argument);
+
+  it("declares a usable, server-bounded field for every argument workflow", () => {
+    expect(generic.length).toBeGreaterThanOrEqual(16);
+    for (const { id, argument } of generic) {
+      expect(argument!.label.trim(), `${id} has a blank label`).not.toBe("");
+      expect(argument!.label.length).toBeLessThanOrEqual(60);
+      expect(argument!.maxLength, `${id} declares a non-positive maxLength`).toBeGreaterThan(0);
+      expect(argument!.maxLength, `${id} exceeds the server bound`).toBeLessThanOrEqual(WORKFLOW_ARGUMENT_MAX_LENGTH);
+      expect(argument!.placeholder?.trim()).not.toBe("");
+      expect(argument!.hint?.trim()).not.toBe("");
+    }
+  });
+
+  // A workflow the dialog renders generically must be able to produce a prompt
+  // from something. One that can produce neither would offer a Send button with
+  // an empty message behind it.
+  it("gives every non-bespoke workflow either a field or a fixed prompt", () => {
+    const bespoke = new Set<string>([
+      PLAYWRIGHT_REVIEW_WORKFLOW_ID,
+      PR_SNIPPET_REVIEW_WORKFLOW_ID,
+      SESSION_UPDATE_WORKFLOW_ID,
+      MANAGED_CHILD_WORKFLOW_ID,
+      START_DCA_SESSION_WORKFLOW_ID,
+    ]);
+    for (const workflow of workflowCatalogue()) {
+      if (bespoke.has(workflow.id)) continue;
+      expect(Boolean(workflow.argument || workflow.prompt?.trim()), `${workflow.id} can produce no prompt`).toBe(true);
+    }
+  });
+
+  // The ported procedures came from command files whose text OpenCode expanded
+  // before the model saw it. A workflow injector is never expanded, so a
+  // surviving `$ARGUMENTS` or `!`-prefixed line would reach the model verbatim
+  // as an instruction nobody wrote.
+  it("carries no unexpanded command substitutions in any injector", () => {
+    for (const { id, injector } of workflowCatalogue()) {
+      expect(injector, `${id} still references $ARGUMENTS`).not.toContain("$ARGUMENTS");
+      expect(injector, `${id} still uses a command file's !\`…\` shell interpolation`).not.toMatch(/^!`/mu);
+    }
+  });
+
+  it("tells the standup workflow to gather its own data and to expect a Plan denial", () => {
+    const preset = workflowCatalogue().find((workflow) => workflow.id === "standup")!;
+    expect(preset.injector).toContain("Nothing is pre-fetched for you");
+    expect(preset.injector).toContain("git log --all --author=");
+    expect(preset.injector).toContain("gh pr list");
+    expect(preset.injector).toMatch(/Plan session bash is\nlikely denied/u);
+  });
+});
+
+describe("genericWorkflowPrompt and genericWorkflowValid", () => {
+  const withArgument = { argument: { label: "Objective", required: true, maxLength: 10 } };
+  const optional = { argument: { label: "Scope", required: false, maxLength: 10 } };
+  const fixed = { prompt: "Do the fixed thing." };
+
+  it("uses the typed text as the prompt, trimmed", () => {
+    expect(genericWorkflowPrompt(withArgument, "  ship it  ")).toBe("ship it");
+    expect(genericWorkflowPrompt(fixed, "ignored")).toBe("Do the fixed thing.");
+    expect(genericWorkflowPrompt({}, "ignored")).toBe("");
+  });
+
+  it("requires text for a required field and enforces the declared bound", () => {
+    expect(genericWorkflowValid(withArgument, "ship it")).toBe(true);
+    expect(genericWorkflowValid(withArgument, "   ")).toBe(false);
+    expect(genericWorkflowValid(withArgument, "x".repeat(11))).toBe(false);
+  });
+
+  // An optional field left blank still has to produce something to send, so
+  // this refuses rather than submitting a message that is only the injector.
+  it("refuses anything that would send an empty prompt", () => {
+    expect(genericWorkflowValid(optional, "")).toBe(false);
+    expect(genericWorkflowValid({}, "")).toBe(false);
+    expect(genericWorkflowValid(fixed, "")).toBe(true);
+    expect(genericWorkflowValid({ ...optional, prompt: "fallback" }, "typed")).toBe(true);
   });
 });
 

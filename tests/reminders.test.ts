@@ -3,9 +3,9 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { splitReminderTags as clientSplitReminderTags } from "../client/lib/reminders.js";
-import { commands } from "../agent-skills/src/lib/commandsSource.js";
-import { commandForReminder, REMINDER_COMMANDS } from "../agent-skills/src/lib/reminderCommands.js";
+import { REMINDER_WORKFLOWS, workflowForReminder } from "../client/lib/reminderWorkflows.js";
 import { reminderCatalogue } from "../server/reminders/loader.js";
+import { workflowCatalogue } from "../server/workflows/workflows.js";
 import {
   REMINDER_BODY_MAX,
   REMINDER_DESCRIPTION_MAX,
@@ -133,7 +133,6 @@ describe("isValidReminderId", () => {
 
 describe("shipped catalogue", () => {
   const sourceCommit = "8b036a41f578dc6c6307ae0a8dd2857121afcabb";
-  const localSourceCommit = "fe9e5ede5f3dc749b0515372ee2e2bc2fc3b3fba";
   const importedIds = new Set([
     "ascii-diagrams",
     "background-subagent",
@@ -146,7 +145,6 @@ describe("shipped catalogue", () => {
     "parallel-research-handoff",
     "session-handoff",
   ]);
-  const locallyDocumentedIds = new Set(["cite-file-lines", "native-worktree-subagents"]);
   const dir = path.join(import.meta.dirname, "..", "reminders");
   const ids = readdirSync(dir, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name);
 
@@ -161,20 +159,25 @@ describe("shipped catalogue", () => {
     expect(parsedIds).toHaveLength(ids.length);
   });
 
-  it("maps every runtime reminder to one real command", () => {
-    const commandNames = new Set(commands.map(({ name }) => name));
-    const reminderIds = reminderCatalogue().map(({ id }) => id).sort();
-    expect(Object.keys(REMINDER_COMMANDS).sort()).toEqual(reminderIds);
-    expect(new Set(Object.values(REMINDER_COMMANDS)).size).toBe(reminderIds.length);
-    for (const id of reminderIds) {
-      const command = commandForReminder(id);
-      expect(command, `${id} has no command mapping`).toBeDefined();
-      expect(commandNames.has(command!), `${id} maps to a missing command`).toBe(true);
+  // The retired command catalogue used to give every reminder a documentation
+  // target, so the old invariant could demand total coverage. Workflows do not:
+  // six of those commands were deleted rather than converted because the
+  // reminder already said what they said. What must still hold is that every
+  // link the picker renders resolves — a dead link is the failure this guards.
+  it("links every mapped reminder to a real reminder and a real workflow", () => {
+    const reminderIds = new Set(reminderCatalogue().map(({ id }) => id));
+    const workflowIds = new Set(workflowCatalogue().map(({ id }) => id));
+    expect(Object.keys(REMINDER_WORKFLOWS).length).toBeGreaterThan(0);
+    for (const [reminderId, workflowId] of Object.entries(REMINDER_WORKFLOWS)) {
+      expect(reminderIds.has(reminderId), `${reminderId} is not a shipped reminder`).toBe(true);
+      expect(workflowIds.has(workflowId), `${reminderId} maps to missing workflow ${workflowId}`).toBe(true);
     }
+    expect(new Set(Object.values(REMINDER_WORKFLOWS)).size).toBe(Object.keys(REMINDER_WORKFLOWS).length);
   });
 
-  it("does not guess a command for an unknown reminder", () => {
-    expect(commandForReminder("new-server-reminder")).toBeUndefined();
+  it("does not guess a workflow for an unmapped reminder", () => {
+    expect(workflowForReminder("cite-file-lines")).toBeUndefined();
+    expect(workflowForReminder("new-server-reminder")).toBeUndefined();
   });
 
   it("keeps reminder tags application-owned and non-empty", () => {
@@ -198,7 +201,7 @@ describe("shipped catalogue", () => {
 
   it("records complete, pinned provenance for every imported preset", () => {
     const catalogue = reminderCatalogue();
-    expect(catalogue.filter(({ source }) => source)).toHaveLength(importedIds.size + locallyDocumentedIds.size);
+    expect(catalogue.filter(({ source }) => source)).toHaveLength(importedIds.size);
     for (const reminder of catalogue) {
       if (importedIds.has(reminder.id)) {
         expect(reminder.source).toEqual({
@@ -210,20 +213,12 @@ describe("shipped catalogue", () => {
         expect(reminder.body).not.toContain(reminder.source!.repo);
         continue;
       }
-      if (locallyDocumentedIds.has(reminder.id)) {
-        expect(reminder.source).toEqual({
-          repo: "https://github.com/leoncheng57/custom-dca-opencode",
-          path: `agent-skills/commands/${reminder.id}.md`,
-          commit: localSourceCommit,
-        });
-        expect(reminder.body).not.toContain(localSourceCommit);
-        expect(reminder.body).not.toContain(reminder.source!.repo);
-        continue;
-      }
-      {
-        expect(reminder.source).toBeUndefined();
-        continue;
-      }
+      // cite-file-lines and native-worktree-subagents used to cite the
+      // repository command they were written beside. Those files are gone, so
+      // the citation is dropped rather than left pointing at a path that no
+      // longer exists on the default branch; they are now ordinary local
+      // presets, which is what reminders/README.md already calls them.
+      expect(reminder.source, `${reminder.id} declares unexpected provenance`).toBeUndefined();
     }
   });
 

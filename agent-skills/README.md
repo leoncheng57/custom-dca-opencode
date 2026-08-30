@@ -1,8 +1,8 @@
-# OpenCode commands
+# Retired: repository-owned OpenCode commands
 
-Repository-owned Playbooks are explicit, human-invoked OpenCode slash commands.
-Their source, worked simulations, parser, and documentation live here and are
-built into the Runner's `/playbooks` catalogue.
+This directory used to hold 23 human-invoked OpenCode slash commands, their
+worked simulations, and the build-time parser that fed the Runner's
+`/playbooks` catalogue. All of it has been removed.
 
 There is no public catalogue. The former commands-only static site under
 `/custom-dca-opencode/agent-skills/` and the workflow that published it are retired,
@@ -11,91 +11,34 @@ the Runner's own `/playbooks`, which reads this content out of the bundle it was
 built from. The archived separate repository still owns
 <https://leoncheng.dev/agent-skills/>; this repository's token cannot modify it.
 
-This repository intentionally ships no skills. Model-retrieved skills place
-descriptions in agent context before they are used, while a command costs zero
-context until a human types `/name`. Each command therefore carries its complete
-workflow, safety boundaries, edge cases, and failure handling rather than
-deferring to another content type.
+Nothing replaced it one-for-one. Of the twenty-three, eight became workflows,
+eleven were already covered by a reminder, and four were retired outright:
 
-Runtime reminders under root [`reminders/`](../reminders/) are independent
-application-owned, per-message instructions. Their prompt bodies remain in that
-directory; command files are never used as reminder prompt sources. The live
-OpenCode `/skill` Catalog panel is different again: it reports external skills
-and commands loaded by the connected process for one project.
+- **Composer workflows** (`server/workflows/workflows.ts`) carry the eight
+  procedures kept for per-message invocation: `session-handoff`, `goal`, `dca`,
+  `system-design-artifacts`, `docs-preview`, `mini-design-doc`,
+  `leaving-now-wrap-up`, and `standup`. A workflow keeps its trusted
+  instructions server-side and resolves them by id at send time, so it needs no
+  installation, no restart, and no copy of the file on the reader's machine.
+  The procedure text was ported verbatim.
+- **Runtime reminders** (`../reminders/`) already said what eleven of them said:
+  `background`, `build-waves`, `handoff`, `duck-mode`, `grill-me`,
+  `cite-file-lines`, `diagram`, `deep-research`, `native-worktree-subagents`,
+  `research-handoff`, and `verify`. Those were deleted rather than converted,
+  because a second copy of the same instructions is worse than none.
+- **Retired outright**, with no workflow and no reminder: `manager-children`,
+  `red-team`, `worktree-up`, and `review-learning`. That capability has left the
+  application; it was a deliberate scope decision, not an oversight.
 
-## Layout
+One difference is worth stating rather than discovering. A command could pin
+its own agent in frontmatter (`agent: plan`), and a workflow cannot: it is sent
+in the session's current mode. The workflow preview says so before you send.
 
-```
-commands/<name>.md              invocable command
-command-simulations/<name>.md   worked transcript rendered by Playbooks
-command-docs/<topic>.md         optional longer supporting examples
-src/lib/                        build-time parser and command install helpers
-```
+The public catalogue this directory used to publish is retired with it. See
+`AGENTS.md` for the decision record.
 
-Every `commands/*.md` file is auto-discovered. A command does not need a paired
-reminder or any naming relationship, so adding a standalone command requires
-only its command file and, normally, a same-named simulation.
+## Licensing
 
-## Format
-
-```markdown
----
-description: Shown in OpenCode autocomplete
-agent: build          # optional: build | plan
-model: provider/model # optional
-subtask: true         # optional: run in a subagent
----
-
-The complete procedure. $ARGUMENTS is substituted, !`cmd` output is injected,
-and @path/to/file.ts is inlined before the model sees it.
-```
-
-Keep the body imperative and self-contained. Include preconditions, explicit
-stopping rules, safety constraints, boundary cases, and responses to likely
-failures. A command may be long; explicit invocation and zero at-rest retrieval
-context are the reason it can own the full procedure without duplication.
-
-## Install
-
-Install globally:
-
-```bash
-mkdir -p ~/.config/opencode/commands
-curl -sL https://raw.githubusercontent.com/leoncheng57/custom-dca-opencode/main/agent-skills/commands/verify.md \
-  -o ~/.config/opencode/commands/verify.md
-```
-
-Or install for one project by writing the file under
-`.opencode/commands/<name>.md`. Restart OpenCode after installation because the
-connected process reads commands at startup. Playbooks only shows and copies
-install commands; it never installs content itself.
-
-## Simulations
-
-All simulation frontmatter fields are required:
-
-```markdown
----
-title: Verifying a mixed UI change
-trigger: /verify
-caveat: The transcript omits the later human execution phase.
----
-
-## user
-
-/verify playbooks
-
-## assistant
-
-...
-```
-
-The trigger must be the exact slash command. Turns use `## user`,
-`## assistant`, `## tool`, or `## note`, optionally followed by ` — <label>`.
-Open on the human invocation, show the important guard or failure path, never
-invent output, stay under 12 turns, and end at the procedure's real stopping
-condition.
-
-## License
-
-MIT
+[`CREDITS.md`](CREDITS.md) and [`LICENSE`](LICENSE) remain here. Attribution for
+adapted third-party content outlives the file that carried it, and the derived
+work is still reachable in this repository's history.

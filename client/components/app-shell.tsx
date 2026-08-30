@@ -38,8 +38,6 @@ function documentTitle(pathname: string): string {
   if (pathname === "/dsh") return `DSH Lab | ${APP_NAME}`;
   if (pathname.startsWith("/dsh/sessions/")) return `DSH Session | ${APP_NAME}`;
   if (pathname === "/playbooks") return `Playbooks | ${APP_NAME}`;
-  if (pathname === "/playbooks/commands") return `Commands | Playbooks | ${APP_NAME}`;
-  if (pathname.startsWith("/playbooks/commands/")) return `Command | Playbooks | ${APP_NAME}`;
   if (pathname === "/playbooks/workflows") return `Workflows | Playbooks | ${APP_NAME}`;
   if (pathname.startsWith("/playbooks/workflows/")) return `Workflow | Playbooks | ${APP_NAME}`;
   return APP_NAME;
@@ -148,7 +146,7 @@ export function AppShell() {
       { id: "planning", title: "Planning", to: "/planning", keywords: ["issues", "pull requests", "roadmap", "github"] },
       { id: "observability", title: "Observability", to: "/observability", keywords: ["logs", "audit", "deployment", "health", "processes"] },
       ...(dshEnabled ? [{ id: "dsh", title: "DSH lab", to: "/dsh", keywords: ["deepseek", "harness", "experiment"] }] : []),
-      { id: "playbooks", title: "Playbooks", to: "/playbooks", keywords: ["commands", "procedures"] },
+      { id: "playbooks", title: "Playbooks", to: "/playbooks", keywords: ["workflows", "procedures"] },
     ],
     actions: [
       {

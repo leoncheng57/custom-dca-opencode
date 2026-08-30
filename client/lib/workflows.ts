@@ -36,10 +36,31 @@ export const START_DCA_SESSION_WORKFLOW_ID = "start-dca-session";
 export const PR_SNIPPET_REVIEW_WORKFLOW_ID = "pr-snippet-review";
 export const DESIGN_DOC_PROTOTYPE_WORKFLOW_ID = "design-doc-prototype";
 
+// Six semantic groups covering the whole catalogue. The sixteen ported
+// procedures are named as literals rather than as exported constants: unlike
+// the five above they are not referenced anywhere else, because they need no
+// bespoke branch — the generic argument field renders all of them.
+//
+// Nothing should land in the "Other" bucket `groupWorkflows` appends. That
+// bucket exists for a workflow a newer server ships that this build has never
+// heard of, not as a home for one this build forgot to place.
 export const WORKFLOW_GROUPS = [
-  { label: "Review", ids: [PLAYWRIGHT_REVIEW_WORKFLOW_ID, PR_SNIPPET_REVIEW_WORKFLOW_ID] },
-  { label: "Coordinate", ids: [SESSION_UPDATE_WORKFLOW_ID, MANAGED_CHILD_WORKFLOW_ID, START_DCA_SESSION_WORKFLOW_ID] },
-  { label: "Document", ids: [DESIGN_DOC_PROTOTYPE_WORKFLOW_ID] },
+  { label: "Review", ids: [PLAYWRIGHT_REVIEW_WORKFLOW_ID, PR_SNIPPET_REVIEW_WORKFLOW_ID, "red-team", "review-learning"] },
+  {
+    label: "Coordinate",
+    ids: [
+      SESSION_UPDATE_WORKFLOW_ID,
+      MANAGED_CHILD_WORKFLOW_ID,
+      START_DCA_SESSION_WORKFLOW_ID,
+      "manager-children",
+      "native-worktree-subagents",
+      "session-handoff",
+    ],
+  },
+  { label: "Execute", ids: ["goal", "dca", "worktree-up"] },
+  { label: "Investigate", ids: ["deep-research", "research-handoff"] },
+  { label: "Document", ids: [DESIGN_DOC_PROTOTYPE_WORKFLOW_ID, "docs-preview", "mini-design-doc", "system-design-artifacts"] },
+  { label: "Ship", ids: ["verify", "leaving-now-wrap-up", "standup"] },
 ] as const;
 
 export interface WorkflowGroup {
@@ -85,7 +106,7 @@ export function isKnownAppRoute(value: string): boolean {
       /^\/planning$/,
       /^\/observability$/,
       /^\/docs(?:\/[A-Za-z0-9_-]+)?$/,
-      /^\/playbooks(?:\/(?:commands|workflows)(?:\/[A-Za-z0-9_-]+)?)?$/,
+      /^\/playbooks(?:\/workflows(?:\/[A-Za-z0-9_-]+)?)?$/,
       /^\/sessions\/[A-Za-z0-9_-]+$/,
       /^\/dsh(?:\/sessions\/[A-Za-z0-9_-]+)?$/,
     ].some((pattern) => pattern.test(url.pathname));
@@ -94,14 +115,32 @@ export function isKnownAppRoute(value: string): boolean {
   }
 }
 
-// ── Design prototype prompt ─────────────────────────────────────────────────
+// ── Generic argument workflows ──────────────────────────────────────────────
 //
-// This workflow collects nothing, so its visible prompt is a fixed constant
-// rather than a builder: every instruction that varies lives in the trusted
-// server-resolved injector, which the preview shows before anything is sent.
+// A workflow that declares an `argument` collects one free-text field whose
+// typed value IS the visible prompt, exactly as "Send an update to another
+// session" and "Launch a Managed Child" already behave. A workflow that
+// declares neither an argument nor a fixed `prompt` has nothing to send, which
+// is why `genericWorkflowPrompt` can return an empty string and
+// `genericWorkflowValid` refuses it.
 
-export const DESIGN_DOC_PROTOTYPE_PROMPT =
-  "Capture a durable design prototype for this proposal and publish it for review.";
+/** The visible prompt for a workflow with no bespoke builder. */
+export function genericWorkflowPrompt(workflow: Pick<WorkflowSummary, "argument" | "prompt">, typed: string): string {
+  return workflow.argument ? typed.trim() : (workflow.prompt ?? "");
+}
+
+/**
+ * Whether the generic form may advance. An optional argument left blank is
+ * allowed by the spec, but a send whose whole prompt would be empty is not:
+ * the resulting message would be the trusted injector with nothing to apply it
+ * to, and the prompt route rejects empty text anyway.
+ */
+export function genericWorkflowValid(workflow: Pick<WorkflowSummary, "argument" | "prompt">, typed: string): boolean {
+  const { argument } = workflow;
+  if (argument && argument.required && (typed.trim() === "" || typed.length > argument.maxLength)) return false;
+  if (argument && typed.length > argument.maxLength) return false;
+  return genericWorkflowPrompt(workflow, typed).trim() !== "";
+}
 
 // ── Pull request review prompt generation ───────────────────────────────────
 

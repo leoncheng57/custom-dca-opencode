@@ -27,19 +27,17 @@ the same server and can be attached at the same time, watching the same sessions
 
 ## Playbooks
 
-The Runner's native **Playbooks** section at `/playbooks` catalogs repository-owned,
-human-invoked OpenCode commands and their worked simulations. Their installable
-Markdown source lives in [`agent-skills/`](agent-skills/). Commands add zero retrieval
-context until explicitly invoked and contain their complete workflow and failure
-handling; this repository intentionally ships no skills.
+The Runner's native **Playbooks** section at `/playbooks` catalogs the live **composer
+workflows** the server supplies over `GET /api/workflows`, including the exact trusted
+injector each one appends. A workflow is a guided action: you fill in one form, read
+the exact prompt and the exact trusted instructions, and only then send. Nothing is
+installed, nothing is copied to your machine, and no restart is involved.
 
-Install a command directly from this repository:
-
-```bash
-mkdir -p ~/.config/opencode/commands
-curl -sL https://raw.githubusercontent.com/leoncheng57/custom-dca-opencode/main/agent-skills/commands/verify.md \
-  -o ~/.config/opencode/commands/verify.md
-```
+The repository-owned command catalogue that used to live here is retired. Sixteen of
+its procedures were ported verbatim into workflows; the other seven were already
+covered by runtime reminders and were simply deleted. One thing genuinely changed
+rather than moved: a command could pin its own agent (`agent: plan`), and a workflow
+cannot — it is sent in the sending session's current mode, and the preview says so.
 
 Runtime reminders under root `reminders/` remain separate per-message prompt content,
 and the live `/skill` Catalog panel remains the connected OpenCode process's inventory

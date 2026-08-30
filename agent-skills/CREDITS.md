@@ -1,7 +1,10 @@
 # Credits
 
-One command in this repository is adapted from another open-source project.
-The original author retains copyright; their licence terms are reproduced below.
+One command in this repository was adapted from another open-source project.
+That command has since been retired along with the rest of this directory, but
+the attribution stays: the derived work remains in this repository's history,
+and a credit is not something a deletion cancels. The original author retains
+copyright; their licence terms are reproduced below.
 
 ---
 
@@ -14,18 +17,24 @@ The original author retains copyright; their licence terms are reproduced below.
 
 ### Adapted, not vendored
 
-No file in this repository is a copy of upstream. The command that derives
-from it is an original rewrite:
+No file in this repository was ever a copy of upstream. The command that
+derived from it was an original rewrite:
 
-[`commands/grill-me.md`](commands/grill-me.md) adopts the
-rounds-and-frontier model from upstream `skills/productivity/grilling/SKILL.md`
-@ `0ab1b63`, including its round output format. It differs deliberately:
+`agent-skills/commands/grill-me.md`, retired in the change that emptied this
+directory and readable in history at commit
+`fe9e5ede5f3dc749b0515372ee2e2bc2fc3b3fba`, adopted the rounds-and-frontier
+model from upstream `skills/productivity/grilling/SKILL.md` @ `0ab1b63`,
+including its round output format. It differed deliberately:
 
 - Upstream ships a `grill-me` → `grilling` skill pair. This repository adapts
   the behavior into one explicitly invoked `/grill-me` command with no
   retrieval description resident in agent context.
 - A closing step offering to emit the outcome as a handoff document or an ADR is
   added; upstream has no equivalent.
+
+The `grill-me` runtime reminder under `../reminders/` is a separate lineage with
+its own recorded provenance, not a relocation of this adapted command. This
+credit does not transfer to it.
 
 ### MIT Licence
 

@@ -1119,11 +1119,14 @@ test.describe("composer", () => {
     await page.goto(`/sessions/ses_mock_done?directory=${encodeURIComponent(DIR)}`);
     await page.getByTestId("composer-workflow-select").click();
     await expect(page.getByTestId("composer-workflow-search")).toBeFocused();
-    await expect(page.getByTestId("composer-workflow-option")).toHaveCount(6);
+    await expect(page.getByTestId("composer-workflow-option")).toHaveCount(22);
     // Decision 21: this promise must survive the header gaining a search box.
     await expect(page.getByTestId("composer-workflow-panel")).toContainText("Nothing is sent or launched until you confirm.");
 
-    await page.getByTestId("composer-workflow-search").fill("pull request");
+    // Search matters more now that the catalogue is 22 entries rather than six,
+    // so the needle has to be specific: "pull request" alone also describes the
+    // review-learning workflow.
+    await page.getByTestId("composer-workflow-search").fill("snippet-by-snippet");
     await expect(page.getByTestId("composer-workflow-option")).toHaveCount(1);
     await expect(page.getByTestId("composer-workflow-option")).toContainText("Post a snippet-by-snippet PR review");
 
@@ -1159,7 +1162,10 @@ test.describe("composer", () => {
     const humanVerification = page.locator('[data-testid="composer-reminder-option"][data-reminder-id="human-verification-steps"]');
     await expect(humanVerification).toHaveAccessibleName("Attach Write Human Verification Steps");
     const details = page.locator('[data-testid="composer-reminder-details"][data-reminder-id="human-verification-steps"]');
-    await expect(details).toHaveAttribute("href", "/playbooks/commands/verify");
+    // The retired command catalogue used to host this documentation; the
+    // ported workflow does now, and the link has to follow it rather than keep
+    // resolving to a route that no longer exists.
+    await expect(details).toHaveAttribute("href", "/playbooks/workflows/verify");
     await expect(details).toHaveAttribute("target", "_blank");
     await expect(details).toHaveAccessibleName("Open Write Human Verification Steps details in a new tab");
     // The details link is a real touch target in its own right (matching
@@ -1172,6 +1178,11 @@ test.describe("composer", () => {
     expect(detailsBox?.width, "the details link stays a minority of the tile, not the whole row").toBeLessThan((tileBox?.width ?? 0) / 2);
     const unknown = page.locator('[data-testid="composer-reminder-tile"][data-reminder-id="new-server-reminder"]');
     await expect(unknown.getByTestId("composer-reminder-details")).toHaveCount(0);
+    // Half of the old reminder-to-command links have no workflow to point at,
+    // because those commands were deleted rather than converted: the reminder
+    // beside them already said everything they said. Those tiles render no link
+    // at all rather than one that goes somewhere merely adjacent.
+    await expect(page.locator('[data-testid="composer-reminder-tile"][data-reminder-id="cite-file-lines"]').getByTestId("composer-reminder-details")).toHaveCount(0);
     await unknown.getByTestId("composer-reminder-option").click();
     await expect(picker).toHaveAttribute("value", "new-server-reminder");
     await picker.click();

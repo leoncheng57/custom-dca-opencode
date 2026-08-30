@@ -449,6 +449,19 @@ export interface ReminderSummary {
   tags: string[];
 }
 
+/**
+ * The one free-text field a workflow collects. Its typed value becomes the
+ * visible prompt, so a workflow can be added server-side without another
+ * branch in the dialog. `maxLength` is already bounded by the server.
+ */
+export interface WorkflowArgumentSpec {
+  label: string;
+  placeholder?: string;
+  hint?: string;
+  required: boolean;
+  maxLength: number;
+}
+
 export interface WorkflowSummary {
   id: string;
   title: string;
@@ -459,6 +472,10 @@ export interface WorkflowSummary {
    * server resolves this text again at submit time.
    */
   injector: string;
+  /** Present when the workflow collects free text that becomes the prompt. */
+  argument?: WorkflowArgumentSpec;
+  /** Fixed visible prompt for a workflow that collects nothing. */
+  prompt?: string;
 }
 
 export interface MessagePage {

@@ -89,9 +89,14 @@ describe("PR screenshot requests", () => {
   });
 
   it("accepts Playbooks catalog and detail routes", () => {
-    expect(parseScreenshotBlock("```screenshots\n/playbooks\n/playbooks/commands/grill-me\n/playbooks/workflows\n/playbooks/workflows/start-dca-session\n```").requests)
-      .toHaveLength(4);
+    expect(parseScreenshotBlock("```screenshots\n/playbooks\n/playbooks/workflows\n/playbooks/workflows/start-dca-session\n```").requests)
+      .toHaveLength(3);
     expect(() => parseScreenshotBlock("```screenshots\n/playbooks/skills/grill-me\n```"))
+      .toThrow(/not a known UI route/u);
+    // The command catalogue is retired, so its routes are no longer known.
+    expect(() => parseScreenshotBlock("```screenshots\n/playbooks/commands\n```"))
+      .toThrow(/not a known UI route/u);
+    expect(() => parseScreenshotBlock("```screenshots\n/playbooks/commands/verify\n```"))
       .toThrow(/not a known UI route/u);
   });
 

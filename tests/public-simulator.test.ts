@@ -2,20 +2,26 @@ import { describe, expect, it } from "vitest";
 
 import type { DshTrajectoryPage, PlanningSnapshot } from "../client/lib/api.js";
 import { createPublicSimulator } from "../client/simulator/publicSimulator.js";
+import { workflowCatalogue } from "../server/workflows/workflows.js";
 
 describe("public simulator workflow fixtures", () => {
-  it("mirrors the six current workflow ids", async () => {
+  // The fixture is the whole catalogue in catalogue order, because the preview
+  // has no BFF to ask: a short fixture would show a Playbooks page that quietly
+  // disagrees with the real one.
+  it("mirrors the current workflow ids, in catalogue order", async () => {
     const response = await createPublicSimulator()("https://preview.invalid/api/workflows");
-    const payload = await response.json() as { workflows: Array<{ id: string; injector: string }> };
-    expect(payload.workflows.map(({ id }) => id)).toEqual([
-      "playwright-ui-review",
-      "pr-snippet-review",
-      "session-update",
-      "managed-child",
-      "start-dca-session",
-      "design-doc-prototype",
-    ]);
+    const payload = await response.json() as { workflows: Array<{ id: string; injector: string; argument?: { label: string; required: boolean; maxLength: number }; prompt?: string }> };
+    expect(payload.workflows.map(({ id }) => id)).toEqual(workflowCatalogue().map(({ id }) => id));
     expect(payload.workflows.every(({ injector }) => injector.length > 0)).toBe(true);
+    // The fixture injectors are deliberately short summaries, but the field a
+    // workflow collects is part of its shape and must match the real server.
+    for (const real of workflowCatalogue()) {
+      const fixture = payload.workflows.find(({ id }) => id === real.id)!;
+      expect(fixture.title, real.id).toBe(real.title);
+      expect(fixture.description, real.id).toBe(real.description);
+      expect(fixture.argument, real.id).toEqual(real.argument);
+      expect(fixture.prompt, real.id).toEqual(real.prompt);
+    }
   });
 });
 

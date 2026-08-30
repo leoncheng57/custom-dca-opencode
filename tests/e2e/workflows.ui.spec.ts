@@ -41,17 +41,50 @@ test.describe("workflow catalogue API", () => {
     expect(payload.workflows.map((workflow) => workflow.id)).toEqual([
       "playwright-ui-review",
       "pr-snippet-review",
+      "red-team",
+      "review-learning",
       "session-update",
       "managed-child",
       "start-dca-session",
+      "manager-children",
+      "native-worktree-subagents",
+      "session-handoff",
+      "goal",
+      "dca",
+      "worktree-up",
+      "deep-research",
+      "research-handoff",
       "design-doc-prototype",
+      "docs-preview",
+      "mini-design-doc",
+      "system-design-artifacts",
+      "verify",
+      "leaving-now-wrap-up",
+      "standup",
     ]);
+    // The four core keys are required of every workflow; `argument` and
+    // `prompt` are optional additions. This is deliberately not a bare superset
+    // check: an unexpected key would mean the projection started leaking
+    // catalogue internals, which is the failure worth catching.
+    const ALLOWED = new Set(["description", "id", "injector", "title", "argument", "prompt"]);
     for (const workflow of payload.workflows) {
-      expect(Object.keys(workflow).sort()).toEqual(["description", "id", "injector", "title"]);
+      expect(Object.keys(workflow)).toEqual(expect.arrayContaining(["description", "id", "injector", "title"]));
+      for (const key of Object.keys(workflow)) expect(ALLOWED.has(key), `${String(workflow.id)} exposes ${key}`).toBe(true);
       expect(String(workflow.injector).length).toBeGreaterThan(0);
     }
     const sessionUpdate = payload.workflows.find((workflow) => workflow.id === "session-update")!;
     expect(String(sessionUpdate.injector)).toContain("204");
+
+    // A workflow whose typed text becomes the prompt has to describe its field,
+    // and the length it advertises has to be one the prompt route will accept.
+    const standup = payload.workflows.find((workflow) => workflow.id === "standup")!;
+    expect(standup.argument).toMatchObject({ label: "Scope", required: true });
+    expect((standup.argument as { maxLength: number }).maxLength).toBeLessThanOrEqual(100_000);
+    expect(String(standup.injector)).toContain("Nothing is pre-fetched for you");
+    // A workflow that collects nothing carries its fixed prompt instead.
+    const designDoc = payload.workflows.find((workflow) => workflow.id === "design-doc-prototype")!;
+    expect(designDoc.argument).toBeUndefined();
+    expect(designDoc.prompt).toBe("Capture a durable design prototype for this proposal and publish it for review.");
   });
 
   test("rejects unknown and malformed workflow ids at prompt time", async ({ request }) => {
@@ -120,18 +153,25 @@ test.describe("workflow picker UI", () => {
     await expect(picker).toContainText("Workflows");
     await picker.click();
 
-    // The chooser offers exactly the initial catalogue, in order.
+    // The chooser offers exactly the catalogue, in group order, with every
+    // workflow placed — nothing may fall into the "Other" bucket, which exists
+    // for a workflow a newer server ships and not for one this build forgot.
     const options = page.getByTestId("composer-workflow-option");
-    await expect(options).toHaveCount(6);
-    await expect(page.getByTestId("composer-workflow-group")).toHaveCount(3);
-    await expect(page.getByTestId("composer-workflow-group").nth(0)).toHaveAccessibleName("Review");
-    await expect(page.getByTestId("composer-workflow-icon")).toHaveCount(6);
+    await expect(options).toHaveCount(22);
+    const groups = page.getByTestId("composer-workflow-group");
+    await expect(groups).toHaveCount(6);
+    for (const [index, label] of ["Review", "Coordinate", "Execute", "Investigate", "Document", "Ship"].entries()) {
+      await expect(groups.nth(index)).toHaveAccessibleName(label);
+    }
+    await expect(page.getByTestId("composer-workflow-icon")).toHaveCount(22);
     await expect(options.nth(0)).toContainText("Review a UI change with Playwright");
     await expect(options.nth(1)).toContainText("Post a snippet-by-snippet PR review");
-    await expect(options.nth(2)).toContainText("Send an update to another session");
-    await expect(options.nth(3)).toContainText("Launch a Managed Child");
-    await expect(options.nth(4)).toContainText("Start a DCA session");
-    await expect(options.nth(5)).toContainText("Capture a Durable Design Prototype");
+    await expect(options.nth(2)).toContainText("Red-team the work just produced");
+    await expect(options.nth(4)).toContainText("Send an update to another session");
+    await expect(options.nth(5)).toContainText("Launch a Managed Child");
+    await expect(options.nth(6)).toContainText("Start a DCA session");
+    await expect(options.nth(15)).toContainText("Capture a Durable Design Prototype");
+    await expect(options.nth(21)).toContainText("Write a standup update");
 
     // Choosing a workflow opens its form — it never sends.
     await page.locator('[data-testid="composer-workflow-option"][data-workflow-id="playwright-ui-review"]').click();
@@ -183,6 +223,49 @@ test.describe("workflow picker UI", () => {
     expect(text).toContain("Review a UI change with Playwright.");
     expect(text).toContain('<workflow name="playwright-ui-review">');
     expect(text).toContain("Never regenerate the complete screenshot set.");
+  });
+
+  test("generic argument: typed text is the prompt, and the preview names the mode", async ({ page }) => {
+    const marker = `WF-ARG-${Date.now()}`;
+    await page.goto(mainSession);
+    await page.getByTestId("composer-workflow-select").click();
+    await page.locator('[data-testid="composer-workflow-option"][data-workflow-id="verify"]').click();
+    const dialog = page.getByTestId("composer-workflow-dialog");
+    await expect(dialog).toHaveAttribute("data-workflow", "verify");
+
+    // One generic field, focused, described by the server's own spec — no
+    // bespoke branch exists for this workflow in the dialog.
+    const field = dialog.getByTestId("composer-workflow-field-argument");
+    await expect(field).toBeFocused();
+    await expect(field).toHaveAttribute("placeholder", /notification popover/u);
+    await expect(dialog.getByTestId("composer-workflow-argument-hint")).toContainText("Scopes the human checklist");
+    // Required means required: an empty field cannot reach the preview.
+    await expect(dialog.getByTestId("composer-workflow-preview")).toBeDisabled();
+    await field.fill(`   ${marker}   `);
+    await expect(dialog.getByTestId("composer-workflow-preview")).toBeEnabled();
+    await dialog.getByTestId("composer-workflow-preview").click();
+
+    // The typed text IS the prompt, trimmed and otherwise untouched.
+    await expect(dialog.getByTestId("composer-workflow-prompt-preview")).toHaveText(marker);
+    await expect(dialog.getByTestId("composer-workflow-injector")).toContainText('server-resolved from id "verify"');
+    await expect(dialog.getByTestId("composer-workflow-injector")).toContainText("Ready to ship");
+    // The ported command pinned its own agent in frontmatter; a workflow cannot,
+    // so the preview has to say what governs instead of dropping it silently.
+    await expect(dialog.getByTestId("composer-workflow-mode-note")).toContainText("Sent in this session's current mode");
+    expect(await promptPayloadContaining(marker)).toBeUndefined();
+
+    await expect(dialog.getByTestId("composer-workflow-apply")).toBeVisible();
+    await dialog.getByTestId("composer-workflow-send").click();
+    await expect(dialog).toHaveCount(0);
+
+    const payload = await expectPromptPayloadContaining(marker);
+    expect(payload!.sessionID).toBe(MAIN);
+    const text = promptText(payload!);
+    expect(text).toContain(marker);
+    expect(text).toContain('<workflow name="verify">');
+    expect(text).toContain("Ready to ship");
+    // The command's own substitution token must not survive the port.
+    expect(text).not.toContain("$ARGUMENTS");
   });
 
   test("design prototype: no fields, fixed prompt, sends into this session", async ({ page }) => {
