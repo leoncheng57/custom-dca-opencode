@@ -1,0 +1,128 @@
+{
+  "schemaVersion": 2,
+  "prNumber": 330,
+  "sourceSha": "923aa5631ad49b064554c6fb9c01238277ea761b",
+  "capturedAt": "2026-08-30T04:34:58.716Z",
+  "screenshots": [
+    {
+      "requestedRoute": "/playbooks",
+      "fullPage": false,
+      "captures": {
+        "desktop": {
+          "filename": "01-playbooks-03d0309b--desktop.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 800
+          },
+          "bytes": 100483,
+          "sha256": "15f34e6c8d41b08190199f167b495eb8c9df1518c42cf37feb328c5b557fcdaa"
+        },
+        "mobile": {
+          "filename": "01-playbooks-f11cb8cf--mobile.png",
+          "dimensions": {
+            "width": 390,
+            "height": 740
+          },
+          "bytes": 55754,
+          "sha256": "3efe9ccf4af318021c5d7bc4fc1ce9d3718bea14712c26b7ee3aca2b307cc18e"
+        }
+      }
+    },
+    {
+      "requestedRoute": "/playbooks/workflows",
+      "fullPage": true,
+      "captures": {
+        "desktop": {
+          "filename": "02-playbooks-workflows-3c89ca77--desktop--full.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 2937
+          },
+          "bytes": 348331,
+          "sha256": "aac1cb6e2229ad70183d08ed0a8665d5c1375c9bde88b6b8fad4b0279117073d"
+        },
+        "mobile": {
+          "filename": "02-playbooks-workflows-e9f43c7e--mobile--full.png",
+          "dimensions": {
+            "width": 390,
+            "height": 5057
+          },
+          "bytes": 379446,
+          "sha256": "1b30386682a5fa6a22ab37f65f012c9a71e301a62bd730c19b8c19b2a6ea6fb2"
+        }
+      }
+    },
+    {
+      "requestedRoute": "/playbooks/workflows/standup",
+      "fullPage": false,
+      "captures": {
+        "desktop": {
+          "filename": "03-playbooks-workflows-standup-32f6a876--desktop.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 800
+          },
+          "bytes": 141617,
+          "sha256": "b985911ae00b1aa4860765a440029696bba95184e189fd4391905819e64de60e"
+        },
+        "mobile": {
+          "filename": "03-playbooks-workflows-standup-1f5f919e--mobile.png",
+          "dimensions": {
+            "width": 390,
+            "height": 740
+          },
+          "bytes": 59399,
+          "sha256": "d72c60a7d893c1b45a565681799f9b8d526b579c460705b3aa1c1d26470a48b6"
+        }
+      }
+    },
+    {
+      "requestedRoute": "/sessions/ses_mock_done?directory=/tmp/mock-project",
+      "fullPage": false,
+      "captures": {
+        "desktop": {
+          "filename": "04-sessions-ses_mock_done-directory-tmp-mock-project-f303650c--desktop.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 800
+          },
+          "bytes": 65383,
+          "sha256": "d5abab3a0ff66ff14df912ebc6ce39aa5aa22ca7c4c06b798f98f8dbb5b156fe"
+        },
+        "mobile": {
+          "filename": "04-sessions-ses_mock_done-directory-tmp-mock-project-c19a59d5--mobile.png",
+          "dimensions": {
+            "width": 390,
+            "height": 740
+          },
+          "bytes": 46650,
+          "sha256": "0a8b36a168157eb09133d9a93d54e440fc9eed5bed4cba4251eee939fbfc9e13"
+        }
+      }
+    },
+    {
+      "requestedRoute": "/sessions/ses_mock_workflow_main?directory=/tmp/mock-workflow-project",
+      "fullPage": true,
+      "captures": {
+        "desktop": {
+          "filename": "05-sessions-ses_mock_workflow_main-directory-tmp-mock-workflow-project-648ae459--desktop--full.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 800
+          },
+          "bytes": 38993,
+          "sha256": "0e18d1f713847c109eccf4bee6923a061f147606e27e129662e728a08091b265"
+        },
+        "mobile": {
+          "filename": "05-sessions-ses_mock_workflow_main-directory-tmp-mock-workflow-project-3bfc23a7--mobile--full.png",
+          "dimensions": {
+            "width": 390,
+            "height": 740
+          },
+          "bytes": 25504,
+          "sha256": "78d23d8dadac88a19ce3e4f828669ab9aecdacf4c42e4aa185e15f3636bea439"
+        }
+      }
+    }
+  ]
+}
