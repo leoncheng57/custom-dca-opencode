@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 2,
+  "prNumber": 329,
+  "sourceSha": "f8efa50f67e43ffa5f3a24fc35239cdb6c6c9a99",
+  "capturedAt": "2026-08-30T04:04:51.037Z",
+  "screenshots": [
+    {
+      "requestedRoute": "/sessions/ses_mock_done?directory=/tmp/mock-project&panel=reviews",
+      "fullPage": false,
+      "captures": {
+        "desktop": {
+          "filename": "01-sessions-ses_mock_done-directory-tmp-mock-project-panel-reviews-fab6ccda--desktop.png",
+          "dimensions": {
+            "width": 1280,
+            "height": 800
+          },
+          "bytes": 62136,
+          "sha256": "5db562ffcf89ec5f278edf4f430eaf998f72fe48b5d553f3255faea64d4472ae"
+        },
+        "mobile": {
+          "filename": "01-sessions-ses_mock_done-directory-tmp-mock-project-panel-reviews-27fdc321--mobile.png",
+          "dimensions": {
+            "width": 390,
+            "height": 740
+          },
+          "bytes": 21538,
+          "sha256": "b312953f91fddec4da39e3da1d18ec53aecc92b27d0442de03c0a72bdbea55ac"
+        }
+      }
+    }
+  ]
+}
